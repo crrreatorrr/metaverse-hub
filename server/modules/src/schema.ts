@@ -123,6 +123,14 @@ namespace HubSchema {
       PRIMARY KEY (user_id, game_id)
     )`,
 
+    `CREATE TABLE IF NOT EXISTS game.fault_arm (
+      user_id uuid NOT NULL,
+      point text NOT NULL,
+      remaining integer NOT NULL CHECK (remaining >= 0),
+      mode text NOT NULL CHECK (mode IN ('raise', 'sleep')),
+      PRIMARY KEY (user_id, point)
+    )`,
+
     `CREATE TABLE IF NOT EXISTS game.recovery_code (
       user_id uuid PRIMARY KEY,
       code_hash bytea NOT NULL UNIQUE,
@@ -536,6 +544,30 @@ namespace HubSchema {
          RETURN jsonb_build_object('error', 'idempotency_mismatch');
        END IF;
        RETURN v_response;
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.fault_at(p_user uuid, p_point text)
+     RETURNS void LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_mode text;
+     BEGIN
+       SELECT mode INTO v_mode
+       FROM game.fault_arm
+       WHERE user_id = p_user AND point = p_point AND remaining > 0
+       FOR UPDATE;
+       IF NOT FOUND THEN
+         RETURN;
+       END IF;
+       UPDATE game.fault_arm
+          SET remaining = remaining - 1
+        WHERE user_id = p_user AND point = p_point;
+       IF v_mode = 'sleep' THEN
+         PERFORM set_config('application_name', 'hf:' || p_user::text || ':' || p_point, true);
+         PERFORM pg_sleep(45);
+         RETURN;
+       END IF;
+       RAISE EXCEPTION 'fault_injected:%', p_point;
      END;
      $fn$`,
 

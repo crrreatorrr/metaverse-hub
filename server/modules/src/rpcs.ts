@@ -379,6 +379,7 @@ namespace HubRpc {
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       return fail("bad_event", "Event data must be an object");
     }
+    HubFault.apply(ctx, nk, session.userId, "grant.before_rpc");
     var reqHash = nk.sha256Hash("session.event\n" + stable({ eventId: eventId, data: data }));
     var result = queryJson(
       nk,
@@ -386,6 +387,7 @@ namespace HubRpc {
       [session.userId, session.sid, session.game, eventId, JSON.stringify(data), key, reqHash],
     );
     if (result.error) return fail(String(result.error), String(result.error));
+    HubFault.apply(ctx, nk, session.userId, "grant.after_commit");
     if (typeof result.granted === "string") {
       try {
         syncStorage(nk, session.userId, [{ gameId: session.game, relicId: result.granted }]);
@@ -426,6 +428,7 @@ namespace HubRpc {
     }
     if (!reason) return fail("bad_reason", "A reason is required");
     var amount = Math.floor(body.amount);
+    HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
     var result = queryJson(
       nk,
@@ -433,6 +436,7 @@ namespace HubRpc {
       [session.userId, session.sid, session.game, amount, reason, key, reqHash],
     );
     if (result.error) return fail(String(result.error), String(result.error));
+    HubFault.apply(ctx, nk, session.userId, "earn.after_commit");
     return ok(result);
   }
 
@@ -444,6 +448,7 @@ namespace HubRpc {
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (typeof raw !== "number" || !isFinite(raw) || raw <= 0) return fail("bad_amount", "Exchange amount must be positive");
     var tickets = Math.floor(raw);
+    HubFault.apply(ctx, nk, session.userId, "exchange.before_rpc");
     var reqHash = nk.sha256Hash("tickets.exchange\n" + stable({ tickets: tickets }));
     var result = queryJson(
       nk,
@@ -451,6 +456,7 @@ namespace HubRpc {
       [session.userId, session.sid, session.game, tickets, key, reqHash],
     );
     if (result.error) return fail(String(result.error), String(result.error));
+    HubFault.apply(ctx, nk, session.userId, "exchange.after_commit");
     return ok(result);
   }
 
