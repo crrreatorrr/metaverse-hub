@@ -16,6 +16,7 @@ namespace HubRpc {
   function failResult(result: { [key: string]: unknown }): string {
     var body: { [key: string]: unknown } = { error: String(result.error), message: String(result.error) };
     if (typeof result.capLeft === "number" && isFinite(result.capLeft)) body.capLeft = result.capLeft;
+    if (typeof result.dailyCapLeft === "number" && isFinite(result.dailyCapLeft)) body.dailyCapLeft = result.dailyCapLeft;
     return JSON.stringify(body);
   }
 

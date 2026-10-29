@@ -503,7 +503,10 @@ namespace HubSchema {
        IF NOT FOUND THEN v_used := 0; END IF;
        v_room := 1000 - v_used;
        IF v_room < 0 THEN v_room := 0; END IF;
-       v_applied := LEAST(p_amount, v_room);
+       IF p_amount > v_room THEN
+         RETURN jsonb_build_object('error', 'daily_ticket_cap', 'dailyCapLeft', v_room, 'capLeft', v_room);
+       END IF;
+       v_applied := p_amount;
        SELECT balance INTO v_balance FROM game.tickets_balance
        WHERE user_id = p_user_id AND game_id = p_game_id
        FOR UPDATE;
@@ -537,7 +540,6 @@ namespace HubSchema {
        v_max bigint;
        v_default boolean;
        v_credit jsonb;
-       v_applied bigint;
        v_balance bigint;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
@@ -584,8 +586,7 @@ namespace HubSchema {
          RETURN v_credit;
        END IF;
        v_balance := (v_credit->>'balance')::bigint;
-       v_applied := (v_credit->>'applied')::bigint;
-       v_response := jsonb_build_object('balance', v_balance, 'capped', v_applied < p_amount);
+       v_response := jsonb_build_object('balance', v_balance, 'capped', false);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.earn', v_hash, v_response);
        IF v_default THEN
@@ -647,10 +648,9 @@ namespace HubSchema {
        WHERE user_id = p_user_id AND bucket = 'verse:' || p_game_id AND day = v_day;
        IF NOT FOUND THEN v_used := 0; END IF;
        v_room := 50 - v_used;
-       IF v_room <= 0 THEN
+       IF v_verse > v_room THEN
          RETURN jsonb_build_object('error', 'verse_cap');
        END IF;
-       IF v_verse > v_room THEN v_verse := v_room; END IF;
        v_debit := v_verse * 10;
        SELECT balance INTO v_tickets FROM game.tickets_balance
        WHERE user_id = p_user_id AND game_id = p_game_id FOR UPDATE;
