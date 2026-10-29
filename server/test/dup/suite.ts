@@ -14,6 +14,7 @@ import {
   type RelicFlow,
 } from './cases.ts';
 import { runGated } from './gated.ts';
+import { runMigrations } from './migrations.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
 import {
@@ -68,6 +69,8 @@ interface Outcome {
 const outcomes: Outcome[] = [];
 
 function testBudget(name: string): number {
+  if (name.includes('concurrent boots')) return 480_000;
+  if (name.includes('ledger sums') || name.includes('second boot')) return 360_000;
   if (name.includes('kill_between')) return 240_000;
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
@@ -1125,7 +1128,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'migration'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1158,24 +1161,35 @@ function report(): number {
   return failed;
 }
 
+/** Local filter. Unset for the full suite. Example: DUP_ONLY=migration */
+function selected(group: string): boolean {
+  const only = process.env.DUP_ONLY;
+  return !only || only.split(',').includes(group);
+}
+
 export async function main(): Promise<void> {
   await waitReady();
   let failed = 0;
   try {
-    await idempotency();
-    await races();
-    await forged();
-    await wallet();
-    await hposExtras();
-    try {
-      await faults();
-    } finally {
-      dropFaultHooks();
-      await ensureNakama();
+    if (selected('idempotency')) await idempotency();
+    if (selected('race')) await races();
+    if (selected('forged')) await forged();
+    if (selected('wallet')) {
+      await wallet();
+      await hposExtras();
     }
-    await runGated({ test, pending });
-    await runSameTab(test);
-    await runRedeemFix(test, pending);
+    if (selected('fault')) {
+      try {
+        await faults();
+      } finally {
+        dropFaultHooks();
+        await ensureNakama();
+      }
+    }
+    if (selected('gated')) await runGated({ test, pending });
+    if (selected('same-tab')) await runSameTab(test);
+    if (selected('redeem-fix')) await runRedeemFix(test, pending);
+    if (selected('migration')) await runMigrations(test);
   } finally {
     failed = report();
   }

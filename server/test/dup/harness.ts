@@ -73,20 +73,21 @@ function composeArgs(args: string[]): string[] {
   return ['compose', '-f', COMPOSE_FILE, ...args];
 }
 
-export function compose(args: string[]): string {
+export function compose(args: string[], timeoutMs = 180_000): string {
   return execFileSync('docker', composeArgs(args), {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 180_000,
+    timeout: timeoutMs,
   });
 }
 
-export function psql(sql: string): string {
+export function psql(sql: string, database = 'nakama'): string {
+  if (!/^[a-z_]+$/.test(database)) throw new Error(`bad database name ${database}`);
   return execFileSync(
     'docker',
     composeArgs([
       'exec', '-T', 'postgres',
-      'psql', '-U', 'postgres', '-d', 'nakama',
+      'psql', '-U', 'postgres', '-d', database,
       '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A',
       '-c', sql,
     ]),
