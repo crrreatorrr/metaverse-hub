@@ -28,3 +28,10 @@ npm run test:dup
 The suite lives in `server/test/dup/`. `cases.ts` is the only table you add to. M1 covers `session.event` for Tinubu's Crown (`sproto.boss_defeated` → `tinubu_crown`) and `tickets.exchange` (10 Tickets = 1 Verse, 50 Verse per game per UTC day). Append a relic or exchange row to `M2_FLOWS`, or a `{ kind: 'purchase', defId, priceVerse }` row to `M7_FLOWS`, and the same idempotency, race, forged-request, wallet, and fault cases run for it. Purchases call `store.buy` with `{ defId, key }` and need `HubFault.apply` at `purchase.before_rpc` and `purchase.after_commit`.
 
 `server/test/dup/audit.sql` must return no rows. The suite runs it after every case. CI runs it again after the job. `HUB_FAULT_INJECT=1` in this compose file arms nothing by itself; only rows in `game.fault_arm` (inserted by the suite) pause or abort a grant. Leave that flag unset on a production deploy.
+
+Three groups in `server/test/dup/gated.ts` stay pending until the matching code is present, then they run and must pass:
+
+- SDK outbox: export `HUB_OUTBOX_DB` (`hub-outbox`) and use `indexedDB` in `packages/hub-sdk/src/live.ts`.
+- Seq rejects: table `game.event_rule`.
+- Per-session Ticket cap: SQL function `game.session_ticket_cap()`.
+- Mock daily buckets: `serverNow` on `HubSdkEnv`, read by the mock in `createHubSdk.ts`.

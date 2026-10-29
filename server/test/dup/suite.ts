@@ -12,6 +12,7 @@ import {
   type PurchaseFlow,
   type RelicFlow,
 } from './cases.ts';
+import { runGated } from './gated.ts';
 import {
   arm,
   assertConflict,
@@ -54,7 +55,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 interface Outcome {
   category: string;
   name: string;
-  status: 'pass' | 'fail';
+  status: 'pass' | 'fail' | 'pending';
   detail?: string;
 }
 
@@ -860,16 +861,22 @@ function assertPurchaseOnce(userId: string, flow: PurchaseFlow): void {
   assert.equal(num(`SELECT count(*) FROM game.purchase_tx WHERE user_id = '${sqlId(userId)}'`), 1);
 }
 
+function pending(category: string, name: string, reason: string): void {
+  outcomes.push({ category, name, status: 'pending', detail: reason });
+  console.log(`PENDING ${category} ${name} — ${reason}`);
+}
+
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
     const rows = outcomes.filter((item) => item.category === category);
     const pass = rows.filter((item) => item.status === 'pass').length;
     const fail = rows.filter((item) => item.status === 'fail').length;
+    const waiting = rows.filter((item) => item.status === 'pending').length;
     failed += fail;
-    console.log(`${category}: ${pass} pass, ${fail} fail`);
+    console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending`);
   }
   const notes = findingsList();
   if (notes.length) {
@@ -899,6 +906,7 @@ export async function main(): Promise<void> {
       dropFaultHooks();
       await ensureNakama();
     }
+    await runGated({ test, pending });
   } finally {
     failed = report();
   }
