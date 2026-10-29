@@ -535,6 +535,7 @@ namespace HubSchema {
        v_hash bytea;
        v_existing_hash bytea;
        v_max bigint;
+       v_default boolean;
        v_credit jsonb;
        v_applied bigint;
        v_balance bigint;
@@ -556,21 +557,30 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
+       v_default := false;
        SELECT max_amount INTO v_max FROM game.event_rule
        WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
        LIMIT 1;
-       -- No row is not unlimited. 200 is the per-call fallback and closes the old
-       -- p_amount >= 1000 path that skipped the session check.
+       -- No row is not unlimited and is not clamped. 200 is checked before the
+       -- session and daily caps. Over that, the whole earn is amount_over_rule:
+       -- no credit, no ledger row, no idempotency row, earn_window unchanged.
        IF NOT FOUND THEN
+         v_default := true;
          v_max := 200;
        END IF;
        IF p_amount > v_max THEN
+         IF v_default THEN
+           RETURN jsonb_build_object('error', 'amount_over_rule', 'defaultCap', true);
+         END IF;
          RETURN jsonb_build_object('error', 'amount_over_rule');
        END IF;
        v_credit := game.credit_session_tickets(p_user_id, p_session_id, p_game_id, p_amount, p_reason);
        -- A session-cap rejection is not stored. The caller's key, including
        -- pb:quest:<id>, stays free and pays once when that same key is sent again.
        IF v_credit ? 'error' THEN
+         IF v_default THEN
+           RETURN v_credit || jsonb_build_object('defaultCap', true);
+         END IF;
          RETURN v_credit;
        END IF;
        v_balance := (v_credit->>'balance')::bigint;
@@ -578,6 +588,9 @@ namespace HubSchema {
        v_response := jsonb_build_object('balance', v_balance, 'capped', v_applied < p_amount);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.earn', v_hash, v_response);
+       IF v_default THEN
+         RETURN v_response || jsonb_build_object('defaultCap', true);
+       END IF;
        RETURN v_response;
      EXCEPTION WHEN unique_violation THEN
        SELECT response, req_hash INTO v_response, v_existing_hash

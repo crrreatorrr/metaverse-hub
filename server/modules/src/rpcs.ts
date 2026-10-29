@@ -453,7 +453,7 @@ namespace HubRpc {
     return ok({ accepted: true, value: Number(rows[0].result), order: mode === "asc" ? "asc" : "desc" });
   }
 
-  export function ticketsEarn(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  export function ticketsEarn(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var session = requireGame(ctx);
     var body = parse(payload);
     var key = text(body, "key");
@@ -471,6 +471,10 @@ namespace HubRpc {
       "SELECT game.earn_tickets($1::uuid, $2::uuid, $3::text, $4::numeric::bigint, $5::text, $6::text, $7::text)::text AS result",
       [session.userId, session.sid, session.game, amount, reason, key, reqHash],
     );
+    if (result.defaultCap === true) {
+      logger.warn("earn default cap 200 game " + session.game + " reason " + reason);
+      delete result.defaultCap;
+    }
     if (result.error) return failResult(result);
     HubFault.apply(ctx, nk, session.userId, "earn.after_commit");
     return ok(result);
