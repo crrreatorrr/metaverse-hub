@@ -21,7 +21,10 @@ From the repo root, `npm run dev` proxies `/v2` to port 7350. Open http://127.0.
 Duplication tests, against this compose stack:
 
 ```bash
+docker compose up --build -d
 npm run test:dup
 ```
 
-They prove a Relic cannot be granted twice, and that exchanging Tickets for Verse cannot credit Verse twice, by replayed keys, concurrent requests, or a second device that restored the same guest. 10 Tickets become 1 Verse, at most 50 Verse per game per day. Lifetime Verse earned per game is what the Bar board ranks.
+The suite lives in `server/test/dup/`. `cases.ts` is the only table you add to. M1 covers `session.event` for Tinubu's Crown (`sproto.boss_defeated` → `tinubu_crown`) and `tickets.exchange` (10 Tickets = 1 Verse, 50 Verse per game per UTC day). Append a relic or exchange row to `M2_FLOWS`, or a `{ kind: 'purchase', defId, priceVerse }` row to `M7_FLOWS`, and the same idempotency, race, forged-request, wallet, and fault cases run for it. Purchases call `store.buy` with `{ defId, key }` and need `HubFault.apply` at `purchase.before_rpc` and `purchase.after_commit`.
+
+`server/test/dup/audit.sql` must return no rows. The suite runs it after every case. CI runs it again after the job. `HUB_FAULT_INJECT=1` in this compose file arms nothing by itself; only rows in `game.fault_arm` (inserted by the suite) pause or abort a grant. Leave that flag unset on a production deploy.
