@@ -1,28 +1,47 @@
 import { HubSdkError } from './errors';
 import { base64UrlToBytes } from './ticket';
 
-/** Local compose defaults. The HTTP key is a dev credential used only to exchange a portal ticket. */
+/**
+ * Local compose origin. Credentials are not embedded: the app passes `serverKey`
+ * (dev builds inject the compose server key). The HTTP key is not a client credential.
+ */
 export const LOCAL_NAKAMA = {
   serverUrl: 'http://127.0.0.1:7350',
-  serverKey: 'defaultkey',
-  httpKey: 'localhttpkey',
+  serverKey: '',
+  /** Kept so older callers still typecheck. Ignored. Never sent. */
+  httpKey: '',
 } as const;
 
 export interface NakamaRpcOptions {
   token?: string;
-  /** Exchange a portal ticket before a user session exists. */
+  /**
+   * Accepted and ignored. `createNakamaClient` does not send an HTTP key.
+   * An injected test double may still observe the flag.
+   */
   httpKey?: boolean;
   keepalive?: boolean;
 }
 
+export interface CustomAuthResult {
+  token: string;
+  refreshToken: string;
+  userId: string;
+}
+
 export interface NakamaClient {
   authenticateDevice(deviceId: string, vars?: Record<string, string>): Promise<{ token: string; userId: string }>;
+  /**
+   * Optional so existing test doubles that only stub `rpc` still typecheck.
+   * `createNakamaClient` always implements it.
+   */
+  authenticateCustom?(id: string, create?: boolean, vars?: Record<string, string>): Promise<CustomAuthResult>;
   rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T>;
 }
 
 export interface NakamaClientOptions {
   serverUrl: string;
   serverKey?: string;
+  /** Accepted and ignored. The client never sends Nakama's HTTP key. */
   httpKey?: string;
   fetchImpl?: typeof fetch;
 }
@@ -36,6 +55,9 @@ export interface ProfileResult {
   verseEarned?: { gameId: string; lifetime: number }[];
   /** Remaining Tickets this game can still earn today. Present on a game session. */
   ticketsCapLeft?: number;
+  /** Present on a game session minted by ticket custom-auth. */
+  effects?: Record<string, number | boolean | string>;
+  ranked?: boolean;
 }
 
 export interface PortalEnterResult {
@@ -65,6 +87,23 @@ export interface RecoveryRedeemResult {
   token: string;
 }
 
+/** Session vars Nakama stores under `vrs` (scope, game, sid, ranked). */
+export function sessionVarsFromToken(token: string): Record<string, string> {
+  const part = token.split('.')[1];
+  if (!part) return {};
+  try {
+    const json = JSON.parse(new TextDecoder().decode(base64UrlToBytes(part))) as { vrs?: unknown };
+    if (!json.vrs || typeof json.vrs !== 'object' || Array.isArray(json.vrs)) return {};
+    const out: Record<string, string> = {};
+    for (const [key, value] of Object.entries(json.vrs)) {
+      if (typeof value === 'string') out[key] = value;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
 export function userIdFromToken(token: string): string {
   const part = token.split('.')[1];
   if (!part) throw new HubSdkError('bad_token', 'Session token is missing a payload');
@@ -81,32 +120,50 @@ export function userIdFromToken(token: string): string {
 export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
   const serverUrl = options.serverUrl.replace(/\/$/, '');
   const serverKey = options.serverKey ?? LOCAL_NAKAMA.serverKey;
-  const httpKey = options.httpKey ?? LOCAL_NAKAMA.httpKey;
   const fetchImpl = options.fetchImpl ?? fetch;
+
+  async function postAuth(path: string, body: object): Promise<CustomAuthResult> {
+    const response = await fetchImpl(`${serverUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${serverKey}:`)}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+    const text = await response.text();
+    if (!response.ok) throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`);
+    const parsed = JSON.parse(text) as { token?: string; refresh_token?: string; refreshToken?: string };
+    if (!parsed.token) throw new HubSdkError('auth_failed', 'Auth did not return a token');
+    return {
+      token: parsed.token,
+      refreshToken: parsed.refreshToken || parsed.refresh_token || '',
+      userId: userIdFromToken(parsed.token),
+    };
+  }
 
   return {
     async authenticateDevice(deviceId, vars) {
-      const response = await fetchImpl(`${serverUrl}/v2/account/authenticate/device?create=true`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${btoa(`${serverKey}:`)}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(vars ? { id: deviceId, vars } : { id: deviceId }),
-      });
-      const text = await response.text();
-      if (!response.ok) throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`);
-      const body = JSON.parse(text) as { token?: string };
-      if (!body.token) throw new HubSdkError('auth_failed', 'Device auth did not return a token');
-      return { token: body.token, userId: userIdFromToken(body.token) };
+      const auth = await postAuth(
+        '/v2/account/authenticate/device?create=true',
+        vars ? { id: deviceId, vars } : { id: deviceId },
+      );
+      return { token: auth.token, userId: auth.userId };
+    },
+
+    async authenticateCustom(id, create = false, vars) {
+      const params = new URLSearchParams({ create: create ? 'true' : 'false' });
+      const account: { id: string; vars?: Record<string, string> } = vars ? { id, vars } : { id };
+      const auth = await postAuth(`/v2/account/authenticate/custom?${params}`, { account, create });
+      if (!auth.refreshToken) throw new HubSdkError('auth_failed', 'Auth did not return a refresh token');
+      return auth;
     },
 
     async rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T> {
       const params = new URLSearchParams({ unwrap: 'true' });
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      if (opts?.token) headers.Authorization = `Bearer ${opts.token}`;
-      else if (opts?.httpKey) params.set('http_key', httpKey);
-      else throw new HubSdkError('unauthorized', 'Missing session');
+      if (!opts?.token) throw new HubSdkError('unauthorized', 'Missing session');
+      headers.Authorization = `Bearer ${opts.token}`;
       const response = await fetchImpl(`${serverUrl}/v2/rpc/${encodeURIComponent(id)}?${params}`, {
         method: 'POST',
         headers,

@@ -1,5 +1,8 @@
 /// <reference types="vite/client" />
 
+/** Inlined by vite.config.ts. Empty in production unless VITE_NAKAMA_SERVER_KEY is set. */
+declare const __NAKAMA_SERVER_KEY__: string;
+
 interface ImportMetaEnv {
   /** Apex hostname. Production portals use `https://play.<domain>/<slug>/`. */
   readonly VITE_PLAY_DOMAIN?: string;
