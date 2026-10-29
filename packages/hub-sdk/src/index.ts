@@ -8,6 +8,7 @@ export {
   RELIC_IDS,
   TICKETS_PER_VERSE,
   VERSE_DAILY_CAP,
+  canonicalGameId,
   isBoardId,
   isGameId,
   isRelicId,

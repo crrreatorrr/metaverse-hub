@@ -101,7 +101,7 @@ exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: nu
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `pb`, `sproto`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
 
 | Event | Grants |
 | --- | --- |

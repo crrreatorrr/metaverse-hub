@@ -14,7 +14,7 @@ namespace HubSchema {
       lease_until timestamptz NOT NULL,
       ticket_exp timestamptz NOT NULL,
       ticket_redeemed_at timestamptz,
-      CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'pb', 'sproto')),
+      CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto')),
       CONSTRAINT game_session_state CHECK (state IN ('open', 'closed', 'expired'))
     )`,
 
@@ -46,7 +46,7 @@ namespace HubSchema {
       relic_id text NOT NULL,
       beaten_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, game_id),
-      CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'pb', 'sproto'))
+      CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))
     )`,
 
     `CREATE TABLE IF NOT EXISTS game.item_ledger (
@@ -175,8 +175,8 @@ namespace HubSchema {
      VALUES
        ('hpos10i', 'game_beaten', 'hpos10i_core', NULL, NULL, NULL, '{}'::jsonb),
        ('hpos10i', 'hpos10i.level_complete', 'hpos10i_core', NULL, NULL, NULL, '{"zone":"z1_retro_rush_hills","act":1}'::jsonb),
-       ('pb', 'game_beaten', 'genesis_shard', NULL, NULL, NULL, '{}'::jsonb),
-       ('pb', 'pb.quest_complete', 'genesis_shard', NULL, NULL, NULL, '{"questId":"quest_tutorial"}'::jsonb),
+       ('peoples-bitcoin', 'game_beaten', 'genesis_shard', NULL, NULL, NULL, '{}'::jsonb),
+       ('peoples-bitcoin', 'pb.quest_complete', 'genesis_shard', NULL, NULL, NULL, '{"questId":"quest_tutorial"}'::jsonb),
        ('nobu', 'game_beaten', 'cones_tip', NULL, NULL, NULL, '{}'::jsonb),
        ('nobu', 'nobu.boss_defeated', 'cones_tip', NULL, NULL, NULL, '{"boss":"cone"}'::jsonb),
        ('sproto', 'game_beaten', 'tinubu_crown', NULL, NULL, NULL, '{}'::jsonb),
@@ -631,6 +631,30 @@ namespace HubSchema {
     "CREATE TRIGGER tickets_ledger_append_only BEFORE UPDATE OR DELETE ON game.tickets_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
     "DROP TRIGGER IF EXISTS verse_ledger_append_only ON game.verse_ledger",
     "CREATE TRIGGER verse_ledger_append_only BEFORE UPDATE OR DELETE ON game.verse_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
+
+    "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
+    "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
+    "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
+    "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
+    "UPDATE game.tickets_balance SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+     END $$`,
+    "UPDATE game.tickets_ledger SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+     END $$`,
+    "UPDATE game.verse_earned SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "UPDATE game.exchange_tx SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
+    "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
+    "UPDATE game.event_rule SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
   ];
 
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {

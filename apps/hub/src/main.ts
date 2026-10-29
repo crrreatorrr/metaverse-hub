@@ -281,20 +281,20 @@ if (relicTray instanceof HTMLElement) {
   }
 }
 
-type BoardTab = 'hpos10i' | 'nobu' | 'pb' | 'sproto' | 'total';
+type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
 interface EarnedRow { name?: string; gameId?: string; lifetime?: number }
 
 const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
   hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
   nobu: [['cone-kid', 30], ['morelight', 12]],
-  pb: [['morelight', 50], ['cone-kid', 20]],
+  'peoples-bitcoin': [['morelight', 50], ['cone-kid', 20]],
   sproto: [['sproto', 36], ['morelight', 14]],
   total: [['morelight', 116], ['cone-kid', 50], ['sproto', 36], ['guest-17', 18], ['dusk-walker', 6]],
 };
 const TAB_TITLE: Record<BoardTab, string> = {
   hpos10i: 'HPOS10I',
   nobu: 'NOBU',
-  pb: "PEOPLE'S BITCOIN",
+  'peoples-bitcoin': "PEOPLE'S BITCOIN",
   sproto: 'SPROTO DUEL',
   total: 'TOTAL',
 };

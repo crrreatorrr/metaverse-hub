@@ -5,8 +5,8 @@ import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
   GAME_IDS,
+  canonicalGameId,
   isBoardId,
-  isGameId,
   isRelicId,
   type GameId,
   type HubSdk,
@@ -229,16 +229,17 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
 
   return {
     async init(gameId) {
-      if (!isGameId(gameId)) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
+      const game = canonicalGameId(gameId);
+      if (!game) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
       const token = readTicketParam(resolved.readHash());
       if (token) {
-        const body = await client.rpc<RedeemResult>('session.redeem', { ticket: token, gameId }, { httpKey: true });
+        const body = await client.rpc<RedeemResult>('session.redeem', { ticket: token, gameId: game }, { httpKey: true });
         if (!body.token || !body.playerId || !body.sid) {
           throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
         }
         resolved.writeHash(stripTicketParam(resolved.readHash()));
         writeCached({
-          game: gameId,
+          game,
           playerId: body.playerId,
           ranked: body.ranked === true,
           sid: body.sid,
@@ -248,7 +249,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           ticketsCapLeft: typeof body.ticketsCapLeft === 'number' ? body.ticketsCapLeft : 0,
         });
       } else {
-        const cached = readCached(gameId);
+        const cached = readCached(game);
         if (!cached) {
           active = null;
         } else {

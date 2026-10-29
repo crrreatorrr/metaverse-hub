@@ -7,7 +7,7 @@ interface EffectDef {
 namespace HubEffects {
   var RELIC_GAME: { [relic: string]: string } = {
     hpos10i_core: "hpos10i",
-    genesis_shard: "pb",
+    genesis_shard: "peoples-bitcoin",
     cones_tip: "nobu",
     tinubu_crown: "sproto",
   };
@@ -19,7 +19,7 @@ namespace HubEffects {
         { key: "air_dash_charges", value: 1, kind: "gameplay" },
         { key: "air_dash_distance_m", value: 3, kind: "gameplay" },
       ],
-      pb: [
+      "peoples-bitcoin": [
         { key: "summon", value: "speed_sproto", kind: "summon" },
         { key: "run_energy_regen", value: 1.25, kind: "gameplay" },
       ],
@@ -50,7 +50,7 @@ namespace HubEffects {
         { key: "skin", value: "nobu", kind: "cosmetic" },
         { key: "move_speed_multiplier", value: 1.05, kind: "gameplay" },
       ],
-      pb: [
+      "peoples-bitcoin": [
         { key: "summon", value: "nobu", kind: "summon" },
         { key: "fetch_radius_m", value: 8, kind: "gameplay" },
       ],
@@ -60,7 +60,7 @@ namespace HubEffects {
       ],
     },
     tinubu_crown: {
-      pb: [
+      "peoples-bitcoin": [
         { key: "summon", value: "duelist_sproto", kind: "summon" },
         { key: "stun_s", value: 1.5, kind: "gameplay" },
         { key: "stun_cooldown_s", value: 6, kind: "gameplay" },

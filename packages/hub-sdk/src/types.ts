@@ -1,5 +1,5 @@
-/** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'pb', 'sproto'] as const;
+/** Game ids stored on the server and used in `/hub#from=<game>`. */
+export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
 export type GameId = (typeof GAME_IDS)[number];
 
 /** Earn-once relics. The primary key on the server is (user, relic). */
@@ -8,7 +8,7 @@ export type RelicId = (typeof RELIC_IDS)[number];
 
 export const RELIC_BY_GAME: Record<GameId, RelicId> = {
   hpos10i: 'hpos10i_core',
-  pb: 'genesis_shard',
+  'peoples-bitcoin': 'genesis_shard',
   nobu: 'cones_tip',
   sproto: 'tinubu_crown',
 };
@@ -87,6 +87,11 @@ export interface HubSdk {
 
 export function isGameId(value: string): value is GameId {
   return (GAME_IDS as readonly string[]).includes(value);
+}
+
+/** True when `value` is a stored game id. */
+export function canonicalGameId(value: string): GameId | null {
+  return isGameId(value) ? value : null;
 }
 
 export function isRelicId(value: string): value is RelicId {

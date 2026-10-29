@@ -1,5 +1,5 @@
 namespace HubRpc {
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, pb: true, sproto: true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true };
   var BOARDS: { [id: string]: boolean } = {
     hpos10i_act_time: true,
     nobu_trial_time: true,
