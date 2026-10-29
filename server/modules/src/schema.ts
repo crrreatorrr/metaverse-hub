@@ -203,10 +203,9 @@ namespace HubSchema {
        ('pb', 'pb_quest', NULL, NULL, NULL, NULL, '{}'::jsonb, 158)
      ON CONFLICT (game_id, event_type) DO UPDATE SET max_amount = EXCLUDED.max_amount`,
 
-    // NOBU level_end ceiling lives in this row. Gameplay sets max_amount.
-    // NULL means tickets.earn has no per-call ceiling for that reason yet.
+    // NOBU level_end is 110. tickets.earn reads this row; it is not a code constant.
     `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
-     VALUES ('nobu', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, NULL)
+     VALUES ('nobu', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 110)
      ON CONFLICT (game_id, event_type) DO UPDATE SET max_amount = EXCLUDED.max_amount`,
 
     // SESSION_TICKET_CAP is 200: ten wins of 20 Tickets, and two sessions stay under the 1000 daily cap.
