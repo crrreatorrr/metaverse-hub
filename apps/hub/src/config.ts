@@ -40,10 +40,23 @@ export const PILLAR_OFFSET = 1.7;
 export const PILLAR_HEIGHT = 3.05;
 export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
-export const WALK_SPEED = 5.2;
-export const SPRINT_SPEED = 8.6;
+/** 1.5× the previous 5.2 m/s walk. */
+export const WALK_SPEED = 7.8;
+/** Shift run is 1.8× walk. */
+export const SPRINT_SPEED = WALK_SPEED * 1.8;
 export const CAMERA_ARM = 7.6;
 export const CAMERA_FOV = 78;
+/** Player mesh, staff included. 1.25× the previous avatar. */
+export const AVATAR_SCALE = 1.25;
+/** Look target below the capsule origin. Matches the taller body. */
+export const CAMERA_LOOK_DROP = 0.15 * AVATAR_SCALE;
+/** Fitted height of the shipped wizard, staff included. */
+export const AVATAR_HEIGHT = 1.75 * AVATAR_SCALE;
+/**
+ * Player model path under the site base. Remote players use this same file.
+ * Source: sproto-duel public/assets/models/rigged/wizard_player.glb.
+ */
+export const AVATAR_ASSET = 'world/v2/avatar/wizard-player.glb';
 
 /** Sockets on the Four Lights, same order as the diagonal orbit (NE, SE, SW, NW). */
 export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
