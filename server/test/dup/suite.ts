@@ -612,8 +612,8 @@ async function wallet(): Promise<void> {
   await test('wallet', `${exchange.id} concurrent earns cannot pass the daily cap`, async () => {
     const session = await login(exchange.game);
     const cap = sessionTicketCap();
-    await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, cap, 'grind', 'cap');
-    const credited = TICKET_DAILY_CAP / cap;
+    const funded = await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'cap');
+    const credited = funded.credits;
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
     assert.equal(earnLedgerCount(session.hub.userId), credited);
     const next = await openGame(session.hub.token, exchange.game);
@@ -635,12 +635,11 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} concurrent exchanges cannot pass the verse cap`, async () => {
     const session = await login(exchange.game);
-    const cap = sessionTicketCap();
-    const funded = await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, cap, 'grind', 'fund-verse-cap');
+    const funded = await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'fund-verse-cap');
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
     const width = Math.max(repeatCount('concurrent'), VERSE_DAILY_CAP / TICKETS_PER_VERSE + 1);
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.exchange', { tickets: 100, key: `vcap-${index}` }, funded)
+      call('tickets.exchange', { tickets: 100, key: `vcap-${index}` }, funded.token)
     )));
     const wins = results.filter((item) => !item.body.error);
     assert.equal(wins.length, VERSE_DAILY_CAP / 10, JSON.stringify(results.map((item) => item.body)));
@@ -669,8 +668,7 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} daily cap survives a new session and a client clock`, async () => {
     const session = await login(exchange.game);
-    const cap = sessionTicketCap();
-    await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, cap, 'grind', 'fill-day');
+    await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'fill-day');
     const ledger = earnLedgerCount(session.hub.userId);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
     const next = await openGame(session.hub.token, exchange.game);
@@ -790,22 +788,19 @@ async function hposExtras(): Promise<void> {
     assert.equal(exchangeCount(broke.hub.userId), 0);
 
     const funded = await login('hpos10i');
-    const perLevel = Math.min(200, sessionTicketCap());
-    const fundedToken = await fundInSessions(
+    const fundedSession = await fundInSessions(
       funded.gameToken,
       funded.hub.token,
       'hpos10i',
       TICKET_DAILY_CAP,
-      perLevel,
-      'level_end',
       'fund-500',
     );
     assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP);
-    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, fundedToken);
+    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, fundedSession.token);
     assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
     assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
     assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
-    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, fundedToken);
+    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, fundedSession.token);
     assert.equal(overCap.body.error, 'verse_cap', JSON.stringify(overCap.body));
     assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
     assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP - 500);
@@ -1263,25 +1258,42 @@ function sessionTicketCap(): number {
   return cap;
 }
 
+/**
+ * One session of 200 Tickets, in calls that stay inside the reason's event_rule max.
+ * sproto `win` is 20. hpos10i `level_end` is 200. nobu `level_end` is 110, so a
+ * session is 110 then 90. An unlisted reason is one call of 200.
+ */
+function sessionEarns(game: string): { reason: string; amounts: number[] } {
+  if (game === 'sproto') return { reason: 'win', amounts: Array.from({ length: 10 }, () => 20) };
+  if (game === 'hpos10i') return { reason: 'level_end', amounts: [200] };
+  if (game === 'nobu') return { reason: 'level_end', amounts: [110, 90] };
+  return { reason: 'grind', amounts: [200] };
+}
+
 async function fundInSessions(
   firstToken: string,
   hubToken: string,
   game: string,
   total: number,
-  perSession: number,
-  reason: string,
   keyPrefix: string,
-): Promise<string> {
-  if (perSession <= 0 || total % perSession !== 0) {
-    throw new Error(`${keyPrefix}: cannot fund ${total} as earns of ${perSession}`);
+): Promise<{ token: string; credits: number }> {
+  const plan = sessionEarns(game);
+  const perSession = plan.amounts.reduce((sum, amount) => sum + amount, 0);
+  if (perSession !== 200 || total <= 0 || total % perSession !== 0) {
+    throw new Error(`${keyPrefix}: cannot fund ${total} as sessions of ${perSession}`);
   }
   let token = firstToken;
+  let credits = 0;
   const sessions = total / perSession;
   for (let i = 0; i < sessions; i += 1) {
     if (i > 0) token = (await openGame(hubToken, game)).gameToken;
-    await earn(token, perSession, reason, `${keyPrefix}-${i}`);
+    for (let callIndex = 0; callIndex < plan.amounts.length; callIndex += 1) {
+      const amount = plan.amounts[callIndex] ?? 0;
+      await earn(token, amount, plan.reason, `${keyPrefix}-${i}-${callIndex}`);
+      credits += 1;
+    }
   }
-  return token;
+  return { token, credits };
 }
 
 function idempotencyRows(userId: string, key: string): number {
