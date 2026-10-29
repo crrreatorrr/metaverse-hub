@@ -1524,17 +1524,17 @@ async function runUnknownReasonEarn(): Promise<void> {
   fallbackQuotes.length = 0;
   fallbackSnippets.length = 0;
 
-  await test('session-cap', 'unknown-reason 250 on a fresh session is session_ticket_cap', async () => {
+  await test('session-cap', 'unknown-reason 250 on a fresh session is amount_over_rule', async () => {
     confirmUnlistedReason();
     const session = await login(UNLISTED_GAME);
     const before = purseOf(session.hub.userId);
     const steps = 'fresh sproto session; tickets.earn amount 250 reason unlisted_booth';
     const over = await earnWatched(session.gameToken, 250, 'unk-250', true);
-    assert.equal(over.body.error, 'session_ticket_cap', observed(over, steps));
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
     assertPurseHeld(session.hub.userId, before, 'earn 250');
     assert.equal(sessionEarned(session.hub.userId, session.sessionId), 0, observed(over, steps));
     const replay = await call('tickets.earn', { amount: 250, reason: UNLISTED_REASON, key: 'unk-250' }, session.gameToken);
-    assert.equal(replay.body.error, 'session_ticket_cap', observed(replay, `${steps}; replay the same key`));
+    assert.equal(replay.body.error, 'amount_over_rule', observed(replay, `${steps}; replay the same key`));
     assertPurseHeld(session.hub.userId, before, 'earn 250 replay');
   });
 
@@ -1603,7 +1603,7 @@ async function runUnknownReasonEarn(): Promise<void> {
     }
   }
 
-  await test('session-cap', 'unknown-reason over 200 near the cap is session_ticket_cap', async () => {
+  await test('session-cap', 'unknown-reason over 200 near the cap is amount_over_rule', async () => {
     confirmUnlistedReason();
     const session = await login(UNLISTED_GAME);
     await earn(session.gameToken, 150, UNLISTED_REASON, 'unk-near');
@@ -1611,7 +1611,7 @@ async function runUnknownReasonEarn(): Promise<void> {
     const before = purseOf(session.hub.userId);
     const steps = 'fresh sproto session; tickets.earn 150 unlisted_booth; then tickets.earn amount 250 reason unlisted_booth';
     const over = await earnWatched(session.gameToken, 250, 'unk-250-near', false);
-    assert.equal(over.body.error, 'session_ticket_cap', observed(over, steps));
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
     assertPurseHeld(session.hub.userId, before, 'earn 250 near the cap');
     assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150, observed(over, steps));
   });
