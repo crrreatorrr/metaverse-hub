@@ -480,13 +480,20 @@ function earnChunk(game: string, reason: string, cap: number): number {
   return cap;
 }
 
-async function creditToCap(token: string, cap: number, reason: string, chunk: number, prefix: string): Promise<number> {
+async function creditToCap(
+  token: string,
+  cap: number,
+  reason: string,
+  chunk: number,
+  prefix: string,
+  already = 0,
+): Promise<number> {
   if (chunk <= 0 || cap % chunk !== 0) throw new Error(`session cap ${cap} is not a multiple of ${chunk} for ${reason}`);
   const calls = cap / chunk;
   for (let i = 0; i < calls; i += 1) {
     const filled = await call('tickets.earn', { amount: chunk, reason, key: `${prefix}-${i}` }, token);
     assert.equal(filled.body.error, undefined, JSON.stringify(filled.body));
-    assert.equal(filled.body.balance, chunk * (i + 1), JSON.stringify(filled.body));
+    assert.equal(filled.body.balance, already + chunk * (i + 1), JSON.stringify(filled.body));
   }
   return calls;
 }
@@ -561,7 +568,7 @@ async function runSessionCap(runner: GateRunner): Promise<void> {
       const session = await login(item.game);
       const first = await creditToCap(session.gameToken, cap, item.reason, chunk, 'day-a');
       const next = await openGame(session.hub.token, item.game);
-      const second = await creditToCap(next.gameToken, cap, item.reason, chunk, 'day-b');
+      const second = await creditToCap(next.gameToken, cap, item.reason, chunk, 'day-b', cap);
       assert.equal(ticketBalance(session.hub.userId, item.game), cap * 2);
       assert.equal(earnLedgerCount(session.hub.userId), first + second);
     });
