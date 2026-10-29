@@ -10,4 +10,5 @@ interface HubDebugState {
 
 interface Window {
   __hub?: HubDebugState;
+  plazaLoad?: { bytes: number; files: { name: string; bytes: number }[] };
 }
