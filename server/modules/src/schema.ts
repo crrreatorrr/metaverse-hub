@@ -465,9 +465,8 @@ namespace HubSchema {
        SELECT COALESCE(SUM(delta), 0) INTO v_session_earned
        FROM game.tickets_ledger
        WHERE user_id = p_user_id AND game_id = p_game_id AND ref_id = p_session_id AND delta > 0;
-       -- A request for the whole daily cap (1000) still uses the daily partial rules.
-       -- Any smaller earn that would pass the session cap is rejected with no ledger row.
-       IF p_amount < 1000 AND v_session_earned + p_amount > v_cap THEN
+       -- Every earn is checked. A request for 1000 or more cannot skip this.
+       IF v_session_earned + p_amount > v_cap THEN
          RETURN jsonb_build_object('error', 'session_ticket_cap');
        END IF;
        v_day := (now() AT TIME ZONE 'utc')::date;
