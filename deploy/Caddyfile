@@ -10,18 +10,17 @@
 	import /etc/caddy/cloudflare-proxies.caddy
 }
 
-# arg: suffix so the named matcher stays unique when the snippet is imported twice
-(cors) {
-	@ok_origin_{args[0]} {
-		header Origin "https://{$DOMAIN}"
-		header Origin "https://play.{$DOMAIN}"
+# Same paths on the apex and on play.<domain>. Pages call /v2 and /ws on the
+# host that served them. reverse_proxy upgrades /ws when the client sends
+# Connection: Upgrade. Production builds leave serverUrl unset.
+(nakama_proxy) {
+	handle /v2* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:7350
 	}
-	header @ok_origin_{args[0]} {
-		Access-Control-Allow-Origin "{http.request.header.Origin}"
-		Access-Control-Allow-Headers "Authorization, Content-Type, Accept"
-		Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
-		Access-Control-Max-Age "600"
-		Vary "Origin"
+	handle /ws* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:7350
 	}
 }
 
@@ -92,22 +91,7 @@
 		-Server
 	}
 
-	handle /v2* {
-		@preflight method OPTIONS
-		handle @preflight {
-			import cors preflight
-			header Cache-Control "no-store"
-			respond 204
-		}
-		import cors api
-		header Cache-Control "no-store"
-		reverse_proxy 127.0.0.1:7350
-	}
-
-	handle /ws* {
-		header Cache-Control "no-store"
-		reverse_proxy 127.0.0.1:7350
-	}
+	import nakama_proxy
 
 	redir / /hub/ 308
 	redir /hub /hub/ 308
@@ -155,6 +139,8 @@ play.{$DOMAIN} {
 		Strict-Transport-Security "max-age=15552000; includeSubDomains"
 		-Server
 	}
+
+	import nakama_proxy
 
 	redir /hpos10i /hpos10i/ 308
 	redir /nobu /nobu/ 308

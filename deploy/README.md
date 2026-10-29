@@ -2,7 +2,7 @@
 
 One Hetzner CCX VPS. Nakama and Postgres run in Docker Compose. Caddy runs on the host and terminates TLS. Cloudflare proxies the public names (orange cloud).
 
-Caddy is a host service, and Compose publishes Nakama only on `127.0.0.1:7350`, because that is the upstream the edge proxies. Host Caddy is also covered by ufw. A container that publishes 80 or 443 would accept those ports in Docker's iptables chain, which ufw does not control.
+Caddy is a host service, and Compose publishes Nakama only on `127.0.0.1:7350`, because that is the upstream the edge proxies. The apex and `play.<domain>` both reverse-proxy `/v2/*` and `/ws` there, and `/ws` is upgraded as a WebSocket. Pages stay on the host that served them. Host Caddy is also covered by ufw. A container that publishes 80 or 443 would accept those ports in Docker's iptables chain, which ufw does not control.
 
 Nothing in this folder calls Hetzner or Cloudflare. It does not contain passwords, tokens, or certificates.
 
@@ -22,14 +22,11 @@ Files and secrets, created by you and kept out of git:
 - The Cloudflare origin certificate and its private key, installed on the VPS as `/etc/caddy/certs/origin.pem` and `/etc/caddy/certs/origin.key`.
 - Optional: `SSH_ALLOW_CIDR` (your IP as a `/32`) and `BACKUP_RSYNC_TARGET` (a host that already accepts this VPS's root SSH key).
 
-Two of the Nakama values are embedded in clients. They stop casual callers and they are not server-only secrets:
+`NAKAMA_SERVER_KEY` is the only Nakama value that belongs in a client. Inject it at build time from CI secrets or an uncommitted `.env.production`. Leave `serverUrl` unset. Production pages call `/v2` and `/ws` on the host that served them. `serverUrl` is for dev, mock, and QA only.
 
-- `NAKAMA_SERVER_KEY` is the Nakama server key.
-- `NAKAMA_HTTP_KEY` is sent when a game redeems a portal ticket before it has a session.
+`NAKAMA_HTTP_KEY`, the console password, and the console signing key stay on the server. They must not appear in a client bundle. `TICKET_HMAC_KEY`, `RECOVERY_PEPPER`, the session keys, and `POSTGRES_PASSWORD` stay on the server too.
 
-`TICKET_HMAC_KEY`, `RECOVERY_PEPPER`, the session keys, the console password, and `POSTGRES_PASSWORD` stay on the server.
-
-The hub in this repo still connects with the dev server key and HTTP key (`apps/hub/src/main.ts`). Games that should talk to this VPS need `serverUrl: "https://<domain>"` plus those two production keys. Static files will serve before that client change exists. Device login will not, because this stack refuses to boot with the dev keys.
+`deploy/scripts/check-dist-secrets.sh` reads the dist before a publish. It fails if any file contains a dev default (`defaultkey`, `localhttpkey`, `localdb`, and the rest of that list) or the live HTTP key, console password, or console signing key. A bundle that still has the dev server key does not ship.
 
 Builds you produce elsewhere and copy to the VPS:
 
@@ -58,6 +55,7 @@ deploy/scripts/install-caddy.sh    Caddyfile, cert paths, reload
 deploy/scripts/cloudflare-ufw.sh   80/443 from Cloudflare ranges only
 deploy/scripts/deploy-hub.sh
 deploy/scripts/deploy-game.sh
+deploy/scripts/check-dist-secrets.sh
 deploy/scripts/backup-postgres.sh
 deploy/scripts/check-env.sh
 ```
@@ -96,7 +94,7 @@ On the server:
    chmod 600 deploy/.env
    ```
 
-   Fill `DOMAIN` and the secrets. `openssl rand -hex 32` once per secret. Keep `NAKAMA_SERVER_KEY` and `NAKAMA_HTTP_KEY` somewhere you can put them in the client builds. Leave every `GAME_COOP_*` at `0` unless that game's build needs `SharedArrayBuffer`. HPOS10I ships with threads off, so it stays `0`.
+   Fill `DOMAIN` and the secrets. `openssl rand -hex 32` once per secret. The client build needs `NAKAMA_SERVER_KEY` from CI secrets or an uncommitted `.env.production`, not from this file's other keys. Leave `serverUrl` unset. Leave every `GAME_COOP_*` at `0` unless that game's build needs `SharedArrayBuffer`. HPOS10I ships with threads off, so it stays `0`.
 
    ```bash
    install -d -m 755 /etc/caddy/certs
@@ -124,7 +122,13 @@ On the server:
 
    `https://<domain>/v2/` should not be a gateway failure. A 401 or 404 from Nakama means the proxy reached the process.
 
-5. Deploy the hub and each game. Run these on the VPS. `rsync` from your laptop into `/tmp` first if the build is not already there.
+5. Deploy the hub and each game. On the build machine, before the upload:
+
+   ```bash
+   deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel
+   ```
+
+   `rsync` the trees to the VPS, then publish. `deploy-hub.sh` and `deploy-game.sh` run the same check again and refuse the swap when it fails.
 
    ```bash
    /opt/metaverse/deploy/scripts/deploy-hub.sh /tmp/hub-dist
@@ -166,7 +170,7 @@ Speed: leave Brotli on. Turn **Rocket Loader** and **Email Obfuscation** off so 
 
 Cache rules, in this order:
 
-1. **Bypass the API.** If hostname equals `<domain>` and URI Path starts with `/v2` or `/ws`: Bypass cache.
+1. **Bypass the API.** If hostname equals `<domain>` or `play.<domain>` and URI Path starts with `/v2` or `/ws`: Bypass cache.
 2. **Cache game packs.** If hostname equals `play.<domain>` and (file extension is `wasm` or `pck`, or the path matches a fingerprinted `index.<hash>.wasm`, `.pck`, or `.js`): Eligible for cache, Edge TTL respect origin, Browser TTL respect origin.
 
 `index.html` is `Cache-Control: no-cache`. Cloudflare does not store that. Fingerprinted `index.<hash>.wasm`, `.pck`, and `.js` are `public, max-age=31536000, immutable`. Other game files get five minutes, so an unhashed name cannot sit on the edge for a year.
@@ -184,7 +188,7 @@ HPOS10I's pack is about **37.7 MiB**. That is a download. Publishing it is `rsyn
 
 Caddy's `precompressed` serves a sibling `.br` or `.gz` and sets `Content-Type: application/wasm` from the original name. Cloudflare may still recompress toward the browser. The siblings are there so an origin hit does not compress 37.7 MiB on the fly. Do not link to the `.br` or `.gz` URL directly. Caddy would otherwise answer those siblings with `206` and `Content-Range: bytes 0-`, and browsers treat a 206 the client did not ask for as a failed fetch. The file server forces `200` for that case. A real `Range` request still gets `206`.
 
-WebSockets on `/ws` are proxied. Cloudflare closes a socket that goes idle; a custom idle timeout is an Enterprise setting. Nakama's `ping_period_ms` is 15000 so the connection keeps moving.
+`/v2` and `/ws` on the apex and on `play.<domain>` both proxy to Nakama on `127.0.0.1:7350`. `/ws` is the WebSocket, including the upgrade. Cloudflare closes a socket that goes idle; a custom idle timeout is an Enterprise setting. Nakama's `ping_period_ms` is 15000 so the connection keeps moving.
 
 ## COOP / COEP
 

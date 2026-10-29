@@ -29,6 +29,8 @@ if [ ! -f "${src%/}/hub/index.html" ]; then
   exit 1
 fi
 
+"$(dirname "$(readlink -f "$0")")/check-dist-secrets.sh" "$src"
+
 rel="$(stage_release "$base" "$src")"
 dest="${base}/releases/${rel}"
 echo "precompressing ${dest}"
