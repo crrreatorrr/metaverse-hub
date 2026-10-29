@@ -809,13 +809,7 @@ namespace HubSchema {
        v_amount := v_sell::bigint * p_packs;
        v_units := v_pack::bigint * p_packs;
        IF v_amount <= 0 THEN
-         SELECT balance INTO v_balance FROM game.tickets_balance
-         WHERE user_id = p_user_id AND game_id = p_game_id;
-         IF NOT FOUND THEN v_balance := 0; END IF;
-         v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'credited', 0, 'balance', v_balance);
-         INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
-         VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
-         RETURN v_response;
+         RETURN jsonb_build_object('error', 'zero_value');
        END IF;
        v_taken := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_amount, 'shop_sell', 'shop_sell', true);
        IF v_taken ? 'error' THEN

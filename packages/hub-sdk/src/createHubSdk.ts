@@ -372,12 +372,9 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
         const row = session.game === 'peoples-bitcoin' ? pbShopRow(shopId, itemId) : undefined;
         if (!row) throw new HubSdkError('unknown_item', 'Unknown item');
         const credited = row.sellPrice * whole;
-        const units = row.packSize * whole;
-        if (credited <= 0) {
-          return { shop_id: shopId, item_id: itemId, packs: whole, units, credited: 0, balance: readNumber(resolved.local, ticketsKey(session.game)) };
-        }
+        if (credited <= 0) throw new HubSdkError('zero_value', 'This item cannot be sold');
         const next = applyCredit(session, credited, true);
-        return { shop_id: shopId, item_id: itemId, packs: whole, units, credited, balance: next.balance };
+        return { shop_id: shopId, item_id: itemId, packs: whole, units: row.packSize * whole, credited, balance: next.balance };
       });
     },
 

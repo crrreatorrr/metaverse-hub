@@ -36,6 +36,7 @@ namespace HubRpc {
       "bad_game",
       "bad_json",
       "unknown_item",
+      "zero_value",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
