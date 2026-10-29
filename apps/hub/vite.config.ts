@@ -28,7 +28,9 @@ function redirectRoot(): Plugin {
 }
 
 // Plaza at /hub/, mock Sproto Duel at /play/sproto/. Nakama is proxied at /v2.
-export default defineConfig({
+// The dev server key is inlined only for `vite dev`. Production builds take
+// VITE_NAKAMA_SERVER_KEY and never embed the compose default.
+export default defineConfig(({ mode }) => ({
   base: '/',
   plugins: [redirectRoot()],
   resolve: {
@@ -45,6 +47,11 @@ export default defineConfig({
   preview: {
     proxy,
   },
+  define: {
+    __NAKAMA_SERVER_KEY__: JSON.stringify(
+      mode === 'development' ? 'defaultkey' : (process.env.VITE_NAKAMA_SERVER_KEY ?? ''),
+    ),
+  },
   build: {
     target: 'es2022',
     sourcemap: false,
@@ -56,4 +63,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));

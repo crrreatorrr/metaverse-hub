@@ -661,6 +661,20 @@ namespace HubSchema {
     "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
     "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
     "DELETE FROM game.event_rule WHERE game_id = 'pb'",
+
+    // Hashed portal tickets. The raw secret is returned once and never stored.
+    // This statement does not update or delete economy rows.
+    `CREATE TABLE IF NOT EXISTS game.auth_ticket (
+      ticket_hash bytea PRIMARY KEY,
+      user_id uuid NOT NULL,
+      game_id text NOT NULL,
+      session_id uuid NOT NULL,
+      ranked boolean NOT NULL,
+      expires_at timestamptz NOT NULL,
+      used_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      CONSTRAINT auth_ticket_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))
+    )`,
   ];
 
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
