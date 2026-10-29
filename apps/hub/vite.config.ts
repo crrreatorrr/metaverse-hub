@@ -7,12 +7,21 @@ const proxy = {
   '/ws': { target: nakama, ws: true, changeOrigin: true },
 };
 
+const PLAY_GAMES = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
+
 function redirectRoot(): Plugin {
   const redirect = (req: { url?: string }, res: { writeHead: (code: number, headers: Record<string, string>) => void; end: () => void }, next: () => void) => {
     if (req.url === '/' || req.url === '') {
       res.writeHead(302, { Location: '/hub/' });
       res.end();
       return;
+    }
+    // Real game builds live under public/play/<id>/ (see scripts/fetch-game-web.mjs).
+    for (const id of PLAY_GAMES) {
+      if (req.url === `/play/${id}` || req.url === `/play/${id}/`) {
+        req.url = `/play/${id}/index.html`;
+        break;
+      }
     }
     next();
   };
@@ -27,7 +36,7 @@ function redirectRoot(): Plugin {
   };
 }
 
-// Plaza at /hub/, mock Sproto Duel at /play/sproto/. Nakama is proxied at /v2.
+// Plaza at /hub/. Portals open real game builds under public/play/<id>/. Nakama at /v2.
 export default defineConfig({
   base: '/',
   plugins: [redirectRoot()],
@@ -52,7 +61,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         hub: resolve(__dirname, 'hub/index.html'),
-        sproto: resolve(__dirname, 'play/sproto/index.html'),
       },
     },
   },

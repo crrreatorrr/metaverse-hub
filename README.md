@@ -7,27 +7,28 @@ The product shape comes from the design doc. Technical ids (games, relics, board
 ## Layout
 
 ```
-apps/hub/            Three.js + TypeScript + Vite plaza at /hub/, mock Sproto Duel at /play/sproto/
+apps/hub/            Three.js + TypeScript + Vite plaza at /hub/
 packages/hub-sdk/    Client the games import. Real Nakama path, plus the in-memory mock the unit tests use.
 server/              Nakama + Postgres + Caddy. TypeScript runtime for tickets and Relics.
 ```
 
-Game ids used in code, in `#from=`, and in the default portal paths:
+The four games stay in their own repos. Locally the hub serves their web builds same-origin under `/play/<id>/` (so `#t=` tickets and `/v2` still work):
 
-| Portal | Id | Default page |
-| --- | --- | --- |
-| HPOS10I | `hpos10i` | `/play/hpos10i/` |
-| NOBU: Saviour Dog | `nobu` | `/play/nobu/` |
-| The People's Bitcoin (18+) | `peoples-bitcoin` | `/play/peoples-bitcoin/` |
-| Sproto Duel | `sproto` | `/play/sproto/` |
+| Portal | Id | Repo | Local page |
+| --- | --- | --- | --- |
+| HPOS10I | `hpos10i` | [crrreatorrr/HPOS10I](https://github.com/crrreatorrr/HPOS10I) | `/play/hpos10i/` |
+| NOBU: Saviour Dog | `nobu` | [crrreatorrr/nobu](https://github.com/crrreatorrr/nobu) | `/play/nobu/` |
+| The People's Bitcoin (18+) | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) | `/play/peoples-bitcoin/` |
+| Sproto Duel | `sproto` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) | `/play/sproto/` |
 
 ## Run the plaza
 
-Requires Node 22+.
+Requires Node 22+. `gh` must be able to read the four game repos (Cursor GitHub App installation, or public repos).
 
 ```bash
 docker compose -f server/docker-compose.yml up --build
 npm ci
+npm run fetch:games
 npm run dev
 ```
 
@@ -41,7 +42,7 @@ Walk into a portal ring. The hub plays a short wipe and navigates to that game's
 /play/sproto/#t=<payload>.<hmac>
 ```
 
-Sproto Duel's page in this repo is a mock arena: defeat Tinubu, then return. The other three URLs are still placeholders for the real games. Change them in `apps/hub/src/config.ts`.
+Portal paths are set in `apps/hub/src/config.ts`. Production can point them at `https://play.<domain>/<id>/` instead.
 
 Coming back from a game, open the hub with the game id in the hash. The avatar stands in front of that portal, facing it:
 
@@ -54,7 +55,8 @@ http://127.0.0.1:5173/hub/#from=sproto
 ## Scripts
 
 ```bash
-npm run dev         # plaza and the Sproto mock, proxied to Nakama
+npm run fetch:games  # pull real web builds into apps/hub/public/play/<id>/
+npm run dev         # plaza + proxied Nakama; portals open /play/<id>/
 npm run typecheck
 npm run lint
 npm test            # hub-sdk behavior and the capsule collider
