@@ -417,13 +417,22 @@ namespace HubRpc {
     return ok({ ok: true });
   }
 
-  export function scoreSubmit(ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, payload: string): string {
-    requireGame(ctx);
+  export function scoreSubmit(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var session = requireGame(ctx);
     var body = parse(payload);
     var boardId = text(body, "boardId");
     if (!BOARDS[boardId]) return fail("bad_board", "Unknown board");
     if (typeof body.value !== "number" || !isFinite(body.value) || body.value < 0) return fail("bad_score", "Score must be a non-negative number");
-    return ok({ accepted: false, stub: true });
+    if (boardId !== "hpos10i_act_time") return ok({ accepted: false, stub: true });
+    var score = Math.round(body.value);
+    var rows = nk.sqlQuery(
+      "INSERT INTO game.score_best (user_id, board_id, value) VALUES ($1::uuid, $2, $3::bigint) ON CONFLICT (user_id, board_id) DO UPDATE SET value = LEAST(game.score_best.value, EXCLUDED.value), updated_at = now() RETURNING value::text AS result",
+      [session.userId, boardId, score],
+    );
+    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) {
+      return fail("bad_score", "Score was not stored");
+    }
+    return ok({ accepted: true, value: Number(rows[0].result), order: "asc" });
   }
 
   export function ticketsEarn(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {

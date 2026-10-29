@@ -123,6 +123,15 @@ namespace HubSchema {
       PRIMARY KEY (user_id, game_id)
     )`,
 
+    `CREATE TABLE IF NOT EXISTS game.score_best (
+      user_id uuid NOT NULL,
+      board_id text NOT NULL,
+      value bigint NOT NULL CHECK (value >= 0),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (user_id, board_id),
+      CONSTRAINT score_best_board CHECK (board_id = 'hpos10i_act_time')
+    )`,
+
     `CREATE TABLE IF NOT EXISTS game.fault_arm (
       user_id uuid NOT NULL,
       point text NOT NULL,
