@@ -18,31 +18,16 @@ namespace HubStore {
     effect: null | string | number | boolean | { [key: string]: unknown };
   }
 
-  // Matrix items. Each one has a gameplay param in the relic matrix, so none
-  // of them can be seeded or sold. Visual FX on a store row is not this list.
-  var EFFECT_IDS: string[] = [
-    "nobu_wizard_hat",
-    "nobu_golden_collar",
-    "nobu_clown_collar",
-    "duel_staff_momentum",
-    "duel_staff_moonward",
-    "duel_staff_nobu",
-    "hpos_skin_golden",
-    "hpos_skin_nobu",
-    "hpos_cape_duelist",
-    "pb_summon_speed",
-    "pb_summon_nobu",
-    "pb_summon_duelist",
+  // Same relic → pet pairs as HubPets.ownedSet (M6). A non-empty relic means
+  // the pet is derived from relic_claim and is never a store row.
+  var DERIVED_PETS: { item: string; relic: string }[] = [
+    { item: "pet_speed_sproto", relic: "hpos10i_core" },
+    { item: "pet_nobu", relic: "cones_tip" },
+    { item: "pet_duelist_sproto", relic: "tinubu_crown" },
   ];
 
-  // Earn-only ids with no gameplay param of their own. Still never priced.
-  var EARN_ONLY_IDS: string[] = [
-    "hpos10i_core",
-    "genesis_shard",
-    "cones_tip",
-    "tinubu_crown",
-    "duel_staff_sproto",
-  ];
+  // Server-internal pets. Not item_rule rows and not relic-derived.
+  var SERVER_INTERNAL: string[] = ["pet_baby_sproto", "pet_four_lights_sproto"];
 
   // Mirrors the seed in docs/m7-server-prep.md. Not the debit source.
   var RAW_CATALOG: CatalogRow[] = [
@@ -82,10 +67,45 @@ namespace HubStore {
     return false;
   }
 
+  function derivedItemIds(): string[] {
+    var ids: string[] = [];
+    for (var i = 0; i < DERIVED_PETS.length; i++) ids.push(DERIVED_PETS[i].item);
+    return ids;
+  }
+
+  function isDerivedPet(itemId: string): boolean {
+    return inList(derivedItemIds(), itemId);
+  }
+
   /**
-   * Catalogue loader. A row with a non-null effect is rejected, and so is any
-   * id already known to carry a gameplay param or to be earn-only. The 20
-   * store rows are cosmetic: effect is null, and the prices sum to 4850.
+   * One earned-id check for the loader, the seed validator, and the purchase
+   * already_owned branch. True when the id is in game.item_rule (caller
+   * passes that), when HubPets would derive it from a relic, when it is one
+   * of the two server-internal pets, or when effect is not null.
+   */
+  function storeItemRejected(itemId: string, effect: CatalogRow["effect"], inItemRule: boolean): boolean {
+    if (effect !== null) return true;
+    if (inItemRule) return true;
+    if (isDerivedPet(itemId)) return true;
+    if (inList(SERVER_INTERNAL, itemId)) return true;
+    return false;
+  }
+
+  /** Same predicate as storeItemRejected, for the seed validator and the purchase function. */
+  function earnedSql(itemExpr: string, effectExpr: string): string {
+    return "("
+      + "EXISTS (SELECT 1 FROM game.item_rule AS earned_rule WHERE earned_rule.item_id = " + itemExpr + ")"
+      + " OR " + itemExpr + " IN (" + quotedIds(derivedItemIds()) + ")"
+      + " OR " + itemExpr + " IN (" + quotedIds(SERVER_INTERNAL) + ")"
+      + " OR " + effectExpr + " IS NOT NULL"
+      + ")";
+  }
+
+  /**
+   * Catalogue loader. Uses storeItemRejected. The 20 store rows are cosmetic:
+   * effect is null, none are relic-derived or server-internal, and the prices
+   * sum to 4850. item_rule membership is the same predicate in SQL; these
+   * seed ids are not rule rows.
    */
   export function loadCatalog(rows: CatalogRow[]): CatalogRow[] {
     var seen: { [id: string]: boolean } = {};
@@ -93,10 +113,8 @@ namespace HubStore {
     var out: CatalogRow[] = [];
     for (var i = 0; i < rows.length; i++) {
       var row = rows[i];
-      if (!row || row.effect !== null) throw new Error("item_effect");
+      if (!row || storeItemRejected(row.id, row.effect, false)) throw new Error("store_item_earned");
       if (!ITEM_ID.test(row.id) || !row.kind || !ITEM_ID.test(row.kind)) throw new Error("bad_item_id");
-      if (inList(EFFECT_IDS, row.id)) throw new Error("item_effect");
-      if (inList(EARN_ONLY_IDS, row.id)) throw new Error("earn_only");
       if (seen[row.id]) throw new Error("duplicate_item");
       seen[row.id] = true;
       if (typeof row.priceVerse !== "number" || !isFinite(row.priceVerse) || Math.floor(row.priceVerse) !== row.priceVerse || row.priceVerse <= 0) {
@@ -128,6 +146,7 @@ namespace HubStore {
     "  v_price bigint;",
     "  v_on_sale boolean;",
     "  v_catalog int;",
+    "  v_effect text;",
     "  v_verse bigint;",
     "  v_balance bigint;",
     "  v_purchase uuid;",
@@ -142,13 +161,13 @@ namespace HubStore {
     "  WHERE user_id = p_user_id AND key = p_idem_key;",
     "  IF FOUND THEN",
     "    IF v_existing_hash IS DISTINCT FROM v_hash THEN",
-    "      RETURN jsonb_build_object('ok', false, 'reason', 'idem_mismatch', 'verse', v_verse);",
+    "      RETURN jsonb_build_object('ok', false, 'reason', 'idempotency_mismatch', 'verse', v_verse);",
     "    END IF;",
     "    RETURN v_response;",
     "  END IF;",
     "",
     "  -- step_server_price",
-    "  SELECT price_verse, on_sale, catalog_version INTO v_price, v_on_sale, v_catalog",
+    "  SELECT price_verse, on_sale, catalog_version, effect INTO v_price, v_on_sale, v_catalog, v_effect",
     "  FROM game.store_item",
     "  WHERE item_id = p_item_id;",
     "  IF NOT FOUND THEN",
@@ -166,7 +185,7 @@ namespace HubStore {
     "",
     "  -- step_owned_before_debit",
     "  IF EXISTS (SELECT 1 FROM game.item_owned WHERE user_id = p_user_id AND item_id = p_item_id)",
-    "     OR p_item_id = ANY (ARRAY[" + quotedIds(EFFECT_IDS.concat(EARN_ONLY_IDS)) + "]::text[])",
+    "     OR " + earnedSql("p_item_id", "v_effect"),
     "  THEN",
     "    v_response := jsonb_build_object('ok', false, 'reason', 'already_owned', 'verse', v_verse);",
     "    INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)",
@@ -208,8 +227,8 @@ namespace HubStore {
     "  VALUES (gen_random_uuid(), p_user_id, -v_price, v_balance, 'store', v_purchase);",
     "",
     "  -- step_item_grant",
-    "  INSERT INTO game.item_owned (user_id, item_id, source, ref_id)",
-    "  VALUES (p_user_id, p_item_id, 'store', v_purchase);",
+    "  INSERT INTO game.item_owned (user_id, item_id, source, ref_id, acquired_at)",
+    "  VALUES (p_user_id, p_item_id, 'store', v_purchase, now());",
     "  PERFORM game.fault_at(p_user_id, 'purchase.after_item');",
     "",
     "  -- step_item_ledger",
@@ -239,7 +258,7 @@ namespace HubStore {
     "  WHERE user_id = p_user_id AND key = p_idem_key;",
     "  IF FOUND THEN",
     "    IF v_existing_hash IS DISTINCT FROM v_hash THEN",
-    "      RETURN jsonb_build_object('ok', false, 'reason', 'idem_mismatch', 'verse',",
+    "      RETURN jsonb_build_object('ok', false, 'reason', 'idempotency_mismatch', 'verse',",
     "        COALESCE((SELECT balance FROM game.verse_wallet WHERE user_id = p_user_id), 0));",
     "    END IF;",
     "    RETURN v_response;",
@@ -260,7 +279,7 @@ namespace HubStore {
     "        RETURN v_response;",
     "      END IF;",
     "      IF FOUND THEN",
-    "        RETURN jsonb_build_object('ok', false, 'reason', 'idem_mismatch', 'verse',",
+    "        RETURN jsonb_build_object('ok', false, 'reason', 'idempotency_mismatch', 'verse',",
     "          COALESCE((SELECT balance FROM game.verse_wallet WHERE user_id = p_user_id), 0));",
     "      END IF;",
     "      RAISE;",
@@ -299,12 +318,20 @@ namespace HubStore {
     if (sql.indexOf("balance - p_expected_price") >= 0) throw new Error("client_price");
     if (sql.indexOf("FROM game.store_item") < 0) throw new Error("price_table");
     if (PURCHASE_CALL.indexOf("apply_store_purchase") < 0) throw new Error("purchase_call");
-    var blocked = EFFECT_IDS.concat(EARN_ONLY_IDS);
-    for (var b = 0; b < blocked.length; b++) {
-      if (sql.indexOf("'" + blocked[b] + "'") < 0) throw new Error("effect_guard");
+    if (sql.indexOf(earnedSql("p_item_id", "v_effect")) < 0) throw new Error("earned_check");
+    if (sql.indexOf("'idempotency_mismatch'") < 0) throw new Error("idem_name");
+    if (sql.indexOf("'idem_mismatch'") >= 0) throw new Error("idem_name");
+    if (sql.indexOf("acquired_at") < 0 || sql.indexOf("'store'") < 0) throw new Error("item_owned_insert");
+    if (DERIVED_PETS.length !== 3) throw new Error("derived_pet");
+    for (var d = 0; d < DERIVED_PETS.length; d++) {
+      if (!DERIVED_PETS[d].relic || !ITEM_ID.test(DERIVED_PETS[d].relic)) throw new Error("derived_pet");
+      if (sql.indexOf("'" + DERIVED_PETS[d].item + "'") < 0) throw new Error("derived_pet");
+    }
+    for (var s = 0; s < SERVER_INTERNAL.length; s++) {
+      if (sql.indexOf("'" + SERVER_INTERNAL[s] + "'") < 0) throw new Error("server_internal");
     }
     for (var c = 0; c < CATALOG.length; c++) {
-      if (inList(blocked, CATALOG[c].id)) throw new Error("item_effect");
+      if (storeItemRejected(CATALOG[c].id, CATALOG[c].effect, false)) throw new Error("store_item_earned");
     }
   }
   assertPurchaseSql();
@@ -389,12 +416,19 @@ namespace HubStore {
    * session is unauthorized. Neither path writes. The SQL function does the
    * idempotency read, the server price check, the owned check, and the debit,
    * grant, and ledger inserts in one transaction.
+   *
+   * Wiring (M11 #17): PERFORM game.require_lease inside apply_store_purchase
+   * before any insert, same as the other writes. leaseId stays out of the
+   * idempotency hash. A stale lease must not write an idempotency row.
    */
   export function purchase(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
     var userId = ctx.userId;
+    // Device auth, session refresh, and recovery mint hub tokens with scope
+    // "hub". Empty scope is not a hub session. Wiring must assert that every
+    // game token and every portal token is minted with scope = game.
     var scope = scopeOf(ctx);
-    if (scope !== "" && scope !== "hub") return reject("wrong_scope", verseBalance(nk, userId));
+    if (scope !== "hub") return reject("wrong_scope", verseBalance(nk, userId));
     var body: { [key: string]: unknown };
     try {
       body = parse(payload);
