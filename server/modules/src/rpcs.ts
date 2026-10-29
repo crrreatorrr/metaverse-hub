@@ -37,6 +37,9 @@ namespace HubRpc {
       "bad_json",
       "unknown_item",
       "zero_value",
+      "session_ticket_cap",
+      "daily_ticket_cap",
+      "amount_over_rule",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
@@ -87,6 +90,12 @@ namespace HubRpc {
     var left = result.capLeft;
     if (typeof left === "number" && isFinite(left)) body.capLeft = left;
     else if (typeof left === "string" && left !== "" && isFinite(Number(left))) body.capLeft = Number(left);
+    var sessionLeft = result.sessionCapLeft;
+    if (typeof sessionLeft === "number" && isFinite(sessionLeft)) body.sessionCapLeft = sessionLeft;
+    else if (typeof sessionLeft === "string" && sessionLeft !== "" && isFinite(Number(sessionLeft))) body.sessionCapLeft = Number(sessionLeft);
+    var dailyLeft = result.dailyCapLeft;
+    if (typeof dailyLeft === "number" && isFinite(dailyLeft)) body.dailyCapLeft = dailyLeft;
+    else if (typeof dailyLeft === "string" && dailyLeft !== "" && isFinite(Number(dailyLeft))) body.dailyCapLeft = Number(dailyLeft);
     return JSON.stringify(body);
   }
 
@@ -555,13 +564,15 @@ namespace HubRpc {
     var game = text(body, "game");
     if (!game || game !== session.game) return fail("bad_game", "Unknown game");
     var rows = nk.sqlQuery(
-      "SELECT COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0)::text AS result",
-      [session.userId, session.game],
+      "SELECT json_build_object('balance', COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0), 'sessionCapLeft', GREATEST(0, game.session_ticket_cap() - COALESCE((SELECT SUM(delta) FROM game.tickets_ledger WHERE user_id = $1::uuid AND game_id = $2 AND ref_id = $3::uuid AND delta > 0 AND COALESCE(kind, '') <> 'refund' AND reason <> 'refund'), 0)), 'dailyCapLeft', GREATEST(0, 1000 - COALESCE((SELECT amount FROM game.earn_window WHERE user_id = $1::uuid AND bucket = 'tickets:' || $2 AND day = (now() AT TIME ZONE 'utc')::date), 0)))::text AS result",
+      [session.userId, session.game, session.sid],
     );
-    var balance = 0;
-    if (rows && rows.length && rows[0].result !== undefined && rows[0].result !== null) balance = Number(rows[0].result);
-    if (!isFinite(balance)) balance = 0;
-    return ok({ balance: balance });
+    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) {
+      return ok({ balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 });
+    }
+    var raw = rows[0].result;
+    var parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+    return ok(parsed as { [key: string]: unknown });
   }
 
   export function recoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama): string {

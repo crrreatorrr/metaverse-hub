@@ -89,6 +89,10 @@ export interface SellResult {
 
 export interface TicketBalanceResult {
   balance: number;
+  /** Tickets this session can still credit before `session_ticket_cap`. */
+  sessionCapLeft: number;
+  /** Tickets this game can still credit today before `daily_ticket_cap`. */
+  dailyCapLeft: number;
 }
 
 export interface EventResult {

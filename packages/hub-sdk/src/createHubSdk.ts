@@ -161,14 +161,14 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     };
   }
 
-  function rejectCap(capLeftAmount: number): never {
-    throw new HubSdkError('session_ticket_cap', 'session_ticket_cap', undefined, capLeftAmount);
+  function rejectCap(code: 'session_ticket_cap' | 'daily_ticket_cap', left: number): never {
+    throw new HubSdkError(code, code, undefined, left);
   }
 
   function applyCredit(session: MockSession, amount: number, whole: boolean): { applied: number; balance: number } {
     const rooms = creditRooms(session);
-    if (whole && amount > rooms.sessionRoom) rejectCap(rooms.sessionRoom);
-    if (whole && amount > rooms.dailyRoom) rejectCap(rooms.dailyRoom);
+    if (whole && amount > rooms.sessionRoom) rejectCap('session_ticket_cap', rooms.sessionRoom);
+    if (whole && amount > rooms.dailyRoom) rejectCap('daily_ticket_cap', rooms.dailyRoom);
     const applied = whole ? amount : Math.min(amount, rooms.dailyRoom);
     if (applied > 0) {
       writeNumber(resolved.local, earnKey(session.game), readNumber(resolved.local, earnKey(session.game)) + applied);
@@ -379,8 +379,13 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     },
 
     async getTicketBalance() {
-      if (!active) return { balance: 0 };
-      return { balance: readNumber(resolved.local, ticketsKey(active.game)) };
+      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 };
+      const rooms = creditRooms(active);
+      return {
+        balance: readNumber(resolved.local, ticketsKey(active.game)),
+        sessionCapLeft: rooms.sessionRoom,
+        dailyCapLeft: rooms.dailyRoom,
+      };
     },
 
     exit(_reason) {

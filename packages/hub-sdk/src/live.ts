@@ -347,9 +347,13 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     },
 
     async getTicketBalance() {
-      if (!active) return { balance: 0 };
+      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 };
       const body = await client.rpc<TicketBalanceResult>('tickets.balance', { game: active.game }, { token: active.token });
-      return { balance: typeof body.balance === 'number' ? body.balance : 0 };
+      return {
+        balance: typeof body.balance === 'number' ? body.balance : 0,
+        sessionCapLeft: typeof body.sessionCapLeft === 'number' ? body.sessionCapLeft : 0,
+        dailyCapLeft: typeof body.dailyCapLeft === 'number' ? body.dailyCapLeft : 0,
+      };
     },
 
     exit(reason) {

@@ -238,6 +238,13 @@ namespace HubSchema {
        ('sproto', 'sproto.boss_defeated', 'tinubu_crown', NULL, NULL, NULL, '{"boss":"tinubu"}'::jsonb)
      ON CONFLICT (game_id, event_type) DO NOTHING`,
 
+    "ALTER TABLE game.event_rule ADD COLUMN IF NOT EXISTS max_amount bigint",
+    "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_max_amount",
+    "ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_max_amount CHECK (max_amount IS NULL OR max_amount > 0)",
+    `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
+     VALUES ('nobu', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 110)
+     ON CONFLICT (game_id, event_type) DO UPDATE SET max_amount = EXCLUDED.max_amount`,
+
     // SESSION_TICKET_CAP is 200: ten wins of 20 Tickets, and two sessions stay under the 1000 daily cap.
     `CREATE OR REPLACE FUNCTION game.session_ticket_cap()
      RETURNS bigint LANGUAGE sql IMMUTABLE AS $fn$
@@ -507,7 +514,7 @@ namespace HubSchema {
        v_session_room := v_cap - v_session_earned;
        IF v_session_room < 0 THEN v_session_room := 0; END IF;
        IF v_session_earned + p_amount > v_cap THEN
-         RETURN jsonb_build_object('error', 'session_ticket_cap', 'capLeft', v_session_room);
+         RETURN jsonb_build_object('error', 'session_ticket_cap', 'sessionCapLeft', v_session_room, 'capLeft', v_session_room);
        END IF;
        v_day := (now() AT TIME ZONE 'utc')::date;
        SELECT amount INTO v_used FROM game.earn_window
@@ -515,10 +522,10 @@ namespace HubSchema {
        IF NOT FOUND THEN v_used := 0; END IF;
        v_room := 1000 - v_used;
        IF v_room < 0 THEN v_room := 0; END IF;
-       IF p_whole AND p_amount > v_room THEN
-         RETURN jsonb_build_object('error', 'session_ticket_cap', 'capLeft', v_room);
+       IF p_amount > v_room THEN
+         RETURN jsonb_build_object('error', 'daily_ticket_cap', 'dailyCapLeft', v_room, 'capLeft', v_room);
        END IF;
-       v_applied := LEAST(p_amount, v_room);
+       v_applied := p_amount;
        SELECT balance INTO v_balance FROM game.tickets_balance
        WHERE user_id = p_user_id AND game_id = p_game_id
        FOR UPDATE;
@@ -552,6 +559,7 @@ namespace HubSchema {
        v_credit jsonb;
        v_applied bigint;
        v_balance bigint;
+       v_max bigint;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -569,6 +577,12 @@ namespace HubSchema {
            AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT max_amount INTO v_max FROM game.event_rule
+       WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
+       LIMIT 1;
+       IF FOUND AND p_amount > v_max THEN
+         RETURN jsonb_build_object('error', 'amount_over_rule');
        END IF;
        v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, p_amount, p_reason, 'earn', false);
        IF v_credit ? 'error' THEN
