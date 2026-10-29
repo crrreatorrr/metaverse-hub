@@ -143,6 +143,19 @@ namespace HubRpc {
     return "{" + body.join(",") + "}";
   }
 
+  /** Daily Ticket room. Matches the 1000 cap inside game.earn_tickets. */
+  function ticketsRoom(nk: nkruntime.Nakama, userId: string, game: string): number {
+    var rows = nk.sqlQuery(
+      "SELECT GREATEST(0, 1000 - COALESCE((SELECT amount FROM game.earn_window WHERE user_id = $1::uuid AND bucket = $2 AND day = (now() AT TIME ZONE 'utc')::date), 0))::text AS result",
+      [userId, "tickets:" + game],
+    );
+    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) return 1000;
+    var raw = rows[0].result;
+    var parsed = typeof raw === "number" ? raw : Number(raw);
+    if (!isFinite(parsed) || parsed < 0) return 0;
+    return Math.floor(parsed);
+  }
+
   function relicIds(nk: nkruntime.Nakama, userId: string): string[] {
     var rows = queryList(
       nk,
@@ -247,14 +260,19 @@ namespace HubRpc {
       "SELECT json_build_object('balance', COALESCE((SELECT balance FROM game.verse_wallet WHERE user_id = $1::uuid), 0), 'earned', COALESCE((SELECT json_agg(json_build_object('gameId', game_id, 'lifetime', lifetime) ORDER BY game_id) FROM game.verse_earned WHERE user_id = $1::uuid), '[]'::json))::text AS result",
       [userId],
     );
-    return ok({
+    var profileBody: { [key: string]: unknown } = {
       playerId: userId,
       relics: relics,
       gameBeaten: games,
       scope: scopeOf(ctx),
       verse: Number(wallet.balance) || 0,
       verseEarned: wallet.earned || [],
-    });
+    };
+    var profileGame = ctx.vars && ctx.vars.game ? ctx.vars.game : "";
+    if (scopeOf(ctx) === "game" && GAMES[profileGame]) {
+      profileBody.ticketsCapLeft = ticketsRoom(nk, userId, profileGame);
+    }
+    return ok(profileBody);
   }
 
   export function verseBoard(_ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
@@ -345,7 +363,7 @@ namespace HubRpc {
       sid: sessionId,
       relics: relics,
       effects: effects,
-      ticketsCapLeft: 0,
+      ticketsCapLeft: ticketsRoom(nk, userId, gameId),
       gameBeaten: games,
     });
   }

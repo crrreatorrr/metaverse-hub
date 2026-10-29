@@ -34,6 +34,8 @@ export interface ProfileResult {
   scope: string;
   verse?: number;
   verseEarned?: { gameId: string; lifetime: number }[];
+  /** Remaining Tickets this game can still earn today. Present on a game session. */
+  ticketsCapLeft?: number;
 }
 
 export interface PortalEnterResult {
@@ -112,7 +114,7 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
         keepalive: opts?.keepalive,
       });
       const text = await response.text();
-      if (!response.ok) throw new HubSdkError('rpc_failed', text || `HTTP ${response.status}`);
+      if (!response.ok) throw new HubSdkError('rpc_failed', text || `HTTP ${response.status}`, response.status);
       const parsed = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string };
       if (parsed.error) throw new HubSdkError(parsed.error, parsed.message || parsed.error);
       return parsed;
