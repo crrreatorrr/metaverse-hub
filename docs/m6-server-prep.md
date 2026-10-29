@@ -1,18 +1,19 @@
 # M6 server prep
 
-Sproto pets: cosmetic item grants, the hub pet slot, and the `profile.get` pets helper. Nothing here is registered or applied. No migration file is added, and no `schema_migrations` id is reserved. QA owns tests. This change adds none.
+Sproto pets: cosmetic item grants, the hub pet slot, and the `profile.get` pets helper. The pet RPCs and the item grant are not registered. No migration file is added, and no `schema_migrations` id is reserved. QA owns tests. This change adds none.
 
-The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin. `server/modules/src/rpcs.ts` (`profile.get`, `session.event`) and `server/modules/src/schema.ts` stay as they are. Open PRs #12, #13, #18, #23, #24, #25, #27, #28, and #29 already edit those files or the files around them, so this branch only adds files.
+The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin. `profile.get` and the item-grant paste into `session.event` stay unwired. `server/modules/src/schema.ts` gains one helper, `game.lock_open_session`, and `game.apply_event` calls it. That helper is the relic session check moved into a function. The locked row, the `session_closed` result, and `event_seq` handling are unchanged. `event_seq` 0 still means an open session. NULL from the helper means the session is missing, closed, or unredeemed, which is the old `NOT FOUND` path.
 
 ## Files
 
 | File | Role |
 | --- | --- |
 | `server/modules/src/item_grant.ts` | `session.event` item grant. One statement, not an RPC |
-| `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, unwired backfill |
+| `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, backfill statement (not executed) |
+| `server/modules/src/schema.ts` | `game.lock_open_session`, called by `game.apply_event` |
 | `docs/m6-server-prep.md` | This wiring list |
 
-Neither TypeScript file is in the `files` array of `server/modules/tsconfig.json`, so `tsc` does not concatenate them into `server/modules/build/index.js`. `InitModule` does not register `loadout.set_hub` and does not call the grant or the backfill. Loading the files, once they are compiled in, only checks the in-memory catalog. It does not open a session or write a row.
+Neither pet module is in the `files` array of `server/modules/tsconfig.json`, so `tsc` does not concatenate them into `server/modules/build/index.js`. `InitModule` does not register `loadout.set_hub` and does not run a grant or the backfill. Loading the pet modules, once they are compiled in, only checks the in-memory catalog. It does not open a session or write a row.
 
 ## Grant rule
 
@@ -20,23 +21,18 @@ Pets and other cosmetic items are granted only inside `session.event`, and only 
 
 The statement does not credit Tickets, Verse, or Relics. It does not write `game.relic_claim` or `game.game_beaten`. It does not run from a purchase RPC, an exchange RPC, or any other direct RPC. `game_beaten` is rejected before the query and again inside the statement.
 
-The session predicate is the one `game.apply_event` already uses for relics: the row is open, `game_id` is the session's game, `lease_until > now()`, and the portal ticket has been redeemed. The game id is the server session, never a field on the client body. God-mode wins are granted, the same as Relics. The grant does not read a client `ranked` or `godMode` flag.
+The session check is `game.lock_open_session(session_id, user_id, game_id)`. `game.apply_event` calls that function for relics. The item grant calls the same function. The predicate is not copied into the grant statement. The game id is the server session, never a field on the client body. God-mode wins are granted, the same as Relics. The grant does not read a client `ranked` or `godMode` flag. No new event reason is added. `event_rule` is not altered, and `max_amount` is not added.
 
 `granted_items` on a replay has to be the list from the first call. `nk.sqlQuery` cannot share `game.apply_event`'s transaction, so the statement has to be pasted into `game.apply_event` before the idempotency insert. Calling `HubItems.grantFromEvent` after `apply_event` returns would be a second transaction, and a replay of the same key would store an empty list. `HubItems.grantFromEvent` is the statement itself. It is not a registered RPC.
 
-Canonical events the statement will grant on:
+Canonical events the statement will grant on. Each one already has an `event_rule` row on main. This branch adds no event reason.
 
-| Event | Session game | `event_rule` already on main | `max_amount` |
-| --- | --- | --- | --- |
-| `hpos10i.level_complete` | `hpos10i` | yes, relic row | unchanged (NULL) |
-| `nobu.boss_defeated` | `nobu` | yes, relic row | unchanged (NULL) |
-| `sproto.boss_defeated` | `sproto` | yes, relic row | unchanged (NULL) |
-| `pb.quest_complete` | `peoples-bitcoin` | yes, relic row | unchanged (NULL) |
-| `pb.item_obtained` | `peoples-bitcoin` | no, new reason | `0` |
-
-`max_amount` is the Ticket ceiling for that event reason. `0` means the event credits no Tickets. Existing relic rows stay NULL so this prep does not change their Ticket behaviour (they do not pay Tickets today either). The one-per-player item cap is the `item_owned` primary key, not `max_amount`.
-
-A new event reason is an `event_rule` row that sets `max_amount`, plus an `item_rule` row, plus one entry in `CANONICAL` inside `item_grant.ts`. This branch adds one new reason: `pb.item_obtained`.
+| Event | Session game |
+| --- | --- |
+| `hpos10i.level_complete` | `hpos10i` |
+| `nobu.boss_defeated` | `nobu` |
+| `sproto.boss_defeated` | `sproto` |
+| `pb.quest_complete` | `peoples-bitcoin` |
 
 These ids are never written to `item_owned`, even if an `item_rule` names them. Relics stay on `relic_claim`. The three relic summons stay derived:
 
@@ -56,25 +52,25 @@ Seeded when the ledger entry is applied. Not applied in this branch.
 | `pet_conehead_sproto` | `nobu` | `nobu.boss_defeated` | `{"boss":"cat"}` |
 | `pet_presidential_sproto` | `sproto` | `sproto.boss_defeated` | `{"boss":"obama"}` |
 | `pet_moon_sproto` | `peoples-bitcoin` | `pb.quest_complete` | `{"questId":"quest_moonward"}` |
-| `pet_sproto_pup` | `peoples-bitcoin` | `pb.item_obtained` | `{"itemId":"pet_sproto_pup"}` |
+| `pet_sproto_pup` | `peoples-bitcoin` | `pb.quest_complete` | `{"questId":"quest_hatchery"}` |
 
-People's Bitcoin session game id is `peoples-bitcoin`. The event type string stays `pb.quest_complete` / `pb.item_obtained`, which is what the game reports and what `game.event_rule` already uses for the quest relic.
+People's Bitcoin session game id is `peoples-bitcoin`. The event type is `pb.quest_complete`, the event already on `game.event_rule`. There is no `pb.item_obtained` row and no new `event_rule` seed.
 
-`pet_sproto_pup` is granted only by that `item_rule` match. It is not in the backfill, not granted at account creation, and not derived from a Relic. Until the seed exists and a session reports `pb.item_obtained` with `itemId` `pet_sproto_pup`, the player does not own it.
+`pet_sproto_pup` is granted only when that quest match hits. A client cannot claim it by reporting an item id. It is not in the backfill, not granted at account creation, and not derived from a Relic. Until the seed exists and a session reports `pb.quest_complete` with `questId` `quest_hatchery`, the player does not own it.
 
-These catalog ids have no live `item_rule` in this prep:
+These catalog ids have no `item_rule` in this prep:
 
-| pet_id | Why there is no live grant |
+| pet_id | Grant, when it is wired |
 | --- | --- |
-| `pet_baby_sproto` | Spec trigger is the first `exchange_tx`. That is `tickets.exchange`, not a canonical `session.event`. |
-| `pet_four_lights_sproto` | Spec trigger is `count(relic_claim) = 4` inside the relic transaction. That is not an `item_rule` match on an event payload. |
-| `pet_hopium_sproto` | Spec trigger is `store.purchase` (400 Verse). A purchase RPC is not a `session.event`. |
-| `pet_coom_sproto` | Spec trigger is `store.purchase` (600 Verse). Same as Hopium. |
+| `pet_baby_sproto` | Server-internal, inside the exchange transaction, when that insert is the user's first `exchange_tx` row. `INSERT … ON CONFLICT (user_id, item_id) DO NOTHING`, then `item_ledger` op `grant_item` only if the insert added a row. No event reason. |
+| `pet_four_lights_sproto` | Server-internal, inside the relic-claim transaction, when `count(relic_claim)` for that user reaches 4. Same `ON CONFLICT DO NOTHING` plus `grant_item`. No event reason. |
+| `pet_hopium_sproto` | M7 `store.purchase` only. 400 Verse. Not a `session.event`. |
+| `pet_coom_sproto` | M7 `store.purchase` only. 600 Verse. Not a `session.event`. |
 | `pet_speed_sproto` | Derived from `relic_claim.hpos10i_core`. Not stored. |
 | `pet_nobu` | Derived from `relic_claim.cones_tip`. Not stored. |
 | `pet_duelist_sproto` | Derived from `relic_claim.tinubu_crown`. Not stored. |
 
-`genesis_shard` does not derive a hub pet. Four Lights is the separate "all four relics" pet, and it is backfill-only until a canonical event exists.
+`genesis_shard` does not derive a hub pet. Four Lights is the separate "all four relics" pet. Baby Sproto and Four Lights get no `item_rule` and no `event_rule` row. Their live grants are the two server-internal inserts above, wired later. This branch does not edit `game.exchange_tickets` or the relic insert.
 
 ## `loadout.set_hub`
 
@@ -82,19 +78,17 @@ These catalog ids have no live `item_rule` in this prep:
 
 Payload `{ "v": 1, "pet": "<id>"|null, "seq": <positive integer> }`. `v` may be omitted. `pet` is required and is either `null` (unequip) or a catalog id. Any other id, including a forged one, is `not_owned` and writes nothing.
 
-Ownership is the same set `profilePets` returns. An `item_owned` row counts for every catalog pet that is not a relic summon. `pet_speed_sproto`, `pet_nobu`, and `pet_duelist_sproto` count when `relic_claim` has `hpos10i_core`, `cones_tip`, or `tinubu_crown`. Equipping does not insert `item_owned` and does not write `item_ledger`.
+Ownership is the function `ownedSet` in `HubPets`. `profilePets` and `setHub` both call that function and no other ownership check. An `item_owned` row counts for every catalog pet that is not a relic summon. The equip check for `pet_speed_sproto`, `pet_nobu`, and `pet_duelist_sproto` is derived ownership: the pet is owned when `relic_claim` has `hpos10i_core`, `cones_tip`, or `tinubu_crown`. Equipping does not insert `item_owned` and does not write `item_ledger`.
 
 `seq` is an integer from 1 through `2^53 - 1` and must be greater than the stored seq. The same seq with the same pet that is still owned returns `ok: true` and does not write again. A lower or equal seq with a different pet is `stale_seq`.
 
-The stored object is Nakama storage collection `loadout`, key `hub`:
+The stored object is Nakama storage collection `loadout`, key `hub`. That is `loadout/hub`. It is separate from `game.loadout` (the M3 per-game table, which has no `hub` row). `permission_read` is 1 (owner). `permission_write` is 0. The server builds `slots`. A client `slots` object on the payload is ignored. `seq` has to be higher than the stored seq before a write. `updated_at` is Postgres `now()` in UTC, not the client clock.
 
 ```json
 { "v": 1, "slots": { "pet": "pet_honk_sproto" }, "seq": 1, "updated_at": "2026-10-29T22:00:00Z" }
 ```
 
-`permission_read` is 1 (owner). `permission_write` is 0. `updated_at` is Postgres `now()` in UTC, not the client clock. The server builds `slots`. A client `slots` object on the payload is ignored.
-
-This is not the M3 `game.loadout` row. That table is per game (`hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`) and is added by #28. The hub pet is the storage key above so it does not depend on that table and does not collide with People's Bitcoin `slots.summon`.
+This storage object is not the M3 `game.loadout` row. That table is per game (`hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`) and is added by #28. The hub pet stays on `loadout/hub` so it does not depend on that table and does not collide with People's Bitcoin `slots.summon`.
 
 Response:
 
@@ -124,18 +118,18 @@ That is the whole edit. This branch does not make it. The response shape gains:
 
 `pet_speed_sproto` appears because `hpos10i_core` is claimed, not because an `item_owned` row exists.
 
-## Backfill
+## Backfill migration
 
-`HubPets.backfill(nk)` grants two pets for rows that already exist. It is not called from `InitModule`, from `session.event`, or from any RPC. Do not register it.
+The statement in `backfillSql` is not executed and there is no function to call. When it is wired, it becomes one ledger entry: the next free id in `game.schema_migrations` at that time. This branch does not reserve that id. The entry is inserts only (`item_owned` and `item_ledger`), idempotent through `ON CONFLICT (user_id, item_id) DO NOTHING`. It does not update Tickets, Verse, `exchange_tx`, or `relic_claim`.
 
 | pet_id | Who gets a row |
 | --- | --- |
 | `pet_baby_sproto` | Any user with at least one `game.exchange_tx` row |
 | `pet_four_lights_sproto` | Any user with all four of `hpos10i_core`, `genesis_shard`, `cones_tip`, `tinubu_crown` on `game.relic_claim` |
 
-Source is `migration`. The `item_ledger` op is `grant_item`. `ref_id` is the new ledger `event_id`. `ON CONFLICT (user_id, item_id) DO NOTHING` makes a second call grant zero rows. The statement reads `exchange_tx` and `relic_claim`. It does not update them, and it does not write Tickets or Verse. `pet_sproto_pup` is not in the statement. Boss, quest, and act pets are not backfilled: those payloads are not stored, and the spec says the player earns them again by repeating the event.
+Source is `migration`. The `item_ledger` op is `grant_item`. `ref_id` is the new ledger `event_id`. A second apply grants nothing. `pet_sproto_pup` is not in the statement. Boss, quest, and act pets are not backfilled: those payloads are not stored, and the player earns them again by repeating the event.
 
-This function is the spec's one-off. It is not a live grant path. Live grants stay on `session.event` plus `item_rule`.
+Live grants for Baby Sproto and Four Lights are separate from this migration. They are the server-internal inserts described above, wired later into the exchange transaction and the relic-claim transaction. They are not event reasons and they are not this backfill.
 
 ## Statement to paste into `game.apply_event`
 
@@ -143,19 +137,16 @@ Declare `v_items json` next to the other variables. After the relic block update
 
 ```sql
 WITH sess AS (
-  SELECT 1 FROM game.game_session
-  WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
-    AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+  SELECT game.lock_open_session(p_session_id, p_user_id, p_game_id) AS event_seq
 ),
 eligible AS (
   SELECT r.item_id FROM game.item_rule r
-  WHERE EXISTS (SELECT 1 FROM sess)
+  WHERE (SELECT event_seq FROM sess) IS NOT NULL
     AND (
       (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
       OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
       OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
       OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
-      OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.item_obtained')
     )
     AND r.game_id = p_game_id AND r.event_type = p_event_id
     AND r.event_type <> 'game_beaten'
@@ -169,7 +160,6 @@ eligible AS (
       SELECT 1 FROM game.event_rule e
       WHERE e.game_id = r.game_id AND e.event_type = r.event_type
         AND e.event_type <> 'game_beaten'
-        AND (NOT (p_event_id = 'pb.item_obtained') OR e.max_amount = 0)
     )
 ),
 ins AS (
@@ -189,7 +179,7 @@ v_response := COALESCE(v_response, '{}'::jsonb)
   || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
 ```
 
-Inside `apply_event` the session was already locked, so `sess` is present whenever this runs. Always store `granted_items`, including `[]`. A relic response becomes `{ "granted": "<relic_id>", "granted_items": [] }` when the event grants a Relic and no item. An item-only event becomes `{ "granted_items": ["pet_honk_sproto"] }`.
+Inside `apply_event` the session row is already locked by `game.lock_open_session`. The paste calls that same function again. Always store `granted_items`, including `[]`. A relic response becomes `{ "granted": "<relic_id>", "granted_items": [] }` when the event grants a Relic and no item. An item-only event becomes `{ "granted_items": ["pet_honk_sproto"] }`. `pb.quest_complete` with `questId` `quest_hatchery` grants `pet_sproto_pup`. The same event with `questId` `quest_moonward` grants `pet_moon_sproto`. The relic row for that event type still matches `quest_tutorial` only.
 
 The TypeScript function binds the same statement as `$1` user, `$2` session, `$3` game, `$4` event type, `$5` data jsonb, and returns `{ error, granted_items }`. Use the plpgsql form above for the real wiring. Keep `CANONICAL` in `item_grant.ts` in step with this list.
 
@@ -199,7 +189,7 @@ No migration file is in this branch. #24 (not on main) records `0001_schema_migr
 
 When this is wired, put the statements below in one new ledger entry. The id is the next free id in `game.schema_migrations` at that time. Do not edit `0002_baseline` or any id already stored. A changed checksum fails startup. Do not append these statements to the `HubSchema` list on today's main if the ledger is what boots the database.
 
-`game.item_ledger` and `game.event_rule` already exist. This entry creates the two new tables, widens the ledger check, and adds `max_amount`. It does not recreate the ledger.
+`game.item_ledger` and `game.event_rule` already exist. This entry creates the two new tables and widens the ledger check. It does not add a column to `event_rule` and it does not insert an event reason. It does not recreate the ledger.
 
 ```sql
 CREATE TABLE game.item_owned (
@@ -225,15 +215,6 @@ ALTER TABLE game.item_ledger DROP CONSTRAINT item_ledger_op;
 ALTER TABLE game.item_ledger ADD CONSTRAINT item_ledger_op
   CHECK (op IN ('grant_relic', 'grant_item', 'purchase', 'admin_revoke'));
 
-ALTER TABLE game.event_rule ADD COLUMN max_amount bigint;
-ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_max_amount;
-ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_max_amount
-  CHECK (max_amount IS NULL OR max_amount >= 0);
-
-INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
-VALUES ('peoples-bitcoin', 'pb.item_obtained', NULL, NULL, NULL, NULL, '{}'::jsonb, 0)
-ON CONFLICT (game_id, event_type) DO NOTHING;
-
 INSERT INTO game.item_rule (game_id, event_type, item_id, match)
 VALUES
   ('hpos10i', 'hpos10i.level_complete', 'pet_honk_sproto', '{"zone":"z1_retro_rush_hills","act":2}'::jsonb),
@@ -242,15 +223,13 @@ VALUES
   ('nobu', 'nobu.boss_defeated', 'pet_conehead_sproto', '{"boss":"cat"}'::jsonb),
   ('sproto', 'sproto.boss_defeated', 'pet_presidential_sproto', '{"boss":"obama"}'::jsonb),
   ('peoples-bitcoin', 'pb.quest_complete', 'pet_moon_sproto', '{"questId":"quest_moonward"}'::jsonb),
-  ('peoples-bitcoin', 'pb.item_obtained', 'pet_sproto_pup', '{"itemId":"pet_sproto_pup"}'::jsonb)
+  ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup', '{"questId":"quest_hatchery"}'::jsonb)
 ON CONFLICT (game_id, event_type, item_id) DO NOTHING;
 ```
 
-`ON CONFLICT DO NOTHING` on the pup `event_rule` will not fill `max_amount` if a row for that event type is already there. The grant requires `max_amount = 0` for `pb.item_obtained`, so a pre-existing row without that value grants nothing until it is set. Do not change the relic rows for `hpos10i.level_complete`, `nobu.boss_defeated`, `sproto.boss_defeated`, or `pb.quest_complete`.
+Do not change the relic rows for `hpos10i.level_complete`, `nobu.boss_defeated`, `sproto.boss_defeated`, or `pb.quest_complete`. The Pup and Moonward rows are `item_rule` matches on the quest event that already exists. They are not new `event_rule` rows.
 
-The grant statement references `event_rule.max_amount`, so this entry has to be applied before that statement is installed in `apply_event`.
-
-`source = 'meta'` and `source = 'store'` and `op = 'purchase'` are in the checks because the spec shares `item_owned` with the store. This branch writes only `source = 'event'` (live) and `source = 'migration'` (the unwired backfill). It does not write `purchase`.
+`source = 'meta'` and `source = 'store'` and `op = 'purchase'` are in the checks because the spec shares `item_owned` with the store. This branch writes only `source = 'event'` (live quest, boss, and act grants) and `source = 'migration'` (the backfill entry above). Hopium and COOM wait for M7 `store.purchase`. This branch does not write `purchase`.
 
 ## Audit
 
@@ -288,7 +267,7 @@ Do this on a branch from the main that contains #24. Leave #12, #13, #25, #28, a
 
 ### 1. Number the tables
 
-One new ledger id, the next free one. Statements are the block above. Then install the `apply_event` paste. Order matters because the paste reads `max_amount`.
+One new ledger id, the next free one. Statements are the block above. Then install the `apply_event` paste. `game.lock_open_session` is already in `schema.ts` on this branch.
 
 ### 2. Compile the modules
 
@@ -317,7 +296,7 @@ Inside `InitModule`, with the other registrations:
 initializer.registerRpc("loadout.set_hub", rpcLoadoutSetHub);
 ```
 
-Do not register a grant RPC. Do not register `backfill`.
+Do not register a grant RPC. Do not add a function that runs the backfill.
 
 ### 4. `profile.get` and `session.event`
 
@@ -329,9 +308,9 @@ profileBody.pets = HubPets.profilePets(nk, userId);
 
 In `server/modules/src/schema.ts`, paste the statement into `game.apply_event` as shown above. Do not also call `HubItems.grantFromEvent` from `HubRpc.sessionEvent`.
 
-### 5. Leave the backfill unwired
+### 5. Backfill is a migration
 
-`HubPets.backfill` stays uncalled until Architect accepts that one-off. It is not part of startup.
+Copy `backfillSql` into its own ledger entry when Architect wires historical rows. Inserts only. Do not call it from `InitModule`. The id is whichever number is free then. This branch does not reserve it.
 
 ## Files wiring has to touch
 
@@ -340,17 +319,17 @@ In `server/modules/src/schema.ts`, paste the statement into `game.apply_event` a
 | `server/modules/tsconfig.json` | Add `item_grant.ts` and `pets.ts` to `files` |
 | `server/modules/src/main.ts` | Register `loadout.set_hub` only |
 | `server/modules/src/rpcs.ts` | `profile.get` adds `pets` from `HubPets.profilePets` |
-| `server/modules/src/schema.ts` | One new ledger entry, the next free id, and the `apply_event` paste |
+| `server/modules/src/schema.ts` | Already calls `game.lock_open_session` from `apply_event`. Later: one new ledger entry, the next free id, and the `apply_event` item paste |
 
 `server/modules/src/nakama.d.ts` needs no edit for this to typecheck while the `declare namespace` block remains. The hub client and SDK are a later change. #12 and #25 already edit them.
 
-`server/modules/src/schema.ts` on today's main has no ledger. Wait until #24 has merged before adding the migration entry.
+`server/modules/src/schema.ts` on today's main has no ledger. Wait until #24 has merged before adding the migration entry. `game.lock_open_session` is the only schema change on this branch, and relic grants behave as they did before it.
 
-## Questions for Architect
+## Architect decisions recorded here
 
-1. `pet_baby_sproto` and `pet_four_lights_sproto` have no canonical `session.event`. Live `item_rule` rows are not seeded. `HubPets.backfill` covers the spec's `exchange_tx` and four-relic cases and is not called. Should that function stay as the one-off, or should each pet get a new event reason with `event_rule.max_amount` instead?
-2. `pet_hopium_sproto` and `pet_coom_sproto` are `store.purchase` in the spec. That path is a direct RPC, so they are not granted here. Which `session.event` should match them?
-3. Relic summons are derived from `relic_claim` and are not inserted into `item_owned`. `loadout.set_hub` treats them as owned when the relic row exists. The spec's set-hub sentence names `item_owned` only. Confirm derived ownership is the equip check.
-4. `pb.item_obtained.max_amount` is `0`, meaning that event credits no Tickets. Confirm that reading. The item cap is the primary key.
-5. The session check copied from relics is open, same game, `lease_until > now()`, and ticket redeemed. Confirm that is the "minimum age" check.
-6. The hub pet is Nakama storage `loadout` / `hub` with `permission_read` 1 and `permission_write` 0, not a `game.loadout` row. Confirm that split from the M3 table.
+- The Pup is `item_rule ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup', '{"questId":"quest_hatchery"}')`. There is no `pb.item_obtained` grant.
+- Baby Sproto and Four Lights have no event reasons. Live grants are server-internal inserts, wired later. The historical rows are a one-time ledger migration, not a callable function.
+- Hopium and COOM are granted only by M7 `store.purchase`.
+- The three relic summons equip from `relic_claim` through `ownedSet`, the same function `profilePets` and `setHub` call.
+- The session check is `game.lock_open_session`, shared with the relic path.
+- The hub pet is Nakama storage `loadout/hub` (read 1, write 0, server-built slots, seq-guarded), separate from `game.loadout`.

@@ -13,18 +13,33 @@ namespace HubItems {
   interface CanonicalEvent {
     event: string;
     game: string;
-    /** A new event_type. Its event_rule row must set max_amount to 0. */
-    fresh: boolean;
   }
 
-  // Reasons the games already report, plus the one new pup event.
+  interface ItemRule {
+    game: string;
+    event: string;
+    item: string;
+    match: string;
+  }
+
+  // Event types already on game.event_rule. No new reason is added.
   // game_beaten is not a reason. Store purchase is not a session.event.
   var CANONICAL: CanonicalEvent[] = [
-    { event: "hpos10i.level_complete", game: "hpos10i", fresh: false },
-    { event: "nobu.boss_defeated", game: "nobu", fresh: false },
-    { event: "sproto.boss_defeated", game: "sproto", fresh: false },
-    { event: "pb.quest_complete", game: "peoples-bitcoin", fresh: false },
-    { event: "pb.item_obtained", game: "peoples-bitcoin", fresh: true },
+    { event: "hpos10i.level_complete", game: "hpos10i" },
+    { event: "nobu.boss_defeated", game: "nobu" },
+    { event: "sproto.boss_defeated", game: "sproto" },
+    { event: "pb.quest_complete", game: "peoples-bitcoin" },
+  ];
+
+  // Seeded later. The Pup is quest_hatchery, not a client item_obtained claim.
+  var RULES: ItemRule[] = [
+    { game: "hpos10i", event: "hpos10i.level_complete", item: "pet_honk_sproto", match: "{\"zone\":\"z1_retro_rush_hills\",\"act\":2}" },
+    { game: "hpos10i", event: "hpos10i.level_complete", item: "pet_spiral_sproto", match: "{\"zone\":\"z2_wizard_academy\",\"act\":2}" },
+    { game: "nobu", event: "nobu.boss_defeated", item: "pet_mecha_sproto", match: "{\"boss\":\"bird\"}" },
+    { game: "nobu", event: "nobu.boss_defeated", item: "pet_conehead_sproto", match: "{\"boss\":\"cat\"}" },
+    { game: "sproto", event: "sproto.boss_defeated", item: "pet_presidential_sproto", match: "{\"boss\":\"obama\"}" },
+    { game: "peoples-bitcoin", event: "pb.quest_complete", item: "pet_moon_sproto", match: "{\"questId\":\"quest_moonward\"}" },
+    { game: "peoples-bitcoin", event: "pb.quest_complete", item: "pet_sproto_pup", match: "{\"questId\":\"quest_hatchery\"}" },
   ];
 
   // Relics stay on relic_claim. Relic summons stay derived and are never rows.
@@ -45,15 +60,41 @@ namespace HubItems {
 
   function assertCatalog(): void {
     var seen: { [id: string]: boolean } = {};
-    var fresh = 0;
     for (var i = 0; i < CANONICAL.length; i++) {
       var row = CANONICAL[i];
-      if (row.event === "game_beaten" || seen[row.event] || !row.game) throw new Error("bad_canonical");
+      if (row.event === "game_beaten" || row.event === "pb.item_obtained" || seen[row.event] || !row.game) {
+        throw new Error("bad_canonical");
+      }
       seen[row.event] = true;
-      if (row.fresh) fresh++;
     }
-    if (CANONICAL.length !== 5 || fresh !== 1 || !seen["pb.item_obtained"]) throw new Error("bad_canonical");
+    if (CANONICAL.length !== 4 || !seen["pb.quest_complete"] || seen["pb.item_obtained"]) throw new Error("bad_canonical");
     if (seen["store.purchase"]) throw new Error("bad_canonical");
+    if (RULES.length !== 7) throw new Error("bad_rules");
+    var pup = 0;
+    var ruled: { [item: string]: boolean } = {};
+    for (var n = 0; n < RULES.length; n++) {
+      var rule = RULES[n];
+      if (rule.event === "pb.item_obtained" || rule.event === "game_beaten" || rule.event === "store.purchase") {
+        throw new Error("bad_rules");
+      }
+      if (!seen[rule.event]) throw new Error("bad_rules");
+      var gameOk = false;
+      for (var c = 0; c < CANONICAL.length; c++) {
+        if (CANONICAL[c].event === rule.event && CANONICAL[c].game === rule.game) gameOk = true;
+      }
+      if (!gameOk || ruled[rule.item] || rule.match === "{}") throw new Error("bad_rules");
+      ruled[rule.item] = true;
+      if (rule.item === "pet_sproto_pup") {
+        pup++;
+        if (rule.game !== "peoples-bitcoin" || rule.event !== "pb.quest_complete" || rule.match !== "{\"questId\":\"quest_hatchery\"}") {
+          throw new Error("pup_grant");
+        }
+      }
+    }
+    if (pup !== 1 || !ruled["pet_honk_sproto"] || !ruled["pet_moon_sproto"]) throw new Error("bad_rules");
+    if (ruled["pet_baby_sproto"] || ruled["pet_four_lights_sproto"] || ruled["pet_hopium_sproto"] || ruled["pet_coom_sproto"]) {
+      throw new Error("bad_rules");
+    }
     var excluded: { [id: string]: boolean } = {};
     for (var j = 0; j < EXCLUDED.length; j++) {
       if (excluded[EXCLUDED[j]]) throw new Error("bad_excluded");
@@ -63,6 +104,9 @@ namespace HubItems {
       throw new Error("bad_excluded");
     }
     if (!excluded["hpos10i_core"] || EXCLUDED.length !== 7) throw new Error("bad_excluded");
+    for (var k = 0; k < RULES.length; k++) {
+      if (excluded[RULES[k].item]) throw new Error("bad_rules");
+    }
   }
 
   function sqlQuote(value: string): string {
@@ -109,6 +153,9 @@ namespace HubItems {
       throw new Error("missing_grant");
     }
     if (lower.indexOf("<> 'game_beaten'") < 0) throw new Error("game_beaten_grant");
+    if (lower.indexOf("game.lock_open_session") < 0) throw new Error("copied_session_check");
+    if (lower.indexOf("lease_until") >= 0 || lower.indexOf("ticket_redeemed_at") >= 0) throw new Error("copied_session_check");
+    if (lower.indexOf("pb.item_obtained") >= 0 || lower.indexOf("max_amount") >= 0) throw new Error("pup_claim");
   }
 
   function pairPredicate(): string {
@@ -116,16 +163,6 @@ namespace HubItems {
     for (var i = 0; i < CANONICAL.length; i++) {
       parts.push("($3::text = " + sqlQuote(CANONICAL[i].game) + " AND $4::text = " + sqlQuote(CANONICAL[i].event) + ")");
     }
-    return parts.join(" OR ");
-  }
-
-  function freshPredicate(): string {
-    var parts: string[] = [];
-    for (var i = 0; i < CANONICAL.length; i++) {
-      if (!CANONICAL[i].fresh) continue;
-      parts.push("$4::text = " + sqlQuote(CANONICAL[i].event));
-    }
-    if (!parts.length) return "FALSE";
     return parts.join(" OR ");
   }
 
@@ -138,13 +175,11 @@ namespace HubItems {
   function grantSql(): string {
     return [
       "WITH sess AS (",
-      "  SELECT 1 FROM game.game_session",
-      "  WHERE session_id = $2::uuid AND user_id = $1::uuid AND game_id = $3::text",
-      "    AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL",
+      "  SELECT game.lock_open_session($2::uuid, $1::uuid, $3::text) AS event_seq",
       "),",
       "eligible AS (",
       "  SELECT r.item_id FROM game.item_rule r",
-      "  WHERE EXISTS (SELECT 1 FROM sess)",
+      "  WHERE (SELECT event_seq FROM sess) IS NOT NULL",
       "    AND (" + pairPredicate() + ")",
       "    AND r.game_id = $3::text AND r.event_type = $4::text",
       "    AND r.event_type <> 'game_beaten'",
@@ -155,7 +190,6 @@ namespace HubItems {
       "      SELECT 1 FROM game.event_rule e",
       "      WHERE e.game_id = r.game_id AND e.event_type = r.event_type",
       "        AND e.event_type <> 'game_beaten'",
-      "        AND (NOT (" + freshPredicate() + ") OR e.max_amount = 0)",
       "    )",
       "),",
       "ins AS (",
@@ -170,7 +204,7 @@ namespace HubItems {
       "  RETURNING item_id",
       ")",
       "SELECT jsonb_build_object(",
-      "  'error', CASE WHEN NOT EXISTS (SELECT 1 FROM sess) THEN 'session_closed' ELSE NULL END,",
+      "  'error', CASE WHEN (SELECT event_seq FROM sess) IS NULL THEN 'session_closed' ELSE NULL END,",
       "  'granted_items', COALESCE((SELECT json_agg(item_id ORDER BY item_id) FROM led), '[]'::json)",
       ")::text AS result",
     ].join("\n");

@@ -2,9 +2,9 @@
 // Nakama bundle does not include this file. Wiring is docs/m6-server-prep.md.
 //
 // profilePets builds the pets object for profile.get. setHub is the
-// loadout.set_hub RPC. backfill is the one-off for pets already earned.
-// None of them is called from InitModule. Equipping writes no ledger row
-// and does not credit Tickets, Verse, Relics, or items.
+// loadout.set_hub RPC. Both call ownedSet. The backfill statement is the
+// text of a future ledger migration and is not executed. Equipping writes
+// no ledger row and does not credit Tickets, Verse, Relics, or items.
 
 declare namespace nkruntime {
   interface StorageReadRequest {
@@ -45,25 +45,27 @@ namespace HubPets {
     relic: string;
     /** True when a canonical session.event can match an item_rule for this id. */
     live: boolean;
-    /** True only for the unwired exchange / four-relic backfill. */
+    /** True only for the exchange / four-relic backfill migration. */
     backfill: boolean;
+    /** True only for pets M7 store.purchase grants. */
+    store: boolean;
   }
 
   var PETS: PetDef[] = [
-    { id: "pet_baby_sproto", relic: "", live: false, backfill: true },
-    { id: "pet_honk_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_spiral_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_mecha_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_conehead_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_presidential_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_moon_sproto", relic: "", live: true, backfill: false },
-    { id: "pet_four_lights_sproto", relic: "", live: false, backfill: true },
-    { id: "pet_hopium_sproto", relic: "", live: false, backfill: false },
-    { id: "pet_coom_sproto", relic: "", live: false, backfill: false },
-    { id: "pet_speed_sproto", relic: "hpos10i_core", live: false, backfill: false },
-    { id: "pet_nobu", relic: "cones_tip", live: false, backfill: false },
-    { id: "pet_duelist_sproto", relic: "tinubu_crown", live: false, backfill: false },
-    { id: "pet_sproto_pup", relic: "", live: true, backfill: false },
+    { id: "pet_baby_sproto", relic: "", live: false, backfill: true, store: false },
+    { id: "pet_honk_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_spiral_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_mecha_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_conehead_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_presidential_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_moon_sproto", relic: "", live: true, backfill: false, store: false },
+    { id: "pet_four_lights_sproto", relic: "", live: false, backfill: true, store: false },
+    { id: "pet_hopium_sproto", relic: "", live: false, backfill: false, store: true },
+    { id: "pet_coom_sproto", relic: "", live: false, backfill: false, store: true },
+    { id: "pet_speed_sproto", relic: "hpos10i_core", live: false, backfill: false, store: false },
+    { id: "pet_nobu", relic: "cones_tip", live: false, backfill: false, store: false },
+    { id: "pet_duelist_sproto", relic: "tinubu_crown", live: false, backfill: false, store: false },
+    { id: "pet_sproto_pup", relic: "", live: true, backfill: false, store: false },
   ];
 
   export interface ProfilePets {
@@ -87,21 +89,26 @@ namespace HubPets {
       var pet = PETS[i];
       if (seen[pet.id] || pet.id.indexOf("pet_") !== 0) throw new Error("pet_count");
       seen[pet.id] = true;
-      if (pet.relic && (pet.live || pet.backfill)) throw new Error("derived_grant");
+      if (pet.relic && (pet.live || pet.backfill || pet.store)) throw new Error("derived_grant");
       if (pet.live) live++;
       if (pet.backfill) backfill++;
       if (pet.relic) relics++;
     }
-    if (PETS.length !== 14 || live !== 7 || backfill !== 2 || relics !== 3) throw new Error("pet_count");
-    if (!seen["pet_sproto_pup"] || petById("pet_sproto_pup").backfill || !petById("pet_sproto_pup").live) {
-      throw new Error("pup_grant");
-    }
+    var store = 0;
+    for (var s = 0; s < PETS.length; s++) if (PETS[s].store) store++;
+    if (PETS.length !== 14 || live !== 7 || backfill !== 2 || relics !== 3 || store !== 2) throw new Error("pet_count");
+    var pup = petById("pet_sproto_pup");
+    if (!seen["pet_sproto_pup"] || pup.backfill || pup.store || pup.relic || !pup.live) throw new Error("pup_grant");
     var baby = petById("pet_baby_sproto");
     var lights = petById("pet_four_lights_sproto");
-    if (!baby.backfill || !lights.backfill || baby.live || lights.live) throw new Error("backfill_pets");
+    if (!baby.backfill || !lights.backfill || baby.live || lights.live || baby.store || lights.store) {
+      throw new Error("backfill_pets");
+    }
     var hopium = petById("pet_hopium_sproto");
     var coom = petById("pet_coom_sproto");
-    if (hopium.live || hopium.backfill || coom.live || coom.backfill) throw new Error("store_grant");
+    if (!hopium.store || !coom.store || hopium.live || hopium.backfill || coom.live || coom.backfill) {
+      throw new Error("store_grant");
+    }
     if (petById("pet_speed_sproto").relic !== "hpos10i_core") throw new Error("derived_grant");
     if (petById("pet_nobu").relic !== "cones_tip") throw new Error("derived_grant");
     if (petById("pet_duelist_sproto").relic !== "tinubu_crown") throw new Error("derived_grant");
@@ -182,6 +189,11 @@ namespace HubPets {
     return parsed as unknown[];
   }
 
+  /**
+   * The only ownership check. profilePets and setHub both call this.
+   * Relic summons are derived from relic_claim. Every other catalog pet
+   * comes from item_owned. This does not grant.
+   */
   function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
     var have: { [id: string]: boolean } = {};
     var itemSql = "SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json)::text AS result FROM game.item_owned WHERE user_id = $1::uuid AND item_id IN (" + nonRelicList() + ")";
@@ -374,6 +386,10 @@ namespace HubPets {
     return ack(true, seq, nextPet, updatedAt, "");
   }
 
+  /**
+   * Inserts for the one-time backfill ledger entry. Not executed.
+   * Wiring copies this statement into a numbered migration. It is not a function to call.
+   */
   function backfillSql(): string {
     return [
       "WITH baby AS (",
@@ -414,22 +430,7 @@ namespace HubPets {
     if (lower.indexOf("on conflict (user_id, item_id) do nothing") < 0) throw new Error("missing_grant");
     if (lower.indexOf("'migration'") < 0 || lower.indexOf("grant_item") < 0) throw new Error("missing_grant");
     if (lower.indexOf("insert into game.relic_claim") >= 0) throw new Error("relic_grant");
-  }
-
-  /**
-   * One-off backfill for pet_baby_sproto (any exchange_tx row) and
-   * pet_four_lights_sproto (all four relic_claim rows). Not a session.event,
-   * not an RPC, and not called from InitModule. A second call grants nothing.
-   * pet_sproto_pup is not included. Tickets and Verse are not touched.
-   */
-  export function backfill(nk: nkruntime.Nakama): { granted: number } {
-    var sql = backfillSql();
-    assertBackfill(sql);
-    var rows = nk.sqlQuery(sql, []);
-    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) return { granted: 0 };
-    var n = Number(rows[0].result);
-    if (!isFinite(n) || n < 0) return { granted: 0 };
-    return { granted: Math.floor(n) };
+    if (lower.indexOf("pb.item_obtained") >= 0) throw new Error("pup_backfill");
   }
 
   assertCatalog();
