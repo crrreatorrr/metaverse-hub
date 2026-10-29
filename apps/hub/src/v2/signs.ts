@@ -50,11 +50,11 @@ function canvasTexture(canvas: HTMLCanvasElement): CanvasTexture {
   return texture;
 }
 
-/** Two-line building name. The mesh and material keep `name`. */
-export function buildingSign(name: string, title: string, subtitle: string, tint: string): Mesh {
+/** Building name on one canvas. The mesh and material keep `name`. `notice` is a smaller third line. */
+export function buildingSign(name: string, title: string, subtitle: string, tint: string, notice = ''): Mesh {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
-  canvas.height = 512;
+  canvas.height = notice ? 640 : 512;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d context unavailable');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -67,16 +67,22 @@ export function buildingSign(name: string, title: string, subtitle: string, tint
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.fillStyle = '#ffffff';
-  fitFont(ctx, title, 920, 92);
-  ctx.fillText(title, 512, subtitle ? 190 : 256);
+  fitFont(ctx, title, 920, notice ? 84 : 92);
+  ctx.fillText(title, 512, notice ? 168 : (subtitle ? 190 : 256));
   if (subtitle) {
     ctx.fillStyle = tint;
-    fitFont(ctx, subtitle, 920, 58);
-    ctx.fillText(subtitle, 512, 320);
+    fitFont(ctx, subtitle, 920, notice ? 52 : 58);
+    ctx.fillText(subtitle, 512, notice ? 300 : 320);
+  }
+  if (notice) {
+    ctx.fillStyle = tint;
+    fitFont(ctx, notice, 920, 40);
+    ctx.fillText(notice, 512, 470);
   }
   const material = new MeshBasicMaterial({ map: canvasTexture(canvas), transparent: true, toneMapped: false });
   material.name = name;
-  const mesh = new Mesh(new PlaneGeometry(subtitle ? 11 : 4.8, subtitle ? 5.5 : 1.35), material);
+  const height = notice ? 6.9 : (subtitle ? 5.5 : 1.35);
+  const mesh = new Mesh(new PlaneGeometry(subtitle || notice ? 11 : 4.8, height), material);
   mesh.name = name;
   return glow(mesh);
 }
