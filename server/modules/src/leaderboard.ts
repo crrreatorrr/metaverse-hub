@@ -1,9 +1,11 @@
 // M3 leaderboards. Not registered and not in tsconfig.json `files`, so the
 // Nakama bundle does not include this. Wiring is docs/m3-server-prep.md.
 //
-// Ranked scores land in game.ranked_score. God-mode and unranked sessions
-// write no row. The meta board is recomputed from the four game boards.
-// Nothing here credits Tickets, Verse, Relics, or items.
+// Scores land in game.ranked_score. Time and win boards for hpos10i, nobu,
+// and sproto accept a write only when game.game_session.ranked is true.
+// That flag is the session row, never the client. peoples-bitcoin is exempt.
+// God-mode posts write no row. The meta board is recomputed from the four
+// game boards. Nothing here credits Tickets, Verse, Relics, or items.
 
 namespace HubBoards {
   /** 15 Hz times five minutes. The hub match calls onHubTick. */
@@ -114,7 +116,8 @@ namespace HubBoards {
     + " WHERE session_id = $1::uuid AND user_id = $2::uuid AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL"
     + " ), gate AS (SELECT CASE"
     + " WHEN NOT EXISTS (SELECT 1 FROM sess) THEN 'session_closed'"
-    + " WHEN NOT COALESCE((SELECT ranked FROM sess), false) THEN 'unranked'"
+    + " WHEN NOT COALESCE((SELECT ranked FROM sess), false)"
+    + " AND (SELECT game_id FROM sess) IN ('hpos10i', 'nobu', 'sproto') THEN 'unranked'"
     + " WHEN $3::boolean THEN 'god_mode'"
     + " WHEN (SELECT game_id FROM sess) IS DISTINCT FROM $4::text THEN 'bad_board'"
     + " ELSE NULL END AS reason),"
@@ -175,8 +178,10 @@ namespace HubBoards {
     + " SELECT jsonb_build_object('removed', (SELECT count(*) FROM removed))::text AS result";
 
   /**
-   * Replacement for score.submit. Ranked is read from game.game_session, not
-   * from the client. godMode on the body or on meta posts nothing. meta is
+   * Replacement for score.submit. For hpos10i, nobu, and sproto, a write is
+   * accepted only when game.game_session.ranked is true. A ranked field on
+   * the payload is ignored. peoples-bitcoin may post pb_total_xp from an
+   * unranked session. godMode on the body or on meta posts nothing. meta is
    * not a client board. Operators match the live score.submit modes.
    */
   export function submit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {

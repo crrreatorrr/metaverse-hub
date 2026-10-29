@@ -63,16 +63,19 @@ Every 4500 ticks (five minutes at 15 Hz) the loop calls `HubBoards.onHubTick`. T
 
 Modes match the `score.submit` already on main. A client post to `meta` returns `{ accepted: false, reason: "server_board" }` and writes nothing. A board from the wrong game returns `bad_board` and writes nothing. Values are `Math.round` of a non-negative number, same as today's RPC.
 
-Ranked is `game.game_session.ranked` on the open, redeemed session. The client flag is not trusted.
+Time and score writes for HPOS10I, NOBU, and Sproto Duel are accepted only from a ranked session. The game id on the session row for Sproto Duel is `sproto`. The ranked flag is `game.game_session.ranked` on the open, redeemed session. A `ranked` field on the client payload is ignored. Unranked runs still carry gameplay effects, such as HPOS10I's ×1.05 speed and `time_scale` slow-mo, so those runs must not reach `hpos10i_act_time`, `nobu_trial_time`, or `sproto_wins`.
+
+People's Bitcoin is exempt. `pb_total_xp` may be posted from an unranked session. Relic summons give 0 XP, so they do not move that board. Verse boards are not written here. They come from the Ticket exchange.
 
 | Session | Result |
 | --- | --- |
 | Not open, expired, or not redeemed | `session_closed`, no row |
-| `ranked = false` | `{ accepted: false, reason: "unranked" }`, no row |
+| `ranked = false` and the session game is `hpos10i`, `nobu`, or `sproto` | `{ accepted: false, reason: "unranked" }`, no row |
+| `ranked = false` and the session game is `peoples-bitcoin` | `pb_total_xp` may upsert. Any other board is `bad_board` |
 | `godMode` or `god_mode` true on the body, or `god` / `godMode` / `god_mode` true on `meta` | `{ accepted: false, reason: "god_mode" }`, no row |
-| Ranked, not god mode | Upsert `game.ranked_score` |
+| Ranked, not god mode, board matches the session game | Upsert `game.ranked_score` |
 
-There is no god-mode column on the session. A client that omits the flag is treated as not god mode. Unranked is enforced from the session row either way. God-mode and unranked calls do not write `game.score_best`, Tickets, Verse, Relics, or items.
+There is no god-mode column on the session. A client that omits the flag is treated as not god mode. These calls do not write `game.score_best`, Tickets, Verse, Relics, or items.
 
 Meta, recomputed every five minutes from the four game boards:
 
@@ -140,7 +143,7 @@ A game session can read only its game. A hub session can read any of the four. M
 
 Game session only. Payload `{ v: 1, game, slot, item_id, seq }`. `item_id` may be null. `itemId` is accepted as an alias. `seq` has to be an integer greater than the stored seq.
 
-The statement checks, in order: open redeemed session for this user and game, slot legal for the game, item in the catalog for that slot, Relic owned (or starter), then seq. A null staff is stored as `duel_staff_sproto`. A retry of the same seq that already stored that item returns `ok: true` and does not write again.
+The statement checks, in order: open redeemed session for this user and game, slot legal for the game, item in the catalog for that slot, Relic owned (or starter), then seq. A null staff is stored as `duel_staff_sproto`. A retry of the same seq that already stored that item returns `ok: true` and does not write again. When `portal.enter` is wired, it reads this server row. It does not accept a loadout from the client.
 
 Failures use `not_owned`, `bad_slot`, `stale_seq`, or `session_closed`, and include the server loadout. `seq` in the response is the stored seq. A wrong game id is `bad_game`. No write touches `game.relic_claim`, `game.item_ledger`, Tickets, or Verse.
 
@@ -148,7 +151,7 @@ Failures use `not_owned`, `bad_slot`, `stale_seq`, or `session_closed`, and incl
 
 No migration file is in this PR. #24 (not on main) already uses `0001_schema_migrations`, `0002_baseline`, and `0003_merge_pb_into_peoples_bitcoin`, and reserves `0004` upward for #12 and #13. #17's play-lease migration also has to take a free id from that ledger.
 
-**Intended number: `0006_loadout_ranked_score`.** Use it only when `0004` and `0005` are the two migrations #24 assigns to #12 and #13 and no other id is inserted first. If play-lease or anything else lands earlier, take the next free id. Do not edit `0002_baseline` or any id already stored in `game.schema_migrations`. A changed checksum fails startup.
+`game.loadout` and `game.ranked_score` take the next free number in #24's ledger when they are wired. This branch does not reserve an id. Do not edit `0002_baseline` or any id already stored in `game.schema_migrations`. A changed checksum fails startup.
 
 Append one new entry on the ledger. Statements:
 
@@ -234,7 +237,11 @@ Do not register a second score RPC. Replace the body of `HubRpc.scoreSubmit` in 
 
 ### 4. Number the tables
 
-Add the SQL above as the next ledger migration. Do not append it to the old `HubSchema` statement list if the ledger is what boots the database. Do not change the text of `0002_baseline`.
+Give `game.loadout` and `game.ranked_score` the next free id in #24's ledger. Do not append the SQL to the old `HubSchema` statement list if the ledger is what boots the database. Do not change the text of `0002_baseline`.
+
+### 5. portal.enter loadout
+
+When `portal.enter` is wired to this loadout, read `game.loadout` for that user and game. Do not take slots, item ids, or effects from the client payload. The effects passed into the session are the server row after ownership checks, not a body field.
 
 ## Files wiring has to touch
 
