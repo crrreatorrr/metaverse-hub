@@ -2,7 +2,7 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.2.1. `redeemTicket` is the handoff. Existing method names, argument order, game ids, relic ids, and event ids stay stable.
+Version 0.4.0-redeem.1 (a prerelease of 0.4.0). `redeemTicket` is the handoff. Existing method names, argument order, game ids, relic ids, and event ids stay stable.
 
 ## Install
 
@@ -15,10 +15,10 @@ npm ci
 npm pack -w @metaverse/hub-sdk
 ```
 
-That writes `metaverse-hub-sdk-0.2.1.tgz` in the repo root. In the game:
+That writes `metaverse-hub-sdk-0.4.0-redeem.1.tgz` in the repo root. In the game:
 
 ```bash
-npm install /absolute/path/to/metaverse-hub-sdk-0.2.1.tgz
+npm install /absolute/path/to/metaverse-hub-sdk-0.4.0-redeem.1.tgz
 ```
 
 A folder install also works after `npm ci` in the hub repo:
