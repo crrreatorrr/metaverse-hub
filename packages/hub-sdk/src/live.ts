@@ -1,7 +1,6 @@
 import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
 import type { NakamaClient, RedeemResult } from './nakama';
-import { defaultLiveOutbox, sameBody, type EconomyRpc, type LiveOutbox, type OutboxPending } from './outbox';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
@@ -15,6 +14,20 @@ import {
   type RelicId,
 } from './types';
 
+/** IndexedDB database for earn, event, and exchange writes that have not been acked. */
+export const HUB_OUTBOX_DB = 'hub-outbox';
+const OUTBOX_STORE = 'writes';
+
+type EconomyRpc = 'session.event' | 'tickets.earn' | 'tickets.exchange';
+
+interface OutboxRecord {
+  rpc: EconomyRpc;
+  body: Record<string, unknown>;
+  key: string;
+  token: string;
+  gameId: string;
+}
+
 interface LiveSession {
   game: GameId;
   playerId: string;
@@ -25,6 +38,8 @@ interface LiveSession {
   relics: RelicId[];
   ticketsCapLeft: number;
 }
+
+const memoryWrites = new Map<string, OutboxRecord>();
 
 function flatEffects(value: unknown): Record<string, number | boolean | string> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
@@ -40,26 +55,87 @@ function asRelics(value: unknown): RelicId[] {
   return value.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
 }
 
-const TERMINAL = new Set([
-  'idempotency_mismatch',
-  'bad_key',
-  'bad_event',
-  'bad_amount',
-  'bad_reason',
-  'bad_json',
-  'bad_game',
-]);
-
-function isRetryable(error: unknown): boolean {
-  if (!(error instanceof HubSdkError)) return true;
-  if (error.code === 'queued') return true;
-  if (error.code !== 'rpc_failed') return false;
-  const status = error.status ?? 0;
-  return status === 0 || status === 408 || status === 429 || status >= 500;
+function cloneBody(body: Record<string, unknown>): Record<string, unknown> {
+  return JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
 }
 
-function operationId(playerId: string, rpc: EconomyRpc, callerKey: string): string {
-  return `${playerId}:${rpc}:${callerKey}`;
+function useIndexedDb(): boolean {
+  return typeof indexedDB !== 'undefined';
+}
+
+function openOutbox(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(HUB_OUTBOX_DB, 1);
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if (!db.objectStoreNames.contains(OUTBOX_STORE)) db.createObjectStore(OUTBOX_STORE, { keyPath: 'key' });
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('indexedDB open failed'));
+  });
+}
+
+function requestDone<T>(request: IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('indexedDB request failed'));
+  });
+}
+
+function transactionDone(tx: IDBTransaction): Promise<void> {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('indexedDB transaction failed'));
+    tx.onabort = () => reject(tx.error ?? new Error('indexedDB transaction aborted'));
+  });
+}
+
+async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => Promise<T> | T): Promise<T> {
+  const db = await openOutbox();
+  try {
+    const tx = db.transaction(OUTBOX_STORE, mode);
+    const done = transactionDone(tx);
+    const result = await run(tx.objectStore(OUTBOX_STORE));
+    await done;
+    return result;
+  } finally {
+    db.close();
+  }
+}
+
+async function readWrite(key: string): Promise<OutboxRecord | null> {
+  if (!useIndexedDb()) return memoryWrites.get(key) ?? null;
+  return withStore('readonly', (store) => requestDone<OutboxRecord | undefined>(store.get(key))).then((row) => row ?? null);
+}
+
+async function listWrites(): Promise<OutboxRecord[]> {
+  if (!useIndexedDb()) return [...memoryWrites.values()];
+  return withStore('readonly', (store) => requestDone<OutboxRecord[]>(store.getAll()));
+}
+
+/** Commit the record before any RPC. An existing key is left untouched. */
+async function remember(record: OutboxRecord): Promise<OutboxRecord> {
+  const existing = await readWrite(record.key);
+  if (existing) return existing;
+  const stored = { ...record, body: cloneBody(record.body) };
+  if (!useIndexedDb()) {
+    memoryWrites.set(stored.key, stored);
+    return stored;
+  }
+  await withStore('readwrite', (store) => {
+    store.put(stored);
+  });
+  return stored;
+}
+
+async function forget(key: string): Promise<void> {
+  if (!useIndexedDb()) {
+    memoryWrites.delete(key);
+    return;
+  }
+  await withStore('readwrite', (store) => {
+    store.delete(key);
+  });
 }
 
 /**
@@ -69,7 +145,6 @@ function operationId(playerId: string, rpc: EconomyRpc, callerKey: string): stri
  */
 export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
   const resolved = resolveHubEnv(env);
-  const outbox: LiveOutbox = env.outbox ?? defaultLiveOutbox();
   let active: LiveSession | null = null;
 
   function sessionKey(game: GameId): string {
@@ -134,88 +209,22 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     writeCached(session);
   }
 
-  async function deliver(session: LiveSession, row: OutboxPending, keepalive = false): Promise<unknown> {
-    const response = await client.rpc(
-      row.rpc,
-      { ...row.body, key: row.idemKey },
-      { token: session.token, keepalive },
-    );
-    await outbox.settle(row, response);
-    if (row.rpc === 'session.event') noteGrant(session, response);
+  /** One attempt. A lost response rejects and leaves the queued record in place. */
+  async function transmit(row: OutboxRecord): Promise<unknown> {
+    const response = await client.rpc(row.rpc, { ...row.body, key: row.key }, { token: row.token });
+    await forget(row.key);
+    if (active && row.gameId === active.game && row.rpc === 'session.event') noteGrant(active, response);
     return response;
   }
 
-  async function flush(session: LiveSession, except?: string): Promise<void> {
-    await outbox.ready();
-    const rows = outbox
-      .list(session.playerId)
-      .filter((row) => row.game === session.game && row.opId !== except && !TERMINAL.has(row.lastError ?? ''))
-      .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
-    for (const row of rows) {
-      try {
-        await deliver(session, row);
-      } catch (error) {
-        const code = error instanceof HubSdkError ? error.code : 'queued';
-        if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
-        if (isRetryable(error)) return;
-      }
-    }
+  async function sendOnce(session: LiveSession, rpc: EconomyRpc, key: string, body: Record<string, unknown>): Promise<unknown> {
+    const row = await remember({ rpc, body, key, token: session.token, gameId: session.game });
+    return transmit(row);
   }
 
-  async function flushStored(): Promise<void> {
-    await outbox.ready();
-    const rows = outbox
-      .all()
-      .filter((row) => row.token && !TERMINAL.has(row.lastError ?? ''))
-      .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
-    for (const row of rows) {
-      try {
-        const response = await client.rpc(row.rpc, { ...row.body, key: row.idemKey }, { token: row.token });
-        await outbox.settle(row, response);
-      } catch (error) {
-        const code = error instanceof HubSdkError ? error.code : 'queued';
-        if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
-        if (isRetryable(error)) return;
-      }
-    }
-  }
-
-  async function send<T>(session: LiveSession, rpc: EconomyRpc, callerKey: string, body: Record<string, unknown>): Promise<T> {
-    const opId = operationId(session.playerId, rpc, callerKey);
-    try {
-      await outbox.ready();
-    } catch {
-      throw new HubSdkError('outbox', 'Could not save this request.');
-    }
-    await flush(session, opId);
-    const done = outbox.settled(opId);
-    if (done) {
-      if (done.rpc !== rpc || !sameBody(done.body, body)) {
-        throw new HubSdkError('idempotency_mismatch', 'Idempotency key was reused with a different request');
-      }
-      if (rpc === 'session.event') noteGrant(session, done.response);
-      return done.response as T;
-    }
-    const row = await outbox.claim({
-      opId,
-      rpc,
-      playerId: session.playerId,
-      game: session.game,
-      body,
-      token: session.token,
-      createdAt: Date.now(),
-    });
-    if (row.rpc !== rpc || !sameBody(row.body, body)) {
-      throw new HubSdkError('idempotency_mismatch', 'Idempotency key was reused with a different request');
-    }
-    try {
-      return (await deliver(session, row)) as T;
-    } catch (error) {
-      if (isRetryable(error)) throw new HubSdkError('queued', 'Saved to send when the hub is reachable.');
-      const code = error instanceof HubSdkError ? error.code : 'rpc_failed';
-      if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
-      throw error;
-    }
+  async function drain(): Promise<void> {
+    const rows = await listWrites();
+    for (const row of rows) await transmit(row);
   }
 
   return {
@@ -228,7 +237,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
         }
         resolved.writeHash(stripTicketParam(resolved.readHash()));
-        const session: LiveSession = {
+        writeCached({
           game: gameId,
           playerId: body.playerId,
           ranked: body.ranked === true,
@@ -237,31 +246,29 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           effects: flatEffects(body.effects),
           relics: asRelics(body.relics),
           ticketsCapLeft: typeof body.ticketsCapLeft === 'number' ? body.ticketsCapLeft : 0,
-        };
-        writeCached(session);
-        await flush(session).catch(() => undefined);
-        return profileOf(session);
+        });
+      } else {
+        const cached = readCached(gameId);
+        if (!cached) {
+          active = null;
+        } else {
+          try {
+            const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
+              'profile.get',
+              {},
+              { token: cached.token },
+            );
+            cached.relics = asRelics(profile.relics);
+            if (profile.playerId) cached.playerId = profile.playerId;
+            if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
+            writeCached(cached);
+          } catch {
+            active = cached;
+          }
+        }
       }
-      const cached = readCached(gameId);
-      if (!cached) {
-        await flushStored().catch(() => undefined);
-        return standalone();
-      }
-      try {
-        const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
-          'profile.get',
-          {},
-          { token: cached.token },
-        );
-        cached.relics = asRelics(profile.relics);
-        if (profile.playerId) cached.playerId = profile.playerId;
-        if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
-        writeCached(cached);
-      } catch {
-        active = cached;
-      }
-      await flush(cached).catch(() => undefined);
-      return profileOf(cached);
+      await drain();
+      return active ? profileOf(active) : standalone();
     },
 
     async reportEvent(eventId, data, key) {
@@ -270,8 +277,9 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         throw new HubSdkError('bad_event', 'Event data must be an object');
       }
       if (!active) return {};
-      const result = await send<{ granted?: string }>(active, 'session.event', key, { eventId, data });
-      return result.granted && isRelicId(result.granted) ? { granted: result.granted } : {};
+      const result = await sendOnce(active, 'session.event', key, { eventId, data });
+      const granted = result && typeof result === 'object' ? (result as { granted?: unknown }).granted : undefined;
+      return typeof granted === 'string' && isRelicId(granted) ? { granted } : {};
     },
 
     async submitScore(boardId, value, meta) {
@@ -286,7 +294,10 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!Number.isFinite(amount) || amount <= 0) throw new HubSdkError('bad_amount', 'Ticket amount must be positive');
       if (!reason) throw new HubSdkError('bad_reason', 'A reason is required');
       if (!active) return { balance: 0, capped: false };
-      return send(active, 'tickets.earn', key, { amount: Math.floor(amount), reason });
+      return sendOnce(active, 'tickets.earn', key, { amount: Math.floor(amount), reason }) as Promise<{
+        balance: number;
+        capped: boolean;
+      }>;
     },
 
     async exchange(tickets, key) {
@@ -295,31 +306,22 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
       if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
-      return send(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) });
+      return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<{
+        verse: number;
+        ticketsLeft: number;
+        receiptId: string;
+      }>;
     },
 
     exit(reason) {
       if (!active) return;
-      const session = active;
-      const game = session.game;
-      const pending = outbox
-        .list(session.playerId)
-        .filter((row) => row.game === game && !TERMINAL.has(row.lastError ?? ''))
-        .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
-      for (const row of pending) {
-        void client
-          .rpc(row.rpc, { ...row.body, key: row.idemKey }, { token: session.token, keepalive: true })
-          .then((response) => outbox.settle(row, response))
-          .catch((error: unknown) => {
-            const code = error instanceof HubSdkError ? error.code : 'queued';
-            if (TERMINAL.has(code)) void outbox.markError(row.opId, code);
-          });
-      }
+      const game = active.game;
+      const token = active.token;
       resolved.session.removeItem(sessionKey(game));
       active = null;
       resolved.clearBeforeUnload();
       resolved.releasePointer();
-      void client.rpc('session.close', { reason: reason ?? '' }, { token: session.token, keepalive: true }).catch(() => undefined);
+      void client.rpc('session.close', { reason: reason ?? '' }, { token, keepalive: true }).catch(() => undefined);
       const base = resolved.hubUrl.replace(/\/$/, '');
       resolved.assign(`${base}/#from=${game}`);
     },

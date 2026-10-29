@@ -1,4 +1,3 @@
-import type { LiveOutbox } from './outbox';
 import type { NakamaClient } from './nakama';
 import { HubSdkError } from './errors';
 import { browserKeyValue, memoryKeyValue, type KeyValue } from './storage';
@@ -15,8 +14,6 @@ export interface HubSdkEnv {
   httpKey?: string;
   /** Injected Nakama client. When set, the SDK uses the live path. */
   client?: NakamaClient;
-  /** Pending earn, event, and exchange calls. The browser default is IndexedDB. */
-  outbox?: LiveOutbox;
   /** Keep the in-memory mock even if a server URL or client is set. */
   useMock?: boolean;
   local?: KeyValue;
