@@ -314,33 +314,35 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<ExchangeResult>;
     },
 
-    async spendTickets(itemId, packs, key) {
+    async spendTickets(shopId, itemId, packs, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
-      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!shopId || !itemId) throw new HubSdkError('unknown_item', 'Unknown item');
       if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
       const packsOut = Math.floor(packs);
-      if (!active) return { item_id: itemId, packs: packsOut, spent: 0, balance: 0 };
+      if (!active) return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, spent: 0, balance: 0 };
       return sendOnce(active, 'tickets.spend', key, {
         game: active.game,
+        shop_id: shopId,
         item_id: itemId,
         packs: packsOut,
       }) as Promise<SpendResult>;
     },
 
-    async sellItem(itemId, qtyUnits, key) {
+    async sellItem(shopId, itemId, packs, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
-      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
-      if (!Number.isFinite(qtyUnits) || qtyUnits <= 0 || Math.floor(qtyUnits) !== qtyUnits) {
+      if (!shopId || !itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
-      const units = Math.floor(qtyUnits);
-      if (!active) return { item_id: itemId, qty_units: units, credited: 0, balance: 0 };
+      const packsOut = Math.floor(packs);
+      if (!active) return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, credited: 0, balance: 0 };
       return sendOnce(active, 'tickets.sell', key, {
         game: active.game,
+        shop_id: shopId,
         item_id: itemId,
-        qty_units: units,
+        packs: packsOut,
       }) as Promise<SellResult>;
     },
 

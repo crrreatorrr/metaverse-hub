@@ -129,9 +129,9 @@ namespace HubSchema {
     )`,
 
     `DO $$ BEGIN
-       IF EXISTS (
+       IF to_regclass('game.shop_price') IS NOT NULL AND NOT EXISTS (
          SELECT 1 FROM information_schema.columns
-         WHERE table_schema = 'game' AND table_name = 'shop_price' AND column_name = 'sell_price'
+         WHERE table_schema = 'game' AND table_name = 'shop_price' AND column_name = 'shop_id'
        ) THEN
          DROP TABLE game.shop_price;
        END IF;
@@ -139,14 +139,15 @@ namespace HubSchema {
 
     `CREATE TABLE IF NOT EXISTS game.shop_price (
       game text NOT NULL,
+      shop_id text NOT NULL,
       item_id text NOT NULL,
       pack_size integer NOT NULL DEFAULT 1,
-      price integer,
-      sell_centi integer NOT NULL,
-      PRIMARY KEY (game, item_id),
+      price integer NOT NULL,
+      sell_price integer NOT NULL,
+      PRIMARY KEY (game, shop_id, item_id),
       CONSTRAINT shop_price_pack CHECK (pack_size >= 1),
-      CONSTRAINT shop_price_buy CHECK (price IS NULL OR price >= 1),
-      CONSTRAINT shop_price_sell CHECK (price IS NULL OR pack_size * sell_centi < price * 100)
+      CONSTRAINT shop_price_positive CHECK (price >= 1),
+      CONSTRAINT shop_price_sell CHECK (sell_price < price)
     )`,
 
     // Prices come from the CSVs. Prune then upsert so a data-only rebalance lands on boot.
@@ -683,17 +684,23 @@ namespace HubSchema {
      END;
      $fn$`,
 
+    "DROP FUNCTION IF EXISTS game.spend_tickets(uuid, uuid, text, text, bigint, text, text)",
+    "DROP FUNCTION IF EXISTS game.sell_tickets(uuid, uuid, text, text, bigint, text, text)",
+
     `CREATE OR REPLACE FUNCTION game.spend_tickets(
-       p_user_id uuid, p_session_id uuid, p_game_id text,
-       p_item_id text, p_qty bigint, p_idem_key text, p_req_hash text
+       p_user_id uuid, p_session_id uuid, p_game_id text, p_shop_id text,
+       p_item_id text, p_packs bigint, p_idem_key text, p_req_hash text
      ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
      DECLARE
        v_response jsonb;
        v_hash bytea;
        v_existing_hash bytea;
-       v_unit integer;
-       v_price bigint;
+       v_price integer;
+       v_sell integer;
+       v_pack integer;
+       v_cost bigint;
        v_balance bigint;
+       v_units bigint;
        v_event uuid;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
@@ -713,24 +720,25 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
-       SELECT price INTO v_unit FROM game.shop_price
-       WHERE game = p_game_id AND item_id = p_item_id;
-       IF NOT FOUND OR v_unit IS NULL THEN
+       SELECT price, sell_price, pack_size INTO v_price, v_sell, v_pack
+       FROM game.shop_price
+       WHERE game = p_game_id AND shop_id = p_shop_id AND item_id = p_item_id;
+       IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'unknown_item');
        END IF;
-       IF p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
+       IF p_packs > (9223372036854775807::bigint / v_price::bigint) THEN
          RETURN jsonb_build_object('error', 'bad_amount');
        END IF;
-       v_price := v_unit::bigint * p_qty;
+       v_cost := v_price::bigint * p_packs;
+       v_units := v_pack::bigint * p_packs;
        SELECT balance INTO v_balance FROM game.tickets_balance
        WHERE user_id = p_user_id AND game_id = p_game_id
        FOR UPDATE;
        IF NOT FOUND THEN v_balance := 0; END IF;
-       -- balance = earned - spent - exchanged + sold, kept equal to the ledger sum.
-       IF v_balance < v_price THEN
+       IF v_balance < v_cost THEN
          RETURN jsonb_build_object('error', 'insufficient_tickets');
        END IF;
-       UPDATE game.tickets_balance SET balance = balance - v_price
+       UPDATE game.tickets_balance SET balance = balance - v_cost
        WHERE user_id = p_user_id AND game_id = p_game_id
        RETURNING balance INTO v_balance;
        IF NOT FOUND THEN
@@ -740,8 +748,8 @@ namespace HubSchema {
        END IF;
        v_event := gen_random_uuid();
        INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
-       VALUES (v_event, p_user_id, p_game_id, -v_price, v_balance, 'spend', p_session_id, 'spend');
-       v_response := jsonb_build_object('item_id', p_item_id, 'packs', p_qty, 'spent', v_price, 'balance', v_balance);
+       VALUES (v_event, p_user_id, p_game_id, -v_cost, v_balance, 'spend', p_session_id, 'spend');
+       v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'spent', v_cost, 'balance', v_balance);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.spend', v_hash, v_response);
        RETURN v_response;
@@ -757,15 +765,18 @@ namespace HubSchema {
      $fn$`,
 
     `CREATE OR REPLACE FUNCTION game.sell_tickets(
-       p_user_id uuid, p_session_id uuid, p_game_id text,
-       p_item_id text, p_qty bigint, p_idem_key text, p_req_hash text
+       p_user_id uuid, p_session_id uuid, p_game_id text, p_shop_id text,
+       p_item_id text, p_packs bigint, p_idem_key text, p_req_hash text
      ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
      DECLARE
        v_response jsonb;
        v_hash bytea;
        v_existing_hash bytea;
-       v_centi integer;
+       v_price integer;
+       v_sell integer;
+       v_pack integer;
        v_amount bigint;
+       v_units bigint;
        v_taken jsonb;
        v_balance bigint;
      BEGIN
@@ -786,20 +797,22 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
-       SELECT sell_centi INTO v_centi FROM game.shop_price
-       WHERE game = p_game_id AND item_id = p_item_id;
+       SELECT price, sell_price, pack_size INTO v_price, v_sell, v_pack
+       FROM game.shop_price
+       WHERE game = p_game_id AND shop_id = p_shop_id AND item_id = p_item_id;
        IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'unknown_item');
        END IF;
-       IF v_centi > 0 AND p_qty > (9223372036854775807::bigint / v_centi::bigint) THEN
+       IF v_sell > 0 AND p_packs > (9223372036854775807::bigint / v_sell::bigint) THEN
          RETURN jsonb_build_object('error', 'bad_amount');
        END IF;
-       v_amount := (p_qty * v_centi::bigint) / 100;
+       v_amount := v_sell::bigint * p_packs;
+       v_units := v_pack::bigint * p_packs;
        IF v_amount <= 0 THEN
          SELECT balance INTO v_balance FROM game.tickets_balance
          WHERE user_id = p_user_id AND game_id = p_game_id;
          IF NOT FOUND THEN v_balance := 0; END IF;
-         v_response := jsonb_build_object('item_id', p_item_id, 'qty_units', p_qty, 'credited', 0, 'balance', v_balance);
+         v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'credited', 0, 'balance', v_balance);
          INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
          VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
          RETURN v_response;
@@ -809,7 +822,7 @@ namespace HubSchema {
          RETURN v_taken;
        END IF;
        v_balance := (v_taken->>'balance')::bigint;
-       v_response := jsonb_build_object('item_id', p_item_id, 'qty_units', p_qty, 'credited', v_amount, 'balance', v_balance);
+       v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'credited', v_amount, 'balance', v_balance);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
        RETURN v_response;
@@ -823,7 +836,6 @@ namespace HubSchema {
        RETURN v_response;
      END;
      $fn$`,
-
     `CREATE OR REPLACE FUNCTION game.fault_at(p_user uuid, p_point text)
      RETURNS void LANGUAGE plpgsql AS $fn$
      DECLARE

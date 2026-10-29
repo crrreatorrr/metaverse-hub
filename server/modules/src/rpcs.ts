@@ -507,41 +507,42 @@ namespace HubRpc {
     return ok(result);
   }
 
-  function shopBody(ctx: nkruntime.Context, payload: string, countKey: string): { session: { userId: string; game: string; sid: string }; itemId: string; count: number; key: string } | string {
+  function shopBody(ctx: nkruntime.Context, payload: string): { session: { userId: string; game: string; sid: string }; shopId: string; itemId: string; packs: number; key: string } | string {
     var session = requireGame(ctx);
     var body = parse(payload);
     var key = text(body, "key");
+    var shopId = text(body, "shop_id");
     var itemId = text(body, "item_id");
     var game = text(body, "game");
-    var count = wholeQty(body[countKey]);
+    var packs = wholeQty(body.packs);
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (!game || game !== session.game) return fail("bad_game", "Unknown game");
-    if (!itemId || itemId.length > 64) return fail("unknown_item", "Unknown item");
-    if (!count) return fail("bad_amount", "Quantity must be a positive integer");
-    return { session: session, itemId: itemId, count: count, key: key };
+    if (!shopId || shopId.length > 64 || !itemId || itemId.length > 64) return fail("unknown_item", "Unknown item");
+    if (!packs) return fail("bad_amount", "Quantity must be a positive integer");
+    return { session: session, shopId: shopId, itemId: itemId, packs: packs, key: key };
   }
 
   export function ticketsSpend(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var shop = shopBody(ctx, payload, "packs");
+    var shop = shopBody(ctx, payload);
     if (typeof shop === "string") return shop;
-    var reqHash = nk.sha256Hash("tickets.spend\n" + stable({ game: shop.session.game, item_id: shop.itemId, packs: shop.count }));
+    var reqHash = nk.sha256Hash("tickets.spend\n" + stable({ game: shop.session.game, shop_id: shop.shopId, item_id: shop.itemId, packs: shop.packs }));
     var result = queryJson(
       nk,
-      "SELECT game.spend_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
-      [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.count, shop.key, reqHash],
+      "SELECT game.spend_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::text, $6::bigint, $7::text, $8::text)::text AS result",
+      [shop.session.userId, shop.session.sid, shop.session.game, shop.shopId, shop.itemId, shop.packs, shop.key, reqHash],
     );
     if (result.error) return failBody(result);
     return ok(result);
   }
 
   export function ticketsSell(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var shop = shopBody(ctx, payload, "qty_units");
+    var shop = shopBody(ctx, payload);
     if (typeof shop === "string") return shop;
-    var reqHash = nk.sha256Hash("tickets.sell\n" + stable({ game: shop.session.game, item_id: shop.itemId, qty_units: shop.count }));
+    var reqHash = nk.sha256Hash("tickets.sell\n" + stable({ game: shop.session.game, shop_id: shop.shopId, item_id: shop.itemId, packs: shop.packs }));
     var result = queryJson(
       nk,
-      "SELECT game.sell_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
-      [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.count, shop.key, reqHash],
+      "SELECT game.sell_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::text, $6::bigint, $7::text, $8::text)::text AS result",
+      [shop.session.userId, shop.session.sid, shop.session.game, shop.shopId, shop.itemId, shop.packs, shop.key, reqHash],
     );
     if (result.error) return failBody(result);
     return ok(result);

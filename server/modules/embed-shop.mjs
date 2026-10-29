@@ -13,9 +13,6 @@ const dataDir = [join(dir, '../data'), join(dir, 'data')].find((path) => {
 });
 if (!dataDir) throw new Error('pb_shop_prices.csv was not found');
 
-const game = 'peoples-bitcoin';
-const packs = { item_rounds: 100, item_coom: 100 };
-
 function parseCsv(text) {
   const rows = [];
   let row = [];
@@ -55,57 +52,45 @@ function parseCsv(text) {
   });
 }
 
-function itemId(value) {
-  if (!/^[a-z][a-z0-9_]{0,63}$/.test(value)) throw new Error(`bad item_id ${value}`);
+function ident(value, label) {
+  if (!/^[a-z][a-z0-9_-]{0,63}$/.test(value)) throw new Error(`bad ${label} ${value}`);
   return value;
 }
 
-const seen = new Set();
 const rows = [];
-
+const seen = new Set();
 for (const record of parseCsv(readFileSync(join(dataDir, 'pb_shop_prices.csv'), 'utf8'))) {
-  const id = itemId(record.item_id);
-  if (seen.has(id)) throw new Error(`duplicate item_id ${id}`);
-  seen.add(id);
-  const packSize = packs[id] ?? 1;
+  const game = ident(record.game, 'game');
+  const shopId = ident(record.shop_id, 'shop_id');
+  const itemId = ident(record.item_id, 'item_id');
+  const key = `${game}:${shopId}:${itemId}`;
+  if (seen.has(key)) throw new Error(`duplicate shop row ${key}`);
+  seen.add(key);
+  const packSize = Number(record.pack_size);
   const price = Number(record.ticket_price);
-  const sellTickets = Number(record.sell_price);
-  if (!Number.isInteger(price) || price < 1) throw new Error(`bad ticket_price for ${id}`);
-  if (!Number.isInteger(sellTickets) || sellTickets < 0) throw new Error(`bad sell_price for ${id}`);
-  if (sellTickets * 100 % packSize !== 0) throw new Error(`sell_price does not divide into centi for ${id}`);
-  const sellCenti = (sellTickets * 100) / packSize;
-  if (packSize * sellCenti >= price * 100) throw new Error(`sell value is not below price for ${id}`);
-  rows.push({ id, packSize, price, sellCenti });
+  const sellPrice = Number(record.sell_price);
+  if (!Number.isInteger(packSize) || packSize < 1) throw new Error(`bad pack_size for ${key}`);
+  if (!Number.isInteger(price) || price < 1) throw new Error(`bad ticket_price for ${key}`);
+  if (!Number.isInteger(sellPrice) || sellPrice < 0 || sellPrice >= price) {
+    throw new Error(`sell_price must be below price for ${key}`);
+  }
+  rows.push({ game, shopId, itemId, packSize, price, sellPrice });
 }
+rows.sort((a, b) => a.shopId.localeCompare(b.shopId) || a.itemId.localeCompare(b.itemId));
 
-for (const record of parseCsv(readFileSync(join(dataDir, 'pb_sell_only_prices.csv'), 'utf8'))) {
-  const id = itemId(record.item_id);
-  if (seen.has(id)) throw new Error(`duplicate item_id ${id}`);
-  seen.add(id);
-  const sellCenti = Number(record.sell_centitickets_per_unit);
-  if (!Number.isInteger(sellCenti) || sellCenti < 0) throw new Error(`bad sell_centi for ${id}`);
-  rows.push({ id, packSize: 1, price: null, sellCenti });
-}
-
-rows.sort((a, b) => a.id.localeCompare(b.id));
-
-const values = rows.map((row) => {
-  const priceSql = row.price === null ? 'NULL' : String(row.price);
-  return `('${game}', '${row.id}', ${row.packSize}, ${priceSql}, ${row.sellCenti})`;
-});
-const idList = rows.map((row) => `'${row.id}'`).join(', ');
+const values = rows.map(
+  (row) => `('${row.game}', '${row.shopId}', '${row.itemId}', ${row.packSize}, ${row.price}, ${row.sellPrice})`,
+);
+const keys = rows.map((row) => `('${row.game}', '${row.shopId}', '${row.itemId}')`).join(', ');
 const insert =
-  'INSERT INTO game.shop_price (game, item_id, pack_size, price, sell_centi) VALUES ' +
+  'INSERT INTO game.shop_price (game, shop_id, item_id, pack_size, price, sell_price) VALUES ' +
   values.join(', ') +
-  ' ON CONFLICT (game, item_id) DO UPDATE SET pack_size = EXCLUDED.pack_size, price = EXCLUDED.price, sell_centi = EXCLUDED.sell_centi';
+  ' ON CONFLICT (game, shop_id, item_id) DO UPDATE SET pack_size = EXCLUDED.pack_size, price = EXCLUDED.price, sell_price = EXCLUDED.sell_price';
 const prune =
-  `DELETE FROM game.shop_price WHERE game = '${game}' AND item_id NOT IN (${idList})`;
+  `DELETE FROM game.shop_price WHERE (game, shop_id, item_id) NOT IN (${keys})`;
 
 const source = `namespace HubShop {
-  // Built from server/data/pb_shop_prices.csv and pb_sell_only_prices.csv.
-  // Replacing those files and redeploying updates prices. No code change.
-  export var GAME = "${game}";
-
+  // Built from server/data/pb_shop_prices.csv. Replace that file and redeploy to rebalance.
   export function pruneSql(): string {
     return ${JSON.stringify(prune)};
   }
@@ -118,18 +103,27 @@ const source = `namespace HubShop {
 writeFileSync(join(dir, 'src/shop_seed.ts'), source);
 
 const catalog = rows
-  .map((row) => `  ${row.id}: { packSize: ${row.packSize}, price: ${row.price === null ? 'null' : row.price}, sellCenti: ${row.sellCenti} },`)
+  .map(
+    (row) =>
+      `  '${row.shopId}:${row.itemId}': { shopId: '${row.shopId}', itemId: '${row.itemId}', packSize: ${row.packSize}, price: ${row.price}, sellPrice: ${row.sellPrice} },`,
+  )
   .join('\n');
-const sdk = `/** Generated from the People's Bitcoin price CSVs. Do not edit by hand. */
+const sdk = `/** Generated from server/data/pb_shop_prices.csv. Do not edit by hand. */
 export interface PbShopRow {
+  shopId: string;
+  itemId: string;
   packSize: number;
-  price: number | null;
-  sellCenti: number;
+  price: number;
+  sellPrice: number;
 }
 
 export const PB_SHOP: Record<string, PbShopRow> = {
 ${catalog}
 };
+
+export function pbShopRow(shopId: string, itemId: string): PbShopRow | undefined {
+  return PB_SHOP[shopId + ':' + itemId];
+}
 `;
 const sdkPath = join(dir, '../../packages/hub-sdk/src/pbShop.ts');
 try {
