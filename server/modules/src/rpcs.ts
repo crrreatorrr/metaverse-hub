@@ -13,6 +13,12 @@ namespace HubRpc {
     return JSON.stringify({ error: code, message: message });
   }
 
+  function failResult(result: { [key: string]: unknown }): string {
+    var body: { [key: string]: unknown } = { error: String(result.error), message: String(result.error) };
+    if (typeof result.capLeft === "number" && isFinite(result.capLeft)) body.capLeft = result.capLeft;
+    return JSON.stringify(body);
+  }
+
   function ok(body: { [key: string]: unknown }): string {
     return JSON.stringify(body);
   }
@@ -35,6 +41,8 @@ namespace HubRpc {
       "bad_event",
       "bad_game",
       "bad_json",
+      "session_ticket_cap",
+      "amount_over_rule",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
@@ -395,7 +403,7 @@ namespace HubRpc {
       "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text, $8::bigint)::text AS result",
       [session.userId, session.sid, session.game, eventId, JSON.stringify(data), key, reqHash, seq],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failResult(result);
     HubFault.apply(ctx, nk, session.userId, "grant.after_commit");
     if (typeof result.granted === "string") {
       try {
@@ -463,7 +471,7 @@ namespace HubRpc {
       "SELECT game.earn_tickets($1::uuid, $2::uuid, $3::text, $4::numeric::bigint, $5::text, $6::text, $7::text)::text AS result",
       [session.userId, session.sid, session.game, amount, reason, key, reqHash],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failResult(result);
     HubFault.apply(ctx, nk, session.userId, "earn.after_commit");
     return ok(result);
   }
