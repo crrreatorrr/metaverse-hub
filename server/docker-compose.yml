@@ -1,6 +1,9 @@
 # Local Nakama stack. From this directory: `docker compose up`.
 # The plaza (`npm run dev`) proxies /v2 to Nakama on port 7350.
 # Keys below are local dev credentials, not production secrets.
+# HUB_FAULT_INJECT is the duplication-suite hook. It does nothing unless a row
+# is armed in game.fault_arm (the test harness does that as postgres). Leave
+# the flag unset on a production deploy.
 
 name: metaverse-hub
 
@@ -38,7 +41,8 @@ services:
           --runtime.http_key localhttpkey \
           --runtime.env TICKET_HMAC_KEY=dev-ticket-hmac-key \
           --runtime.env RECOVERY_PEPPER=dev-recovery-pepper \
-          --runtime.env AUDIT_KEY=dev-audit-key
+          --runtime.env AUDIT_KEY=dev-audit-key \
+          --runtime.env HUB_FAULT_INJECT=1
     depends_on:
       postgres:
         condition: service_healthy

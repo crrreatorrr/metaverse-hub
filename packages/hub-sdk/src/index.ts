@@ -36,6 +36,7 @@ export type { MintTicketOptions, TicketClaims } from './ticket';
 export { createHubSdk, installHubSdk } from './createHubSdk';
 export type { HubSdkEnv } from './createHubSdk';
 export { HubSdkError } from './errors';
+export { HUB_OUTBOX_DB } from './live';
 export {
   LOCAL_NAKAMA,
   createNakamaClient,
