@@ -2,7 +2,7 @@
  * Duplication cases. M1 runs the rows in `M1_FLOWS`.
  *
  * M2: append one relic and one exchange per game to `M2_FLOWS`.
- *   hpos10i relic  eventId `hpos10i.level_complete` data `{zone:'z1_retro_rush_hills', act:1}` relicId `hpos10i_core`
+ *   hpos10i relic  eventId `hpos10i.level_complete` data `{zone:'z1_retro_rush_hills', act:1, time}` relicId `hpos10i_core`
  *   pb relic       eventId `pb.quest_complete` data `{questId:'quest_tutorial'}` relicId `genesis_shard`
  *   nobu relic     eventId `nobu.boss_defeated` data `{boss:'cone'}` relicId `cones_tip`
  *   Each exchange uses that game id. The suite already drives `tickets.earn` and `tickets.exchange`.
@@ -42,6 +42,15 @@ export interface ExchangeFlow {
   verse: number;
 }
 
+export interface EarnFlow {
+  kind: 'earn';
+  id: string;
+  game: 'hpos10i' | 'nobu' | 'pb' | 'sproto';
+  /** What the game passes to `earnTickets`. HPOS10I sends the act's ticket count. */
+  amount: number;
+  reason: string;
+}
+
 export interface PurchaseFlow {
   kind: 'purchase';
   id: string;
@@ -49,7 +58,7 @@ export interface PurchaseFlow {
   priceVerse: number;
 }
 
-export type DupFlow = RelicFlow | ExchangeFlow | PurchaseFlow;
+export type DupFlow = RelicFlow | ExchangeFlow | EarnFlow | PurchaseFlow;
 
 export const M1_FLOWS: DupFlow[] = [
   {
@@ -72,7 +81,41 @@ export const M1_FLOWS: DupFlow[] = [
   },
 ];
 
-export const M2_FLOWS: DupFlow[] = [];
+/**
+ * HPOS10I payloads from the game client (HPOS10I PR #2, 229178a):
+ * reportEvent('hpos10i.level_complete', {zone, act, time}, relicKey)
+ * earnTickets(actTickets, 'level_end', earnKey) with a different key
+ * exchange(tickets, key) in steps of 10, at most 500 tickets.
+ * `time` is seconds rounded to the millisecond. It is an extra field on top of
+ * the event_rule match {zone, act}.
+ */
+export const M2_FLOWS: DupFlow[] = [
+  {
+    kind: 'relic',
+    id: 'hpos10i.hpos10i_core',
+    game: 'hpos10i',
+    eventId: 'hpos10i.level_complete',
+    data: { zone: 'z1_retro_rush_hills', act: 1, time: 40.125 },
+    mismatchData: { zone: 'z1_retro_rush_hills', act: 2, time: 40.125 },
+    relicId: 'hpos10i_core',
+  },
+  {
+    kind: 'exchange',
+    id: 'hpos10i.tickets_to_verse',
+    game: 'hpos10i',
+    earnAmount: 20,
+    earnReason: 'level_end',
+    tickets: 10,
+    verse: 1,
+  },
+  {
+    kind: 'earn',
+    id: 'hpos10i.level_end',
+    game: 'hpos10i',
+    amount: 20,
+    reason: 'level_end',
+  },
+];
 
 export const M7_FLOWS: DupFlow[] = [];
 
