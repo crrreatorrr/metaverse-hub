@@ -638,6 +638,85 @@ namespace HubSchema {
     "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
+    // Merge before the deletes below. apply() re-runs every statement on startup
+    // with no migration ledger, so this has to precede those deletes. The
+    // game_beaten check was just dropped, and this DO block is one transaction.
+    `DO $$ BEGIN
+       UPDATE game.tickets_balance AS neu
+          SET balance = neu.balance + old.balance
+         FROM game.tickets_balance AS old
+        WHERE neu.user_id = old.user_id
+          AND neu.game_id = 'peoples-bitcoin'
+          AND old.game_id = 'pb';
+       UPDATE game.tickets_balance AS pb_row
+          SET game_id = 'peoples-bitcoin'
+        WHERE pb_row.game_id = 'pb'
+          AND NOT EXISTS (
+            SELECT 1 FROM game.tickets_balance AS canon
+             WHERE canon.user_id = pb_row.user_id
+               AND canon.game_id = 'peoples-bitcoin'
+          );
+       DELETE FROM game.tickets_balance WHERE game_id = 'pb';
+
+       UPDATE game.verse_earned AS neu
+          SET lifetime = neu.lifetime + old.lifetime
+         FROM game.verse_earned AS old
+        WHERE neu.user_id = old.user_id
+          AND neu.game_id = 'peoples-bitcoin'
+          AND old.game_id = 'pb';
+       UPDATE game.verse_earned AS pb_row
+          SET game_id = 'peoples-bitcoin'
+        WHERE pb_row.game_id = 'pb'
+          AND NOT EXISTS (
+            SELECT 1 FROM game.verse_earned AS canon
+             WHERE canon.user_id = pb_row.user_id
+               AND canon.game_id = 'peoples-bitcoin'
+          );
+       DELETE FROM game.verse_earned WHERE game_id = 'pb';
+
+       -- Row presence is the beaten flag (OR). Keep the earliest timestamp.
+       UPDATE game.game_beaten AS neu
+          SET beaten_at = LEAST(neu.beaten_at, old.beaten_at)
+         FROM game.game_beaten AS old
+        WHERE neu.user_id = old.user_id
+          AND neu.game_id = 'peoples-bitcoin'
+          AND old.game_id = 'pb'
+          AND old.beaten_at < neu.beaten_at;
+       UPDATE game.game_beaten AS pb_row
+          SET game_id = 'peoples-bitcoin'
+        WHERE pb_row.game_id = 'pb'
+          AND NOT EXISTS (
+            SELECT 1 FROM game.game_beaten AS canon
+             WHERE canon.user_id = pb_row.user_id
+               AND canon.game_id = 'peoples-bitcoin'
+          );
+       DELETE FROM game.game_beaten WHERE game_id = 'pb';
+
+       UPDATE game.earn_window AS neu
+          SET amount = neu.amount + old.amount
+         FROM game.earn_window AS old
+        WHERE neu.user_id = old.user_id
+          AND neu.day = old.day
+          AND old.bucket IN ('tickets:pb', 'verse:pb')
+          AND neu.bucket = replace(old.bucket, ':pb', ':peoples-bitcoin');
+       UPDATE game.earn_window AS pb_row
+          SET bucket = replace(pb_row.bucket, ':pb', ':peoples-bitcoin')
+        WHERE pb_row.bucket IN ('tickets:pb', 'verse:pb')
+          AND NOT EXISTS (
+            SELECT 1 FROM game.earn_window AS canon
+             WHERE canon.user_id = pb_row.user_id
+               AND canon.day = pb_row.day
+               AND canon.bucket = replace(pb_row.bucket, ':pb', ':peoples-bitcoin')
+          );
+       DELETE FROM game.earn_window WHERE bucket IN ('tickets:pb', 'verse:pb');
+
+       INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
+       SELECT 'peoples-bitcoin', event_type, relic_id, tickets, session_limit, day_limit, match
+         FROM game.event_rule
+        WHERE game_id = 'pb'
+       ON CONFLICT DO NOTHING;
+       DELETE FROM game.event_rule WHERE game_id = 'pb';
+     END $$`,
     "DELETE FROM game.game_beaten AS old USING game.game_beaten AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
     "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
