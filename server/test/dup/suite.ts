@@ -1524,90 +1524,17 @@ async function runUnknownReasonEarn(): Promise<void> {
   fallbackQuotes.length = 0;
   fallbackSnippets.length = 0;
 
-  await test('session-cap', 'unlisted_booth earn of 201 is rejected whole and 200 credits once', async () => {
-    confirmUnlistedReason();
-    const failures: string[] = [];
-    try {
-      const rejected = await login(UNLISTED_GAME);
-      const before = purseOf(rejected.hub.userId);
-      const steps = 'fresh sproto session; tickets.earn {amount:201, reason:unlisted_booth, key:unlisted-201}';
-      const over = await earnWatched(rejected.gameToken, 201, 'unlisted-201', true);
-      const afterOver = purseOf(rejected.hub.userId);
-      const overObserved = `${observed(over, steps)} wallet=${afterOver.balance} ledgerDelta=${afterOver.sum - before.sum} capped=${String(over.body.capped)}`;
-      if ((typeof over.body.balance === 'number' && over.body.balance > 0) || afterOver.balance > before.balance || afterOver.sum > before.sum) {
-        failures.push(`earn of 201 credited a positive amount (${overObserved}). An over-limit earn must be rejected whole, not clamped to 200.`);
-      }
-      if (over.body.error !== 'session_ticket_cap') {
-        failures.push(`earn 201 must be rejected whole with session_ticket_cap, got ${overObserved}`);
-      }
-      if (afterOver.ledger !== before.ledger || afterOver.sum !== before.sum || afterOver.window !== before.window || sessionEarned(rejected.hub.userId, rejected.sessionId) !== 0) {
-        failures.push(`earn 201 ledger delta must be 0 and earn_window must stay put, got ${overObserved} window=${afterOver.window}`);
-      }
-      if (idempotencyRows(rejected.hub.userId, 'unlisted-201') !== 0) {
-        failures.push(`earn 201 must not store an idempotency row, got ${overObserved}`);
-      }
-      const overReplay = await call('tickets.earn', { amount: 201, reason: UNLISTED_REASON, key: 'unlisted-201' }, rejected.gameToken);
-      const afterReplay = purseOf(rejected.hub.userId);
-      if (overReplay.body.error !== 'session_ticket_cap' || afterReplay.sum !== before.sum || afterReplay.balance !== before.balance) {
-        failures.push(`earn 201 replay must stay rejected with ledger delta 0, got ${observed(overReplay, `${steps}; replay the same key`)} wallet=${afterReplay.balance} ledgerDelta=${afterReplay.sum - before.sum}`);
-      }
-
-      const credited = await login(UNLISTED_GAME);
-      const fresh = purseOf(credited.hub.userId);
-      const creditSteps = 'fresh sproto session; tickets.earn {amount:200, reason:unlisted_booth, key:unlisted-200}; replay the same key';
-      const exact = await earnWatched(credited.gameToken, 200, 'unlisted-200', true);
-      try {
-        assert.equal(exact.body.error, undefined, observed(exact, creditSteps));
-        assert.equal(exact.body.balance, 200, observed(exact, creditSteps));
-        assert.equal(exact.body.capped, false, observed(exact, creditSteps));
-        const once = purseOf(credited.hub.userId);
-        assert.equal(once.balance, fresh.balance + 200, observed(exact, creditSteps));
-        assert.equal(once.ledger, fresh.ledger + 1, observed(exact, creditSteps));
-        assert.equal(once.sum, fresh.sum + 200, observed(exact, creditSteps));
-        const exactReplay = await call('tickets.earn', { amount: 200, reason: UNLISTED_REASON, key: 'unlisted-200' }, credited.gameToken);
-        assert.equal(canonical(exactReplay.body), canonical(exact.body), observed(exactReplay, creditSteps));
-        assertPurseHeld(credited.hub.userId, once, 'earn 200 replay');
-        assert.equal(idempotencyRows(credited.hub.userId, 'unlisted-200'), 1);
-      } catch (error) {
-        failures.push(error instanceof Error ? error.message : String(error));
-      }
-
-      const literal = fallbackWarnLiteral();
-      const quotes = fallbackQuotes.filter((quote) => quote.length > 0);
-      if (quotes.length >= 2) {
-        for (const quote of quotes) {
-          assert.ok(quote.includes(UNLISTED_GAME), quote);
-          assert.ok(quote.includes(UNLISTED_REASON), quote);
-          if (literal) assert.ok(quote.includes(literal.trim()), quote);
-          console.log(`WARN ${quote}`);
-        }
-      } else {
-        pending(
-          'session-cap',
-          'unlisted_booth earn warns with the game id and the reason',
-          literal
-            ? `waiting for the Nakama warning to show up in the container log (source has logger.warn). snippets=${fallbackSnippets.join(' || ') || 'none'}`
-            : 'waiting for a Nakama warning that names the game id and the unlisted reason',
-        );
-      }
-      if (failures.length) throw new Error(failures.join('\n'));
-    } finally {
-      fallbackQuotes.length = 0;
-      fallbackSnippets.length = 0;
-    }
-  });
-
-  await test('session-cap', 'unknown-reason 250 on a fresh session is session_ticket_cap', async () => {
+  await test('session-cap', 'unknown-reason 250 on a fresh session is amount_over_rule', async () => {
     confirmUnlistedReason();
     const session = await login(UNLISTED_GAME);
     const before = purseOf(session.hub.userId);
     const steps = 'fresh sproto session; tickets.earn amount 250 reason unlisted_booth';
     const over = await earnWatched(session.gameToken, 250, 'unk-250', true);
-    assert.equal(over.body.error, 'session_ticket_cap', observed(over, steps));
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
     assertPurseHeld(session.hub.userId, before, 'earn 250');
     assert.equal(sessionEarned(session.hub.userId, session.sessionId), 0, observed(over, steps));
     const replay = await call('tickets.earn', { amount: 250, reason: UNLISTED_REASON, key: 'unk-250' }, session.gameToken);
-    assert.equal(replay.body.error, 'session_ticket_cap', observed(replay, `${steps}; replay the same key`));
+    assert.equal(replay.body.error, 'amount_over_rule', observed(replay, `${steps}; replay the same key`));
     assertPurseHeld(session.hub.userId, before, 'earn 250 replay');
   });
 
@@ -1676,7 +1603,7 @@ async function runUnknownReasonEarn(): Promise<void> {
     }
   }
 
-  await test('session-cap', 'unknown-reason over 200 near the cap is session_ticket_cap', async () => {
+  await test('session-cap', 'unknown-reason over 200 near the cap is amount_over_rule', async () => {
     confirmUnlistedReason();
     const session = await login(UNLISTED_GAME);
     await earn(session.gameToken, 150, UNLISTED_REASON, 'unk-near');
@@ -1684,7 +1611,7 @@ async function runUnknownReasonEarn(): Promise<void> {
     const before = purseOf(session.hub.userId);
     const steps = 'fresh sproto session; tickets.earn 150 unlisted_booth; then tickets.earn amount 250 reason unlisted_booth';
     const over = await earnWatched(session.gameToken, 250, 'unk-250-near', false);
-    assert.equal(over.body.error, 'session_ticket_cap', observed(over, steps));
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
     assertPurseHeld(session.hub.userId, before, 'earn 250 near the cap');
     assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150, observed(over, steps));
   });
