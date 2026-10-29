@@ -9,7 +9,6 @@ import {
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
-import { barContains } from './blockouts';
 import { CAMERA_ARM, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
@@ -31,7 +30,12 @@ if (banner instanceof HTMLElement && window.matchMedia('(pointer: coarse)').matc
   banner.hidden = false;
 }
 
-const world = createWorld();
+hint.textContent = 'Loading the plaza…';
+const world = await createWorld().catch((error: unknown) => {
+  hint.textContent = error instanceof Error ? error.message : 'The plaza failed to load';
+  throw error;
+});
+hint.textContent = 'Click to look  ·  WASD move  ·  Mouse look  ·  Shift sprint  ·  Space jump';
 app.prepend(world.renderer.domElement);
 
 const player = createPlayerController(world.collider.bvh);
@@ -93,12 +97,9 @@ window.addEventListener('pointermove', (event) => {
 });
 
 window.addEventListener('resize', () => {
-  world.camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
-  world.camera.updateProjectionMatrix();
-  world.renderer.setSize(window.innerWidth, window.innerHeight);
+  world.resize(window.innerWidth, window.innerHeight);
 });
-world.camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
-world.camera.updateProjectionMatrix();
+world.resize(window.innerWidth, window.innerHeight);
 
 world.renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
@@ -111,23 +112,31 @@ world.renderer.setAnimationLoop((timestamp) => {
   world.avatar.rotation.y = -player.facingYaw;
   world.rig.position.copy(player.position);
 
-  const lift = Math.max(0, player.position.y - STAND_Y);
-  world.shadow.position.set(player.position.x, 0.03, player.position.z);
+  const floorY = world.inInterior() ? -300 : 0;
+  const lift = Math.max(0, player.position.y - STAND_Y - floorY);
+  world.shadow.position.set(player.position.x, player.position.y - STAND_Y + 0.03, player.position.z);
   world.shadow.scale.setScalar(1.15 + lift * 0.25);
   world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
-  world.neonTime.value += dt;
   for (const socket of world.sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
-  const inBar = barContains(player.position.x, player.position.z);
+  world.update(dt, moving, input.sprint);
+  const warp = world.consumeWarp();
+  if (warp) {
+    armed = false;
+    yaw = warp.yaw;
+    player.spawn(warp.x, warp.y, warp.z, warp.yaw);
+    world.rig.position.copy(player.position);
+    world.avatar.rotation.y = -player.facingYaw;
+  }
+  const inBar = world.inInterior();
   if (barTabs) barTabs.hidden = !inBar;
-  placeCamera();
+  if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
   fadeLabels();
   updateHint();
   considerPortal();
-
-  world.renderer.render(world.scene, world.camera);
+  world.render();
   if (debug) {
-    const calls = world.renderer.info.render.calls;
+    const calls = world.sceneDraws;
     fps = fps * 0.9 + (dt > 0 ? 0.1 / dt : 0);
     debug.drawCalls = calls;
     debug.fps = fps;
@@ -135,9 +144,9 @@ world.renderer.setAnimationLoop((timestamp) => {
     debug.y = player.position.y;
     debug.z = player.position.z;
     debug.element.textContent = `${calls} draws · ${fps.toFixed(0)} fps`;
-    if (calls > 100 && !warnedDraws) {
+    if (calls > 150 && !warnedDraws) {
       warnedDraws = true;
-      console.warn(`[hub] draw calls ${calls} exceed the 100 budget`);
+      console.warn(`[hub] draw calls ${calls} exceed the 150 budget`);
     }
   }
 });
@@ -178,7 +187,7 @@ function placeCamera(): void {
     }
   }
   world.camera.position.copy(next);
-  if (world.camera.position.y < 0.45) world.camera.position.y = 0.45;
+  if (!world.inInterior() && world.camera.position.y < 0.45) world.camera.position.y = 0.45;
   world.camera.lookAt(look);
 }
 
@@ -192,16 +201,23 @@ function fadeLabels(): void {
 
 function updateHint(): void {
   const look = document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
-  const near = nearestPortal(player.position.x, player.position.z);
-  const text = near
-    ? `${look}Walk into the ring to enter ${near.label}`
-    : `${look}WASD move  ·  Mouse look  ·  Shift sprint  ·  Space jump`;
+  const zone = world.zone();
+  const near = world.inInterior() ? null : nearestPortal(player.position.x, player.position.z);
+  const text = zone === 'loading'
+    ? 'Loading the bar…'
+    : zone === 'door'
+      ? `${look}Walk into the door to enter the bar`
+      : zone === 'exit'
+        ? `${look}Walk through the exit to return to the plaza`
+        : near
+          ? `${look}Walk into the ring to enter ${near.label}`
+          : `${look}WASD move  ·  Mouse look  ·  Shift sprint  ·  Space jump`;
   if (hint.textContent !== text) hint.textContent = text;
 }
 
 function nearestPortal(x: number, z: number) {
   let best: (typeof PORTALS)[number] | null = null;
-  let bestDistance = 7.2;
+  let bestDistance = 18;
   for (const portal of PORTALS) {
     const at = portalPosition(portal.angle, PORTAL_DISTANCE);
     const distance = Math.hypot(x - at.x, z - at.z);
@@ -214,7 +230,7 @@ function nearestPortal(x: number, z: number) {
 }
 
 function considerPortal(): void {
-  if (traveling) return;
+  if (traveling || world.inInterior()) return;
   const hit = portalContaining(player.position.x, player.position.z);
   if (!hit) {
     armed = true;

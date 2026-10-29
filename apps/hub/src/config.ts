@@ -17,18 +17,22 @@ export interface PortalConfig {
   mature?: boolean;
 }
 
+/** Artist slots are 72° apart, castle at north. Two slots of yaw keep HPOS10I on the north gate. */
+export const PLAZA_SLOT = (Math.PI * 2) / 5;
+export const PLAZA_YAW = -2 * PLAZA_SLOT;
+
 export const PORTALS: readonly PortalConfig[] = [
-  { id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', url: '/play/hpos10i/', angle: 0, color: '#ff2ea6' },
-  { id: 'nobu', label: 'NOBU: Saviour Dog', place: 'Kennel', url: '/play/nobu/', angle: Math.PI / 2, color: '#3ec6ff' },
-  { id: 'pb', label: "The People's Bitcoin", place: 'White House', url: '/play/pb/', angle: Math.PI, color: '#f5b942', mature: true },
-  { id: 'sproto', label: 'Sproto Duel', place: 'Castle', url: '/play/sproto/', angle: -Math.PI / 2, color: '#8d6bff' },
+  { id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', url: '/play/hpos10i/', angle: 2 * PLAZA_SLOT + PLAZA_YAW, color: '#39ff6a' },
+  { id: 'nobu', label: 'NOBU: Saviour Dog', place: 'The Kennel', url: '/play/nobu/', angle: 4 * PLAZA_SLOT + PLAZA_YAW, color: '#ff8a1f' },
+  { id: 'pb', label: "The People's Bitcoin", place: 'The White House', url: '/play/pb/', angle: 1 * PLAZA_SLOT + PLAZA_YAW, color: '#ffc233', mature: true },
+  { id: 'sproto', label: 'Sproto Duel', place: 'The Castle', url: '/play/sproto/', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
 ];
 
-export const PLAZA_RADIUS = 30;
-export const PORTAL_DISTANCE = 16;
-export const PORTAL_STANDOFF = 6.5;
-export const PORTAL_TRIGGER_RADIUS = 0.95;
-export const SPAWN_DISTANCE = 8.2;
+export const PLAZA_RADIUS = 110;
+export const PORTAL_DISTANCE = 96;
+export const PORTAL_STANDOFF = 7.5;
+export const PORTAL_TRIGGER_RADIUS = 2.4;
+export const SPAWN_DISTANCE = 42;
 export const MONUMENT_RADIUS = 4.2;
 export const PEDESTAL_HEIGHT = 1.45;
 export const CURB_RADIUS = 28.5;

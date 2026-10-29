@@ -1,58 +1,66 @@
 import {
-  AdditiveBlending,
-  ACESFilmicToneMapping,
+  AnimationMixer,
   BackSide,
-  BufferAttribute,
-  BufferGeometry,
+  Box3,
+  BoxGeometry,
   CanvasTexture,
   CircleGeometry,
   Color,
-  ConeGeometry,
-  CylinderGeometry,
+  AnimationClip,
   DirectionalLight,
-  FogExp2,
-  GLSL3,
+  Euler,
+  Fog,
   Group,
+  HalfFloatType,
   HemisphereLight,
-  IcosahedronGeometry,
+  InstancedMesh,
+  LOD,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  NoToneMapping,
   Object3D,
-  OctahedronGeometry,
   PerspectiveCamera,
-  Points,
-  PointsMaterial,
+  PMREMGenerator,
   Quaternion,
+  RepeatWrapping,
   Scene,
   ShaderMaterial,
   SphereGeometry,
   Sprite,
-  SpriteMaterial,
   SRGBColorSpace,
-  TorusGeometry,
   Vector3,
   WebGLRenderer,
-  BoxGeometry,
-  PlaneGeometry,
+  type AnimationAction,
 } from 'three';
-import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import {
-  CAMERA_FOV,
-  MONUMENT_RADIUS,
-  PEDESTAL_HEIGHT,
-  PILLAR_HEIGHT,
-  PILLAR_WIDTH,
-  PLAZA_RADIUS,
-  PORTAL_DISTANCE,
-  PORTALS,
-  SOCKETS,
-} from './config';
-import { barScreenPose, createBarGeometry, createBlockoutGeometry } from './blockouts';
-import { buildCollider, type Collider } from './collider';
-import { bollardPositions, pillarBoxes, portalPosition, type BoxSpec } from './layout';
+import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
+import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
 import { STAND_Y } from './physics';
+import { buildPlazaCollider } from './plaza-collider';
+import type { Collider } from './collider';
+import { animated, glow, initLoaders, instanced, loadGLTF, mountGlow, neonMat, part, upgradeToLod0, WORLD_ROOT } from './v2/core';
+import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
+import { buildInterior, type InteriorBuild } from './v2/interior';
+import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
+import { fourLightsPlaque, loadSignFont } from './v2/signs';
+
+export interface Warp {
+  x: number;
+  y: number;
+  z: number;
+  yaw: number;
+}
+
+export type PlazaZone = 'door' | 'exit' | 'loading' | null;
+
+export interface VerseStoreUi {
+  /** Empty node `store_ui_anchor`. Null until the player enters the Bar. */
+  readonly anchor: Object3D | null;
+  /** The hub has no Verse store panel yet. Listeners run once the anchor exists. */
+  whenReady(listener: (anchor: Object3D) => void): void;
+}
 
 export interface HubWorld {
   scene: Scene;
@@ -65,195 +73,503 @@ export interface HubWorld {
   shadow: Mesh;
   shadowMat: MeshBasicMaterial;
   labels: Sprite[];
-  neonTime: { value: number };
   sockets: { mesh: Mesh; on: boolean }[];
+  sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
+  verseStoreUi: VerseStoreUi;
+  inInterior: () => boolean;
+  zone: () => PlazaZone;
+  update: (dt: number, moving: boolean, sprint: boolean) => void;
+  consumeWarp: () => Warp | null;
+  render: () => void;
+  resize: (width: number, height: number) => void;
 }
 
-function shade(hex: string, scalar: number): Color {
-  return new Color(hex).multiplyScalar(scalar);
+interface SlotBuild {
+  group: Group;
+  door?: Object3D;
 }
 
-function baked(source: BufferGeometry, matrix: Matrix4, color: Color | null): BufferGeometry {
-  const geo = source.index ? source.toNonIndexed() : source.clone();
-  geo.applyMatrix4(matrix);
-  geo.computeVertexNormals();
-  for (const name of ['uv', 'uv1', 'uv2', 'tangent', 'color']) {
-    if (geo.getAttribute(name)) geo.deleteAttribute(name);
+interface SlotState {
+  key: string;
+  a: number;
+  front: number;
+  sc: number;
+  tint: string;
+  build: () => Promise<SlotBuild>;
+  phase: 'idle' | 'loading' | 'ready';
+  group?: Group;
+  door?: Object3D;
+  near?: boolean;
+}
+
+const NEAR = 120;
+const FAR = 400;
+
+export async function createWorld(): Promise<HubWorld> {
+  const scene = new Scene();
+  scene.fog = new Fog('#5a1f62', 260, 820);
+  const camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.08, 4000);
+  const renderer = new WebGLRenderer({
+    antialias: false,
+    powerPreference: 'high-performance',
+    preserveDrawingBuffer: true,
+    stencil: false,
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.toneMapping = NoToneMapping;
+  camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
+  camera.updateProjectionMatrix();
+
+  const skyMat = new ShaderMaterial({
+    side: BackSide,
+    depthWrite: false,
+    uniforms: {
+      top: { value: new Color('#1c0b45') },
+      mid: { value: new Color('#a3268f') },
+      horizon: { value: new Color('#ff9a4a') },
+    },
+    vertexShader: `varying vec3 vP; void main(){ vP = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
+    fragmentShader: `uniform vec3 top, mid, horizon; varying vec3 vP; void main(){ float h = vP.y; vec3 c = h > 0.1 ? mix(mid, top, smoothstep(0.1, 0.6, h)) : mix(horizon, mid, smoothstep(-0.03, 0.1, h)); gl_FragColor = vec4(c,1.); }`,
+  });
+  const sky = new Mesh(new SphereGeometry(1500, 32, 16), skyMat);
+  sky.name = 'sky';
+  scene.add(sky);
+  try {
+    const pmrem = new PMREMGenerator(renderer);
+    const envScene = new Scene();
+    envScene.add(sky.clone());
+    scene.environment = pmrem.fromScene(envScene, 0.02).texture;
+    scene.environmentIntensity = 0.7;
+    pmrem.dispose();
+  } catch (error) {
+    console.warn('[hub] environment map skipped', error);
   }
-  if (color) {
-    const count = geo.getAttribute('position').count;
-    const colors = new Float32Array(count * 3);
-    for (let i = 0; i < count; i += 1) {
-      colors[i * 3] = color.r;
-      colors[i * 3 + 1] = color.g;
-      colors[i * 3 + 2] = color.b;
+  scene.add(new HemisphereLight('#c9b6ff', '#3a1a40', 1.3));
+  const sun = new DirectionalLight('#ffd9b8', 2.6);
+  sun.position.set(-120, 160, 140);
+  scene.add(sun);
+
+  await initLoaders(renderer);
+  await loadSignFont();
+  const outdoor = new Group();
+  outdoor.name = 'plaza-outdoor';
+  scene.add(outdoor);
+
+  const slots: SlotState[] = [
+    { key: 'castle', a: 0 * PLAZA_SLOT + PLAZA_YAW, front: 112, sc: 1.45, tint: '#7b5cff', phase: 'idle', build: async () => castle() },
+    { key: 'whitehouse', a: 1 * PLAZA_SLOT + PLAZA_YAW, front: 116, sc: 1.3, tint: '#ffc233', phase: 'idle', build: async () => whiteHouse() },
+    { key: 'hills', a: 2 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.25, tint: '#39ff6a', phase: 'idle', build: async () => greenHill() },
+    { key: 'club', a: 3 * PLAZA_SLOT + PLAZA_YAW, front: 113, sc: 1.25, tint: '#ff3bd4', phase: 'idle', build: async () => club() },
+    { key: 'kennel', a: 4 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.2, tint: '#ff8a1f', phase: 'idle', build: async () => kennel() },
+  ];
+  buildFloor(outdoor, slots.map((slot) => ({ a: slot.a, tint: slot.tint, paws: slot.key === 'kennel' })));
+  const pedestal = buildPedestal(outdoor);
+  outdoor.add(fourLightsPlaque());
+
+  const lampT: { p: [number, number, number]; r: number }[] = [];
+  const benchT: { p: [number, number, number]; r: number }[] = [];
+  for (let k = 0; k < 40; k += 1) {
+    const a = (k / 40) * Math.PI * 2;
+    if (slots.some((slot) => Math.abs(Math.atan2(Math.sin(a - slot.a), Math.cos(a - slot.a))) < 0.07)) continue;
+    lampT.push({ p: [Math.sin(a) * 104, 0, -Math.cos(a) * 104], r: -a });
+  }
+  for (const slot of slots) {
+    const ux = Math.sin(slot.a);
+    const uz = -Math.cos(slot.a);
+    const nx = -uz;
+    const nz = ux;
+    for (let r = 36; r < 92; r += 14) {
+      for (const w of [-9, 9]) lampT.push({ p: [ux * r + nx * w, 0, uz * r + nz * w], r: -slot.a });
     }
-    geo.setAttribute('color', new BufferAttribute(colors, 3));
   }
-  return geo;
-}
-
-function compose(x: number, y: number, z: number, rotX: number, rotY: number): Matrix4 {
-  const obj = new Object3D();
-  obj.position.set(x, y, z);
-  obj.rotation.set(rotX, rotY, 0);
-  obj.updateMatrix();
-  return obj.matrix.clone();
-}
-
-function looking(x: number, y: number, z: number, tx: number, ty: number, tz: number): Matrix4 {
-  const obj = new Object3D();
-  obj.position.set(x, y, z);
-  obj.lookAt(tx, ty, tz);
-  obj.updateMatrix();
-  return obj.matrix.clone();
-}
-
-function merge(parts: BufferGeometry[], label: string): BufferGeometry {
-  const geometry = mergeGeometries(parts, false);
-  if (!geometry) throw new Error(`Failed to merge ${label}`);
-  return geometry;
-}
-
-function paintFloor(): CanvasTexture {
-  const size = 2048;
-  const canvas = document.createElement('canvas');
-  canvas.width = size;
-  canvas.height = size;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2d context unavailable');
-  const cx = size / 2;
-  const bg = ctx.createRadialGradient(cx, cx, size * 0.04, cx, cx, size * 0.52);
-  bg.addColorStop(0, '#221c3a');
-  bg.addColorStop(0.45, '#141226');
-  bg.addColorStop(1, '#07060f');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, size, size);
-
-  ctx.translate(cx, cx);
-  for (let i = 0; i < 16; i += 1) {
-    ctx.rotate(Math.PI / 8);
-    ctx.beginPath();
-    ctx.moveTo(size * 0.08, 0);
-    ctx.lineTo(size * 0.48, 0);
-    ctx.strokeStyle = i % 4 === 0 ? 'rgba(61, 225, 255, 0.28)' : 'rgba(150, 120, 255, 0.12)';
-    ctx.lineWidth = i % 4 === 0 ? 4 : 2;
-    ctx.stroke();
+  for (const slot of slots) {
+    const a = slot.a + Math.PI / 5;
+    for (const r of [52, 80]) {
+      for (const da of [-0.08, 0.08]) {
+        benchT.push({ p: [Math.sin(a + da) * r, 0, -Math.cos(a + da) * r], r: -(a + da) + Math.PI });
+      }
+    }
   }
-  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  const palmT: { p: [number, number, number]; r: number; s: number }[] = [];
+  for (let k = 0; k < 18; k += 1) {
+    const a = (k < 9 ? (slots[2]?.a ?? 0) + 0.3 : (slots[3]?.a ?? 0) + 0.42) + (k % 9) * 0.04;
+    palmT.push({
+      p: [Math.sin(a) * (122 + (k % 3) * 9), 0, -Math.cos(a) * (122 + (k % 3) * 9)],
+      r: k,
+      s: 0.8 + (k % 4) * 0.12,
+    });
+  }
 
-  const rings = [0.16, 0.28, 0.4, 0.55, 0.7, 0.84, 0.95];
-  rings.forEach((t, index) => {
-    ctx.beginPath();
-    ctx.arc(cx, cx, t * cx * 0.98, 0, Math.PI * 2);
-    ctx.strokeStyle = index % 2 === 0 ? 'rgba(61, 225, 255, 0.55)' : 'rgba(255, 46, 166, 0.28)';
-    ctx.lineWidth = index === rings.length - 1 ? 10 : 3;
-    ctx.stroke();
+  const [statue, avatarGltf, portals, lamps, benches, palms] = await Promise.all([
+    part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
+    loadGLTF(`${WORLD_ROOT}v2/avatar/sproto-avatar.glb`),
+    Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
+    instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
+    instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
+    instanced('B5-palm', palmT, { h: 20 }),
+  ]);
+  statue.position.y = pedestal.top;
+  statue.name = 'sproto-statue';
+  outdoor.add(statue);
+  portals.forEach((portal, index) => {
+    const slot = slots[index];
+    if (!slot) return;
+    const ux = Math.sin(slot.a);
+    const uz = -Math.cos(slot.a);
+    portal.position.set(ux * 96, 0, uz * 96);
+    portal.rotation.y = Math.atan2(-ux, -uz);
+    outdoor.add(portal);
   });
+  outdoor.add(lamps);
+  outdoor.add(benches);
+  outdoor.add(palms);
+  const lampGlow = new InstancedMesh(new SphereGeometry(0.45, 10, 8), neonMat('#7fe9ff', 5), lampT.length);
+  lampGlow.name = 'lamp-glow';
+  lampT.forEach((lamp, i) => lampGlow.setMatrixAt(i, new Matrix4().makeTranslation(lamp.p[0], 7.1, lamp.p[2])));
+  lampGlow.computeBoundingSphere();
+  outdoor.add(glow(lampGlow));
+  outdoor.add(skyline());
 
-  ctx.beginPath();
-  ctx.arc(cx, cx, 0.1 * cx, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(155, 140, 255, 0.8)';
-  ctx.lineWidth = 8;
-  ctx.stroke();
+  const rig = new Group();
+  rig.name = 'player-rig';
+  const bob = new Group();
+  const avatar = fitAvatar(avatarGltf);
+  bob.add(avatar);
+  rig.add(bob);
+  scene.add(rig);
+  const mixer = new AnimationMixer(avatar.children[0] ?? avatar);
+  const clips = {
+    idle: requiredClip(avatarGltf.animations, 'idle'),
+    walk: requiredClip(avatarGltf.animations, 'walk'),
+    run: requiredClip(avatarGltf.animations, 'run'),
+  };
+  const actions: Record<'idle' | 'walk' | 'run', AnimationAction> = {
+    idle: mixer.clipAction(clips.idle),
+    walk: mixer.clipAction(clips.walk),
+    run: mixer.clipAction(clips.run),
+  };
+  let gait: 'idle' | 'walk' | 'run' = 'idle';
+  actions.idle.play();
 
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  texture.anisotropy = 8;
-  return texture;
-}
-
-function paintScoreboard(
-  canvas: HTMLCanvasElement,
-  title: string,
-  rows: readonly (readonly [string, string])[],
-  sample: boolean,
-): void {
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return;
-  const w = canvas.width;
-  const h = canvas.height;
-  ctx.fillStyle = '#090d18';
-  ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(245, 185, 66, 0.06)';
-  for (let y = 0; y < h; y += 6) ctx.fillRect(0, y, w, 2);
-  ctx.strokeStyle = '#f5b942';
-  ctx.lineWidth = 16;
-  ctx.strokeRect(24, 24, w - 48, h - 48);
-  ctx.fillStyle = '#f5b942';
-  ctx.font = '700 72px sans-serif';
-  ctx.fillText(title, 72, 130);
-  ctx.fillStyle = '#8ea2b8';
-  ctx.font = '32px sans-serif';
-  ctx.fillText(sample ? 'SAMPLE STANDINGS  ·  VERSE EARNED' : 'VERSE EARNED', 72, 180);
-  rows.slice(0, 8).forEach((row, index) => {
-    const y = 280 + index * 78;
-    ctx.fillStyle = '#9be7ff';
-    ctx.font = '700 48px sans-serif';
-    ctx.fillText(String(index + 1), 72, y);
-    ctx.fillStyle = '#e8f4ff';
-    ctx.font = '48px sans-serif';
-    ctx.fillText(row[0], 160, y);
-    ctx.fillStyle = '#f5b942';
-    ctx.font = '700 48px sans-serif';
-    ctx.fillText(row[1], w - 280, y);
-  });
-}
-
-function holoSprite(lines: { text: string; color: string; size: number }[], worldWidth: number): Sprite {
-  const w = 1024;
-  const h = 420;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2d context unavailable');
-  ctx.fillStyle = 'rgba(6, 10, 20, 0.55)';
-  ctx.strokeStyle = lines[0]?.color ?? '#9be7ff';
-  ctx.lineWidth = 10;
-  roundRect(ctx, 16, 16, w - 32, h - 32, 36);
-  ctx.fill();
-  ctx.stroke();
-  const total = lines.reduce((sum, line) => sum + line.size, 0) + (lines.length - 1) * 18;
-  let y = (h - total) / 2;
-  for (const line of lines) {
-    y += line.size;
-    ctx.fillStyle = line.color;
-    ctx.font = `700 ${line.size}px sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.fillText(line.text, w / 2, y);
-    y += 18;
-  }
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  const material = new SpriteMaterial({
-    map: texture,
+  const shadowMat = new MeshBasicMaterial({
+    map: radialShadow(),
     transparent: true,
     depthWrite: false,
     toneMapped: false,
   });
-  const sprite = new Sprite(material);
-  sprite.scale.set(worldWidth, worldWidth * (h / w), 1);
-  return sprite;
+  const shadow = new Mesh(new CircleGeometry(0.7, 16), shadowMat);
+  shadow.rotation.x = -Math.PI / 2;
+  shadow.position.y = 0.03;
+  shadow.renderOrder = 1;
+  scene.add(shadow);
+
+  const composer = new EffectComposer(renderer, { frameBufferType: HalfFloatType });
+  composer.addPass(new RenderPass(scene, camera));
+  const bloom = new SelectiveBloomEffect(scene, camera, {
+    intensity: 1.6,
+    luminanceThreshold: 0.15,
+    luminanceSmoothing: 0.4,
+    mipmapBlur: true,
+    radius: 0.7,
+  });
+  bloom.ignoreBackground = true;
+  mountGlow((obj) => {
+    obj.traverse((child) => {
+      const mesh = child as Mesh;
+      if (mesh.isMesh) bloom.selection.add(mesh);
+    });
+  });
+  composer.addPass(new EffectPass(camera, bloom, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC })));
+
+  const collider = buildPlazaCollider();
+  const tmp = new Vector3();
+  let interior: InteriorBuild | null = null;
+  let interiorTask: Promise<void> | null = null;
+  let inside = false;
+  let doorLatch = false;
+  let exitLatch = false;
+  let zone: PlazaZone = null;
+  let warp: Warp | null = null;
+  let elapsed = 0;
+  let statueNear = false;
+  let buildingCount = 0;
+  let drawsMarked = false;
+  let sceneDraws = 0;
+  let boardRows: readonly (readonly [string, string])[] = [];
+  const storeListeners: ((anchor: Object3D) => void)[] = [];
+  let storeAnchor: Object3D | null = null;
+  const shot = new URLSearchParams(window.location.search).get('shot');
+
+  function applyBoard(): void {
+    const draw = interior?.leaderboard.userData.draw as ((rows: readonly (readonly [string, string])[]) => void) | undefined;
+    draw?.(boardRows.slice(0, 5));
+  }
+
+  function ensureInterior(): void {
+    if (interiorTask) return;
+    interiorTask = buildInterior(scene).then((built) => {
+      interior = built;
+      storeAnchor = built.storeAnchor;
+      applyBoard();
+      for (const listener of storeListeners) listener(built.storeAnchor);
+    }).catch((error: unknown) => {
+      interiorTask = null;
+      console.error(error);
+    });
+  }
+
+  function placeBuilding(group: Group, slot: SlotState): void {
+    group.scale.setScalar(slot.sc);
+    group.updateMatrixWorld(true);
+    const bounds = new Box3();
+    group.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (!mesh.isMesh || (mesh as InstancedMesh).isInstancedMesh || !mesh.geometry) return;
+      mesh.geometry.computeBoundingBox();
+      const box = mesh.geometry.boundingBox;
+      if (!box) return;
+      bounds.union(box.clone().applyMatrix4(mesh.matrixWorld));
+    });
+    const reach = Number.isFinite(bounds.max.z) ? Math.min(bounds.max.z, 60) : 0;
+    const radius = slot.front + reach;
+    const ux = Math.sin(slot.a);
+    const uz = -Math.cos(slot.a);
+    group.position.set(ux * radius, 0, uz * radius);
+    group.rotation.y = Math.atan2(-ux, -uz);
+  }
+
+  function kick(slot: SlotState): void {
+    if (slot.phase !== 'idle') return;
+    slot.phase = 'loading';
+    slot.build().then((built) => {
+      placeBuilding(built.group, slot);
+      outdoor.add(built.group);
+      slot.group = built.group;
+      slot.door = built.door;
+      slot.phase = 'ready';
+      buildingCount += 1;
+      document.documentElement.dataset.buildings = String(buildingCount);
+    }).catch((error: unknown) => {
+      slot.phase = 'idle';
+      console.error(error);
+    });
+  }
+
+  function horiz(obj: Object3D, x: number, y: number, z: number): number {
+    obj.getWorldPosition(tmp);
+    if (Math.abs(tmp.y - y) > 8) return Infinity;
+    return Math.hypot(tmp.x - x, tmp.z - z);
+  }
+
+  function update(dt: number, moving: boolean, sprint: boolean): void {
+    elapsed += dt;
+    for (const fn of animated) fn(elapsed, dt);
+    const next = !moving ? 'idle' : sprint ? 'run' : 'walk';
+    if (next !== gait) {
+      actions[gait].fadeOut(0.18);
+      gait = next;
+      actions[gait].reset().fadeIn(0.18).play();
+    }
+    mixer.update(dt);
+    const player = rig.position;
+    for (const slot of slots) {
+      const guess = slot.group?.position ?? tmp.set(Math.sin(slot.a) * 160, 0, -Math.cos(slot.a) * 160);
+      const distance = player.distanceTo(guess);
+      if (slot.phase === 'idle' && distance < FAR) kick(slot);
+      if (slot.phase === 'ready' && slot.group && !slot.near && distance < NEAR) {
+        slot.near = true;
+        void upgradeToLod0(slot.group);
+      }
+    }
+    if (!statueNear && player.length() < 48) {
+      statueNear = true;
+      void upgradeToLod0(statue);
+    }
+    zone = null;
+    const door = slots.find((slot) => slot.key === 'club')?.door;
+    if (!inside && door) {
+      const distance = horiz(door, player.x, player.y, player.z);
+      if (distance < 2.6) {
+        if (!interior) {
+          ensureInterior();
+          zone = 'loading';
+        } else if (!doorLatch) {
+          doorLatch = true;
+          exitLatch = false;
+          inside = true;
+          outdoor.visible = false;
+          interior.group.visible = true;
+          warp = { x: -6, y: STAND_Y - 300, z: 4.2, yaw: 0 };
+        }
+      } else {
+        doorLatch = false;
+        if (distance < 9) zone = 'door';
+      }
+    }
+    if (inside && interior) {
+      const distance = horiz(interior.exit, player.x, player.y, player.z);
+      if (distance < 1.8 && !exitLatch) {
+        exitLatch = true;
+        doorLatch = false;
+        inside = false;
+        outdoor.visible = true;
+        interior.group.visible = false;
+        interior.exit.getWorldPosition(tmp);
+        const flat = tmp.clone();
+        flat.y = 0;
+        if (flat.lengthSq() < 1) flat.set(0, 0, 1);
+        flat.normalize();
+        const x = tmp.x - flat.x * 6;
+        const z = tmp.z - flat.z * 6;
+        warp = { x, y: STAND_Y, z, yaw: Math.atan2(-x, z) };
+      } else if (distance >= 1.8) {
+        exitLatch = false;
+        if (distance < 4) zone = 'exit';
+      }
+    }
+  }
+
+  function render(): void {
+    if (shot === 'aerial') {
+      camera.position.set(0, 220, 310);
+      camera.lookAt(0, 6, -20);
+    } else if (shot === 'portal') {
+      camera.position.set(9, 3.3, -78);
+      camera.lookAt(0, 4.1, -96);
+    }
+    scene.updateMatrixWorld(true);
+    scene.traverse((obj) => {
+      const lod = obj as LOD;
+      if (lod.isLOD) lod.update(camera);
+    });
+    const measure = import.meta.env.DEV || (!drawsMarked && buildingCount === slots.length);
+    if (measure) {
+      renderer.info.autoReset = false;
+      renderer.info.reset();
+      renderer.render(scene, camera);
+      sceneDraws = renderer.info.render.calls;
+      if (buildingCount === slots.length) {
+        document.documentElement.dataset.plazaDraws = String(sceneDraws);
+        drawsMarked = true;
+      }
+      renderer.info.autoReset = true;
+    }
+    composer.render();
+  }
+
+  const files = resourceFiles();
+  const bytes = files.reduce((sum, file) => sum + file.bytes, 0);
+  document.documentElement.dataset.plazaReady = '1';
+  document.documentElement.dataset.initialBytes = String(bytes);
+  window.plazaLoad = { bytes, files };
+
+  const sockets = pedestal.rings.map((mesh) => ({ mesh, on: false }));
+  return {
+    scene,
+    camera,
+    renderer,
+    collider,
+    rig,
+    bob,
+    avatar,
+    shadow,
+    shadowMat,
+    labels: [],
+    sockets,
+    get sceneDraws() { return sceneDraws; },
+    setRelics(ids) {
+      const owned = new Set(ids);
+      pedestal.rings.forEach((ring, index) => {
+        const on = owned.has(SOCKETS[index]?.id ?? '');
+        const material = ring.material as MeshStandardMaterial;
+        material.emissiveIntensity = on ? 8 : 5;
+        ring.scale.setScalar(on ? 1.25 : 1);
+        const socket = sockets[index];
+        if (socket) socket.on = on;
+      });
+    },
+    setBoard(title, rows, sample) {
+      void title;
+      void sample;
+      boardRows = rows;
+      applyBoard();
+    },
+    verseStoreUi: {
+      get anchor() { return storeAnchor; },
+      whenReady(listener) {
+        if (storeAnchor) listener(storeAnchor);
+        else storeListeners.push(listener);
+      },
+    },
+    inInterior: () => inside,
+    zone: () => zone,
+    update,
+    consumeWarp() {
+      const pending = warp;
+      warp = null;
+      return pending;
+    },
+    render,
+    resize(width, height) {
+      camera.aspect = width / Math.max(height, 1);
+      camera.updateProjectionMatrix();
+      renderer.setSize(width, height);
+      composer.setSize(width, height);
+    },
+  };
 }
 
-function roundRect(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.arcTo(x + w, y, x + w, y + h, r);
-  ctx.arcTo(x + w, y + h, x, y + h, r);
-  ctx.arcTo(x, y + h, x, y, r);
-  ctx.arcTo(x, y, x + w, y, r);
-  ctx.closePath();
+function skyline(): InstancedMesh {
+  const towers = new InstancedMesh(
+    new BoxGeometry(1, 1, 1),
+    new MeshStandardMaterial({
+      color: '#140c26',
+      map: windowsTex(),
+      emissive: '#ffffff',
+      emissiveMap: windowsTex(),
+      emissiveIntensity: 0.9,
+      roughness: 0.6,
+    }),
+    90,
+  );
+  for (let k = 0; k < 90; k += 1) {
+    const a = (k / 90) * Math.PI * 2 + 0.03;
+    const r = 480 + ((k * 37) % 120);
+    const h = 25 + ((k * 53) % 70);
+    towers.setMatrixAt(k, new Matrix4().compose(
+      new Vector3(Math.sin(a) * r, h / 2, -Math.cos(a) * r),
+      new Quaternion().setFromEuler(new Euler(0, -a, 0)),
+      new Vector3(14 + (k % 5) * 4, h, 14),
+    ));
+  }
+  towers.name = 'skyline';
+  return towers;
+}
+
+function windowsTex(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 64;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2d context unavailable');
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, 64, 256);
+  for (let r = 0; r < 32; r += 1) {
+    for (let k = 0; k < 4; k += 1) {
+      if (Math.random() < 0.35) {
+        ctx.fillStyle = Math.random() < 0.5 ? '#7a5cff' : '#ff6ad5';
+        ctx.fillRect(4 + k * 15, 4 + r * 8, 9, 4);
+      }
+    }
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  texture.wrapS = RepeatWrapping;
+  texture.wrapT = RepeatWrapping;
+  return texture;
 }
 
 function radialShadow(): CanvasTexture {
@@ -272,357 +588,38 @@ function radialShadow(): CanvasTexture {
   return texture;
 }
 
-function boxMatrix(spec: BoxSpec): Matrix4 {
-  return new Matrix4().compose(
-    new Vector3(spec.x, spec.y, spec.z),
-    new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), spec.rotY),
-    new Vector3(1, 1, 1),
-  );
+function requiredClip(clips: readonly AnimationClip[], name: string): AnimationClip {
+  const found = clips.find((clip) => clip.name === name);
+  if (!found) throw new Error(`Sproto avatar is missing the ${name} clip`);
+  return found;
 }
 
-function portalLines(id: string, mature: boolean | undefined): { text: string; color: string; size: number }[] {
-  if (id === 'hpos10i') return [
-    { text: 'GREEN HILL ZONE', color: '#c8f7c8', size: 72 },
-    { text: 'HPOS10I', color: '#ffd0ec', size: 108 },
-  ];
-  if (id === 'nobu') return [
-    { text: 'KENNEL', color: '#f0d2b0', size: 80 },
-    { text: 'NOBU', color: '#dff6ff', size: 108 },
-  ];
-  if (id === 'pb') return [
-    { text: 'WHITE HOUSE', color: '#f7f4ee', size: 80 },
-    { text: "THE PEOPLE'S BITCOIN", color: '#ffe7b0', size: 64 },
-    { text: mature ? '18+' : 'PORTAL', color: '#f5b942', size: 56 },
-  ];
-  return [
-    { text: 'CASTLE', color: '#d7d3ea', size: 80 },
-    { text: 'SPROTO DUEL', color: '#efe7ff', size: 96 },
-  ];
-}
-
-function buildAvatar(): Group {
-  const clothParts: BufferGeometry[] = [];
-  const cloth = (geo: BufferGeometry, x: number, y: number, z: number, color: string, rotX = 0) => {
-    clothParts.push(baked(geo, compose(x, y, z, rotX, 0), new Color(color)));
-  };
-  cloth(new BoxGeometry(0.16, 0.64, 0.18), -0.11, -STAND_Y + 0.32, 0, '#1a142c');
-  cloth(new BoxGeometry(0.16, 0.64, 0.18), 0.11, -STAND_Y + 0.32, 0, '#1a142c');
-  cloth(new CylinderGeometry(0.22, 0.26, 0.58, 6), 0, -STAND_Y + 0.9, 0, '#241838');
-  cloth(new IcosahedronGeometry(0.2, 0), 0, -STAND_Y + 1.32, 0, '#2c2148');
-  const hood = new IcosahedronGeometry(0.26, 0);
-  hood.scale(1, 0.82, 1.05);
-  cloth(hood, 0, -STAND_Y + 1.36, 0.04, '#321c52');
-  cloth(new BoxGeometry(0.3, 0.08, 0.06), 0, -STAND_Y + 0.92, -0.24, '#ff2ea6');
-
+function fitAvatar(gltf: { scene: Group }): Group {
   const avatar = new Group();
-  avatar.add(new Mesh(
-    merge(clothParts, 'avatar'),
-    new MeshStandardMaterial({ vertexColors: true, roughness: 0.74, metalness: 0.08, flatShading: true }),
-  ));
-  const visor = new Mesh(
-    new BoxGeometry(0.22, 0.07, 0.05),
-    new MeshBasicMaterial({ color: 0x3de1ff, toneMapped: false }),
-  );
-  visor.position.set(0, -STAND_Y + 1.3, -0.18);
-  avatar.add(visor);
+  avatar.name = 'sproto-avatar';
+  const model = SkeletonUtils.clone(gltf.scene);
+  model.rotation.y = Math.PI;
+  avatar.add(model);
+  model.updateMatrixWorld(true);
+  const box = new Box3().setFromObject(model);
+  const height = box.getSize(new Vector3()).y;
+  model.scale.setScalar(1.75 / Math.max(height, 1e-4));
+  model.updateMatrixWorld(true);
+  const fitted = new Box3().setFromObject(model);
+  model.position.y = -STAND_Y - fitted.min.y;
+  model.traverse((obj) => {
+    const mesh = obj as Mesh;
+    if (mesh.isMesh) mesh.frustumCulled = false;
+  });
   return avatar;
 }
 
-function neonMaterial(time: { value: number }): ShaderMaterial {
-  return new ShaderMaterial({
-    glslVersion: GLSL3,
-    uniforms: { uTime: time },
-    toneMapped: false,
-    vertexShader: `
-      in vec3 color;
-      out vec3 vColor;
-      out vec3 vNormal;
-      out vec3 vWorld;
-      void main() {
-        vec4 world = modelMatrix * vec4(position, 1.0);
-        vWorld = world.xyz;
-        vNormal = normalize(mat3(modelMatrix) * normal);
-        vColor = color;
-        gl_Position = projectionMatrix * viewMatrix * world;
-      }
-    `,
-    fragmentShader: `
-      precision highp float;
-      in vec3 vColor;
-      in vec3 vNormal;
-      in vec3 vWorld;
-      uniform float uTime;
-      out vec4 fragColor;
-      void main() {
-        vec3 viewDir = normalize(cameraPosition - vWorld);
-        float fres = pow(1.0 - clamp(abs(dot(normalize(vNormal), viewDir)), 0.0, 1.0), 1.65);
-        float pulse = 0.84 + 0.16 * sin(uTime * 2.3);
-        vec3 col = vColor * (0.5 + fres * 0.85) * pulse;
-        fragColor = vec4(col, 1.0);
-      }
-    `,
-  });
-}
-
-export function createWorld(): HubWorld {
-  const scene = new Scene();
-  scene.background = new Color(0x090712);
-  scene.fog = new FogExp2(0x120814, 0.015);
-  scene.add(new HemisphereLight(0x9bb4ff, 0x2a1230, 0.72));
-  const sun = new DirectionalLight(0xfff4e8, 1.55);
-  sun.position.set(-18, 30, 12);
-  scene.add(sun);
-
-  const camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.08, 200);
-  const renderer = new WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.toneMapping = ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
-
-  const sky = new Mesh(
-    new SphereGeometry(90, 28, 16),
-    new ShaderMaterial({
-      glslVersion: GLSL3,
-      side: BackSide,
-      depthWrite: false,
-      toneMapped: false,
-      vertexShader: `
-        out vec3 vWorld;
-        void main() {
-          vec4 world = modelMatrix * vec4(position, 1.0);
-          vWorld = world.xyz;
-          gl_Position = projectionMatrix * viewMatrix * world;
-        }
-      `,
-      fragmentShader: `
-        precision highp float;
-        in vec3 vWorld;
-        out vec4 fragColor;
-        void main() {
-          float h = normalize(vWorld).y;
-          vec3 top = vec3(0.03, 0.025, 0.07);
-          vec3 horizon = vec3(0.18, 0.05, 0.12);
-          float t = smoothstep(-0.05, 0.65, h);
-          fragColor = vec4(mix(horizon, top, t), 1.0);
-        }
-      `,
-    }),
-  );
-  sky.frustumCulled = false;
-  scene.add(sky);
-
-  const starPositions: number[] = [];
-  let seed = 7;
-  const rand = () => {
-    seed = (seed * 1664525 + 1013904223) >>> 0;
-    return seed / 4294967296;
-  };
-  for (let i = 0; i < 80; i += 1) {
-    const theta = rand() * Math.PI * 2;
-    const y = 8 + rand() * 40;
-    const r = 28 + rand() * 30;
-    starPositions.push(Math.cos(theta) * r, y, Math.sin(theta) * r);
+function resourceFiles(): { name: string; bytes: number }[] {
+  const rows: { name: string; bytes: number }[] = [];
+  const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
+  if (nav) rows.push({ name: nav.name, bytes: nav.encodedBodySize || nav.decodedBodySize || 0 });
+  for (const entry of performance.getEntriesByType('resource') as PerformanceResourceTiming[]) {
+    rows.push({ name: entry.name, bytes: entry.encodedBodySize || entry.decodedBodySize || 0 });
   }
-  const stars = new Points(
-    new BufferGeometry().setAttribute('position', new BufferAttribute(new Float32Array(starPositions), 3)),
-    new PointsMaterial({ color: 0xc9e4ff, size: 0.14, sizeAttenuation: true, fog: false, transparent: true, opacity: 0.85 }),
-  );
-  scene.add(stars);
-
-  const floor = new Mesh(
-    new CircleGeometry(PLAZA_RADIUS, 64),
-    new MeshBasicMaterial({ map: paintFloor(), toneMapped: false }),
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.position.y = 0;
-  scene.add(floor);
-
-  const stoneParts: BufferGeometry[] = [];
-  const pushStone = (geo: BufferGeometry, matrix: Matrix4) => {
-    stoneParts.push(baked(geo, matrix, null));
-  };
-  pushStone(new CylinderGeometry(MONUMENT_RADIUS, MONUMENT_RADIUS, PEDESTAL_HEIGHT, 8), compose(0, PEDESTAL_HEIGHT / 2, 0, 0, 0));
-  pushStone(new CylinderGeometry(0.42, 0.55, 0.9, 6), compose(0, PEDESTAL_HEIGHT + 0.45, 0, 0, 0));
-  pushStone(new ConeGeometry(0.32, 1.1, 6), compose(0, 5.15, 0, 0, 0));
-  for (const spec of pillarBoxes()) {
-    pushStone(new BoxGeometry(spec.sx, spec.sy, spec.sz), boxMatrix(spec));
-  }
-  for (const portal of PORTALS) {
-    const atPortal = portalPosition(portal.angle, PORTAL_DISTANCE);
-    const matrix = new Matrix4().compose(
-      new Vector3(atPortal.x, PILLAR_HEIGHT + 0.1, atPortal.z),
-      new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -portal.angle),
-      new Vector3(1, 1, 1),
-    );
-    pushStone(new BoxGeometry(3.5, 0.28, PILLAR_WIDTH + 0.06), matrix);
-  }
-  const curbCount = 28;
-  for (let i = 0; i < curbCount; i += 1) {
-    const angle = (i / curbCount) * Math.PI * 2;
-    const pos = portalPosition(angle, 28.5);
-    const arc = (Math.PI * 2 * 28.5) / curbCount;
-    const matrix = new Matrix4().compose(
-      new Vector3(pos.x, 0.42, pos.z),
-      new Quaternion().setFromAxisAngle(new Vector3(0, 1, 0), -angle),
-      new Vector3(1, 1, 1),
-    );
-    pushStone(new BoxGeometry(arc + 0.5, 0.84, 0.66), matrix);
-  }
-  for (const post of bollardPositions()) {
-    pushStone(new CylinderGeometry(0.18, 0.24, 1.05, 6), compose(post.x, 0.52, post.z, 0, 0));
-  }
-  scene.add(new Mesh(
-    merge(stoneParts, 'stone'),
-    new MeshStandardMaterial({ color: 0x1b1730, roughness: 0.88, metalness: 0.06, flatShading: true }),
-  ));
-  const blockMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, flatShading: true });
-  scene.add(new Mesh(createBlockoutGeometry(), blockMat));
-  scene.add(new Mesh(createBarGeometry(), blockMat));
-
-  const neonTime = { value: 0 };
-  const neonParts: BufferGeometry[] = [];
-  const pushNeon = (geo: BufferGeometry, matrix: Matrix4, color: Color) => {
-    neonParts.push(baked(geo, matrix, color));
-  };
-  const ringGeo = new TorusGeometry(1.35, 0.12, 6, 22);
-  for (const portal of PORTALS) {
-    const pos = portalPosition(portal.angle, PORTAL_DISTANCE);
-    pushNeon(ringGeo, looking(pos.x, 1.55, pos.z, 0, 1.55, 0), new Color(portal.color));
-  }
-  pushNeon(new TorusGeometry(1.15, 0.1, 6, 20), compose(0, 3.35, 0, 0, 0), shade('#9b8cff', 0.42));
-  pushNeon(new CircleGeometry(0.98, 18), compose(0, 3.35, 0.02, 0, 0), shade('#100818', 0.35));
-  pushNeon(new CircleGeometry(0.98, 18), compose(0, 3.35, -0.02, 0, Math.PI), shade('#100818', 0.35));
-  pushNeon(new BoxGeometry(1.7, 0.08, 0.08), compose(0, 3.35, 0.08, 0, 0), shade('#c4b8ff', 0.35));
-  pushNeon(new BoxGeometry(0.08, 1.7, 0.08), compose(0, 3.35, 0.08, 0, 0), shade('#c4b8ff', 0.35));
-  pushNeon(new TorusGeometry(4.02, 0.07, 5, 8), compose(0, PEDESTAL_HEIGHT, 0, Math.PI / 2, 0), shade('#3de1ff', 0.7));
-  const socketRing = new TorusGeometry(0.36, 0.055, 5, 14);
-  for (const socket of SOCKETS) {
-    const pos = portalPosition(socket.angle, 2.25);
-    pushNeon(socketRing, looking(pos.x, 3.35, pos.z, 0, 3.35, 0), shade(socket.color, 0.45));
-  }
-  const socketLights: { id: string; mesh: Mesh; material: MeshBasicMaterial; base: Color; on: boolean }[] = [];
-  for (const socket of SOCKETS) {
-    const pos = portalPosition(socket.angle, 2.25);
-    const material = new MeshBasicMaterial({
-      color: socket.color,
-      transparent: true,
-      opacity: 0.22,
-      toneMapped: false,
-    });
-    const mesh = new Mesh(new OctahedronGeometry(0.18, 0), material);
-    mesh.position.set(pos.x, 3.35, pos.z);
-    socketLights.push({ id: socket.id, mesh, material, base: new Color(socket.color), on: false });
-  }
-  for (const post of bollardPositions()) {
-    pushNeon(new BoxGeometry(0.22, 0.12, 0.22), compose(post.x, 1.1, post.z, 0, 0), shade('#3de1ff', 0.9));
-  }
-  scene.add(new Mesh(merge(neonParts, 'neon'), neonMaterial(neonTime)));
-  for (const light of socketLights) scene.add(light.mesh);
-
-  function setRelics(ids: readonly string[]): void {
-    const owned = new Set(ids);
-    for (const light of socketLights) {
-      light.on = owned.has(light.id);
-      light.material.color.copy(light.base);
-      if (!light.on) light.material.color.multiplyScalar(0.35);
-      light.material.opacity = light.on ? 1 : 0.22;
-      light.mesh.scale.setScalar(light.on ? 1.45 : 0.8);
-    }
-  }
-
-  const glowParts: BufferGeometry[] = [];
-  const disc = new CircleGeometry(2.05, 20);
-  for (const portal of PORTALS) {
-    const pos = portalPosition(portal.angle, PORTAL_DISTANCE);
-    glowParts.push(baked(disc, compose(pos.x, 0.045, pos.z, -Math.PI / 2, 0), new Color(portal.color)));
-  }
-  const glow = new Mesh(
-    merge(glowParts, 'glow'),
-    new MeshBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      blending: AdditiveBlending,
-      depthWrite: false,
-      toneMapped: false,
-      opacity: 0.55,
-    }),
-  );
-  glow.renderOrder = 1;
-  scene.add(glow);
-
-  const scoreCanvas = document.createElement('canvas');
-  scoreCanvas.width = 1280;
-  scoreCanvas.height = 720;
-  paintScoreboard(scoreCanvas, 'TOTAL', [], true);
-  const scoreTexture = new CanvasTexture(scoreCanvas);
-  scoreTexture.colorSpace = SRGBColorSpace;
-  const scorePose = barScreenPose();
-  const scoreboard = new Mesh(
-    new PlaneGeometry(3.15, 1.75),
-    new MeshBasicMaterial({ map: scoreTexture, toneMapped: false }),
-  );
-  scoreboard.position.set(scorePose.x, scorePose.y, scorePose.z);
-  scoreboard.rotation.y = scorePose.rotY;
-  scene.add(scoreboard);
-  function setBoard(title: string, rows: readonly (readonly [string, string])[], sample: boolean): void {
-    paintScoreboard(scoreCanvas, title, rows, sample);
-    scoreTexture.needsUpdate = true;
-  }
-
-  const labels: Sprite[] = [];
-  for (const portal of PORTALS) {
-    const pos = portalPosition(portal.angle, PORTAL_DISTANCE);
-    const outX = Math.sin(portal.angle);
-    const outZ = -Math.cos(portal.angle);
-    const sprite = holoSprite(portalLines(portal.id, portal.mature), portal.id === 'pb' ? 5.6 : 4.8);
-    sprite.position.set(pos.x + outX * 1.6, 4.55, pos.z + outZ * 1.6);
-    labels.push(sprite);
-    scene.add(sprite);
-  }
-  const hall = holoSprite(
-    [
-      { text: 'HALL OF CHAMPIONS', color: '#efeaff', size: 78 },
-      { text: 'SEALED', color: '#b9a6ff', size: 92 },
-    ],
-    4.4,
-  );
-  hall.position.set(0, 2.15, 4.55);
-  const barSign = holoSprite(
-    [
-      { text: 'BAR', color: '#f5b942', size: 140 },
-      { text: 'SCOREBOARD', color: '#ffe7b0', size: 64 },
-    ],
-    3.2,
-  );
-  const barAt = barScreenPose();
-  barSign.position.set(barAt.x, 4.3, barAt.z);
-  labels.push(barSign);
-  scene.add(barSign);
-  labels.push(hall);
-  scene.add(hall);
-
-  const rig = new Group();
-  const bob = new Group();
-  const avatar = buildAvatar();
-  bob.add(avatar);
-  rig.add(bob);
-  scene.add(rig);
-
-  const shadowMat = new MeshBasicMaterial({
-    map: radialShadow(),
-    transparent: true,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const shadow = new Mesh(new CircleGeometry(0.7, 16), shadowMat);
-  shadow.rotation.x = -Math.PI / 2;
-  shadow.position.y = 0.03;
-  shadow.renderOrder = 1;
-  scene.add(shadow);
-
-  const collider = buildCollider();
-  return {
-    scene, camera, renderer, collider, rig, bob, avatar, shadow, shadowMat, labels, neonTime, sockets: socketLights, setRelics, setBoard,
-  };
+  return rows;
 }
