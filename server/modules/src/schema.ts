@@ -147,8 +147,10 @@ namespace HubSchema {
       PRIMARY KEY (game, shop_id, item_id),
       CONSTRAINT shop_price_pack CHECK (pack_size >= 1),
       CONSTRAINT shop_price_positive CHECK (price >= 1),
-      CONSTRAINT shop_price_sell CHECK (sell_price < price)
+      CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)
     )`,
+    "ALTER TABLE game.shop_price DROP CONSTRAINT IF EXISTS shop_price_sell",
+    "ALTER TABLE game.shop_price ADD CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)",
 
     // Prices come from the CSVs. Prune then upsert so a data-only rebalance lands on boot.
     HubShop.pruneSql(),
