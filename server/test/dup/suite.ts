@@ -920,8 +920,8 @@ async function nobuRows(): Promise<void> {
 
   await test('wallet', 'exchange response has ticketsLeft and not ticketsDebited', async () => {
     const session = await login('nobu');
-    await earn(session.gameToken, 20, 'level_end', 'nobu-ex-fields');
-    const traded = await call('tickets.exchange', { tickets: 10, key: 'nobu-ex-fields' }, session.gameToken);
+    await earn(session.gameToken, 20, 'level_end', 'nobu-ex-fund');
+    const traded = await call('tickets.exchange', { tickets: 10, key: 'nobu-ex-trade' }, session.gameToken);
     assert.equal(traded.body.error, undefined, JSON.stringify(traded.body));
     const body = traded.body as Record<string, unknown>;
     assert.equal(body.ticketsLeft, 10);
