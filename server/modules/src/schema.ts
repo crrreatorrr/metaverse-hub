@@ -763,7 +763,9 @@ namespace HubSchema {
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
     // Sum, rename pb-only rows, then delete pb leftovers. #16's overlap deletes
     // are not run again after this block.
-    `DO $$ BEGIN
+    `DO $$ DECLARE
+       n bigint;
+     BEGIN
        UPDATE game.tickets_balance AS neu
           SET balance = neu.balance + old.balance
          FROM game.tickets_balance AS old
@@ -779,6 +781,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.tickets_balance WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.tickets_balance pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.verse_earned AS neu
           SET lifetime = neu.lifetime + old.lifetime
@@ -795,6 +799,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.verse_earned WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.verse_earned pb rows dropped for unique game_id collision: %', n;
 
        -- Row presence is the beaten flag (OR). Keep the earliest timestamp.
        UPDATE game.game_beaten AS neu
@@ -813,6 +819,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.game_beaten WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.game_beaten pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.earn_window AS neu
           SET amount = neu.amount + old.amount
@@ -831,13 +839,24 @@ namespace HubSchema {
                AND canon.bucket = replace(pb_row.bucket, ':pb', ':peoples-bitcoin')
           );
        DELETE FROM game.earn_window WHERE bucket IN ('tickets:pb', 'verse:pb');
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.earn_window pb rows dropped for unique game_id collision: %', n;
 
+       SELECT count(*) INTO n
+         FROM game.event_rule pb
+        WHERE pb.game_id = 'pb'
+          AND EXISTS (
+            SELECT 1 FROM game.event_rule canon
+             WHERE canon.game_id = 'peoples-bitcoin'
+               AND canon.event_type = pb.event_type
+          );
        INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
        SELECT 'peoples-bitcoin', event_type, relic_id, tickets, session_limit, day_limit, match
          FROM game.event_rule
         WHERE game_id = 'pb'
        ON CONFLICT DO NOTHING;
        DELETE FROM game.event_rule WHERE game_id = 'pb';
+       RAISE NOTICE 'game.event_rule pb rows dropped for unique game_id collision: %', n;
      END $$`,
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
       ],
