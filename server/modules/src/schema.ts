@@ -1,5 +1,30 @@
 namespace HubSchema {
-  var STATEMENTS: string[] = [
+  interface SchemaMigration {
+    id: string;
+    statements: string[];
+  }
+
+  // Dev databases have no ledger rows yet. This CREATE is idempotent, so the
+  // first boot can create the table, run it once more as 0001, and record it.
+  var SCHEMA_MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS game.schema_migrations (
+      id text PRIMARY KEY,
+      checksum text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )`;
+
+  // Ordered, named migrations. apply() runs each pending one once. Checksums
+  // cover the statement text only; the ledger insert is outside that text so
+  // the recorded checksum is stable. 0002 is the idempotent CREATE IF NOT EXISTS
+  // baseline. 0003 merges pb into peoples-bitcoin and does not repeat #16's
+  // overlap deletes after that merge.
+  var MIGRATIONS: SchemaMigration[] = [
+    {
+      id: "0001_schema_migrations",
+      statements: [SCHEMA_MIGRATIONS_TABLE],
+    },
+    {
+      id: "0002_baseline",
+      statements: [
     "CREATE SCHEMA IF NOT EXISTS game",
 
     `CREATE TABLE IF NOT EXISTS game.game_session (
@@ -631,16 +656,18 @@ namespace HubSchema {
     "CREATE TRIGGER tickets_ledger_append_only BEFORE UPDATE OR DELETE ON game.tickets_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
     "DROP TRIGGER IF EXISTS verse_ledger_append_only ON game.verse_ledger",
     "CREATE TRIGGER verse_ledger_append_only BEFORE UPDATE OR DELETE ON game.verse_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
-
-    // Rename legacy `pb` rows to `peoples-bitcoin`. The seed above already
-    // inserts the new id, so drop or merge leftovers instead of UPDATE-into-PK.
+      ],
+    },
+    {
+      id: "0003_merge_pb_into_peoples_bitcoin",
+      statements: [
+    // Session ids are not a composite of (user, game), so a rename cannot collide.
     "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
     "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
-    // Merge before the deletes below. apply() re-runs every statement on startup
-    // with no migration ledger, so this has to precede those deletes. The
-    // game_beaten check was just dropped, and this DO block is one transaction.
+    // Sum, rename pb-only rows, then delete pb leftovers. #16's overlap deletes
+    // are not run again after this block.
     `DO $$ BEGIN
        UPDATE game.tickets_balance AS neu
           SET balance = neu.balance + old.balance
@@ -717,11 +744,7 @@ namespace HubSchema {
        ON CONFLICT DO NOTHING;
        DELETE FROM game.event_rule WHERE game_id = 'pb';
      END $$`,
-    "DELETE FROM game.game_beaten AS old USING game.game_beaten AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
-    "DELETE FROM game.tickets_balance AS old USING game.tickets_balance AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.tickets_balance SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     `DO $$ BEGIN
        IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
          ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only;
@@ -733,19 +756,82 @@ namespace HubSchema {
          ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
        END IF;
      END $$`,
-    "DELETE FROM game.verse_earned AS old USING game.verse_earned AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.verse_earned SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "UPDATE game.exchange_tx SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
-    "DELETE FROM game.earn_window AS old USING game.earn_window AS neu WHERE old.bucket IN ('tickets:pb', 'verse:pb') AND neu.bucket = replace(old.bucket, ':pb', ':peoples-bitcoin') AND old.user_id = neu.user_id AND old.day = neu.day",
-    "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
-    "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
-    "DELETE FROM game.event_rule WHERE game_id = 'pb'",
+      ],
+    },
   ];
 
-  export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
-    for (var i = 0; i < STATEMENTS.length; i++) {
-      nk.sqlExec(STATEMENTS[i], []);
+  function migrationSource(statements: string[]): string {
+    return statements.join("\n");
+  }
+
+  function sqlLiteral(value: string): string {
+    return "'" + value.replace(/'/g, "''") + "'";
+  }
+
+  // nk.sqlExec runs one statement. Dollar-quote each command and EXECUTE it
+  // inside a single DO block so the migration and its ledger row commit together.
+  function migrationQuery(id: string, checksum: string, statements: string[]): string {
+    var sql = "DO $hub_migration$\nBEGIN\n";
+    for (var i = 0; i < statements.length; i++) {
+      if (statements[i].indexOf("$hub_migration$") >= 0) {
+        throw new Error("schema migration sql contains the wrapper tag: " + id);
+      }
+      var tag = "stmt";
+      while (statements[i].indexOf("$" + tag + "$") >= 0) tag += "x";
+      var quoted = "$" + tag + "$" + statements[i] + "$" + tag + "$";
+      sql += "EXECUTE " + quoted + ";\n";
     }
+    sql += "INSERT INTO game.schema_migrations (id, checksum, applied_at) VALUES ("
+      + sqlLiteral(id) + ", " + sqlLiteral(checksum) + ", now());\n";
+    sql += "END\n$hub_migration$;";
+    return sql;
+  }
+
+  function fail(logger: nkruntime.Logger, message: string): never {
+    logger.error(message);
+    throw new Error(message);
+  }
+
+  export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
+    nk.sqlExec("CREATE SCHEMA IF NOT EXISTS game", []);
+    nk.sqlExec(SCHEMA_MIGRATIONS_TABLE, []);
+
+    var rows = nk.sqlQuery("SELECT id, checksum FROM game.schema_migrations", []) || [];
+    var applied: { [id: string]: string } = {};
+    for (var r = 0; r < rows.length; r++) {
+      applied[String(rows[r].id)] = String(rows[r].checksum);
+    }
+
+    var known: { [id: string]: boolean } = {};
+    for (var i = 0; i < MIGRATIONS.length; i++) {
+      if (known[MIGRATIONS[i].id]) {
+        fail(logger, "duplicate schema migration id: " + MIGRATIONS[i].id);
+      }
+      known[MIGRATIONS[i].id] = true;
+    }
+    var recordedIds = Object.keys(applied);
+    for (var u = 0; u < recordedIds.length; u++) {
+      if (!known[recordedIds[u]]) {
+        fail(logger, "schema migration recorded but missing from code: " + recordedIds[u]);
+      }
+    }
+
+    for (var m = 0; m < MIGRATIONS.length; m++) {
+      var migration = MIGRATIONS[m];
+      var source = migrationSource(migration.statements);
+      var checksum = nk.sha256Hash(source);
+      var recorded = applied[migration.id];
+      if (recorded !== undefined) {
+        if (recorded !== checksum) {
+          fail(logger, "schema migration checksum mismatch: " + migration.id);
+        }
+        continue;
+      }
+      nk.sqlExec(migrationQuery(migration.id, checksum, migration.statements), []);
+      logger.info("schema migration applied " + migration.id);
+    }
+
     logger.info("game schema ready");
   }
 }
