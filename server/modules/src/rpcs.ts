@@ -77,6 +77,12 @@ namespace HubRpc {
     return typeof value === "string" ? value : "";
   }
 
+  /** White House builds send this slug. Tickets and rules stay on `pb`. */
+  function canonicalGame(game: string): string {
+    if (game === "peoples-bitcoin") return "pb";
+    return game;
+  }
+
   function flag(data: { [key: string]: unknown }, key: string): boolean {
     return data[key] === true;
   }
@@ -293,7 +299,7 @@ namespace HubRpc {
   export function portalEnter(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var userId = requireHub(ctx);
     var body = parse(payload);
-    var game = text(body, "game");
+    var game = canonicalGame(text(body, "game"));
     if (!GAMES[game]) return fail("bad_game", "Unknown game");
     if (body.ranked !== undefined && typeof body.ranked !== "boolean") return fail("bad_json", "ranked must be boolean");
     var ranked = flag(body, "ranked");
@@ -326,7 +332,7 @@ namespace HubRpc {
   export function sessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload);
     var ticket = text(body, "ticket");
-    var gameId = text(body, "gameId");
+    var gameId = canonicalGame(text(body, "gameId"));
     if (!GAMES[gameId]) return fail("bad_game", "Unknown game");
     var claims = HubTickets.read(ctx, nk, ticket);
     if (!claims) return fail("ticket_invalid", "Ticket signature or payload is not valid");

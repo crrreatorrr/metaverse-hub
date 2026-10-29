@@ -18,7 +18,7 @@ Game ids used in code, in `#from=`, and in the default portal paths:
 | --- | --- | --- |
 | HPOS10I | `hpos10i` | `/play/hpos10i/` |
 | NOBU: Saviour Dog | `nobu` | `/play/nobu/` |
-| The People's Bitcoin (18+) | `pb` | `/play/pb/` |
+| The People's Bitcoin (18+) | `pb` (`peoples-bitcoin` is accepted and stored as `pb`) | `/play/peoples-bitcoin/` |
 | Sproto Duel | `sproto` | `/play/sproto/` |
 
 ## Run the plaza

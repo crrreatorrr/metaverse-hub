@@ -1,6 +1,17 @@
-/** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
+/** Game ids stored on the server and used in `/hub#from=<game>`. */
 export const GAME_IDS = ['hpos10i', 'nobu', 'pb', 'sproto'] as const;
 export type GameId = (typeof GAME_IDS)[number];
+
+/**
+ * Play-path slugs a build may send. They resolve to a stored game id
+ * before tickets, sessions, and events, so the economy stays one row.
+ */
+export const GAME_ID_ALIASES = {
+  'peoples-bitcoin': 'pb',
+} as const satisfies Record<string, GameId>;
+
+export type GameIdAlias = keyof typeof GAME_ID_ALIASES;
+export type GameIdInput = GameId | GameIdAlias;
 
 /** Earn-once relics. The primary key on the server is (user, relic). */
 export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'] as const;
@@ -77,7 +88,7 @@ export interface EventResult {
  * `JavaScriptBridge.get_interface("hubSdk")` once `installHubSdk` has run.
  */
 export interface HubSdk {
-  init(gameId: GameId): Promise<InitResult>;
+  init(gameId: GameIdInput): Promise<InitResult>;
   reportEvent(eventId: string, data: object, key: string): Promise<EventResult>;
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
@@ -87,6 +98,13 @@ export interface HubSdk {
 
 export function isGameId(value: string): value is GameId {
   return (GAME_IDS as readonly string[]).includes(value);
+}
+
+/** Stored game id. `peoples-bitcoin` is the White House play slug for `pb`. */
+export function canonicalGameId(value: string): GameId | null {
+  if (isGameId(value)) return value;
+  const alias = (GAME_ID_ALIASES as Record<string, GameId | undefined>)[value];
+  return alias ?? null;
 }
 
 export function isRelicId(value: string): value is RelicId {

@@ -1,4 +1,4 @@
-import { isGameId, type GameId } from '@metaverse/hub-sdk';
+import { canonicalGameId, type GameId } from '@metaverse/hub-sdk';
 import { PORTAL_DISTANCE, PORTAL_TRIGGER_RADIUS, PORTALS, type PortalConfig } from './config';
 import { portalPosition } from './layout';
 
@@ -6,8 +6,8 @@ export function parseReturnGame(hash: string): GameId | null {
   const raw = hash.startsWith('#') ? hash.slice(1) : hash;
   if (!raw) return null;
   const from = new URLSearchParams(raw).get('from');
-  if (from && isGameId(from)) return from;
-  return null;
+  if (!from) return null;
+  return canonicalGameId(from);
 }
 
 /** Appends the mock ticket as `#t=` without dropping an existing query string. */
