@@ -188,19 +188,20 @@ namespace HubSchema {
        ('sproto', 'sproto.boss_defeated', 'tinubu_crown', NULL, NULL, NULL, '{"boss":"tinubu"}'::jsonb)
      ON CONFLICT (game_id, event_type) DO NOTHING`,
 
-    // Per-call ceilings for tickets.earn. A reason with no row is limited only by the session cap.
-    // hpos10i level_end is 200: the only in-repo sample is 20 Tickets, and a single credit
-    // cannot exceed the 200 session cap because an overage is rejected with no partial credit.
+    // Per-call ceilings for tickets.earn. The primary key is (game_id, event_type),
+    // so NOBU level_end is its own row and does not share HPOS10I's. A reason with
+    // no row falls back to 200 inside earn_tickets. Rows are stored under the live
+    // game id peoples-bitcoin; the later pb cleanup must not delete them.
     `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
      VALUES
        ('sproto', 'win', NULL, NULL, NULL, NULL, '{}'::jsonb, 20),
        ('sproto', 'duel_win', NULL, NULL, NULL, NULL, '{}'::jsonb, 20),
        ('hpos10i', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
-       ('pb', 'pb_bank', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
-       ('pb', 'pb_drop', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
-       ('pb', 'pb_lobby', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
-       ('pb', 'pb_sell', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
-       ('pb', 'pb_quest', NULL, NULL, NULL, NULL, '{}'::jsonb, 158)
+       ('peoples-bitcoin', 'pb_bank', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
+       ('peoples-bitcoin', 'pb_drop', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
+       ('peoples-bitcoin', 'pb_lobby', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
+       ('peoples-bitcoin', 'pb_sell', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
+       ('peoples-bitcoin', 'pb_quest', NULL, NULL, NULL, NULL, '{}'::jsonb, 158)
      ON CONFLICT (game_id, event_type) DO UPDATE SET max_amount = EXCLUDED.max_amount`,
 
     // NOBU level_end is 110. tickets.earn reads this row; it is not a code constant.
@@ -558,10 +559,17 @@ namespace HubSchema {
        SELECT max_amount INTO v_max FROM game.event_rule
        WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
        LIMIT 1;
-       IF FOUND AND p_amount > v_max THEN
+       -- No row is not unlimited. 200 is the per-call fallback and closes the old
+       -- p_amount >= 1000 path that skipped the session check.
+       IF NOT FOUND THEN
+         v_max := 200;
+       END IF;
+       IF p_amount > v_max THEN
          RETURN jsonb_build_object('error', 'amount_over_rule');
        END IF;
        v_credit := game.credit_session_tickets(p_user_id, p_session_id, p_game_id, p_amount, p_reason);
+       -- A session-cap rejection is not stored. The caller's key, including
+       -- pb:quest:<id>, stays free and pays once when that same key is sent again.
        IF v_credit ? 'error' THEN
          RETURN v_credit;
        END IF;
