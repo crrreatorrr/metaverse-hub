@@ -33,7 +33,6 @@ export const PB_SHOP: Record<string, PbShopRow> = {
   'shop_terminal:gun_treasury_rifle': { shopId: 'shop_terminal', itemId: 'gun_treasury_rifle', packSize: 1, price: 182, sellPrice: 81 },
   'shop_terminal:item_aviators': { shopId: 'shop_terminal', itemId: 'item_aviators', packSize: 1, price: 78, sellPrice: 35 },
   'shop_terminal:item_black_book': { shopId: 'shop_terminal', itemId: 'item_black_book', packSize: 1, price: 155, sellPrice: 69 },
-  'shop_terminal:item_blue_sproto_coffee': { shopId: 'shop_terminal', itemId: 'item_blue_sproto_coffee', packSize: 1, price: 9, sellPrice: 0 },
   'shop_terminal:item_briefcase_bludgeon': { shopId: 'shop_terminal', itemId: 'item_briefcase_bludgeon', packSize: 1, price: 155, sellPrice: 69 },
   'shop_terminal:item_business_cards': { shopId: 'shop_terminal', itemId: 'item_business_cards', packSize: 1, price: 25, sellPrice: 11 },
   'shop_terminal:item_campaign_hat': { shopId: 'shop_terminal', itemId: 'item_campaign_hat', packSize: 1, price: 25, sellPrice: 11 },
