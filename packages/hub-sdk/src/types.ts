@@ -62,9 +62,29 @@ export interface ExchangeResult {
   /** Verse wallet balance after the exchange. */
   verse: number;
   ticketsLeft: number;
+  /** Ticket wallet after the exchange. Same number as ticketsLeft. */
+  balance: number;
   receiptId: string;
   /** Verse this game can still earn today. Omitted by older servers. */
   verseCapLeft?: number;
+}
+
+export interface SpendResult {
+  item_id: string;
+  qty: number;
+  spent: number;
+  balance: number;
+}
+
+export interface SellResult {
+  item_id: string;
+  qty: number;
+  credited: number;
+  balance: number;
+}
+
+export interface TicketBalanceResult {
+  balance: number;
 }
 
 export interface EventResult {
@@ -82,6 +102,11 @@ export interface HubSdk {
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
   exchange(tickets: number, key: string): Promise<ExchangeResult>;
+  /** Buy `qty` of `itemId` at the server shop price. The caller mints `key` once. */
+  spendTickets(itemId: string, qty: number, key: string): Promise<SpendResult>;
+  /** Sell `qty` of `itemId` at the server sell price. The caller mints `key` once. */
+  sellItem(itemId: string, qty: number, key: string): Promise<SellResult>;
+  getTicketBalance(): Promise<TicketBalanceResult>;
   exit(reason?: string): void;
 }
 

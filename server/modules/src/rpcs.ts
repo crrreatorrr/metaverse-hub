@@ -35,6 +35,7 @@ namespace HubRpc {
       "bad_event",
       "bad_game",
       "bad_json",
+      "unknown_item",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
@@ -75,6 +76,19 @@ namespace HubRpc {
   function text(data: { [key: string]: unknown }, key: string): string {
     var value = data[key];
     return typeof value === "string" ? value : "";
+  }
+
+  /** White House builds send this slug. Tickets and rules stay on `pb`. */
+  function canonicalGame(game: string): string {
+    if (game === "peoples-bitcoin") return "pb";
+    return game;
+  }
+
+  function wholeQty(value: unknown): number {
+    if (typeof value !== "number" || !isFinite(value) || value <= 0 || Math.floor(value) !== value || value > 1000000) {
+      return 0;
+    }
+    return value;
   }
 
   function flag(data: { [key: string]: unknown }, key: string): boolean {
@@ -486,6 +500,61 @@ namespace HubRpc {
     if (result.error) return fail(String(result.error), String(result.error));
     HubFault.apply(ctx, nk, session.userId, "exchange.after_commit");
     return ok(result);
+  }
+
+  function shopBody(ctx: nkruntime.Context, payload: string): { session: { userId: string; game: string; sid: string }; itemId: string; qty: number; key: string } | string {
+    var session = requireGame(ctx);
+    var body = parse(payload);
+    var key = text(body, "key");
+    var itemId = text(body, "item_id");
+    var game = canonicalGame(text(body, "game"));
+    var qty = wholeQty(body.qty);
+    if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
+    if (!game || game !== session.game) return fail("bad_game", "Unknown game");
+    if (!itemId || itemId.length > 64) return fail("unknown_item", "Unknown item");
+    if (!qty) return fail("bad_amount", "Quantity must be a positive integer");
+    return { session: session, itemId: itemId, qty: qty, key: key };
+  }
+
+  export function ticketsSpend(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var shop = shopBody(ctx, payload);
+    if (typeof shop === "string") return shop;
+    var reqHash = nk.sha256Hash("tickets.spend\n" + stable({ game: shop.session.game, item_id: shop.itemId, qty: shop.qty }));
+    var result = queryJson(
+      nk,
+      "SELECT game.spend_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
+      [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.qty, shop.key, reqHash],
+    );
+    if (result.error) return fail(String(result.error), String(result.error));
+    return ok(result);
+  }
+
+  export function ticketsSell(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var shop = shopBody(ctx, payload);
+    if (typeof shop === "string") return shop;
+    var reqHash = nk.sha256Hash("tickets.sell\n" + stable({ game: shop.session.game, item_id: shop.itemId, qty: shop.qty }));
+    var result = queryJson(
+      nk,
+      "SELECT game.sell_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
+      [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.qty, shop.key, reqHash],
+    );
+    if (result.error) return fail(String(result.error), String(result.error));
+    return ok(result);
+  }
+
+  export function ticketsBalance(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var session = requireGame(ctx);
+    var body = parse(payload);
+    var game = canonicalGame(text(body, "game"));
+    if (!game || game !== session.game) return fail("bad_game", "Unknown game");
+    var rows = nk.sqlQuery(
+      "SELECT COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0)::text AS result",
+      [session.userId, session.game],
+    );
+    var balance = 0;
+    if (rows && rows.length && rows[0].result !== undefined && rows[0].result !== null) balance = Number(rows[0].result);
+    if (!isFinite(balance)) balance = 0;
+    return ok({ balance: balance });
   }
 
   export function recoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama): string {

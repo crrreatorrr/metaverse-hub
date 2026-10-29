@@ -8,17 +8,21 @@ import {
   canonicalGameId,
   isBoardId,
   isRelicId,
+  type ExchangeResult,
   type GameId,
   type HubSdk,
   type InitResult,
   type RelicId,
+  type SellResult,
+  type SpendResult,
+  type TicketBalanceResult,
 } from './types';
 
 /** IndexedDB database for earn, event, and exchange writes that have not been acked. */
 export const HUB_OUTBOX_DB = 'hub-outbox';
 const OUTBOX_STORE = 'writes';
 
-type EconomyRpc = 'session.event' | 'tickets.earn' | 'tickets.exchange';
+type EconomyRpc = 'session.event' | 'tickets.earn' | 'tickets.exchange' | 'tickets.spend' | 'tickets.sell';
 
 interface OutboxRecord {
   rpc: EconomyRpc;
@@ -306,13 +310,42 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!Number.isFinite(tickets) || tickets <= 0) {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
-      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop', verseCapLeft: 0 };
-      return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<{
-        verse: number;
-        ticketsLeft: number;
-        receiptId: string;
-        verseCapLeft?: number;
-      }>;
+      if (!active) return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: 'noop', verseCapLeft: 0 };
+      return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<ExchangeResult>;
+    },
+
+    async spendTickets(itemId, qty, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      if (!active) return { item_id: itemId, qty, spent: 0, balance: 0 };
+      return sendOnce(active, 'tickets.spend', key, {
+        game: active.game,
+        item_id: itemId,
+        qty,
+      }) as Promise<SpendResult>;
+    },
+
+    async sellItem(itemId, qty, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      if (!active) return { item_id: itemId, qty, credited: 0, balance: 0 };
+      return sendOnce(active, 'tickets.sell', key, {
+        game: active.game,
+        item_id: itemId,
+        qty,
+      }) as Promise<SellResult>;
+    },
+
+    async getTicketBalance() {
+      if (!active) return { balance: 0 };
+      const body = await client.rpc<TicketBalanceResult>('tickets.balance', { game: active.game }, { token: active.token });
+      return { balance: typeof body.balance === 'number' ? body.balance : 0 };
     },
 
     exit(reason) {

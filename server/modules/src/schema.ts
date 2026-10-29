@@ -77,8 +77,13 @@ namespace HubSchema {
       balance_after bigint NOT NULL CHECK (balance_after >= 0),
       reason text NOT NULL,
       ref_id uuid,
+      kind text,
       created_at timestamptz NOT NULL DEFAULT now()
     )`,
+
+    "ALTER TABLE game.tickets_ledger ADD COLUMN IF NOT EXISTS kind text",
+    "ALTER TABLE game.tickets_ledger DROP CONSTRAINT IF EXISTS tickets_ledger_kind",
+    "ALTER TABLE game.tickets_ledger ADD CONSTRAINT tickets_ledger_kind CHECK (kind IS NULL OR kind IN ('earn', 'exchange', 'spend', 'shop_sell'))",
 
     `CREATE TABLE IF NOT EXISTS game.verse_wallet (
       user_id uuid PRIMARY KEY,
@@ -122,6 +127,20 @@ namespace HubSchema {
       lifetime bigint NOT NULL CHECK (lifetime >= 0),
       PRIMARY KEY (user_id, game_id)
     )`,
+
+    `CREATE TABLE IF NOT EXISTS game.shop_price (
+      game text NOT NULL,
+      item_id text NOT NULL,
+      price integer,
+      sell_price integer NOT NULL,
+      PRIMARY KEY (game, item_id),
+      CONSTRAINT shop_price_sell CHECK (sell_price < price OR price IS NULL),
+      CONSTRAINT shop_price_nonneg CHECK (sell_price >= 0 AND (price IS NULL OR price >= 0))
+    )`,
+
+    // TODO: placeholder rows. Replace server/data/shop_price.peoples-bitcoin.json and rebuild.
+    // Stored game id is pb. A null price can be sold and is not in stock.
+    HubShop.seedSql(),
 
     `CREATE TABLE IF NOT EXISTS game.score_best (
       user_id uuid NOT NULL,
@@ -478,7 +497,8 @@ namespace HubSchema {
        IF v_room < 0 THEN v_room := 0; END IF;
        v_applied := LEAST(p_amount, v_room);
        SELECT balance INTO v_balance FROM game.tickets_balance
-       WHERE user_id = p_user_id AND game_id = p_game_id;
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
        IF NOT FOUND THEN v_balance := 0; END IF;
        IF v_applied > 0 THEN
          v_event := gen_random_uuid();
@@ -487,8 +507,8 @@ namespace HubSchema {
          ON CONFLICT (user_id, game_id) DO UPDATE
            SET balance = game.tickets_balance.balance + EXCLUDED.balance
          RETURNING balance INTO v_balance;
-         INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id)
-         VALUES (v_event, p_user_id, p_game_id, v_applied, v_balance, p_reason, p_session_id);
+         INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+         VALUES (v_event, p_user_id, p_game_id, v_applied, v_balance, p_reason, p_session_id, 'earn');
          INSERT INTO game.earn_window (user_id, bucket, day, amount)
          VALUES (p_user_id, 'tickets:' || p_game_id, v_day, v_applied)
          ON CONFLICT (user_id, bucket, day) DO UPDATE
@@ -558,6 +578,7 @@ namespace HubSchema {
        END IF;
        IF v_verse > v_room THEN v_verse := v_room; END IF;
        v_debit := v_verse * 10;
+       -- Same wallet row lock as earn, spend, and sell. The economy advisory lock is taken above.
        SELECT balance INTO v_tickets FROM game.tickets_balance
        WHERE user_id = p_user_id AND game_id = p_game_id FOR UPDATE;
        IF NOT FOUND OR v_tickets < v_debit THEN
@@ -572,8 +593,8 @@ namespace HubSchema {
        RETURNING balance INTO v_wallet;
        v_event := gen_random_uuid();
        v_receipt := gen_random_uuid();
-       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id)
-       VALUES (v_event, p_user_id, p_game_id, -v_debit, v_tickets, 'exchange', v_receipt);
+       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+       VALUES (v_event, p_user_id, p_game_id, -v_debit, v_tickets, 'exchange', v_receipt, 'exchange');
        INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
        VALUES (gen_random_uuid(), p_user_id, v_verse, v_wallet, p_game_id, v_receipt);
        INSERT INTO game.exchange_tx (receipt_id, user_id, game_id, tickets, verse, rate, idem_key)
@@ -586,9 +607,152 @@ namespace HubSchema {
        VALUES (p_user_id, 'verse:' || p_game_id, v_day, v_verse)
        ON CONFLICT (user_id, bucket, day) DO UPDATE
          SET amount = game.earn_window.amount + EXCLUDED.amount;
-       v_response := jsonb_build_object('verse', v_wallet, 'ticketsLeft', v_tickets, 'receiptId', v_receipt, 'verseCapLeft', v_room - v_verse);
+       v_response := jsonb_build_object('verse', v_wallet, 'ticketsLeft', v_tickets, 'balance', v_tickets, 'receiptId', v_receipt, 'verseCapLeft', v_room - v_verse);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.exchange', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.spend_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_item_id text, p_qty bigint, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_unit integer;
+       v_price bigint;
+       v_balance bigint;
+       v_event uuid;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT price INTO v_unit FROM game.shop_price
+       WHERE game = p_game_id AND item_id = p_item_id;
+       IF NOT FOUND OR v_unit IS NULL THEN
+         RETURN jsonb_build_object('error', 'unknown_item');
+       END IF;
+       IF v_unit > 0 AND p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
+         RETURN jsonb_build_object('error', 'bad_amount');
+       END IF;
+       v_price := v_unit::bigint * p_qty;
+       SELECT balance INTO v_balance FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
+       IF NOT FOUND THEN v_balance := 0; END IF;
+       -- balance = earned - spent - exchanged + sold, kept equal to the ledger sum.
+       IF v_balance < v_price THEN
+         RETURN jsonb_build_object('error', 'insufficient_tickets');
+       END IF;
+       UPDATE game.tickets_balance SET balance = balance - v_price
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       RETURNING balance INTO v_balance;
+       IF NOT FOUND THEN
+         INSERT INTO game.tickets_balance (user_id, game_id, balance)
+         VALUES (p_user_id, p_game_id, 0)
+         RETURNING balance INTO v_balance;
+       END IF;
+       v_event := gen_random_uuid();
+       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+       VALUES (v_event, p_user_id, p_game_id, -v_price, v_balance, 'spend', p_session_id, 'spend');
+       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'spent', v_price, 'balance', v_balance);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.spend', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.sell_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_item_id text, p_qty bigint, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_unit integer;
+       v_credit bigint;
+       v_balance bigint;
+       v_event uuid;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT sell_price INTO v_unit FROM game.shop_price
+       WHERE game = p_game_id AND item_id = p_item_id;
+       IF NOT FOUND THEN
+         RETURN jsonb_build_object('error', 'unknown_item');
+       END IF;
+       -- Shop sales are not earns: they skip session_ticket_cap and the daily earn window.
+       IF v_unit > 0 AND p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
+         RETURN jsonb_build_object('error', 'bad_amount');
+       END IF;
+       v_credit := v_unit::bigint * p_qty;
+       SELECT balance INTO v_balance FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
+       IF NOT FOUND THEN
+         INSERT INTO game.tickets_balance (user_id, game_id, balance)
+         VALUES (p_user_id, p_game_id, v_credit)
+         RETURNING balance INTO v_balance;
+       ELSE
+         UPDATE game.tickets_balance SET balance = balance + v_credit
+         WHERE user_id = p_user_id AND game_id = p_game_id
+         RETURNING balance INTO v_balance;
+       END IF;
+       v_event := gen_random_uuid();
+       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+       VALUES (v_event, p_user_id, p_game_id, v_credit, v_balance, 'shop_sell', p_session_id, 'shop_sell');
+       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'credited', v_credit, 'balance', v_balance);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
        RETURN v_response;
      EXCEPTION WHEN unique_violation THEN
        SELECT response, req_hash INTO v_response, v_existing_hash

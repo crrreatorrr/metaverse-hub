@@ -2,7 +2,7 @@
 
 Client for a game page that was opened from the hub. The hub puts a short-lived signed ticket in the URL fragment (`#t=`). `init` strips that fragment and exchanges the ticket for a game-scoped Nakama session. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.1.0 is the surface Sproto Duel should build against. Method names, argument order, game ids, relic ids, and event ids below stay stable.
+Version 0.2.0 adds shop purchases. `spendTickets`, `sellItem`, and `getTicketBalance` sit on the 0.1.0 surface. Method names, argument order, game ids, relic ids, and event ids from 0.1.0 stay the same.
 
 ## Install
 
@@ -15,10 +15,10 @@ npm ci
 npm pack -w @metaverse/hub-sdk
 ```
 
-That writes `metaverse-hub-sdk-0.1.0.tgz` in the repo root. In the game:
+That writes `metaverse-hub-sdk-0.2.0.tgz` in the repo root. In the game:
 
 ```bash
-npm install /absolute/path/to/metaverse-hub-sdk-0.1.0.tgz
+npm install /absolute/path/to/metaverse-hub-sdk-0.2.0.tgz
 ```
 
 A folder install also works after `npm ci` in the hub repo:
@@ -77,11 +77,11 @@ if (!godMode && profile.ranked) {
 hub.exit('match_end'); // releases pointer lock and goes to /hub/#from=sproto
 ```
 
-Against Nakama, earn, relic events, and exchange are written to IndexedDB (`hub-outbox`, store `writes`) before they are sent. The record keeps the `key` you passed, plus the body, RPC name, session token, and game id. That key is not replaced on a retry. The call rejects if the response is lost, and the record stays queued. It is deleted only after the RPC resolves. `init` drains every queued record, including in a tab with no saved session, using the stored token and key. Nakama returns the stored result when that same key and body are repeated.
+Against Nakama, earn, relic events, exchange, shop purchases, and shop sales are written to IndexedDB (`hub-outbox`, store `writes`) before they are sent. The record keeps the `key` you passed, plus the body, RPC name, session token, and game id. That key is not replaced on a retry. The call rejects if the response is lost, and the record stays queued. It is deleted only after the RPC resolves. `init` drains every queued record, including in a tab with no saved session, using the stored token and key. Nakama returns the stored result when that same key and body are repeated. `getTicketBalance` is a read and is not queued.
 
 A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
 
-`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId`. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored nowhere yet.
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(itemId, qty, key)` buys at the server price (`price * qty`). The client does not send a price. `sellItem(itemId, qty, key)` credits `sell_price * qty`. A null price can be sold and cannot be bought. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored.
 
 ## API
 
@@ -97,7 +97,10 @@ init(gameId): Promise<{
 reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId }>
 submitScore(boardId: string, value: number, meta?: object): Promise<void>
 earnTickets(amount: number, reason: string, key: string): Promise<{ balance: number; capped: boolean }>
-exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; receiptId: string }>
+exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
+spendTickets(itemId: string, qty: number, key: string): Promise<{ item_id: string; qty: number; spent: number; balance: number }>
+sellItem(itemId: string, qty: number, key: string): Promise<{ item_id: string; qty: number; credited: number; balance: number }>
+getTicketBalance(): Promise<{ balance: number }>
 exit(reason?: string): void
 ```
 

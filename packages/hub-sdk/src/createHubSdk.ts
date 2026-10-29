@@ -19,6 +19,8 @@ import {
   type HubSdk,
   type InitResult,
   type RelicId,
+  type SellResult,
+  type SpendResult,
 } from './types';
 
 export type { HubSdkEnv };
@@ -38,6 +40,13 @@ const BOARD_MODE: Record<BoardId, 'asc-best' | 'desc-set' | 'desc-incr'> = {
   pb_total_xp: 'desc-set',
   sproto_wins: 'desc-incr',
   meta: 'desc-set',
+};
+
+/** Placeholder People's Bitcoin shop. Same rows as server/data/shop_price.peoples-bitcoin.json. */
+const MOCK_PB_SHOP: Record<string, { price: number | null; sell: number }> = {
+  placeholder_cap: { price: 25, sell: 5 },
+  placeholder_poster: { price: 40, sell: 8 },
+  placeholder_sold_out: { price: null, sell: 12 },
 };
 
 function dayKey(now: number): string {
@@ -281,7 +290,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       if (!Number.isFinite(tickets) || tickets <= 0) {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
-      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop', verseCapLeft: 0 };
+      if (!active) return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: 'noop', verseCapLeft: 0 };
       const session = active;
       const requested = Math.floor(tickets);
       return withIdem(session.playerId, key, 'tickets.exchange', stable({ tickets: requested }), (): ExchangeResult => {
@@ -301,8 +310,53 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
         writeNumber(resolved.local, ticketsKey(session.game), ticketsLeft);
         writeNumber(resolved.local, 'hub:verse', verse);
         writeNumber(resolved.local, verseDayKey(session.game), today + verseOut);
-        return { verse, ticketsLeft, receiptId: crypto.randomUUID(), verseCapLeft: VERSE_DAILY_CAP - (today + verseOut) };
+        return { verse, ticketsLeft, balance: ticketsLeft, receiptId: crypto.randomUUID(), verseCapLeft: VERSE_DAILY_CAP - (today + verseOut) };
       });
+    },
+
+    async spendTickets(itemId, qty, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      if (!active) return { item_id: itemId, qty, spent: 0, balance: 0 };
+      const session = active;
+      const whole = Math.floor(qty);
+      return withIdem(session.playerId, key, 'tickets.spend', stable({ itemId, qty: whole }), (): SpendResult => {
+        const row = session.game === 'pb' ? MOCK_PB_SHOP[itemId] : undefined;
+        if (!row || row.price === null) throw new HubSdkError('unknown_item', 'Unknown item');
+        const spent = row.price * whole;
+        const balance = readNumber(resolved.local, ticketsKey(session.game));
+        if (balance < spent) throw new HubSdkError('insufficient_tickets', 'Not enough Tickets');
+        const next = balance - spent;
+        writeNumber(resolved.local, ticketsKey(session.game), next);
+        return { item_id: itemId, qty: whole, spent, balance: next };
+      });
+    },
+
+    async sellItem(itemId, qty, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      if (!active) return { item_id: itemId, qty, credited: 0, balance: 0 };
+      const session = active;
+      const whole = Math.floor(qty);
+      return withIdem(session.playerId, key, 'tickets.sell', stable({ itemId, qty: whole }), (): SellResult => {
+        const row = session.game === 'pb' ? MOCK_PB_SHOP[itemId] : undefined;
+        if (!row) throw new HubSdkError('unknown_item', 'Unknown item');
+        const credited = row.sell * whole;
+        const next = readNumber(resolved.local, ticketsKey(session.game)) + credited;
+        writeNumber(resolved.local, ticketsKey(session.game), next);
+        return { item_id: itemId, qty: whole, credited, balance: next };
+      });
+    },
+
+    async getTicketBalance() {
+      if (!active) return { balance: 0 };
+      return { balance: readNumber(resolved.local, ticketsKey(active.game)) };
     },
 
     exit(_reason) {
