@@ -42,6 +42,7 @@ namespace HubRpc {
       "restore_failed",
       "missing_ticket_key",
       "missing_recovery_pepper",
+      "rate_limited",
     ];
     for (var i = 0; i < codes.length; i++) {
       if (message.indexOf(codes[i]) >= 0) return codes[i];
@@ -120,17 +121,31 @@ namespace HubRpc {
     }
   }
 
+  // Game is not in the WHERE. A wrong-game redeem still burns the ticket.
   var BURN_TICKET_SQL =
-    "WITH burned AS (" +
     "UPDATE game.auth_ticket SET used_at = now() " +
-    "WHERE ticket_hash = decode($1, 'hex') AND used_at IS NULL AND expires_at > now() AND game_id = $2 " +
-    "RETURNING user_id, session_id, ranked" +
-    "), marked AS (" +
-    "UPDATE game.game_session AS s SET ticket_redeemed_at = now() " +
-    "FROM burned b " +
-    "WHERE s.session_id = b.session_id AND s.user_id = b.user_id AND s.state = 'open' AND s.game_id = $2 " +
-    "RETURNING s.session_id" +
-    ") SELECT b.user_id::text AS user_id, b.session_id::text AS session_id, b.ranked AS ranked FROM burned b";
+    "WHERE ticket_hash = decode($1, 'hex') AND used_at IS NULL AND expires_at > now() " +
+    "RETURNING user_id::text AS user_id, game_id AS game, session_id::text AS session_id, ranked";
+
+  function sweepExpiredTickets(nk: nkruntime.Nakama): void {
+    var claimed = nk.sqlQuery(
+      "UPDATE game.maint_sweep SET ran_at = now() WHERE name = 'auth_ticket' AND ran_at < now() - interval '1 hour' RETURNING name",
+      [],
+    );
+    if (!claimed || !claimed.length) return;
+    nk.sqlExec("DELETE FROM game.auth_ticket WHERE created_at < now() - interval '1 hour'", []);
+    nk.sqlExec("DELETE FROM game.portal_attempt WHERE created_at < now() - interval '1 hour'", []);
+  }
+
+  function boardPageSize(payload: string): number {
+    var body = parse(payload);
+    var raw: unknown = body.limit !== undefined ? body.limit : body.pageSize;
+    if (raw === undefined) return 100;
+    if (typeof raw !== "number" || !isFinite(raw) || Math.floor(raw) !== raw || raw < 1) {
+      throw new Error("bad_json");
+    }
+    return raw > 100 ? 100 : raw;
+  }
 
   function sessionEffects(nk: nkruntime.Nakama, userId: string, sid: string): { [key: string]: unknown } {
     if (!UUID.test(sid)) return {};
@@ -306,9 +321,9 @@ namespace HubRpc {
     return false;
   }
 
-  export function health(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
-    nk.sqlQuery("SELECT count(*)::text AS n FROM game.relic_claim", []);
-    logger.debug("health user " + (ctx.userId || "anonymous"));
+  export function health(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+    nk.sqlQuery("SELECT 1 AS result", []);
+    logger.debug("health ok");
     return ok({ ok: true });
   }
 
@@ -347,13 +362,14 @@ namespace HubRpc {
     return ok(profileBody);
   }
 
-  export function verseBoard(_ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+  export function verseBoard(_ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var limit = boardPageSize(payload);
     var rows: unknown[] = [];
     try {
       rows = queryList(
         nk,
-        "SELECT COALESCE((SELECT json_agg(json_build_object('name', COALESCE(u.username, left(e.user_id::text, 8)), 'gameId', e.game_id, 'lifetime', e.lifetime) ORDER BY e.lifetime DESC) FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id), '[]'::json)::text AS result",
-        [],
+        "SELECT COALESCE((SELECT json_agg(json_build_object('name', name, 'gameId', game_id, 'lifetime', lifetime) ORDER BY lifetime DESC) FROM (SELECT COALESCE(u.username, left(e.user_id::text, 8)) AS name, e.game_id, e.lifetime FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.lifetime DESC LIMIT LEAST($1::int, 100)) s), '[]'::json)::text AS result",
+        [limit],
       );
     } catch (e) {
       _logger.warn("verse board query failed " + String(e));
@@ -365,10 +381,13 @@ namespace HubRpc {
   export function portalEnter(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "portal.enter");
     var userId = requireHub(ctx);
+    sweepExpiredTickets(nk);
     var body = parse(payload);
     var game = text(body, "game");
     if (!GAMES[game]) return fail("bad_game", "Unknown game");
     if (body.ranked !== undefined && typeof body.ranked !== "boolean") return fail("bad_json", "ranked must be boolean");
+    var rate = queryJson(nk, "SELECT game.claim_portal_rate($1::uuid)::text AS result", [userId]);
+    if (rate.error) return fail("rate_limited", "Too many portal entries. Try again in a minute.");
     var ranked = flag(body, "ranked");
     var relics = relicIds(nk, userId);
     var effects = HubEffects.resolve(game, relics, ranked);
@@ -643,20 +662,24 @@ namespace HubRpc {
       var rawGame = (vars as { [key: string]: unknown }).game;
       if (typeof rawGame === "string") game = rawGame;
     }
-    if (!GAMES[game]) unauthenticated();
     var hash = nk.sha256Hash(ticket);
     if (!/^[0-9a-f]{64}$/.test(hash)) unauthenticated();
-    var rows = nk.sqlQuery(BURN_TICKET_SQL, [hash, game]);
+    var rows = nk.sqlQuery(BURN_TICKET_SQL, [hash]);
     if (!rows || !rows.length) unauthenticated();
+    var burnedGame = String(rows[0].game || "");
     var userId = String(rows[0].user_id || "");
     var sessionId = String(rows[0].session_id || "");
-    if (!UUID.test(userId) || !UUID.test(sessionId)) unauthenticated();
+    if (burnedGame !== game || !GAMES[burnedGame] || !UUID.test(userId) || !UUID.test(sessionId)) unauthenticated();
+    nk.sqlExec(
+      "UPDATE game.game_session SET ticket_redeemed_at = now() WHERE session_id = $1::uuid AND user_id = $2::uuid AND game_id = $3 AND state = 'open' AND ticket_redeemed_at IS NULL",
+      [sessionId, userId, burnedGame],
+    );
     var rankedValue = rows[0].ranked;
     var ranked = rankedValue === true || rankedValue === "true" || rankedValue === "t";
     record.id = "hub:" + userId;
     record.vars = {
       scope: "game",
-      game: game,
+      game: burnedGame,
       sid: sessionId,
       ranked: ranked ? "1" : "0",
     };
