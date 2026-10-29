@@ -344,7 +344,7 @@ export async function ensureNakama(): Promise<void> {
   } catch {
     // The process was killed. Start it again below.
   }
-  compose(['up', '-d', '--no-build', '--wait', '--wait-timeout', '180', 'nakama']);
+  compose(['up', '-d', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
   await waitReady();
 }
 

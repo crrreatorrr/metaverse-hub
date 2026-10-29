@@ -61,12 +61,28 @@ interface Outcome {
 
 const outcomes: Outcome[] = [];
 
+function testBudget(name: string): number {
+  if (name.includes('kill_between')) return 240_000;
+  if (name.includes('x100')) return 150_000;
+  if (name.includes('kill_')) return 120_000;
+  return 60_000;
+}
+
 async function test(category: string, name: string, fn: () => Promise<void>): Promise<void> {
+  const budget = testBudget(name);
   let failure: string | null = null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    await fn();
+    await Promise.race([
+      fn(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`timed out after ${budget}ms`)), budget);
+      }),
+    ]);
   } catch (error) {
     failure = error instanceof Error ? error.message : String(error);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
   try {
     audit();

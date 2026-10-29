@@ -149,11 +149,16 @@ function browserIdb(): { deleteDatabase(name: string): LooseRequest; open(name: 
 
 async function resetOutbox(): Promise<void> {
   const idb = browserIdb();
-  await new Promise<void>((resolve) => {
+  await new Promise<void>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('indexedDB deleteDatabase timed out')), 5_000);
     const req = idb.deleteDatabase(OUTBOX_DB);
-    req.onsuccess = () => resolve();
-    req.onerror = () => resolve();
-    req.onblocked = () => resolve();
+    const finish = () => {
+      clearTimeout(timer);
+      resolve();
+    };
+    req.onsuccess = finish;
+    req.onerror = finish;
+    req.onblocked = finish;
   });
 }
 
@@ -224,7 +229,7 @@ async function makeKit(): Promise<LiveKit> {
       }
       const id = `${rpc}:${key}`;
       if (key) calls.push(id);
-      const response = await fetch(input, init);
+      const response = await fetch(input, { ...init, signal: AbortSignal.timeout(20_000) });
       if (key && dropOnce.has(id)) {
         dropOnce.delete(id);
         await response.arrayBuffer();
