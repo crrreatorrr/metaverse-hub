@@ -120,7 +120,7 @@ export function createStubOrbitAvatars(): OrbitAvatar[] {
     const angle = (index / STUB_RELICS.length) * Math.PI * 2;
     const anchor = new Group();
     anchor.name = `m3-stub-avatar-${index}`;
-    anchor.position.set(Math.sin(angle) * 6, STAND_Y, -Math.cos(angle) * 6);
+    anchor.position.set(Math.sin(angle) * 36, STAND_Y, -Math.cos(angle) * 36);
     const owned: RelicId[] = relics.slice();
     return { id: `stub-${index}`, anchor, relics: owned };
   });

@@ -2,6 +2,7 @@ import { DoubleSide, Group, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, Bo
 import { fitText, paintedCanvas } from './canvas';
 import {
   BOARD_META,
+  HUB_BOARD_IDS,
   formatBoardScore,
   gameForBoard,
   type HubBoardId,
@@ -28,6 +29,8 @@ export interface BarLeaderboardOptions {
   cacheSeconds?: number;
   /** Fires when the top playerId on a board changes after the first load. */
   onNewNumberOne?: (event: NewNumberOneEvent) => void;
+  /** Paints a dev watermark so placeholder rows are not read as live standings. */
+  placeholder?: boolean;
 }
 
 export interface BarLeaderboard {
@@ -43,6 +46,7 @@ export interface BarLeaderboard {
  */
 export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOptions): BarLeaderboard {
   const boards = opts.provider.boards;
+  const placeholder = opts.placeholder === true;
   const cycleSeconds = Math.max(1, opts.cycleSeconds ?? 8);
   const cacheSeconds = Math.max(1, opts.cacheSeconds ?? 45);
   const pose = opts.position ?? BAR_SCREEN_POSE;
@@ -82,7 +86,7 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     const { ctx, canvas } = paint;
     const w = canvas.width;
     const h = canvas.height;
-    fillChrome(ctx, w, h, meta.title, meta.unit, meta.order, index, boards.length);
+    fillChrome(ctx, w, h, meta.title, meta.unit, meta.order, index, boards.length, placeholder);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#d7e1ff';
@@ -96,7 +100,7 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     const w = canvas.width;
     const h = canvas.height;
     const dot = Math.max(0, boards.indexOf(page.boardId));
-    fillChrome(ctx, w, h, page.title, page.unit, page.order, dot, boards.length);
+    fillChrome(ctx, w, h, page.title, page.unit, page.order, dot, boards.length, placeholder);
     const rows = page.rows.slice(0, 10);
     if (rows.length === 0) {
       ctx.textAlign = 'center';
@@ -162,7 +166,7 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
 
   function paintStatusMessage(status: string): void {
     const { ctx, canvas } = paint;
-    fillChrome(ctx, canvas.width, canvas.height, 'LEADERBOARDS', '', null, 0, 0);
+    fillChrome(ctx, canvas.width, canvas.height, 'LEADERBOARDS', '', null, 0, 0, placeholder);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#d7e1ff';
@@ -209,6 +213,7 @@ function fillChrome(
   order: 'asc' | 'desc' | null,
   active: number,
   count: number,
+  placeholder: boolean,
 ): void {
   const sky = ctx.createLinearGradient(0, 0, w, h);
   sky.addColorStop(0, '#120a2e');
@@ -226,7 +231,9 @@ function fillChrome(
   ctx.fillStyle = '#d7e1ff';
   ctx.font = '600 20px sans-serif';
   const hint = order === 'asc' ? 'lower is better' : order === 'desc' ? 'higher is better' : '';
-  ctx.fillText(fitText(ctx, unit && hint ? `${unit} · ${hint}` : unit || hint, w - 80), w / 2, 92);
+  const note = placeholder ? 'DEV PLACEHOLDER' : '';
+  const subtitle = [unit && hint ? `${unit} · ${hint}` : unit || hint, note].filter(Boolean).join(' · ');
+  ctx.fillText(fitText(ctx, subtitle, w - 80), w / 2, 92);
   if (count > 1) {
     const gap = 16;
     const total = count * gap;
@@ -237,4 +244,21 @@ function fillChrome(
       ctx.fill();
     }
   }
+}
+
+/** Prod stand-in. Empty rows, no sample names, no network. */
+export function createEmptyLeaderboardProvider(): LeaderboardProvider {
+  return {
+    boards: HUB_BOARD_IDS,
+    load(boardId) {
+      const meta = BOARD_META[boardId];
+      return Promise.resolve({
+        boardId,
+        title: meta.title,
+        order: meta.order,
+        unit: meta.unit,
+        rows: [],
+      });
+    },
+  };
 }

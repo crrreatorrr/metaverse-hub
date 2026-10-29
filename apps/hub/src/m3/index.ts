@@ -22,6 +22,7 @@ export { addOrbitGems, type OrbitGems, type OrbitGemsOptions } from './orbitGems
 export {
   addBarLeaderboardScreen,
   BAR_SCREEN_POSE,
+  createEmptyLeaderboardProvider,
   type BarLeaderboard,
   type BarLeaderboardOptions,
 } from './barLeaderboard';

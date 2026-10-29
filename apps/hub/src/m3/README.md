@@ -1,60 +1,45 @@
-# M3 hub visuals (unwired)
+# M3 hub visuals
 
-Placeholder meshes for orbit gems, living portals, the Hall of Champions, and the bar wall screen. Nothing here is imported by `scene.ts`. After PR #15 merges, add the calls below inside `createWorld` and tick them from `HubWorld.update`.
+Orbit gems, living portals, the Hall of Champions, and the bar wall screen are created in `createWorld`. `scene.ts` ticks them from `HubWorld.update`.
 
-No Nakama calls. Leaderboard data goes through `LeaderboardProvider`. `createStubLeaderboardProvider()` is the stand-in.
+Stub names, counts, and champion rows load only when `import.meta.env.DEV` is true. That branch is stripped from the production build, and `./m3/stub` is not on the prod import graph. Production renders the empty state: the local avatar's real Relics (from `setRelics`), portals at 0 players, an empty Hall roster, and no bar screen. Nothing here calls Nakama or adds a schema.
 
-## Wiring
+The bar screen stays on `createStubLeaderboardProvider()` in dev until leaderboards land. It is hidden in production so the existing verse board stays. While the dev screen is up, `leaderboard-wall-screen` is hidden so the two canvases do not stack. Dev copy is watermarked `DEV PLACEHOLDER`.
+
+Walking into the Hall is not wired. The door sits on the pedestal, and `main.ts` (open PR #25) clamps the camera and the floor to the plaza or the bar. A warp to `HALL_SPAWN` needs that file.
 
 ```ts
-import {
-  addBarLeaderboardScreen,
-  addHallOfChampions,
-  addLivingPortals,
-  addOrbitGems,
-  createStubLeaderboardProvider,
-  createStubOrbitAvatars,
-  STUB_CHAMPIONS,
-  STUB_PORTAL_PRESENCE,
-} from './m3';
-
-const gems = addOrbitGems(scene, { avatars: createStubOrbitAvatars() });
-const portals = addLivingPortals(scene, { presence: STUB_PORTAL_PRESENCE });
-const hall = addHallOfChampions(scene, { champions: STUB_CHAMPIONS, open: false });
+const devPreview = import.meta.env.DEV;
+const living = addLivingPortals(outdoor, { placeholder: devPreview });
+const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
+outdoor.add(hall.door);
+const gems = addOrbitGems(scene, { avatars: [{ id: 'local', anchor: rig, relics: [] }] });
+let provider = createEmptyLeaderboardProvider();
+if (devPreview) {
+  const stubs = await import('./m3/stub');
+  gems.setAvatars([{ id: 'local', anchor: rig, relics: [] }, ...stubs.createStubOrbitAvatars()]);
+  living.setPresence(stubs.STUB_PORTAL_PRESENCE);
+  hall.setChampions(stubs.STUB_CHAMPIONS);
+  hall.setOpen(true);
+  provider = stubs.createStubLeaderboardProvider();
+}
 const bar = addBarLeaderboardScreen(scene, {
-  provider: createStubLeaderboardProvider(),
+  provider,
+  placeholder: devPreview,
   onNewNumberOne: (event) => {
-    if (!event.gameId) return;
-    portals.pushFinisher({
+    if (!devPreview || !event.gameId) return;
+    living.pushFinisher({
       gameId: event.gameId,
       name: event.row.name,
       line: `New #1 · ${event.title}`,
     });
   },
 });
-
-// Inside HubWorld.update, `elapsed` is accumulated seconds:
-gems.update(elapsed);
-portals.update(elapsed, camera);
-hall.update(elapsed);
-bar.update(elapsed);
 ```
 
-Live presence replaces the stubs. Pass the hub `rig` (or a remote avatar root with the same origin) as `anchor`. The hall door stays sealed until that player owns all four Relics. Walking into the open door is the follow-up's warp to `HALL_SPAWN`.
+`setRelics` keeps the local orbit gems in both builds. In production it also opens the Hall door once that player owns all four Relics. The roster stays empty until a live list exists.
 
-```ts
-gems.setAvatars(avatars);
-portals.setPresence(presence);
-hall.setChampions(champions);
-hall.setOpen(ownedRelics.length === 4);
-portals.pushFinisher({ gameId: 'sproto', name: 'sproto', line: 'defeated Tinubu' });
-```
-
-`pushFinisher` is the shared finisher queue: one banner per portal per 10 seconds, whether the line is a clear or a New #1. The banner stays up 8 seconds. The firework lasts 5.
-
-The bar screen pose is `BAR_SCREEN_POSE`, on the club's +X wall, 6 cm in front of the M2 `leaderboard_screen`. Hide that M2 mesh when wiring so the two canvases do not stack. `bar.root` is already in world space (interior root `(0, -300, 0)`). Set `bar.root.visible` from the same flag that shows the club interior.
-
-Passing `camera` into `portals.update` hides labels and banners past 40 m, so a player draws at most one portal card. The table below is the upper bound, with every mesh visible.
+`pushFinisher` is the shared finisher queue: one banner per portal per 10 seconds. The banner stays up 8 seconds. The firework lasts 5. Dev New #1 rows use that same gate.
 
 ## Draw calls and download
 
@@ -67,7 +52,7 @@ Instancing keeps gems, rings, beams, fireworks, and hall gems at one draw each. 
 
 Steady is orbit gems + rings + 4 labels + hall arch + seal + plaque + bar bezel + bar screen. Peak adds the beam, 4 banners, fireworks, room shell, roster, hall gems, and the open-door beam, and hides the seal.
 
-These modules load no images, fonts, or glTF. Canvases are painted at runtime. They are not on the plaza import graph yet, so the production bundle does not grow until the follow-up imports them. The hub budget that matters here is under 8 MB for first load and under 100 draws with 10 avatars. Twenty peak draws leaves the rest of the plaza inside that cap.
+These modules load no images, fonts, or glTF. Canvases are painted at runtime. Production does not include `stub.ts`. The hub budget is under 8 MB for first load and under 100 draws with 10 avatars. Twenty peak draws leaves the rest of the plaza inside that cap. Passing `camera` into `living.update` hides labels and banners past 40 m.
 
 ## Placeholder art
 

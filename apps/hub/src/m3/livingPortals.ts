@@ -57,6 +57,8 @@ export function defaultPortalPlacements(): PortalPlacement[] {
 export interface LivingPortalsOptions {
   presence?: readonly PortalPresence[];
   placements?: readonly PortalPlacement[];
+  /** Marks counts and top-10 rows as placeholders. Scene passes this only in dev. */
+  placeholder?: boolean;
 }
 
 export interface LivingPortals {
@@ -196,6 +198,12 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions = {
       ctx.fillStyle = '#39ff6a';
       ctx.fillText(fitText(ctx, row.score, 140), w - 32, y);
     });
+    if (opts.placeholder) {
+      ctx.textAlign = 'center';
+      ctx.fillStyle = '#ff5ab4';
+      ctx.font = '700 16px sans-serif';
+      ctx.fillText('DEV PLACEHOLDER', w / 2, h - 22);
+    }
     state.labelPaint.touch();
     state.labelKey = `${state.count}|${state.names.join('\n')}|${state.top.map((row) => `${row.name}=${row.score}`).join('\n')}`;
   }

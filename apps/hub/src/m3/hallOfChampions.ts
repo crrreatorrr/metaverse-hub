@@ -41,6 +41,8 @@ export interface HallOfChampionsOptions {
   champions?: readonly ChampionEntry[];
   /** Sealed until the local player owns all four Relics. */
   open?: boolean;
+  /** Marks the roster as placeholder copy. Scene passes this only in dev. */
+  placeholder?: boolean;
 }
 
 export interface HallOfChampions {
@@ -140,6 +142,7 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
   let entries: ChampionEntry[] = [];
   let open = false;
   let disposed = false;
+  const placeholder = opts.placeholder === true;
 
   function paintRoster(): void {
     const { ctx, canvas } = rosterPaint;
@@ -156,9 +159,13 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
     ctx.fillStyle = '#ffd21f';
     ctx.font = '700 54px sans-serif';
     ctx.fillText('HALL OF CHAMPIONS', w / 2, 78);
-    ctx.fillStyle = '#d7e1ff';
+    ctx.fillStyle = placeholder ? '#ff5ab4' : '#d7e1ff';
     ctx.font = '600 24px sans-serif';
-    ctx.fillText('Everyone who owns all 4 Relics, in the order the server wrote', w / 2, 128);
+    ctx.fillText(
+      placeholder ? 'DEV PLACEHOLDER · not a live list' : 'Everyone who owns all 4 Relics, in server order',
+      w / 2,
+      128,
+    );
     const shown = entries.slice(0, 16);
     if (shown.length === 0) {
       ctx.fillStyle = '#9aa3c7';
@@ -203,6 +210,11 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
     ctx.font = '700 28px sans-serif';
     ctx.fillStyle = '#ffffff';
     ctx.fillText(open ? 'OPEN' : 'SEALED · OWN ALL 4 RELICS', w / 2, 130);
+    if (placeholder) {
+      ctx.fillStyle = '#ff5ab4';
+      ctx.font = '700 22px sans-serif';
+      ctx.fillText('DEV PLACEHOLDER', w / 2, 188);
+    }
     plaquePaint.touch();
   }
 
