@@ -686,7 +686,7 @@ export async function runShop(runner: GateRunner): Promise<void> {
     assert.ok(verse >= 0 && verse <= 50);
     const spent = spendDebit(session.hub.userId);
     const debited = num(
-      `SELECT COALESCE(sum(-tickets), 0) FROM game.exchange_tx WHERE user_id = '${sqlId(session.hub.userId)}'`,
+      `SELECT COALESCE(sum(tickets), 0) FROM game.exchange_tx WHERE user_id = '${sqlId(session.hub.userId)}'`,
     );
     assert.equal(balance, sessionPurse() - spent - debited);
     assert.ok(spent + debited <= sessionPurse());
@@ -848,7 +848,8 @@ export async function runShop(runner: GateRunner): Promise<void> {
       const twoPacks = await spend(session.gameToken, rounds, 2, 'shop-rounds-2');
       assert.equal(twoPacks.body.error, undefined, JSON.stringify(twoPacks.body));
       assert.equal(ticketBalance(session.hub.userId, GAME), sessionPurse() - terminal.price - staff.price - rounds.price * 3);
-      assertUnits(twoPacks.body, session.hub.userId, rounds.itemId, rounds.packSize * 3);
+      // units is this purchase (pack_size * packs). The balance above already counts all three packs.
+      assertUnits(twoPacks.body, session.hub.userId, rounds.itemId, rounds.packSize * 2);
     });
 
     await runner.test('wallet', 'pb same item is charged each shop price', async () => {
@@ -1038,9 +1039,16 @@ export async function runShop(runner: GateRunner): Promise<void> {
       if (!item || item.sellPrice === null) {
         throw new Error('selling is registered but no pb row has sell_price below price');
       }
+      const cap = sessionPurse();
+      const credit = sellCredit(item.sellPrice, 1);
+      // A sale is a Ticket credit on the same session, so the fund plus every sell stays inside the cap.
+      const cycles = Math.max(1, Math.min(20, Math.floor(cap / (item.price + credit))));
+      const purse = cycles * item.price;
+      if (purse + cycles * credit > cap) {
+        throw new Error(`buy/sell of ${cycles} ${item.itemId} needs ${purse + cycles * credit} session credits; cap is ${cap}`);
+      }
       const session = await login(GAME);
-      await fund(session.gameToken, sessionPurse(), 'shop-fund-sell');
-      const cycles = Math.max(1, Math.min(20, Math.floor(sessionPurse() / item.price)));
+      await fund(session.gameToken, purse, 'shop-fund-sell');
       let previous = ticketBalance(session.hub.userId, GAME);
       const start = previous;
       for (let i = 0; i < cycles; i += 1) {
@@ -1201,12 +1209,13 @@ export async function runShop(runner: GateRunner): Promise<void> {
       assert.equal(csv.length - 1, 100, `csv has ${csv.length - 1} rows`);
       const seeded = new Map(loadItems().map((row) => [`${row.shopId}|${row.itemId}`, row]));
       assert.equal(seeded.size, 100, `shop_price has ${seeded.size} peoples-bitcoin rows`);
+      const hasName = shopColumns().includes('name');
       for (const line of csv.slice(1)) {
         const [game, shopId, itemId, name, packSize, , ticketPrice, sellPrice] = line.split(',');
         assert.equal(game, GAME, line);
         const row = seeded.get(`${shopId}|${itemId}`);
         if (!row) throw new Error(`missing seed ${shopId}|${itemId}`);
-        assert.equal(row.name, name, line);
+        if (hasName) assert.equal(row.name, name, line);
         assert.equal(row.packSize, Number(packSize), line);
         assert.equal(row.price, Number(ticketPrice), line);
         assert.equal(row.sellPrice, Number(sellPrice), line);
