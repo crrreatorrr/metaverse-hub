@@ -2,7 +2,7 @@
 
 Sproto pets: cosmetic item grants, the hub pet slot, and the `profile.get` pets helper. The pet RPCs and the item grant are not registered. No migration file is added, and no `schema_migrations` id is reserved. QA owns tests. This change adds none.
 
-The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin. `profile.get` and the item-grant paste into `session.event` stay unwired. `server/modules/src/schema.ts` gains one helper, `game.lock_open_session`, and `game.apply_event` calls it. That helper is the relic session check moved into a function. The locked row, the `session_closed` result, and `event_seq` handling are unchanged. `event_seq` 0 still means an open session. NULL from the helper means the session is missing, closed, or unredeemed, which is the old `NOT FOUND` path.
+The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin. `profile.get`, the item-grant paste, and `server/modules/src/schema.ts` stay as they are on main. This branch does not add `game.lock_open_session` and does not replace `game.apply_event`.
 
 ## Files
 
@@ -10,7 +10,6 @@ The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src
 | --- | --- |
 | `server/modules/src/item_grant.ts` | `session.event` item grant. One statement, not an RPC |
 | `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, `derivedOwned`, backfill statement (not executed) |
-| `server/modules/src/schema.ts` | `game.lock_open_session`, called by `game.apply_event` |
 | `docs/m6-server-prep.md` | This wiring list |
 
 Neither pet module is in the `files` array of `server/modules/tsconfig.json`, so `tsc` does not concatenate them into `server/modules/build/index.js`. `InitModule` does not register `loadout.set_hub` and does not run a grant or the backfill. Loading the pet modules, once they are compiled in, only checks the in-memory catalog. It does not open a session or write a row.
@@ -21,7 +20,7 @@ Pets and other cosmetic items are granted only inside `session.event`, and only 
 
 The statement does not credit Tickets, Verse, or Relics. It does not write `game.relic_claim` or `game.game_beaten`. It does not run from a purchase RPC, an exchange RPC, or any other direct RPC. `game_beaten` is rejected before the query and again inside the statement.
 
-The session check is `game.lock_open_session(session_id, user_id, game_id)`. `game.apply_event` calls that function for relics. The item grant calls the same function. The predicate is not copied into the grant statement. The game id is the server session, never a field on the client body. God-mode wins are granted, the same as Relics. The grant does not read a client `ranked` or `godMode` flag. No new event reason is added. `event_rule` is not altered, and `max_amount` is not added.
+The session predicate in the grant statement is an inline copy of `game.apply_event`'s relic session check: the row is this session, this user, and this game, `state = 'open'`, `lease_until > now()`, and `ticket_redeemed_at IS NOT NULL`, locked with `FOR UPDATE`. A comment in `item_grant.ts` says that predicate must stay equal to `apply_event`. The game id is the server session, never a field on the client body. God-mode wins are granted, the same as Relics. The grant does not read a client `ranked` or `godMode` flag. No new event reason is added. `event_rule` is not altered, and `max_amount` is not added.
 
 `granted_items` on a replay has to be the list from the first call. `nk.sqlQuery` cannot share `game.apply_event`'s transaction, so the statement has to be pasted into `game.apply_event` before the idempotency insert. Calling `HubItems.grantFromEvent` after `apply_event` returns would be a second transaction, and a replay of the same key would store an empty list. `HubItems.grantFromEvent` is the statement itself. It is not a registered RPC.
 
@@ -137,11 +136,19 @@ Declare `v_items json` next to the other variables. After the relic block update
 
 ```sql
 WITH sess AS (
-  SELECT game.lock_open_session(p_session_id, p_user_id, p_game_id) AS event_seq
+  -- MUST equal game.apply_event's relic session check.
+  SELECT event_seq FROM game.game_session
+  WHERE session_id = p_session_id
+    AND user_id = p_user_id
+    AND game_id = p_game_id
+    AND state = 'open'
+    AND lease_until > now()
+    AND ticket_redeemed_at IS NOT NULL
+  FOR UPDATE
 ),
 eligible AS (
   SELECT r.item_id FROM game.item_rule r
-  WHERE (SELECT event_seq FROM sess) IS NOT NULL
+  WHERE EXISTS (SELECT 1 FROM sess)
     AND (
       (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
       OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
@@ -179,9 +186,20 @@ v_response := COALESCE(v_response, '{}'::jsonb)
   || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
 ```
 
-Inside `apply_event` the session row is already locked by `game.lock_open_session`. The paste calls that same function again. Always store `granted_items`, including `[]`. A relic response becomes `{ "granted": "<relic_id>", "granted_items": [] }` when the event grants a Relic and no item. An item-only event becomes `{ "granted_items": ["pet_honk_sproto"] }`. `pb.quest_complete` with `questId` `quest_hatchery` grants `pet_sproto_pup`. The same event with `questId` `quest_moonward` grants `pet_moon_sproto`. The relic row for that event type still matches `quest_tutorial` only.
+Inside `apply_event` the relic path has already locked that same session row. The paste repeats the predicate so this branch does not replace `apply_event`. Always store `granted_items`, including `[]`. A relic response becomes `{ "granted": "<relic_id>", "granted_items": [] }` when the event grants a Relic and no item. An item-only event becomes `{ "granted_items": ["pet_honk_sproto"] }`. `pb.quest_complete` with `questId` `quest_hatchery` grants `pet_sproto_pup`. The same event with `questId` `quest_moonward` grants `pet_moon_sproto`. The relic row for that event type still matches `quest_tutorial` only.
 
-The TypeScript function binds the same statement as `$1` user, `$2` session, `$3` game, `$4` event type, `$5` data jsonb, and returns `{ error, granted_items }`. Use the plpgsql form above for the real wiring. Keep `CANONICAL` in `item_grant.ts` in step with this list.
+The TypeScript function binds the same statement as `$1` user, `$2` session, `$3` game, `$4` event type, `$5` data jsonb, and returns `{ error, granted_items }`. Use the plpgsql form above until the shared helper below lands. Keep `CANONICAL` in `item_grant.ts` in step with this list.
+
+## Shared session helper, in the wiring PR
+
+This branch does not create `game.lock_open_session` and does not edit `game.apply_event`.
+
+After #12, #25, and #13 are on main, the M6 wiring PR adds one numbered ledger entry. The id is the next free id in `game.schema_migrations` at that time. This branch does not reserve it. That entry is reviewed under rule (b). It contains:
+
+1. `CREATE OR REPLACE FUNCTION game.lock_open_session(p_session_id uuid, p_user_id uuid, p_game_id text)` with the relic session check: `state = 'open'`, `lease_until > now()`, `ticket_redeemed_at IS NOT NULL`, and `FOR UPDATE`. `event_seq` 0 is an open session. No row returns NULL, which is today's `NOT FOUND` / `session_closed`.
+2. `CREATE OR REPLACE FUNCTION game.apply_event` so the relic path calls `game.lock_open_session` instead of inlining that predicate. Relic grant behaviour stays the same.
+
+After that function is applied, switch the grant statement's `sess` CTE from the inline copy to `SELECT game.lock_open_session(p_session_id, p_user_id, p_game_id)`. Until that migration, the inline predicate in `item_grant.ts` must stay equal to `apply_event`.
 
 ## Schema to number later
 
@@ -269,7 +287,7 @@ Do this on a branch from the main that contains #24. Leave #12, #13, #25, #28, a
 
 ### 1. Number the tables
 
-One new ledger id, the next free one. Statements are the block above. Then install the `apply_event` paste. `game.lock_open_session` is already in `schema.ts` on this branch.
+One new ledger id, the next free one, for `game.item_owned`, `game.item_rule`, and the `item_ledger` op widening. Then install the `apply_event` item paste. The `lock_open_session` migration is a separate later entry in the wiring PR. Neither id is reserved here.
 
 ### 2. Compile the modules
 
@@ -308,7 +326,7 @@ In `server/modules/src/rpcs.ts`, one line in `HubRpc.profile`:
 profileBody.pets = HubPets.profilePets(nk, userId);
 ```
 
-In `server/modules/src/schema.ts`, paste the statement into `game.apply_event` as shown above. Do not also call `HubItems.grantFromEvent` from `HubRpc.sessionEvent`.
+In `server/modules/src/schema.ts`, paste the item statement into `game.apply_event` only after the wiring PR's ledger entry has replaced that function with one that calls `game.lock_open_session`. Do not also call `HubItems.grantFromEvent` from `HubRpc.sessionEvent`. Do not edit `schema.ts` on this branch.
 
 ### 5. Backfill is a migration
 
@@ -321,11 +339,11 @@ Copy `backfillSql` into its own ledger entry when Architect wires historical row
 | `server/modules/tsconfig.json` | Add `item_grant.ts` and `pets.ts` to `files` |
 | `server/modules/src/main.ts` | Register `loadout.set_hub` only |
 | `server/modules/src/rpcs.ts` | `profile.get` adds `pets` from `HubPets.profilePets` |
-| `server/modules/src/schema.ts` | Already calls `game.lock_open_session` from `apply_event`. Later: one new ledger entry, the next free id, and the `apply_event` item paste |
+| `server/modules/src/schema.ts` | In the wiring PR, after #12, #25, and #13: one unreserved ledger entry with `lock_open_session` and `CREATE OR REPLACE game.apply_event`, reviewed under rule (b). Then the item paste. Not this branch |
 
 `server/modules/src/nakama.d.ts` needs no edit for this to typecheck while the `declare namespace` block remains. The hub client and SDK are a later change. #12 and #25 already edit them.
 
-`server/modules/src/schema.ts` on today's main has no ledger. Wait until #24 has merged before adding the migration entry. `game.lock_open_session` is the only schema change on this branch, and relic grants behave as they did before it.
+`server/modules/src/schema.ts` on today's main has no ledger. This branch does not change that file. Wait until #24 has merged, and until #12, #25, and #13 are on main, before the wiring PR adds the `lock_open_session` migration.
 
 ## Architect decisions recorded here
 
@@ -334,5 +352,5 @@ Copy `backfillSql` into its own ledger entry when Architect wires historical row
 - Hopium and COOM are granted only by M7 `store.purchase`.
 - The three relic summons equip from `relic_claim` through `derivedOwned`, which `ownedSet` calls. `profilePets` and `setHub` both call `ownedSet`. M7 calls `HubPets.derivedOwned` before a store debit.
 - `game.item_owned` and the `item_ledger` op check in this doc are the only definitions. M7 uses them and does not create a second table. The timestamp column is `acquired_at`. The ops are exactly `grant_relic`, `grant_item`, `purchase`, and `admin_revoke`.
-- The session check is `game.lock_open_session`, shared with the relic path.
+- The session predicate in this branch is an inline copy of `game.apply_event`'s relic check. `lock_open_session` plus `CREATE OR REPLACE game.apply_event` is a later ledger migration in the wiring PR, after #12, #25, and #13, reviewed under rule (b). The grant then calls that helper. No id is reserved.
 - The hub pet is Nakama storage `loadout/hub` (read 1, write 0, server-built slots, seq-guarded), separate from `game.loadout`.

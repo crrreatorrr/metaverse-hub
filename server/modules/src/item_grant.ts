@@ -153,8 +153,9 @@ namespace HubItems {
       throw new Error("missing_grant");
     }
     if (lower.indexOf("<> 'game_beaten'") < 0) throw new Error("game_beaten_grant");
-    if (lower.indexOf("game.lock_open_session") < 0) throw new Error("copied_session_check");
-    if (lower.indexOf("lease_until") >= 0 || lower.indexOf("ticket_redeemed_at") >= 0) throw new Error("copied_session_check");
+    if (lower.indexOf("game.lock_open_session") >= 0) throw new Error("session_predicate");
+    if (lower.indexOf("state = 'open'") < 0 || lower.indexOf("lease_until > now()") < 0) throw new Error("session_predicate");
+    if (lower.indexOf("ticket_redeemed_at is not null") < 0 || lower.indexOf("for update") < 0) throw new Error("session_predicate");
     if (lower.indexOf("pb.item_obtained") >= 0 || lower.indexOf("max_amount") >= 0) throw new Error("pup_claim");
   }
 
@@ -175,11 +176,19 @@ namespace HubItems {
   function grantSql(): string {
     return [
       "WITH sess AS (",
-      "  SELECT game.lock_open_session($2::uuid, $1::uuid, $3::text) AS event_seq",
+      "  -- MUST equal game.apply_event's relic session check.",
+      "  SELECT event_seq FROM game.game_session",
+      "  WHERE session_id = $2::uuid",
+      "    AND user_id = $1::uuid",
+      "    AND game_id = $3::text",
+      "    AND state = 'open'",
+      "    AND lease_until > now()",
+      "    AND ticket_redeemed_at IS NOT NULL",
+      "  FOR UPDATE",
       "),",
       "eligible AS (",
       "  SELECT r.item_id FROM game.item_rule r",
-      "  WHERE (SELECT event_seq FROM sess) IS NOT NULL",
+      "  WHERE EXISTS (SELECT 1 FROM sess)",
       "    AND (" + pairPredicate() + ")",
       "    AND r.game_id = $3::text AND r.event_type = $4::text",
       "    AND r.event_type <> 'game_beaten'",
@@ -204,7 +213,7 @@ namespace HubItems {
       "  RETURNING item_id",
       ")",
       "SELECT jsonb_build_object(",
-      "  'error', CASE WHEN (SELECT event_seq FROM sess) IS NULL THEN 'session_closed' ELSE NULL END,",
+      "  'error', CASE WHEN NOT EXISTS (SELECT 1 FROM sess) THEN 'session_closed' ELSE NULL END,",
       "  'granted_items', COALESCE((SELECT json_agg(item_id ORDER BY item_id) FROM led), '[]'::json)",
       ")::text AS result",
     ].join("\n");

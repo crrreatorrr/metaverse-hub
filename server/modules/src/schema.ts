@@ -295,31 +295,6 @@ namespace HubSchema {
 
     "DROP FUNCTION IF EXISTS game.apply_event(uuid, uuid, text, text, jsonb, text, text)",
 
-    // Same open-session predicate the relic grant locks. Item grants call this
-    // function too, so the check is not copied. FOR UPDATE matches the old
-    // inline SELECT. NULL means the session is missing, closed, or unredeemed.
-    // event_seq 0 is a real value and means the session is open.
-    `CREATE OR REPLACE FUNCTION game.lock_open_session(p_session_id uuid, p_user_id uuid, p_game_id text)
-     RETURNS bigint LANGUAGE plpgsql AS $fn$
-     DECLARE
-       v_seq bigint;
-     BEGIN
-       SELECT event_seq INTO v_seq
-       FROM game.game_session
-       WHERE session_id = p_session_id
-         AND user_id = p_user_id
-         AND game_id = p_game_id
-         AND state = 'open'
-         AND lease_until > now()
-         AND ticket_redeemed_at IS NOT NULL
-       FOR UPDATE;
-       IF NOT FOUND THEN
-         RETURN NULL;
-       END IF;
-       RETURN v_seq;
-     END;
-     $fn$`,
-
     `CREATE OR REPLACE FUNCTION game.apply_event(
        p_user_id uuid,
        p_session_id uuid,
@@ -350,8 +325,16 @@ namespace HubSchema {
          END IF;
          RETURN v_response;
        END IF;
-       v_last := game.lock_open_session(p_session_id, p_user_id, p_game_id);
-       IF v_last IS NULL THEN
+       SELECT event_seq INTO v_last
+       FROM game.game_session
+       WHERE session_id = p_session_id
+         AND user_id = p_user_id
+         AND game_id = p_game_id
+         AND state = 'open'
+         AND lease_until > now()
+         AND ticket_redeemed_at IS NOT NULL
+       FOR UPDATE;
+       IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
        IF p_seq IS NOT NULL THEN
