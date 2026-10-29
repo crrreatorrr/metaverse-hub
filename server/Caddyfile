@@ -1,14 +1,25 @@
-# Placeholder edge proxy. The hub is a static site (Cloudflare Pages later).
-# M0 does not route the plaza through this file.
+# Local edge. The Vite dev server proxies Nakama for the plaza.
+# This file is the CORS-friendly base a separate game can call at :8080.
 
 :80 {
+	@options method OPTIONS
+	handle @options {
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Headers "Authorization, Content-Type, Accept"
+		header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+		header Access-Control-Max-Age "600"
+		respond 204
+	}
 	handle /v2/* {
+		header Access-Control-Allow-Origin "*"
+		header Access-Control-Allow-Headers "Authorization, Content-Type, Accept"
+		header Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
 		reverse_proxy nakama:7350
 	}
 	handle /ws {
 		reverse_proxy nakama:7350
 	}
 	handle {
-		respond "metaverse-hub M0: Nakama proxy placeholder. The plaza is not served from here." 200
+		respond "metaverse hub: Nakama is at /v2. The plaza is served by the Vite dev server." 200
 	}
 }

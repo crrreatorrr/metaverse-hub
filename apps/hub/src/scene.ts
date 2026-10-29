@@ -49,6 +49,7 @@ import {
   PORTALS,
   SOCKETS,
 } from './config';
+import { barScreenPose, createBarGeometry, createBlockoutGeometry } from './blockouts';
 import { buildCollider, type Collider } from './collider';
 import { bollardPositions, pillarBoxes, portalPosition, type BoxSpec } from './layout';
 import { STAND_Y } from './physics';
@@ -65,6 +66,9 @@ export interface HubWorld {
   shadowMat: MeshBasicMaterial;
   labels: Sprite[];
   neonTime: { value: number };
+  sockets: { mesh: Mesh; on: boolean }[];
+  setRelics: (ids: readonly string[]) => void;
+  setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
 }
 
 function shade(hex: string, scalar: number): Color {
@@ -161,89 +165,41 @@ function paintFloor(): CanvasTexture {
   return texture;
 }
 
-function paintBoard(): CanvasTexture {
-  const w = 1440;
-  const h = 810;
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
+function paintScoreboard(
+  canvas: HTMLCanvasElement,
+  title: string,
+  rows: readonly (readonly [string, string])[],
+  sample: boolean,
+): void {
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2d context unavailable');
+  if (!ctx) return;
+  const w = canvas.width;
+  const h = canvas.height;
   ctx.fillStyle = '#090d18';
   ctx.fillRect(0, 0, w, h);
-  ctx.fillStyle = 'rgba(61, 225, 255, 0.035)';
+  ctx.fillStyle = 'rgba(245, 185, 66, 0.06)';
   for (let y = 0; y < h; y += 6) ctx.fillRect(0, y, w, 2);
-  ctx.strokeStyle = '#3de1ff';
-  ctx.lineWidth = 10;
-  ctx.strokeRect(18, 18, w - 36, h - 36);
-  ctx.fillStyle = '#b8f3ff';
-  ctx.font = '700 62px sans-serif';
-  ctx.fillText('FOUR LIGHTS', 56, 104);
-  ctx.fillStyle = '#8ea2b8';
-  ctx.font = '26px sans-serif';
-  ctx.fillText('PLACEHOLDER  ·  NOT LIVE  ·  SOCKETS EMPTY  ·  HALL SEALED', 56, 148);
-
-  const meta: readonly (readonly [string, string, string])[] = [
-    ['1', 'morelight', '3,612'],
-    ['2', 'cone-kid', '3,480'],
-    ['3', 'dusk-walker', '2,904'],
-    ['4', 'sproto', '2,750'],
-    ['5', 'guest-17', '2,511'],
-  ];
+  ctx.strokeStyle = '#f5b942';
+  ctx.lineWidth = 16;
+  ctx.strokeRect(24, 24, w - 48, h - 48);
   ctx.fillStyle = '#f5b942';
-  ctx.font = '700 32px sans-serif';
-  ctx.fillText('META', 56, 214);
-  meta.forEach((row, index) => {
-    const y = 268 + index * 52;
+  ctx.font = '700 72px sans-serif';
+  ctx.fillText(title, 72, 130);
+  ctx.fillStyle = '#8ea2b8';
+  ctx.font = '32px sans-serif';
+  ctx.fillText(sample ? 'SAMPLE STANDINGS  ·  VERSE EARNED' : 'VERSE EARNED', 72, 180);
+  rows.slice(0, 8).forEach((row, index) => {
+    const y = 280 + index * 78;
     ctx.fillStyle = '#9be7ff';
-    ctx.font = '700 32px sans-serif';
-    ctx.fillText(row[0], 56, y);
+    ctx.font = '700 48px sans-serif';
+    ctx.fillText(String(index + 1), 72, y);
     ctx.fillStyle = '#e8f4ff';
-    ctx.font = '32px sans-serif';
-    ctx.fillText(row[1], 120, y);
+    ctx.font = '48px sans-serif';
+    ctx.fillText(row[0], 160, y);
     ctx.fillStyle = '#f5b942';
-    ctx.font = '700 32px sans-serif';
-    ctx.fillText(row[2], 430, y);
+    ctx.font = '700 48px sans-serif';
+    ctx.fillText(row[1], w - 280, y);
   });
-
-  const games: readonly { name: string; rows: readonly (readonly [string, string])[] }[] = [
-    { name: 'HPOS10I  ·  TIME', rows: [['morelight', '0:42.18'], ['sproto', '0:44.02'], ['guest-17', '0:51.90']] },
-    { name: 'NOBU  ·  TRIAL', rows: [['cone-kid', '1:12.04'], ['dusk-walker', '1:18.33'], ['morelight', '1:25.10']] },
-    { name: "PEOPLE'S BITCOIN  ·  XP", rows: [['morelight', '18,420'], ['cone-kid', '15,200'], ['guest-17', '9,800']] },
-    { name: 'SPROTO DUEL  ·  WINS', rows: [['sproto', '37'], ['morelight', '29'], ['cone-kid', '21']] },
-  ];
-  games.forEach((game, index) => {
-    const col = index % 2;
-    const row = Math.floor(index / 2);
-    const x = 700 + col * 360;
-    const y = 210 + row * 230;
-    ctx.fillStyle = '#9be7ff';
-    ctx.font = '700 24px sans-serif';
-    ctx.fillText(game.name, x, y);
-    game.rows.forEach((entry, entryIndex) => {
-      const line = y + 46 + entryIndex * 40;
-      ctx.fillStyle = '#d5e6f5';
-      ctx.font = '28px sans-serif';
-      ctx.fillText(entry[0], x, line);
-      ctx.fillStyle = '#f5b942';
-      ctx.font = '700 28px sans-serif';
-      ctx.fillText(entry[1], x + 210, line);
-    });
-  });
-
-  SOCKETS.forEach((socket, index) => {
-    const x = 56 + index * 340;
-    const y = 730;
-    ctx.fillStyle = socket.color;
-    ctx.fillRect(x, y - 18, 18, 18);
-    ctx.fillStyle = '#d5e6f5';
-    ctx.font = '24px sans-serif';
-    ctx.fillText(`${socket.relic}  ·  empty`, x + 30, y);
-  });
-
-  const texture = new CanvasTexture(canvas);
-  texture.colorSpace = SRGBColorSpace;
-  return texture;
 }
 
 function holoSprite(lines: { text: string; color: string; size: number }[], worldWidth: number): Sprite {
@@ -326,20 +282,21 @@ function boxMatrix(spec: BoxSpec): Matrix4 {
 
 function portalLines(id: string, mature: boolean | undefined): { text: string; color: string; size: number }[] {
   if (id === 'hpos10i') return [
-    { text: 'HPOS10I', color: '#ffd0ec', size: 132 },
-    { text: 'PORTAL', color: '#ff2ea6', size: 72 },
+    { text: 'GREEN HILL ZONE', color: '#c8f7c8', size: 72 },
+    { text: 'HPOS10I', color: '#ffd0ec', size: 108 },
   ];
   if (id === 'nobu') return [
-    { text: 'NOBU', color: '#dff6ff', size: 120 },
-    { text: 'SAVIOUR DOG', color: '#3ec6ff', size: 72 },
+    { text: 'KENNEL', color: '#f0d2b0', size: 80 },
+    { text: 'NOBU', color: '#dff6ff', size: 108 },
   ];
   if (id === 'pb') return [
-    { text: "THE PEOPLE'S BITCOIN", color: '#ffe7b0', size: 78 },
-    { text: mature ? '18+  ·  PORTAL' : 'PORTAL', color: '#f5b942', size: 64 },
+    { text: 'WHITE HOUSE', color: '#f7f4ee', size: 80 },
+    { text: "THE PEOPLE'S BITCOIN", color: '#ffe7b0', size: 64 },
+    { text: mature ? '18+' : 'PORTAL', color: '#f5b942', size: 56 },
   ];
   return [
-    { text: 'SPROTO DUEL', color: '#efe7ff', size: 108 },
-    { text: 'PORTAL', color: '#8d6bff', size: 72 },
+    { text: 'CASTLE', color: '#d7d3ea', size: 80 },
+    { text: 'SPROTO DUEL', color: '#efe7ff', size: 96 },
   ];
 }
 
@@ -519,6 +476,9 @@ export function createWorld(): HubWorld {
     merge(stoneParts, 'stone'),
     new MeshStandardMaterial({ color: 0x1b1730, roughness: 0.88, metalness: 0.06, flatShading: true }),
   ));
+  const blockMat = new MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, flatShading: true });
+  scene.add(new Mesh(createBlockoutGeometry(), blockMat));
+  scene.add(new Mesh(createBarGeometry(), blockMat));
 
   const neonTime = { value: 0 };
   const neonParts: BufferGeometry[] = [];
@@ -540,12 +500,36 @@ export function createWorld(): HubWorld {
   for (const socket of SOCKETS) {
     const pos = portalPosition(socket.angle, 2.25);
     pushNeon(socketRing, looking(pos.x, 3.35, pos.z, 0, 3.35, 0), shade(socket.color, 0.45));
-    pushNeon(new OctahedronGeometry(0.14, 0), compose(pos.x, 3.35, pos.z, 0, 0), shade(socket.color, 0.12));
+  }
+  const socketLights: { id: string; mesh: Mesh; material: MeshBasicMaterial; base: Color; on: boolean }[] = [];
+  for (const socket of SOCKETS) {
+    const pos = portalPosition(socket.angle, 2.25);
+    const material = new MeshBasicMaterial({
+      color: socket.color,
+      transparent: true,
+      opacity: 0.22,
+      toneMapped: false,
+    });
+    const mesh = new Mesh(new OctahedronGeometry(0.18, 0), material);
+    mesh.position.set(pos.x, 3.35, pos.z);
+    socketLights.push({ id: socket.id, mesh, material, base: new Color(socket.color), on: false });
   }
   for (const post of bollardPositions()) {
     pushNeon(new BoxGeometry(0.22, 0.12, 0.22), compose(post.x, 1.1, post.z, 0, 0), shade('#3de1ff', 0.9));
   }
   scene.add(new Mesh(merge(neonParts, 'neon'), neonMaterial(neonTime)));
+  for (const light of socketLights) scene.add(light.mesh);
+
+  function setRelics(ids: readonly string[]): void {
+    const owned = new Set(ids);
+    for (const light of socketLights) {
+      light.on = owned.has(light.id);
+      light.material.color.copy(light.base);
+      if (!light.on) light.material.color.multiplyScalar(0.35);
+      light.material.opacity = light.on ? 1 : 0.22;
+      light.mesh.scale.setScalar(light.on ? 1.45 : 0.8);
+    }
+  }
 
   const glowParts: BufferGeometry[] = [];
   const disc = new CircleGeometry(2.05, 20);
@@ -567,19 +551,32 @@ export function createWorld(): HubWorld {
   glow.renderOrder = 1;
   scene.add(glow);
 
-  const board = new Mesh(
-    new PlaneGeometry(9.2, 5.2),
-    new MeshBasicMaterial({ map: paintBoard(), toneMapped: false }),
+  const scoreCanvas = document.createElement('canvas');
+  scoreCanvas.width = 1280;
+  scoreCanvas.height = 720;
+  paintScoreboard(scoreCanvas, 'TOTAL', [], true);
+  const scoreTexture = new CanvasTexture(scoreCanvas);
+  scoreTexture.colorSpace = SRGBColorSpace;
+  const scorePose = barScreenPose();
+  const scoreboard = new Mesh(
+    new PlaneGeometry(3.15, 1.75),
+    new MeshBasicMaterial({ map: scoreTexture, toneMapped: false }),
   );
-  board.position.set(0, 5.55, 2.8);
-  board.lookAt(0, 2.2, 16);
-  scene.add(board);
+  scoreboard.position.set(scorePose.x, scorePose.y, scorePose.z);
+  scoreboard.rotation.y = scorePose.rotY;
+  scene.add(scoreboard);
+  function setBoard(title: string, rows: readonly (readonly [string, string])[], sample: boolean): void {
+    paintScoreboard(scoreCanvas, title, rows, sample);
+    scoreTexture.needsUpdate = true;
+  }
 
   const labels: Sprite[] = [];
   for (const portal of PORTALS) {
     const pos = portalPosition(portal.angle, PORTAL_DISTANCE);
-    const sprite = holoSprite(portalLines(portal.id, portal.mature), portal.id === 'pb' ? 5.4 : 4.6);
-    sprite.position.set(pos.x, 3.7, pos.z);
+    const outX = Math.sin(portal.angle);
+    const outZ = -Math.cos(portal.angle);
+    const sprite = holoSprite(portalLines(portal.id, portal.mature), portal.id === 'pb' ? 5.6 : 4.8);
+    sprite.position.set(pos.x + outX * 1.6, 4.55, pos.z + outZ * 1.6);
     labels.push(sprite);
     scene.add(sprite);
   }
@@ -591,6 +588,17 @@ export function createWorld(): HubWorld {
     4.4,
   );
   hall.position.set(0, 2.15, 4.55);
+  const barSign = holoSprite(
+    [
+      { text: 'BAR', color: '#f5b942', size: 140 },
+      { text: 'SCOREBOARD', color: '#ffe7b0', size: 64 },
+    ],
+    3.2,
+  );
+  const barAt = barScreenPose();
+  barSign.position.set(barAt.x, 4.3, barAt.z);
+  labels.push(barSign);
+  scene.add(barSign);
   labels.push(hall);
   scene.add(hall);
 
@@ -614,5 +622,7 @@ export function createWorld(): HubWorld {
   scene.add(shadow);
 
   const collider = buildCollider();
-  return { scene, camera, renderer, collider, rig, bob, avatar, shadow, shadowMat, labels, neonTime };
+  return {
+    scene, camera, renderer, collider, rig, bob, avatar, shadow, shadowMat, labels, neonTime, sockets: socketLights, setRelics, setBoard,
+  };
 }

@@ -1,28 +1,27 @@
-# Server placeholder
+# Server
 
-Nakama, Postgres, and Caddy for the metaverse hub. **Nothing in M0 starts this stack or talks to it.** The plaza runs entirely in the browser. Mock tickets and the hub-sdk stand in for the RPCs until M1.
-
-## What is here
+Nakama, Postgres, and Caddy for the hub. Economy RPCs live in the TypeScript runtime under `modules/`, compiled into the Nakama image.
 
 | Service | Image | Host port | Role |
 | --- | --- | --- | --- |
-| Postgres | `postgres:16.8-alpine` | 5432 | Nakama's database. The `game` schema from the architecture doc is not migrated yet. |
-| Nakama | `heroiclabs/nakama:3.41.0` | 7349 gRPC, 7350 HTTP, 7351 console | Auth, hub match, and economy RPCs. No Go module is mounted. |
-| Caddy | `caddy:2.10.2-alpine` | 8080 | Stand-in reverse proxy. It does not serve the hub. |
+| Postgres | `postgres:16.8-alpine` | 5432 | Nakama plus the `game` schema (relics, ledger, recovery codes). |
+| Nakama | built from `Dockerfile` (`heroiclabs/nakama:3.41.0`) | 7349 gRPC, 7350 HTTP, 7351 console | Device auth, portal tickets, relic grants. |
+| Caddy | `caddy:2.10.2-alpine` | 8080 | `/v2` proxy with CORS for a game on another port. |
 
-The database password is `localdb`, the same value as Nakama's own local compose example. It is not a production secret. Do not expose this compose file on a public host.
+The database password is `localdb`. The Nakama server key is `defaultkey`. The HTTP key is `localhttpkey`. Those are local dev values, not production secrets. The HTTP key is embedded in the game client only so it can exchange a portal ticket before it has a session. Every other RPC rejects that call unless the player has a real session.
 
-## Start it later
+## Run it
 
 ```bash
-docker compose -f server/docker-compose.yml up
+docker compose up --build
 ```
 
-Nakama's console is then at `http://127.0.0.1:7351`. The hub at `npm run dev` will still ignore it.
+From the repo root, `npm run dev` proxies `/v2` to port 7350. Open http://127.0.0.1:5173/hub/ and walk into the Castle. The mock arena is http://127.0.0.1:5173/play/sproto/.
 
-## What M1 wires up
+Duplication tests, against this compose stack:
 
-- Guest device auth (device id already reserved in the client as `hub:deviceId`) and an optional one-time recovery code
-- The Go module: `portal.enter`, `session.redeem`, `session.event`, `tickets.earn`, `tickets.exchange`, `score.submit`, `session.close`
-- A real signed ticket in place of the mock `#t=` fragment
-- The Sproto Duel round trip and the first earn-once Relic (Tinubu's Crown)
+```bash
+npm run test:dup
+```
+
+They prove a Relic cannot be granted twice, and that exchanging Tickets for Verse cannot credit Verse twice, by replayed keys, concurrent requests, or a second device that restored the same guest. 10 Tickets become 1 Verse, at most 50 Verse per game per day. Lifetime Verse earned per game is what the Bar board ranks.

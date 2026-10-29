@@ -1,11 +1,9 @@
+import { resolveHubEnv, type HubSdkEnv } from './env';
+import { HubSdkError } from './errors';
 import { relicForEvent } from './events';
-import {
-  browserKeyValue,
-  getOrCreateDeviceId,
-  readNumber,
-  writeNumber,
-  type KeyValue,
-} from './storage';
+import { createLiveHubSdk } from './live';
+import { createNakamaClient, LOCAL_NAKAMA } from './nakama';
+import { getOrCreateDeviceId, readNumber, writeNumber } from './storage';
 import { readTicketParam, stripTicketParam, verifyMockTicket, type TicketClaims } from './ticket';
 import {
   GAME_IDS,
@@ -22,28 +20,7 @@ import {
   type RelicId,
 } from './types';
 
-export class HubSdkError extends Error {
-  readonly code: string;
-
-  constructor(code: string, message: string) {
-    super(message);
-    this.name = 'HubSdkError';
-    this.code = code;
-  }
-}
-
-export interface HubSdkEnv {
-  /** Page the game returns to. `exit` appends `#from=<game>`. */
-  hubUrl?: string;
-  local?: KeyValue;
-  session?: KeyValue;
-  now?: () => number;
-  readHash?: () => string;
-  writeHash?: (hash: string) => void;
-  assign?: (url: string) => void;
-  releasePointer?: () => void;
-  clearBeforeUnload?: () => void;
-}
+export type { HubSdkEnv };
 
 interface MockSession {
   game: GameId;
@@ -82,45 +59,28 @@ async function sha256(text: string): Promise<string> {
   return btoa(binary);
 }
 
-function defaultEnv(): Required<
-  Pick<
-    HubSdkEnv,
-    'hubUrl' | 'local' | 'session' | 'now' | 'readHash' | 'writeHash' | 'assign' | 'releasePointer' | 'clearBeforeUnload'
-  >
-> {
-  if (typeof window === 'undefined') {
-    throw new HubSdkError('no_window', 'createHubSdk() needs a browser, or pass an env for tests');
-  }
-  return {
-    hubUrl: '/hub/',
-    local: browserKeyValue('local'),
-    session: browserKeyValue('session'),
-    now: () => Date.now(),
-    readHash: () => window.location.hash,
-    writeHash: (hash) => {
-      const next = `${window.location.pathname}${window.location.search}${hash}`;
-      window.history.replaceState(null, '', next);
-    },
-    assign: (url) => {
-      window.location.assign(url);
-    },
-    releasePointer: () => {
-      if (document.pointerLockElement) document.exitPointerLock();
-    },
-    clearBeforeUnload: () => {
-      window.onbeforeunload = null;
-    },
-  };
-}
-
 /**
- * Mock hub SDK. Redeemed tickets open a session in sessionStorage under
- * `hub:<game>:session`. Economy writes land in the injected store so a
- * reload behaves like the Nakama session the games will use in M1.
- * With no ticket and no session every call is a no-op.
+ * Game-facing hub SDK. Pass `serverUrl` (or a `client`) to talk to Nakama.
+ * Omit both and the in-memory mock stays in place for unit tests and for a
+ * game that is running outside the hub. With no ticket and no session every
+ * call no-ops, so the game still runs standalone.
  */
 export function createHubSdk(env: HubSdkEnv = {}): HubSdk {
-  const resolved = resolveEnv(env);
+  if (!env.useMock && (env.client || env.serverUrl != null)) {
+    const client =
+      env.client ??
+      createNakamaClient({
+        serverUrl: env.serverUrl ?? '',
+        serverKey: env.serverKey ?? LOCAL_NAKAMA.serverKey,
+        httpKey: env.httpKey ?? LOCAL_NAKAMA.httpKey,
+      });
+    return createLiveHubSdk(env, client);
+  }
+  return createMockHubSdk(env);
+}
+
+function createMockHubSdk(env: HubSdkEnv): HubSdk {
+  const resolved = resolveHubEnv(env);
   let active: MockSession | null = null;
 
   function sessionKey(game: GameId): string {
@@ -350,46 +310,6 @@ export function createHubSdk(env: HubSdkEnv = {}): HubSdk {
       resolved.releasePointer();
       const base = resolved.hubUrl.replace(/\/$/, '');
       resolved.assign(`${base}/#from=${game}`);
-    },
-  };
-}
-
-interface ResolvedEnv {
-  hubUrl: string;
-  local: KeyValue;
-  session: KeyValue;
-  now: () => number;
-  readHash: () => string;
-  writeHash: (hash: string) => void;
-  assign: (url: string) => void;
-  releasePointer: () => void;
-  clearBeforeUnload: () => void;
-}
-
-function resolveEnv(env: HubSdkEnv): ResolvedEnv {
-  const browser = typeof window !== 'undefined' ? defaultEnv() : null;
-  return {
-    hubUrl: env.hubUrl ?? browser?.hubUrl ?? '/hub/',
-    local: env.local ?? browser?.local ?? memoryFallback(),
-    session: env.session ?? browser?.session ?? memoryFallback(),
-    now: env.now ?? browser?.now ?? (() => Date.now()),
-    readHash: env.readHash ?? browser?.readHash ?? (() => ''),
-    writeHash: env.writeHash ?? browser?.writeHash ?? (() => undefined),
-    assign: env.assign ?? browser?.assign ?? (() => undefined),
-    releasePointer: env.releasePointer ?? browser?.releasePointer ?? (() => undefined),
-    clearBeforeUnload: env.clearBeforeUnload ?? browser?.clearBeforeUnload ?? (() => undefined),
-  };
-}
-
-function memoryFallback(): KeyValue {
-  const map = new Map<string, string>();
-  return {
-    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
-    setItem: (key, value) => {
-      map.set(key, value);
-    },
-    removeItem: (key) => {
-      map.delete(key);
     },
   };
 }

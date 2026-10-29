@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import {
   HubEvent,
   HubSdkError,
+  LOCAL_NAKAMA,
   VERSE_DAILY_CAP,
   createHubSdk,
+  createNakamaClient,
   memoryKeyValue,
   mintMockTicket,
+  userIdFromToken,
   verifyMockTicket,
   type GameId,
   type HubSdkEnv,
+  type NakamaClient,
 } from '../src/index';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
@@ -247,7 +251,122 @@ async function main(): Promise<void> {
     assert.equal(h.session.getItem('hub:sproto:session'), null);
   }
 
+  await liveSdk();
+  await nakamaClientWire();
   console.log('hub-sdk tests ok');
+}
+
+function fakeJwt(userId: string): string {
+  const part = Buffer.from(JSON.stringify({ uid: userId })).toString('base64url');
+  return `e30.${part}.sig`;
+}
+
+async function liveSdk(): Promise<void> {
+  const calls: { id: string; token?: string; httpKey?: boolean; keepalive?: boolean; body: object }[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-1' };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string; httpKey?: boolean; keepalive?: boolean }): Promise<T> {
+      calls.push({ id, token: opts?.token, httpKey: opts?.httpKey, keepalive: opts?.keepalive, body });
+      if (id === 'session.redeem') {
+        if ((body as { ticket?: string }).ticket === 'spent') throw new HubSdkError('ticket_used', 'spent');
+        return {
+          token: 'game-token',
+          playerId: 'user-1',
+          ranked: true,
+          sid: 'sid-1',
+          relics: [],
+          effects: { staff: 'momentum' },
+          ticketsCapLeft: 0,
+          gameBeaten: [],
+        } as T;
+      }
+      if (id === 'profile.get') {
+        return { playerId: 'user-1', relics: ['tinubu_crown'], gameBeaten: ['sproto'], scope: 'game' } as T;
+      }
+      if (id === 'session.event') {
+        const data = body as { key?: string; data?: { godMode?: boolean } };
+        if (data.key === 'bad') throw new HubSdkError('idempotency_mismatch', 'mismatch');
+        assert.equal(data.data?.godMode, true);
+        return { granted: 'tinubu_crown' } as T;
+      }
+      if (id === 'session.close') return { ok: true } as T;
+      if (id === 'tickets.earn') return { balance: 20, capped: false } as T;
+      if (id === 'tickets.exchange') return { verse: 2, ticketsLeft: 0, receiptId: 'r1' } as T;
+      if (id === 'score.submit') return { accepted: false, stub: true } as T;
+      throw new Error(`unexpected rpc ${id}`);
+    },
+  };
+  const local = memoryKeyValue();
+  const session = memoryKeyValue();
+  let hash = '#t=ticket-1';
+  const assigned: string[] = [];
+  const sdk = createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local,
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: (url) => {
+      assigned.push(url);
+    },
+  });
+  const init = await sdk.init('sproto');
+  assert.equal(init.playerId, 'user-1');
+  assert.equal(init.ranked, true);
+  assert.equal(init.effects.staff, 'momentum');
+  assert.equal(hash, '');
+  assert.equal(calls[0]?.httpKey, true);
+  const refreshed = await sdk.init('sproto');
+  assert.deepEqual(refreshed.relics, ['tinubu_crown']);
+  const grant = await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 4, godMode: true }, 'beat');
+  assert.deepEqual(grant, { granted: 'tinubu_crown' });
+  const earned = await sdk.earnTickets(20, 'win', 'e1');
+  assert.deepEqual(earned, { balance: 20, capped: false });
+  const traded = await sdk.exchange(20, 'x1');
+  assert.equal(traded.verse, 2);
+  assert.equal(traded.receiptId, 'r1');
+  await sdk.submitScore('sproto_wins', 1);
+  assert.equal(calls.some((call) => call.id === 'score.submit'), true);
+  sdk.exit('done');
+  assert.deepEqual(assigned, ['/hub/#from=sproto']);
+  assert.equal(calls.some((call) => call.id === 'session.close' && call.keepalive === true), true);
+  assert.equal(session.getItem('hub:sproto:session'), null);
+
+  hash = '#t=spent';
+  await assert.rejects(() => sdk.init('sproto'), (error: unknown) => {
+    assert.ok(error instanceof HubSdkError);
+    assert.equal(error.code, 'ticket_used');
+    return true;
+  });
+  assert.equal(hash, '#t=spent');
+}
+
+async function nakamaClientWire(): Promise<void> {
+  assert.equal(userIdFromToken(fakeJwt('11111111-1111-4111-8111-111111111111')), '11111111-1111-4111-8111-111111111111');
+  const seen: string[] = [];
+  const client = createNakamaClient({
+    serverUrl: 'http://nakama.test/',
+    serverKey: LOCAL_NAKAMA.serverKey,
+    httpKey: LOCAL_NAKAMA.httpKey,
+    fetchImpl: async (url, init) => {
+      seen.push(String(url));
+      if (String(url).includes('/authenticate/device')) {
+        return new Response(JSON.stringify({ token: fakeJwt('22222222-2222-4222-8222-222222222222') }), { status: 200 });
+      }
+      assert.equal(init?.headers && (init.headers as Record<string, string>).Authorization, 'Bearer game');
+      return new Response(JSON.stringify({ ok: true }), { status: 200 });
+    },
+  });
+  const auth = await client.authenticateDevice('device-1');
+  assert.equal(auth.userId, '22222222-2222-4222-8222-222222222222');
+  assert.match(seen[0] ?? '', /^http:\/\/nakama\.test\/v2\/account\/authenticate\/device\?create=true$/);
+  await client.rpc('profile.get', {}, { token: 'game' });
+  assert.match(seen[1] ?? '', /\/v2\/rpc\/profile\.get\?unwrap=true$/);
 }
 
 function TICKETS_FOR_CAP(): number {

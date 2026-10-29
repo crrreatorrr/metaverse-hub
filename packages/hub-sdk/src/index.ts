@@ -33,5 +33,20 @@ export {
   verifyMockTicket,
 } from './ticket';
 export type { MintTicketOptions, TicketClaims } from './ticket';
-export { HubSdkError, createHubSdk, installHubSdk } from './createHubSdk';
+export { createHubSdk, installHubSdk } from './createHubSdk';
 export type { HubSdkEnv } from './createHubSdk';
+export { HubSdkError } from './errors';
+export {
+  LOCAL_NAKAMA,
+  createNakamaClient,
+  userIdFromToken,
+} from './nakama';
+export type {
+  NakamaClient,
+  NakamaClientOptions,
+  PortalEnterResult,
+  ProfileResult,
+  RecoveryCodeResult,
+  RecoveryRedeemResult,
+  RedeemResult,
+} from './nakama';

@@ -2,7 +2,12 @@ name: ci
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -21,3 +26,31 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  duplication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Start Nakama
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            if docker pull heroiclabs/nakama:3.41.0 &&
+               docker pull postgres:16.8-alpine &&
+               docker pull caddy:2.10.2-alpine &&
+               docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180; then
+              exit 0
+            fi
+            echo "compose attempt ${attempt} failed"
+            docker compose -f server/docker-compose.yml down || true
+            sleep $((attempt * 15))
+          done
+          exit 1
+      - run: npm run test:dup
+      - if: failure()
+        run: docker compose -f server/docker-compose.yml logs --no-color --tail 200 nakama

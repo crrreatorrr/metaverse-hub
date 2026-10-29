@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'server/modules/build/**'] },
   ...tseslint.configs.recommended,
   {
     rules: {
@@ -9,6 +9,14 @@ export default tseslint.config(
         'error',
         { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
       ],
+    },
+  },
+  {
+    files: ['server/modules/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-namespace': 'off',
+      '@typescript-eslint/no-unused-vars': 'off',
+      'no-var': 'off',
     },
   },
 );
