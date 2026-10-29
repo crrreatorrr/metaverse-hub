@@ -51,6 +51,7 @@ declare namespace nkruntime {
 
   interface Initializer {
     registerRpc(id: string, fn: RpcFunction): void;
+    registerBeforeAuthenticateCustom(fn: BeforeHook): void;
     registerBeforeAuthenticateDevice(fn: BeforeHook): void;
     registerBeforeSessionRefresh(fn: BeforeHook): void;
   }

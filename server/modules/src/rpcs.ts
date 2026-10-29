@@ -86,6 +86,74 @@ namespace HubRpc {
     return ctx.userId;
   }
 
+  /**
+   * Write RPCs that may run with no ctx.userId (HTTP key / server-to-server).
+   * Empty: this server has no such caller.
+   */
+  var SERVER_RPC_ALLOWLIST: { [id: string]: boolean } = {};
+
+  function rejectAnonymousWrite(ctx: nkruntime.Context, rpc: string): void {
+    if (ctx.userId && UUID.test(ctx.userId)) return;
+    if (SERVER_RPC_ALLOWLIST[rpc]) return;
+    throw new Error("unauthorized");
+  }
+
+  function unauthenticated(): never {
+    throw { message: "unauthenticated", code: 16 };
+  }
+
+  function randomTicket(nk: nkruntime.Nakama): string {
+    return nk.sha256Hash(nk.uuidv4() + nk.uuidv4()).substring(0, 32);
+  }
+
+  function ensureHubCustomId(nk: nkruntime.Nakama, userId: string): void {
+    var customId = "hub:" + userId;
+    var account = nk.accountGetId(userId);
+    if (account && account.customId === customId) return;
+    try {
+      nk.linkCustom(userId, customId);
+    } catch (e) {
+      var message = String(e).toLowerCase();
+      if (message.indexOf("already") < 0) throw e;
+      var linked = nk.accountGetId(userId);
+      if (!linked || linked.customId !== customId) throw e;
+    }
+  }
+
+  var BURN_TICKET_SQL =
+    "WITH burned AS (" +
+    "UPDATE game.auth_ticket SET used_at = now() " +
+    "WHERE ticket_hash = decode($1, 'hex') AND used_at IS NULL AND expires_at > now() AND game_id = $2 " +
+    "RETURNING user_id, session_id, ranked" +
+    "), marked AS (" +
+    "UPDATE game.game_session AS s SET ticket_redeemed_at = now() " +
+    "FROM burned b " +
+    "WHERE s.session_id = b.session_id AND s.user_id = b.user_id AND s.state = 'open' AND s.game_id = $2 " +
+    "RETURNING s.session_id" +
+    ") SELECT b.user_id::text AS user_id, b.session_id::text AS session_id, b.ranked AS ranked FROM burned b";
+
+  function sessionEffects(nk: nkruntime.Nakama, userId: string, sid: string): { [key: string]: unknown } {
+    if (!UUID.test(sid)) return {};
+    var rows = nk.sqlQuery(
+      "SELECT COALESCE((SELECT effects FROM game.game_session WHERE session_id = $1::uuid AND user_id = $2::uuid), '{}'::jsonb)::text AS result",
+      [sid, userId],
+    );
+    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) return {};
+    var raw = rows[0].result;
+    if (typeof raw === "string") {
+      try {
+        var parsed = JSON.parse(raw) as unknown;
+        if (parsed && typeof parsed === "object" && Object.prototype.toString.call(parsed) !== "[object Array]") {
+          return parsed as { [key: string]: unknown };
+        }
+      } catch (e) {
+        return e ? {} : {};
+      }
+    }
+    if (typeof raw === "object") return raw as { [key: string]: unknown };
+    return {};
+  }
+
   function scopeOf(ctx: nkruntime.Context): string {
     return ctx.vars && ctx.vars.scope ? ctx.vars.scope : "";
   }
@@ -245,6 +313,7 @@ namespace HubRpc {
   }
 
   export function profile(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+    rejectAnonymousWrite(ctx, "profile.get");
     var userId = requireUser(ctx);
     var relics = relicIds(nk, userId);
     var beaten = beatenRows(nk, userId);
@@ -271,6 +340,9 @@ namespace HubRpc {
     var profileGame = ctx.vars && ctx.vars.game ? ctx.vars.game : "";
     if (scopeOf(ctx) === "game" && GAMES[profileGame]) {
       profileBody.ticketsCapLeft = ticketsRoom(nk, userId, profileGame);
+      var sid = ctx.vars && ctx.vars.sid ? ctx.vars.sid : "";
+      profileBody.effects = sessionEffects(nk, userId, sid);
+      profileBody.ranked = !!(ctx.vars && ctx.vars.ranked === "1");
     }
     return ok(profileBody);
   }
@@ -291,6 +363,7 @@ namespace HubRpc {
   }
 
   export function portalEnter(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "portal.enter");
     var userId = requireHub(ctx);
     var body = parse(payload);
     var game = text(body, "game");
@@ -308,22 +381,18 @@ namespace HubRpc {
     );
     if (opened.error) return fail(String(opened.error), String(opened.error));
     var exp = Number(opened.exp);
-    var iat = Number(opened.iat);
-    var ticket = HubTickets.issue(ctx, nk, {
-      jti: ticketJti,
-      sid: sessionId,
-      game: game,
-      uid: userId,
-      ranked: ranked,
-      exp: exp,
-      iat: iat,
-      iss: "hub",
-    });
+    ensureHubCustomId(nk, userId);
+    var ticket = randomTicket(nk);
+    nk.sqlExec(
+      "INSERT INTO game.auth_ticket (ticket_hash, user_id, game_id, session_id, ranked, expires_at) VALUES (decode($1, 'hex'), $2::uuid, $3, $4::uuid, $5::boolean, to_timestamp($6::double precision))",
+      [nk.sha256Hash(ticket), userId, game, sessionId, ranked, exp],
+    );
     logger.info("portal enter " + game + " user " + userId);
     return ok({ ticket: ticket, sessionId: sessionId, expiresAt: exp });
   }
 
   export function sessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "session.redeem");
     var body = parse(payload);
     var ticket = text(body, "ticket");
     var gameId = text(body, "gameId");
@@ -369,6 +438,7 @@ namespace HubRpc {
   }
 
   export function sessionEvent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "session.event");
     var session = requireGame(ctx);
     var body = parse(payload);
     var eventId = text(body, "eventId");
@@ -409,6 +479,7 @@ namespace HubRpc {
   }
 
   export function sessionClose(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+    rejectAnonymousWrite(ctx, "session.close");
     var session = requireGame(ctx);
     nk.sqlExec(
       "UPDATE game.game_session SET state = 'closed' WHERE session_id = $1::uuid AND user_id = $2::uuid AND state = 'open'",
@@ -426,6 +497,7 @@ namespace HubRpc {
   };
 
   export function scoreSubmit(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "score.submit");
     var session = requireGame(ctx);
     var body = parse(payload);
     var boardId = text(body, "boardId");
@@ -446,6 +518,7 @@ namespace HubRpc {
   }
 
   export function ticketsEarn(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "tickets.earn");
     var session = requireGame(ctx);
     var body = parse(payload);
     var key = text(body, "key");
@@ -469,6 +542,7 @@ namespace HubRpc {
   }
 
   export function ticketsExchange(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "tickets.exchange");
     var session = requireGame(ctx);
     var body = parse(payload);
     var key = text(body, "key");
@@ -489,6 +563,7 @@ namespace HubRpc {
   }
 
   export function recoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+    rejectAnonymousWrite(ctx, "recovery.create");
     var userId = requireUser(ctx);
     var code = makeCode(nk);
     var hash = nk.sha256Hash(pepper(ctx) + ":" + normalizeCode(code));
@@ -499,6 +574,7 @@ namespace HubRpc {
   }
 
   export function recoveryRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "recovery.redeem");
     var userId = requireUser(ctx);
     var body = parse(payload);
     var deviceId = text(body, "deviceId");
@@ -545,6 +621,48 @@ namespace HubRpc {
       (account as { [key: string]: unknown }).vars = vars;
     }
     return next;
+  }
+
+  export function beforeAuthenticateCustom(
+    _ctx: nkruntime.Context,
+    _logger: nkruntime.Logger,
+    nk: nkruntime.Nakama,
+    data: { [key: string]: unknown },
+  ): { [key: string]: unknown } {
+    var account = data.account;
+    if (!account || typeof account !== "object") unauthenticated();
+    var record = account as { [key: string]: unknown };
+    var id = typeof record.id === "string" ? record.id : "";
+    // A client-supplied hub: id never authenticates. Only a t: ticket is rewritten, and only after it burns.
+    if (id.indexOf("t:") !== 0) unauthenticated();
+    var ticket = id.substring(2);
+    if (!ticket || ticket.length > 126) unauthenticated();
+    var vars = record.vars;
+    var game = "";
+    if (vars && typeof vars === "object") {
+      var rawGame = (vars as { [key: string]: unknown }).game;
+      if (typeof rawGame === "string") game = rawGame;
+    }
+    if (!GAMES[game]) unauthenticated();
+    var hash = nk.sha256Hash(ticket);
+    if (!/^[0-9a-f]{64}$/.test(hash)) unauthenticated();
+    var rows = nk.sqlQuery(BURN_TICKET_SQL, [hash, game]);
+    if (!rows || !rows.length) unauthenticated();
+    var userId = String(rows[0].user_id || "");
+    var sessionId = String(rows[0].session_id || "");
+    if (!UUID.test(userId) || !UUID.test(sessionId)) unauthenticated();
+    var rankedValue = rows[0].ranked;
+    var ranked = rankedValue === true || rankedValue === "true" || rankedValue === "t";
+    record.id = "hub:" + userId;
+    record.vars = {
+      scope: "game",
+      game: game,
+      sid: sessionId,
+      ranked: ranked ? "1" : "0",
+    };
+    data.account = record;
+    data.create = false;
+    return data;
   }
 
   export function beforeAuthenticateDevice(

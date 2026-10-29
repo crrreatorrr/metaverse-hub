@@ -20,6 +20,7 @@ export type {
   GameId,
   HubSdk,
   InitResult,
+  RedeemedSession,
   RelicId,
 } from './types';
 export { HubEvent, relicForEvent } from './events';
