@@ -71,14 +71,14 @@ export interface ExchangeResult {
 
 export interface SpendResult {
   item_id: string;
-  qty: number;
+  packs: number;
   spent: number;
   balance: number;
 }
 
 export interface SellResult {
   item_id: string;
-  qty: number;
+  qty_units: number;
   credited: number;
   balance: number;
 }
@@ -102,10 +102,10 @@ export interface HubSdk {
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
   exchange(tickets: number, key: string): Promise<ExchangeResult>;
-  /** Buy `qty` of `itemId` at the server shop price. The caller mints `key` once. */
-  spendTickets(itemId: string, qty: number, key: string): Promise<SpendResult>;
-  /** Sell `qty` of `itemId` at the server sell price. The caller mints `key` once. */
-  sellItem(itemId: string, qty: number, key: string): Promise<SellResult>;
+  /** Buy `packs` at the server price per pack. The caller mints `key` once. */
+  spendTickets(itemId: string, packs: number, key: string): Promise<SpendResult>;
+  /** Sell `qtyUnits`. Credit is floor(qtyUnits * sell_centi / 100). The caller mints `key` once. */
+  sellItem(itemId: string, qtyUnits: number, key: string): Promise<SellResult>;
   getTicketBalance(): Promise<TicketBalanceResult>;
   exit(reason?: string): void;
 }

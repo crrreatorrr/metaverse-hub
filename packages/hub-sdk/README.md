@@ -81,7 +81,7 @@ Against Nakama, earn, relic events, exchange, shop purchases, and shop sales are
 
 A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
 
-`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(itemId, qty, key)` buys at the server price (`price * qty`). The client does not send a price. A null price can be sold and cannot be bought. `sellItem(itemId, qty, key)` credits `sell_price * qty` through the same session cap (200) and daily earn window (1000) as `earnTickets`. A sale that does not fit entirely is rejected with `session_ticket_cap` and `capLeft` (tickets still allowed). Nothing is credited. `getTicketBalance()` is a read and is not queued. God-mode wins should still call `earnTickets` and should skip `submitScore`.
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(itemId, packs, key)` buys `packs` at the server price per pack (`price * packs`). The client does not send a price. A null price is not sold. `sellItem(itemId, qtyUnits, key)` credits `floor(qtyUnits * sell_centi / 100)` through the same session cap (200) and daily earn window (1000) as `earnTickets`. A credit of 0 writes no ledger row. A sale that does not fit entirely is rejected with `session_ticket_cap` and `capLeft` (tickets still allowed). Nothing is credited. `getTicketBalance()` is a read and is not queued. God-mode wins should still call `earnTickets` and should skip `submitScore`.
 
 ## API
 
@@ -98,8 +98,8 @@ reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: Rel
 submitScore(boardId: string, value: number, meta?: object): Promise<void>
 earnTickets(amount: number, reason: string, key: string): Promise<{ balance: number; capped: boolean }>
 exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
-spendTickets(itemId: string, qty: number, key: string): Promise<{ item_id: string; qty: number; spent: number; balance: number }>
-sellItem(itemId: string, qty: number, key: string): Promise<{ item_id: string; qty: number; credited: number; balance: number }>
+spendTickets(itemId: string, packs: number, key: string): Promise<{ item_id: string; packs: number; spent: number; balance: number }>
+sellItem(itemId: string, qtyUnits: number, key: string): Promise<{ item_id: string; qty_units: number; credited: number; balance: number }>
 getTicketBalance(): Promise<{ balance: number }>
 exit(reason?: string): void
 ```

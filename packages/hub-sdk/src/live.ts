@@ -314,31 +314,33 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<ExchangeResult>;
     },
 
-    async spendTickets(itemId, qty, key) {
+    async spendTickets(itemId, packs, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
       if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
-      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+      if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
-      if (!active) return { item_id: itemId, qty, spent: 0, balance: 0 };
+      const packsOut = Math.floor(packs);
+      if (!active) return { item_id: itemId, packs: packsOut, spent: 0, balance: 0 };
       return sendOnce(active, 'tickets.spend', key, {
         game: active.game,
         item_id: itemId,
-        qty,
+        packs: packsOut,
       }) as Promise<SpendResult>;
     },
 
-    async sellItem(itemId, qty, key) {
+    async sellItem(itemId, qtyUnits, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
       if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
-      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+      if (!Number.isFinite(qtyUnits) || qtyUnits <= 0 || Math.floor(qtyUnits) !== qtyUnits) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
-      if (!active) return { item_id: itemId, qty, credited: 0, balance: 0 };
+      const units = Math.floor(qtyUnits);
+      if (!active) return { item_id: itemId, qty_units: units, credited: 0, balance: 0 };
       return sendOnce(active, 'tickets.sell', key, {
         game: active.game,
         item_id: itemId,
-        qty,
+        qty_units: units,
       }) as Promise<SellResult>;
     },
 

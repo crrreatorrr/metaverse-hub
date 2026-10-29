@@ -1,6 +1,7 @@
 import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
 import { relicForEvent } from './events';
+import { PB_SHOP } from './pbShop';
 import { createLiveHubSdk } from './live';
 import { createNakamaClient, LOCAL_NAKAMA } from './nakama';
 import { getOrCreateDeviceId, readNumber, writeNumber } from './storage';
@@ -40,13 +41,6 @@ const BOARD_MODE: Record<BoardId, 'asc-best' | 'desc-set' | 'desc-incr'> = {
   pb_total_xp: 'desc-set',
   sproto_wins: 'desc-incr',
   meta: 'desc-set',
-};
-
-/** Placeholder People's Bitcoin shop. Same rows as server/data/shop_price.peoples-bitcoin.json. */
-const MOCK_PB_SHOP: Record<string, { price: number | null; sell: number }> = {
-  placeholder_cap: { price: 25, sell: 5 },
-  placeholder_poster: { price: 40, sell: 8 },
-  placeholder_sold_out: { price: null, sell: 12 },
 };
 
 function dayKey(now: number): string {
@@ -173,7 +167,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
 
   function applyCredit(session: MockSession, amount: number, whole: boolean): { applied: number; balance: number } {
     const rooms = creditRooms(session);
-    if (whole && amount < 1000 && amount > rooms.sessionRoom) rejectCap(rooms.sessionRoom);
+    if (whole && amount > rooms.sessionRoom) rejectCap(rooms.sessionRoom);
     if (whole && amount > rooms.dailyRoom) rejectCap(rooms.dailyRoom);
     const applied = whole ? amount : Math.min(amount, rooms.dailyRoom);
     if (applied > 0) {
@@ -344,42 +338,43 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       });
     },
 
-    async spendTickets(itemId, qty, key) {
+    async spendTickets(itemId, packs, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
       if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
-      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+      if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
-      if (!active) return { item_id: itemId, qty, spent: 0, balance: 0 };
+      if (!active) return { item_id: itemId, packs, spent: 0, balance: 0 };
       const session = active;
-      const whole = Math.floor(qty);
-      return withIdem(session.playerId, key, 'tickets.spend', stable({ itemId, qty: whole }), (): SpendResult => {
-        const row = session.game === 'peoples-bitcoin' ? MOCK_PB_SHOP[itemId] : undefined;
+      const whole = Math.floor(packs);
+      return withIdem(session.playerId, key, 'tickets.spend', stable({ itemId, packs: whole }), (): SpendResult => {
+        const row = session.game === 'peoples-bitcoin' ? PB_SHOP[itemId] : undefined;
         if (!row || row.price === null) throw new HubSdkError('unknown_item', 'Unknown item');
         const spent = row.price * whole;
         const balance = readNumber(resolved.local, ticketsKey(session.game));
         if (balance < spent) throw new HubSdkError('insufficient_tickets', 'Not enough Tickets');
         const next = balance - spent;
         writeNumber(resolved.local, ticketsKey(session.game), next);
-        return { item_id: itemId, qty: whole, spent, balance: next };
+        return { item_id: itemId, packs: whole, spent, balance: next };
       });
     },
 
-    async sellItem(itemId, qty, key) {
+    async sellItem(itemId, qtyUnits, key) {
       if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
       if (!itemId) throw new HubSdkError('unknown_item', 'Unknown item');
-      if (!Number.isFinite(qty) || qty <= 0 || Math.floor(qty) !== qty) {
+      if (!Number.isFinite(qtyUnits) || qtyUnits <= 0 || Math.floor(qtyUnits) !== qtyUnits) {
         throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
       }
-      if (!active) return { item_id: itemId, qty, credited: 0, balance: 0 };
+      if (!active) return { item_id: itemId, qty_units: qtyUnits, credited: 0, balance: 0 };
       const session = active;
-      const whole = Math.floor(qty);
-      return withIdem(session.playerId, key, 'tickets.sell', stable({ itemId, qty: whole }), (): SellResult => {
-        const row = session.game === 'peoples-bitcoin' ? MOCK_PB_SHOP[itemId] : undefined;
+      const whole = Math.floor(qtyUnits);
+      return withIdem(session.playerId, key, 'tickets.sell', stable({ itemId, qtyUnits: whole }), (): SellResult => {
+        const row = session.game === 'peoples-bitcoin' ? PB_SHOP[itemId] : undefined;
         if (!row) throw new HubSdkError('unknown_item', 'Unknown item');
-        const credited = row.sell * whole;
+        const credited = Math.floor((whole * row.sellCenti) / 100);
+        if (credited <= 0) return { item_id: itemId, qty_units: whole, credited: 0, balance: readNumber(resolved.local, ticketsKey(session.game)) };
         const next = applyCredit(session, credited, true);
-        return { item_id: itemId, qty: whole, credited, balance: next.balance };
+        return { item_id: itemId, qty_units: whole, credited, balance: next.balance };
       });
     },
 

@@ -128,19 +128,29 @@ namespace HubSchema {
       PRIMARY KEY (user_id, game_id)
     )`,
 
+    `DO $$ BEGIN
+       IF EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'game' AND table_name = 'shop_price' AND column_name = 'sell_price'
+       ) THEN
+         DROP TABLE game.shop_price;
+       END IF;
+     END $$`,
+
     `CREATE TABLE IF NOT EXISTS game.shop_price (
       game text NOT NULL,
       item_id text NOT NULL,
+      pack_size integer NOT NULL DEFAULT 1,
       price integer,
-      sell_price integer NOT NULL,
+      sell_centi integer NOT NULL,
       PRIMARY KEY (game, item_id),
-      CONSTRAINT shop_price_sell CHECK (sell_price < price OR price IS NULL),
-      CONSTRAINT shop_price_nonneg CHECK (sell_price >= 0 AND (price IS NULL OR price >= 0))
+      CONSTRAINT shop_price_pack CHECK (pack_size >= 1),
+      CONSTRAINT shop_price_buy CHECK (price IS NULL OR price >= 1),
+      CONSTRAINT shop_price_sell CHECK (price IS NULL OR pack_size * sell_centi < price * 100)
     )`,
 
-    // TODO: placeholder rows. Replace server/data/shop_price.peoples-bitcoin.json and rebuild.
-    // A null price can be sold and is not in stock. Upsert keeps a data-only rebalance.
-    "DELETE FROM game.shop_price WHERE game = 'pb'",
+    // Prices come from the CSVs. Prune then upsert so a data-only rebalance lands on boot.
+    HubShop.pruneSql(),
     HubShop.seedSql(),
 
     `CREATE TABLE IF NOT EXISTS game.score_best (
@@ -495,9 +505,7 @@ namespace HubSchema {
          AND reason <> 'refund';
        v_session_room := v_cap - v_session_earned;
        IF v_session_room < 0 THEN v_session_room := 0; END IF;
-       -- A request for the whole daily cap (1000) still uses the daily partial rules.
-       -- Any smaller credit that would pass the session cap is rejected with no ledger row.
-       IF p_amount < 1000 AND v_session_earned + p_amount > v_cap THEN
+       IF v_session_earned + p_amount > v_cap THEN
          RETURN jsonb_build_object('error', 'session_ticket_cap', 'capLeft', v_session_room);
        END IF;
        v_day := (now() AT TIME ZONE 'utc')::date;
@@ -710,7 +718,7 @@ namespace HubSchema {
        IF NOT FOUND OR v_unit IS NULL THEN
          RETURN jsonb_build_object('error', 'unknown_item');
        END IF;
-       IF v_unit > 0 AND p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
+       IF p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
          RETURN jsonb_build_object('error', 'bad_amount');
        END IF;
        v_price := v_unit::bigint * p_qty;
@@ -733,7 +741,7 @@ namespace HubSchema {
        v_event := gen_random_uuid();
        INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
        VALUES (v_event, p_user_id, p_game_id, -v_price, v_balance, 'spend', p_session_id, 'spend');
-       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'spent', v_price, 'balance', v_balance);
+       v_response := jsonb_build_object('item_id', p_item_id, 'packs', p_qty, 'spent', v_price, 'balance', v_balance);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.spend', v_hash, v_response);
        RETURN v_response;
@@ -756,7 +764,7 @@ namespace HubSchema {
        v_response jsonb;
        v_hash bytea;
        v_existing_hash bytea;
-       v_unit integer;
+       v_centi integer;
        v_amount bigint;
        v_taken jsonb;
        v_balance bigint;
@@ -778,21 +786,30 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
-       SELECT sell_price INTO v_unit FROM game.shop_price
+       SELECT sell_centi INTO v_centi FROM game.shop_price
        WHERE game = p_game_id AND item_id = p_item_id;
        IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'unknown_item');
        END IF;
-       IF v_unit > 0 AND p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
+       IF v_centi > 0 AND p_qty > (9223372036854775807::bigint / v_centi::bigint) THEN
          RETURN jsonb_build_object('error', 'bad_amount');
        END IF;
-       v_amount := v_unit::bigint * p_qty;
+       v_amount := (p_qty * v_centi::bigint) / 100;
+       IF v_amount <= 0 THEN
+         SELECT balance INTO v_balance FROM game.tickets_balance
+         WHERE user_id = p_user_id AND game_id = p_game_id;
+         IF NOT FOUND THEN v_balance := 0; END IF;
+         v_response := jsonb_build_object('item_id', p_item_id, 'qty_units', p_qty, 'credited', 0, 'balance', v_balance);
+         INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+         VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
+         RETURN v_response;
+       END IF;
        v_taken := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_amount, 'shop_sell', 'shop_sell', true);
        IF v_taken ? 'error' THEN
          RETURN v_taken;
        END IF;
        v_balance := (v_taken->>'balance')::bigint;
-       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'credited', v_amount, 'balance', v_balance);
+       v_response := jsonb_build_object('item_id', p_item_id, 'qty_units', p_qty, 'credited', v_amount, 'balance', v_balance);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
        RETURN v_response;

@@ -3,7 +3,7 @@ WORKDIR /src
 COPY modules/package.json modules/package-lock.json ./
 RUN npm ci
 COPY modules/tsconfig.json modules/embed-shop.mjs ./
-COPY data/shop_price.peoples-bitcoin.json ./data/shop_price.peoples-bitcoin.json
+COPY data/pb_shop_prices.csv data/pb_sell_only_prices.csv ./data/
 COPY modules/src ./src
 RUN npm run build
 
