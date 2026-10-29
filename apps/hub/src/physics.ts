@@ -1,8 +1,10 @@
 import { Box3, Line3, Vector3 } from 'three';
 import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from 'three-mesh-bvh';
+import { AVATAR_SCALE } from './config';
 
-export const CAPSULE_RADIUS = 0.34;
-export const CAPSULE_LENGTH = 1.08;
+/** 1.25× the previous 0.34 / 1.08 capsule, matching the taller avatar. */
+export const CAPSULE_RADIUS = 0.34 * AVATAR_SCALE;
+export const CAPSULE_LENGTH = 1.08 * AVATAR_SCALE;
 /** Player origin is the top of the capsule segment. Feet rest on y = 0. */
 export const STAND_Y = CAPSULE_RADIUS + CAPSULE_LENGTH;
 
