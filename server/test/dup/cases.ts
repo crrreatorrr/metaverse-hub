@@ -58,7 +58,20 @@ export interface PurchaseFlow {
   priceVerse: number;
 }
 
-export type DupFlow = RelicFlow | ExchangeFlow | EarnFlow | PurchaseFlow;
+/**
+ * PB shop. `tickets.spend` and `tickets.sell` take
+ * `{game:'peoples-bitcoin', shop_id, item_id, packs, key}`.
+ * `game.shop_price` is keyed by `(game, shop_id, item_id)` and seeded from
+ * `pb_shop_prices.csv` (ticket_price, sell_price, pack_size). No test inserts prices.
+ */
+export interface ShopFlow {
+  kind: 'shop';
+  id: string;
+  game: 'peoples-bitcoin';
+  rpc: 'tickets.spend';
+}
+
+export type DupFlow = RelicFlow | ExchangeFlow | EarnFlow | PurchaseFlow | ShopFlow;
 
 export const M1_FLOWS: DupFlow[] = [
   {
@@ -115,9 +128,44 @@ export const M2_FLOWS: DupFlow[] = [
     amount: 20,
     reason: 'level_end',
   },
+  {
+    kind: 'relic',
+    id: 'nobu.cones_tip',
+    game: 'nobu',
+    eventId: 'nobu.boss_defeated',
+    data: { boss: 'cone' },
+    mismatchData: { boss: 'not_cone' },
+    relicId: 'cones_tip',
+  },
+  {
+    kind: 'exchange',
+    id: 'nobu.tickets_to_verse',
+    game: 'nobu',
+    earnAmount: 20,
+    earnReason: 'level_end',
+    tickets: 10,
+    verse: 1,
+  },
+  {
+    kind: 'earn',
+    id: 'nobu.level_end',
+    game: 'nobu',
+    amount: 20,
+    reason: 'level_end',
+  },
 ];
 
 export const M7_FLOWS: DupFlow[] = [];
+
+/** Not part of `FLOWS`: shop cases stay gated until `tickets.spend` lands. */
+export const M2_SHOP: ShopFlow[] = [
+  {
+    kind: 'shop',
+    id: 'pb.tickets_spend',
+    game: 'peoples-bitcoin',
+    rpc: 'tickets.spend',
+  },
+];
 
 export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS];
 
