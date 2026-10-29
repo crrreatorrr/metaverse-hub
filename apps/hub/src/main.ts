@@ -10,11 +10,12 @@ import {
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
+import { gameUrl, type GameUrlContext } from './games';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { createWorld } from './scene';
 import './style.css';
-import { parseReturnGame, portalContaining, portalUrl } from './travel';
+import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 
 const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Mouse look  ·  Shift run  ·  Space jump';
 const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
@@ -52,8 +53,9 @@ let yaw = initial.yaw;
 let pitch = 0.28;
 let dragging = false;
 let jumpQueued = false;
-let armed = false;
 let traveling = false;
+let dwell: PortalDwell = initialDwell();
+let portalError = '';
 let cycle = 0;
 let fps = 60;
 let warnedDraws = false;
@@ -125,7 +127,7 @@ world.renderer.setAnimationLoop((timestamp) => {
   world.update(dt, moving, input.sprint);
   const warp = world.consumeWarp();
   if (warp) {
-    armed = false;
+    dwell = initialDwell();
     yaw = warp.yaw;
     player.spawn(warp.x, warp.y, warp.z, warp.yaw);
     world.rig.position.copy(player.position);
@@ -136,7 +138,7 @@ world.renderer.setAnimationLoop((timestamp) => {
   if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
   fadeLabels();
   updateHint();
-  considerPortal();
+  considerPortal(dt);
   world.render();
   if (debug) {
     const calls = world.sceneDraws;
@@ -224,15 +226,25 @@ function updateHint(): void {
   const look = document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
   const zone = world.zone();
   const near = world.inInterior() ? null : nearestPortal(player.position.x, player.position.z);
-  const text = zone === 'loading'
+  const inside = world.inInterior() ? null : portalContaining(player.position.x, player.position.z);
+  if (!inside) portalError = '';
+  const closed = near && !pageFor(near.id) ? near : null;
+  const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
+  const text = portalError
+    ? portalError
+    : zone === 'loading'
     ? 'Loading the bar…'
     : zone === 'door'
       ? `${look}Walk into the door to enter the bar`
       : zone === 'exit'
         ? `${look}Walk through the exit to return to the plaza`
-        : near
-          ? `${look}Walk into the ring to enter ${near.label}`
-          : `${look}${CONTROLS_HINT}`;
+        : closed
+          ? `${look}${closed.label} · Coming soon`
+          : entering && inside
+            ? `${look}Entering ${inside.label}…`
+            : near
+              ? `${look}Walk into the ring to enter ${near.label}`
+              : `${look}${CONTROLS_HINT}`;
   if (hint.textContent !== text) hint.textContent = text;
 }
 
@@ -250,21 +262,30 @@ function nearestPortal(x: number, z: number) {
   return best;
 }
 
-function considerPortal(): void {
-  if (traveling || world.inInterior()) return;
-  const hit = portalContaining(player.position.x, player.position.z);
-  if (!hit) {
-    armed = true;
+function considerPortal(dt: number): void {
+  if (traveling) return;
+  if (world.inInterior() || isTypingTarget(document.activeElement)) {
+    dwell = initialDwell();
     return;
   }
-  if (armed) void travel(hit);
+  const hit = portalContaining(player.position.x, player.position.z);
+  const stepped = stepPortalDwell(dwell, hit?.id ?? null, dt);
+  dwell = stepped.state;
+  if (!stepped.ready || !hit) return;
+  const page = pageFor(hit.id);
+  if (!page) return;
+  void travel(hit, page);
 }
 
-async function travel(portal: (typeof PORTALS)[number]): Promise<void> {
+const ENTER_FADE_MS = 700;
+
+async function travel(portal: (typeof PORTALS)[number], page: string): Promise<void> {
   traveling = true;
+  if (document.pointerLockElement) document.exitPointerLock();
   wipe.style.background = portal.color;
-  wipe.textContent = portal.place.toUpperCase();
+  wipe.textContent = `Entering ${portal.label}…`;
   wipe.classList.add('on');
+  const shownAt = performance.now();
   try {
     const session = await boot();
     const entered = await session.client.rpc<PortalEnterResult>(
@@ -272,17 +293,45 @@ async function travel(portal: (typeof PORTALS)[number]): Promise<void> {
       { game: portal.id, ranked: false },
       { token: session.token },
     );
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 420);
-    });
-    window.location.assign(portalUrl(portal.url, entered.ticket));
+    const remain = ENTER_FADE_MS - (performance.now() - shownAt);
+    if (remain > 0) {
+      await new Promise((resolve) => {
+        window.setTimeout(resolve, remain);
+      });
+    }
+    window.location.assign(portalUrl(page, entered.ticket));
   } catch (error) {
     traveling = false;
     wipe.classList.remove('on');
-    hint.textContent = error instanceof Error ? error.message : 'Could not open that portal';
+    portalError = error instanceof Error ? error.message : 'Could not open that portal';
+    hint.textContent = portalError;
     console.error(error);
   }
 }
+
+function pageFor(id: (typeof PORTALS)[number]['id']): string | null {
+  return gameUrl(id, gameUrls);
+}
+
+function playDomain(): string | undefined {
+  const configured = import.meta.env.VITE_PLAY_DOMAIN?.trim();
+  if (configured) return configured;
+  if (import.meta.env.DEV) return undefined;
+  const host = window.location.hostname;
+  if (!host || host === 'localhost' || host === '127.0.0.1' || host.endsWith('.local')) return undefined;
+  return host;
+}
+
+const gameUrls: GameUrlContext = {
+  dev: import.meta.env.DEV,
+  playDomain: playDomain(),
+  overrides: {
+    hpos10i: import.meta.env.VITE_GAME_URL_HPOS10I,
+    nobu: import.meta.env.VITE_GAME_URL_NOBU,
+    'peoples-bitcoin': import.meta.env.VITE_GAME_URL_PEOPLES_BITCOIN,
+    sproto: import.meta.env.VITE_GAME_URL_SPROTO_DUEL,
+  },
+};
 
 const relicTray = document.querySelector('#relics');
 if (relicTray instanceof HTMLElement) {
