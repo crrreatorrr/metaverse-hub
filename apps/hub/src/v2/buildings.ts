@@ -95,7 +95,7 @@ export async function whiteHouse(): Promise<{ group: Group; depth: number; porta
   trim.position.set(0, 24.2, md / 2 - 1.5);
   g.add(glow(trim));
   g.add(coinField(26, 40, md / 2 + 26));
-  const sign = buildingSign('sign-white-house', 'THE WHITE HOUSE', "PEOPLE'S BITCOIN", '#ffc233');
+  const sign = buildingSign('sign-white-house', 'THE WHITE HOUSE', "PEOPLE'S BITCOIN", '#ffc233', '18+');
   sign.position.set(0, 16, md / 2 + 6);
   g.add(sign);
   return { group: g, depth: md + 20, portalZ: md / 2 + 30 };
