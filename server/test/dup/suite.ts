@@ -859,18 +859,6 @@ async function pbExchange(): Promise<void> {
       dayToken = next.gameToken;
       await earn(dayToken, 200, 'shop', `pb-fund-day-${i}`);
     }
-    const cappedEarn = await call('tickets.earn', {
-      amount: 10,
-      reason: 'shop',
-      key: 'pb-past-daily',
-      balance: 999999,
-      day: '1999-01-01',
-    }, dayToken);
-    if (cappedEarn.body.error) {
-      assert.equal(cappedEarn.body.error, 'daily_ticket_cap', JSON.stringify(cappedEarn.body));
-    } else {
-      assert.equal(cappedEarn.body.capped, true, JSON.stringify(cappedEarn.body));
-    }
     assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP);
     assert.equal(
       psql(`SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(funded.hub.userId)}' AND bucket = 'tickets:${game}'`),
@@ -890,6 +878,20 @@ async function pbExchange(): Promise<void> {
     assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
     assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP - 500);
     assert.equal(mints(funded.hub.userId, 'genesis_shard'), 0);
+    const later = await openGame(funded.hub.token, game);
+    const cappedEarn = await call('tickets.earn', {
+      amount: 10,
+      reason: 'shop',
+      key: 'pb-past-daily',
+      balance: 999999,
+      day: '1999-01-01',
+    }, later.gameToken);
+    if (cappedEarn.body.error) {
+      assert.equal(cappedEarn.body.error, 'daily_ticket_cap', JSON.stringify(cappedEarn.body));
+    } else {
+      assert.equal(cappedEarn.body.capped, true, JSON.stringify(cappedEarn.body));
+    }
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP - 500);
   });
 }
 
