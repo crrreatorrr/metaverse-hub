@@ -153,8 +153,9 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
 
     async authenticateCustom(id, create = false, vars) {
       const params = new URLSearchParams({ create: create ? 'true' : 'false' });
-      const account: { id: string; vars?: Record<string, string> } = vars ? { id, vars } : { id };
-      const auth = await postAuth(`/v2/account/authenticate/custom?${params}`, { account, create });
+      // Nakama maps this route with body: "account", so the JSON body is the account itself.
+      const body: { id: string; vars?: Record<string, string> } = vars ? { id, vars } : { id };
+      const auth = await postAuth(`/v2/account/authenticate/custom?${params}`, body);
       if (!auth.refreshToken) throw new HubSdkError('auth_failed', 'Auth did not return a refresh token');
       return auth;
     },
