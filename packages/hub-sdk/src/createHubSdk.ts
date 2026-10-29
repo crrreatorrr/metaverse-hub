@@ -1,0 +1,401 @@
+import { relicForEvent } from './events';
+import {
+  browserKeyValue,
+  getOrCreateDeviceId,
+  readNumber,
+  writeNumber,
+  type KeyValue,
+} from './storage';
+import { readTicketParam, stripTicketParam, verifyMockTicket, type TicketClaims } from './ticket';
+import {
+  GAME_IDS,
+  MOCK_TICKET_EARN_CAP,
+  TICKETS_PER_VERSE,
+  VERSE_DAILY_CAP,
+  isBoardId,
+  isRelicId,
+  type BoardId,
+  type ExchangeResult,
+  type GameId,
+  type HubSdk,
+  type InitResult,
+  type RelicId,
+} from './types';
+
+export class HubSdkError extends Error {
+  readonly code: string;
+
+  constructor(code: string, message: string) {
+    super(message);
+    this.name = 'HubSdkError';
+    this.code = code;
+  }
+}
+
+export interface HubSdkEnv {
+  /** Page the game returns to. `exit` appends `#from=<game>`. */
+  hubUrl?: string;
+  local?: KeyValue;
+  session?: KeyValue;
+  now?: () => number;
+  readHash?: () => string;
+  writeHash?: (hash: string) => void;
+  assign?: (url: string) => void;
+  releasePointer?: () => void;
+  clearBeforeUnload?: () => void;
+}
+
+interface MockSession {
+  game: GameId;
+  playerId: string;
+  ranked: boolean;
+  sid: string;
+  ticketJti: string;
+  effects: Record<string, number | boolean | string>;
+}
+
+const BOARD_MODE: Record<BoardId, 'asc-best' | 'desc-set' | 'desc-incr'> = {
+  hpos10i_act_time: 'asc-best',
+  nobu_trial_time: 'asc-best',
+  pb_total_xp: 'desc-set',
+  sproto_wins: 'desc-incr',
+  meta: 'desc-set',
+};
+
+function dayKey(now: number): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+function stable(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map((item) => stable(item)).join(',')}]`;
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj).sort();
+  return `{${keys.map((key) => `${JSON.stringify(key)}:${stable(obj[key])}`).join(',')}}`;
+}
+
+async function sha256(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  const bytes = new Uint8Array(digest);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 1) binary += String.fromCharCode(bytes[i] ?? 0);
+  return btoa(binary);
+}
+
+function defaultEnv(): Required<
+  Pick<
+    HubSdkEnv,
+    'hubUrl' | 'local' | 'session' | 'now' | 'readHash' | 'writeHash' | 'assign' | 'releasePointer' | 'clearBeforeUnload'
+  >
+> {
+  if (typeof window === 'undefined') {
+    throw new HubSdkError('no_window', 'createHubSdk() needs a browser, or pass an env for tests');
+  }
+  return {
+    hubUrl: '/hub/',
+    local: browserKeyValue('local'),
+    session: browserKeyValue('session'),
+    now: () => Date.now(),
+    readHash: () => window.location.hash,
+    writeHash: (hash) => {
+      const next = `${window.location.pathname}${window.location.search}${hash}`;
+      window.history.replaceState(null, '', next);
+    },
+    assign: (url) => {
+      window.location.assign(url);
+    },
+    releasePointer: () => {
+      if (document.pointerLockElement) document.exitPointerLock();
+    },
+    clearBeforeUnload: () => {
+      window.onbeforeunload = null;
+    },
+  };
+}
+
+/**
+ * Mock hub SDK. Redeemed tickets open a session in sessionStorage under
+ * `hub:<game>:session`. Economy writes land in the injected store so a
+ * reload behaves like the Nakama session the games will use in M1.
+ * With no ticket and no session every call is a no-op.
+ */
+export function createHubSdk(env: HubSdkEnv = {}): HubSdk {
+  const resolved = resolveEnv(env);
+  let active: MockSession | null = null;
+
+  function sessionKey(game: GameId): string {
+    return `hub:${game}:session`;
+  }
+
+  function spentKey(): string {
+    return 'hub:spent-jti';
+  }
+
+  function spentSet(): Set<string> {
+    const raw = resolved.session.getItem(spentKey());
+    if (!raw) return new Set();
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return new Set();
+      return new Set(parsed.filter((item) => typeof item === 'string'));
+    } catch {
+      return new Set();
+    }
+  }
+
+  function markSpent(jti: string): void {
+    const next = [...spentSet(), jti].slice(-64);
+    resolved.session.setItem(spentKey(), JSON.stringify(next));
+  }
+
+  function readRelics(): RelicId[] {
+    const raw = resolved.local.getItem('hub:relics');
+    if (!raw) return [];
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
+    } catch {
+      return [];
+    }
+  }
+
+  function writeRelics(relics: RelicId[]): void {
+    resolved.local.setItem('hub:relics', JSON.stringify(relics));
+  }
+
+  function ticketsKey(game: GameId): string {
+    return `hub:tickets:${game}`;
+  }
+
+  function earnKey(game: GameId): string {
+    return `hub:earn:${game}:${dayKey(resolved.now())}`;
+  }
+
+  function verseDayKey(game: GameId): string {
+    return `hub:verseDay:${game}:${dayKey(resolved.now())}`;
+  }
+
+  function capLeft(game: GameId): number {
+    return Math.max(0, MOCK_TICKET_EARN_CAP - readNumber(resolved.local, earnKey(game)));
+  }
+
+  function profile(session: MockSession): InitResult {
+    return {
+      playerId: session.playerId,
+      ranked: session.ranked,
+      relics: readRelics(),
+      effects: { ...session.effects },
+      ticketsCapLeft: capLeft(session.game),
+    };
+  }
+
+  function standaloneProfile(): InitResult {
+    return {
+      playerId: getOrCreateDeviceId(resolved.local),
+      ranked: false,
+      relics: [],
+      effects: {},
+      ticketsCapLeft: 0,
+    };
+  }
+
+  function openSession(claims: TicketClaims): MockSession {
+    for (const game of GAME_IDS) resolved.session.removeItem(sessionKey(game));
+    const session: MockSession = {
+      game: claims.game,
+      playerId: claims.playerId,
+      ranked: claims.ranked,
+      sid: crypto.randomUUID(),
+      ticketJti: claims.jti,
+      effects: {},
+    };
+    resolved.session.setItem(sessionKey(claims.game), JSON.stringify(session));
+    active = session;
+    return session;
+  }
+
+  async function withIdem<T>(playerId: string, key: string, rpc: string, body: string, run: () => T): Promise<T> {
+    if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+    const hash = await sha256(`${rpc}:${body}`);
+    const storageKey = `hub:idem:${playerId}:${key}`;
+    const existing = resolved.local.getItem(storageKey);
+    if (existing) {
+      const rec = JSON.parse(existing) as { rpc: string; hash: string; response: T };
+      if (rec.rpc !== rpc || rec.hash !== hash) {
+        throw new HubSdkError('idempotency_mismatch', 'Idempotency key was reused with a different request');
+      }
+      return rec.response;
+    }
+    const response = run();
+    resolved.local.setItem(storageKey, JSON.stringify({ rpc, hash, response }));
+    return response;
+  }
+
+  return {
+    async init(gameId) {
+      if (!(GAME_IDS as readonly string[]).includes(gameId)) {
+        throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
+      }
+      const token = readTicketParam(resolved.readHash());
+      if (token) {
+        const claims = await verifyMockTicket(token);
+        if (!claims) throw new HubSdkError('ticket_invalid', 'Ticket signature or payload is not valid');
+        if (claims.exp * 1000 <= resolved.now()) throw new HubSdkError('ticket_expired', 'Ticket expired');
+        if (claims.game !== gameId) throw new HubSdkError('ticket_game', 'Ticket is for a different game');
+        if (spentSet().has(claims.jti)) throw new HubSdkError('ticket_used', 'Ticket was already redeemed');
+        markSpent(claims.jti);
+        resolved.writeHash(stripTicketParam(resolved.readHash()));
+        return profile(openSession(claims));
+      }
+      const saved = resolved.session.getItem(sessionKey(gameId));
+      if (saved) {
+        try {
+          const session = JSON.parse(saved) as MockSession;
+          if (session.game === gameId && session.playerId) {
+            active = session;
+            return profile(session);
+          }
+        } catch {
+          resolved.session.removeItem(sessionKey(gameId));
+        }
+      }
+      active = null;
+      return standaloneProfile();
+    },
+
+    async reportEvent(eventId, data, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!data || typeof data !== 'object') throw new HubSdkError('bad_event', 'Event data must be an object');
+      if (!active) return {};
+      const session = active;
+      return withIdem(session.playerId, key, 'session.event', stable({ eventId, data }), () => {
+        const relic = relicForEvent(session.game, eventId, data);
+        if (!relic) return {};
+        const owned = readRelics();
+        if (owned.includes(relic)) return {};
+        writeRelics([...owned, relic]);
+        return { granted: relic };
+      });
+    },
+
+    async submitScore(boardId, value, meta) {
+      if (!isBoardId(boardId)) throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
+      if (!Number.isFinite(value) || value < 0) throw new HubSdkError('bad_score', 'Score must be a non-negative number');
+      if (!active || !active.ranked) return;
+      const storageKey = `hub:score:${active.playerId}:${boardId}`;
+      const previous = readNumber(resolved.local, storageKey);
+      const hasPrevious = resolved.local.getItem(storageKey) !== null;
+      const mode = BOARD_MODE[boardId];
+      let next = value;
+      if (mode === 'asc-best') next = hasPrevious ? Math.min(previous, value) : value;
+      if (mode === 'desc-incr') next = previous + value;
+      writeNumber(resolved.local, storageKey, next);
+      if (meta && typeof meta === 'object') resolved.local.setItem(`${storageKey}:meta`, stable(meta));
+    },
+
+    async earnTickets(amount, reason, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!Number.isFinite(amount) || amount <= 0) throw new HubSdkError('bad_amount', 'Ticket amount must be positive');
+      if (!reason) throw new HubSdkError('bad_reason', 'A reason is required');
+      if (!active) return { balance: 0, capped: false };
+      const session = active;
+      const whole = Math.floor(amount);
+      return withIdem(session.playerId, key, 'tickets.earn', stable({ amount: whole, reason }), () => {
+        const room = capLeft(session.game);
+        const applied = Math.min(whole, room);
+        const earned = readNumber(resolved.local, earnKey(session.game)) + applied;
+        const balance = readNumber(resolved.local, ticketsKey(session.game)) + applied;
+        writeNumber(resolved.local, earnKey(session.game), earned);
+        writeNumber(resolved.local, ticketsKey(session.game), balance);
+        return { balance, capped: applied < whole };
+      });
+    },
+
+    async exchange(tickets, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!Number.isFinite(tickets) || tickets <= 0) {
+        throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
+      }
+      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
+      const session = active;
+      const requested = Math.floor(tickets);
+      return withIdem(session.playerId, key, 'tickets.exchange', stable({ tickets: requested }), (): ExchangeResult => {
+        let verseOut = Math.floor(requested / TICKETS_PER_VERSE);
+        if (verseOut <= 0) {
+          throw new HubSdkError('below_rate', `Need at least ${TICKETS_PER_VERSE} Tickets to mint 1 Verse`);
+        }
+        const today = readNumber(resolved.local, verseDayKey(session.game));
+        const room = VERSE_DAILY_CAP - today;
+        if (room <= 0) throw new HubSdkError('verse_cap', 'Daily Verse cap reached for this game');
+        verseOut = Math.min(verseOut, room);
+        const debit = verseOut * TICKETS_PER_VERSE;
+        const balance = readNumber(resolved.local, ticketsKey(session.game));
+        if (balance < debit) throw new HubSdkError('insufficient_tickets', 'Not enough Tickets');
+        const ticketsLeft = balance - debit;
+        const verse = readNumber(resolved.local, 'hub:verse') + verseOut;
+        writeNumber(resolved.local, ticketsKey(session.game), ticketsLeft);
+        writeNumber(resolved.local, 'hub:verse', verse);
+        writeNumber(resolved.local, verseDayKey(session.game), today + verseOut);
+        return { verse, ticketsLeft, receiptId: crypto.randomUUID() };
+      });
+    },
+
+    exit(_reason) {
+      if (!active) return;
+      const game = active.game;
+      resolved.session.removeItem(sessionKey(game));
+      active = null;
+      resolved.clearBeforeUnload();
+      resolved.releasePointer();
+      const base = resolved.hubUrl.replace(/\/$/, '');
+      resolved.assign(`${base}/#from=${game}`);
+    },
+  };
+}
+
+interface ResolvedEnv {
+  hubUrl: string;
+  local: KeyValue;
+  session: KeyValue;
+  now: () => number;
+  readHash: () => string;
+  writeHash: (hash: string) => void;
+  assign: (url: string) => void;
+  releasePointer: () => void;
+  clearBeforeUnload: () => void;
+}
+
+function resolveEnv(env: HubSdkEnv): ResolvedEnv {
+  const browser = typeof window !== 'undefined' ? defaultEnv() : null;
+  return {
+    hubUrl: env.hubUrl ?? browser?.hubUrl ?? '/hub/',
+    local: env.local ?? browser?.local ?? memoryFallback(),
+    session: env.session ?? browser?.session ?? memoryFallback(),
+    now: env.now ?? browser?.now ?? (() => Date.now()),
+    readHash: env.readHash ?? browser?.readHash ?? (() => ''),
+    writeHash: env.writeHash ?? browser?.writeHash ?? (() => undefined),
+    assign: env.assign ?? browser?.assign ?? (() => undefined),
+    releasePointer: env.releasePointer ?? browser?.releasePointer ?? (() => undefined),
+    clearBeforeUnload: env.clearBeforeUnload ?? browser?.clearBeforeUnload ?? (() => undefined),
+  };
+}
+
+function memoryFallback(): KeyValue {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key) => (map.has(key) ? (map.get(key) as string) : null),
+    setItem: (key, value) => {
+      map.set(key, value);
+    },
+    removeItem: (key) => {
+      map.delete(key);
+    },
+  };
+}
+
+/** Puts the SDK on `window.hubSdk` for the Godot JavaScriptBridge and plain script tags. */
+export function installHubSdk(sdk: HubSdk = createHubSdk()): HubSdk {
+  if (typeof window !== 'undefined') window.hubSdk = sdk;
+  return sdk;
+}

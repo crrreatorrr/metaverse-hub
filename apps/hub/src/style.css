@@ -1,0 +1,107 @@
+html,
+body,
+#app {
+  margin: 0;
+  height: 100%;
+  background: #07060f;
+  overflow: hidden;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #e7f6ff;
+}
+
+#app {
+  position: fixed;
+  inset: 0;
+}
+
+canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+}
+
+#hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.brand {
+  position: absolute;
+  top: 18px;
+  left: 22px;
+  letter-spacing: 0.24em;
+  font-size: 13px;
+  font-weight: 700;
+  color: #9be7ff;
+}
+
+.brand span {
+  display: block;
+  margin-top: 4px;
+  letter-spacing: 0.18em;
+  font-size: 11px;
+  font-weight: 500;
+  color: #8d7dff;
+}
+
+.hint {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  max-width: min(720px, calc(100% - 32px));
+  padding: 10px 16px;
+  border: 1px solid rgba(61, 225, 255, 0.4);
+  border-radius: 999px;
+  background: rgba(8, 10, 22, 0.72);
+  font-size: 14px;
+  text-align: center;
+}
+
+.banner {
+  position: absolute;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 12px;
+  border: 1px solid #ff2ea6;
+  border-radius: 8px;
+  background: rgba(48, 10, 28, 0.9);
+  color: #ffd0ec;
+  font-size: 14px;
+}
+
+.debug {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  font: 12px ui-monospace, monospace;
+  color: #9ad4ea;
+  opacity: 0.85;
+}
+
+#wipe {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  pointer-events: none;
+  background: #07060f;
+  color: #07060f;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+  transition: opacity 380ms ease;
+}
+
+#wipe.on {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+[hidden] {
+  display: none !important;
+}
