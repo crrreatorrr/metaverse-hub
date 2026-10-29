@@ -1,17 +1,6 @@
 /** Game ids stored on the server and used in `/hub#from=<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'pb', 'sproto'] as const;
+export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
 export type GameId = (typeof GAME_IDS)[number];
-
-/**
- * Play-path slugs a build may send. They resolve to a stored game id
- * before tickets, sessions, and events, so the economy stays one row.
- */
-export const GAME_ID_ALIASES = {
-  'peoples-bitcoin': 'pb',
-} as const satisfies Record<string, GameId>;
-
-export type GameIdAlias = keyof typeof GAME_ID_ALIASES;
-export type GameIdInput = GameId | GameIdAlias;
 
 /** Earn-once relics. The primary key on the server is (user, relic). */
 export const RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'] as const;
@@ -19,7 +8,7 @@ export type RelicId = (typeof RELIC_IDS)[number];
 
 export const RELIC_BY_GAME: Record<GameId, RelicId> = {
   hpos10i: 'hpos10i_core',
-  pb: 'genesis_shard',
+  'peoples-bitcoin': 'genesis_shard',
   nobu: 'cones_tip',
   sproto: 'tinubu_crown',
 };
@@ -88,7 +77,7 @@ export interface EventResult {
  * `JavaScriptBridge.get_interface("hubSdk")` once `installHubSdk` has run.
  */
 export interface HubSdk {
-  init(gameId: GameIdInput): Promise<InitResult>;
+  init(gameId: GameId): Promise<InitResult>;
   reportEvent(eventId: string, data: object, key: string): Promise<EventResult>;
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
@@ -100,11 +89,9 @@ export function isGameId(value: string): value is GameId {
   return (GAME_IDS as readonly string[]).includes(value);
 }
 
-/** Stored game id. `peoples-bitcoin` is the White House play slug for `pb`. */
+/** True when `value` is a stored game id. */
 export function canonicalGameId(value: string): GameId | null {
-  if (isGameId(value)) return value;
-  const alias = (GAME_ID_ALIASES as Record<string, GameId | undefined>)[value];
-  return alias ?? null;
+  return isGameId(value) ? value : null;
 }
 
 export function isRelicId(value: string): value is RelicId {

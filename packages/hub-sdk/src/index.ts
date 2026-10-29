@@ -1,7 +1,6 @@
 export {
   BOARD_IDS,
   BoardId,
-  GAME_ID_ALIASES,
   GAME_IDS,
   MOCK_TICKET_EARN_CAP,
   MOCK_TICKET_TTL_SECONDS,
@@ -19,8 +18,6 @@ export type {
   EventResult,
   ExchangeResult,
   GameId,
-  GameIdAlias,
-  GameIdInput,
   HubSdk,
   InitResult,
   RelicId,

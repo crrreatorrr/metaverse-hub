@@ -119,15 +119,15 @@ async function main(): Promise<void> {
   }
 
   {
-    const h = harness('pb');
+    const h = harness('peoples-bitcoin');
     const expired = await mintMockTicket({
-      game: 'pb',
+      game: 'peoples-bitcoin',
       playerId: 'player-1',
       now: NOW - 120_000,
       ttlSeconds: 60,
     });
     h.setHash(`#t=${expired}`);
-    await assert.rejects(() => h.sdk.init('pb'), (error: unknown) => {
+    await assert.rejects(() => h.sdk.init('peoples-bitcoin'), (error: unknown) => {
       assert.ok(error instanceof HubSdkError);
       assert.equal(error.code, 'ticket_expired');
       return true;
@@ -168,9 +168,9 @@ async function main(): Promise<void> {
   }
 
   {
-    const h = harness('pb');
-    h.setHash(`#t=${await ticket('pb')}`);
-    await h.sdk.init('pb');
+    const h = harness('peoples-bitcoin');
+    h.setHash(`#t=${await ticket('peoples-bitcoin')}`);
+    await h.sdk.init('peoples-bitcoin');
     const hit = await h.sdk.reportEvent(HubEvent.PbQuestComplete, { questId: 'quest_tutorial', tick: 3 }, 'q');
     assert.equal(hit.granted, 'genesis_shard');
   }

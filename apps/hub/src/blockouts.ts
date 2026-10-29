@@ -61,7 +61,7 @@ function basis(angle: number): { x: number; z: number; rx: number; rz: number; o
 function piecesFor(portal: PortalConfig): Piece[] {
   if (portal.id === 'hpos10i') return greenHill();
   if (portal.id === 'nobu') return kennel();
-  if (portal.id === 'pb') return whiteHouse();
+  if (portal.id === 'peoples-bitcoin') return whiteHouse();
   return castle();
 }
 

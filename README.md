@@ -18,7 +18,7 @@ Game ids used in code, in `#from=`, and in the default portal paths:
 | --- | --- | --- |
 | HPOS10I | `hpos10i` | `/play/hpos10i/` |
 | NOBU: Saviour Dog | `nobu` | `/play/nobu/` |
-| The People's Bitcoin (18+) | `pb` (`peoples-bitcoin` is accepted and stored as `pb`) | `/play/peoples-bitcoin/` |
+| The People's Bitcoin (18+) | `peoples-bitcoin` | `/play/peoples-bitcoin/` |
 | Sproto Duel | `sproto` | `/play/sproto/` |
 
 ## Run the plaza
@@ -49,7 +49,7 @@ Coming back from a game, open the hub with the game id in the hash. The avatar s
 http://127.0.0.1:5173/hub/#from=sproto
 ```
 
-`#from=` accepts `hpos10i`, `nobu`, `pb`, or `sproto`.
+`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, or `sproto`.
 
 ## Scripts
 
