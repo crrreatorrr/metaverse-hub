@@ -71,23 +71,12 @@ export interface EventResult {
   granted?: RelicId;
 }
 
-/** Nakama session from `redeemTicket`. The HTTP key is not involved. */
-export interface RedeemedSession {
-  token: string;
-  refreshToken: string;
-}
-
 /**
  * Surface the games call. Outside a redeemed ticket the methods no-op so a
  * game still runs standalone. HPOS10I reaches the same object through
  * `JavaScriptBridge.get_interface("hubSdk")` once `installHubSdk` has run.
  */
 export interface HubSdk {
-  /**
-   * Read `#t=` from the page hash, strip it immediately, and exchange it for a
-   * Nakama session using the server key only (`authenticateCustom`, create=false).
-   */
-  redeemTicket(input: { game: GameId }): Promise<RedeemedSession>;
   init(gameId: GameId): Promise<InitResult>;
   reportEvent(eventId: string, data: object, key: string): Promise<EventResult>;
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;

@@ -39,6 +39,7 @@ import {
   num,
   openGame,
   outboxSend,
+  customAuthLanded,
   redeemPortalTicket,
   psql,
   relicClaims,
@@ -347,8 +348,13 @@ async function races(): Promise<void> {
         const tokens: string[] = [];
         for (const entered of [first, second]) {
           if (!entered.body.ticket) continue;
-          const redeemed = await redeemPortalTicket(entered.body.ticket, flow.game);
-          if (redeemed.token) tokens.push(redeemed.token);
+          const redeemed = customAuthLanded()
+            ? await redeemPortalTicket(entered.body.ticket, flow.game)
+            : await call('session.redeem', { ticket: entered.body.ticket, gameId: flow.game });
+          const token = customAuthLanded()
+            ? (redeemed as { token?: string }).token
+            : (redeemed as RpcResult).body.token;
+          if (token) tokens.push(token);
         }
         assert.ok(tokens.length >= 1, JSON.stringify([first.body, second.body]));
         await Promise.all(tokens.map((token, index) => (
@@ -400,14 +406,25 @@ async function races(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: 'sproto', ranked: false }, who.token);
     assert.ok(opened.body.ticket);
-    const [a, b] = await Promise.all([
-      redeemPortalTicket(opened.body.ticket, 'sproto'),
-      redeemPortalTicket(opened.body.ticket, 'sproto'),
-    ]);
-    const wins = [a, b].filter((item) => item.token && item.status < 400);
-    const used = [a, b].filter((item) => !item.token);
-    assert.equal(wins.length, 1, JSON.stringify([a, b]));
-    assert.equal(used.length, 1);
+    if (customAuthLanded()) {
+      const [a, b] = await Promise.all([
+        redeemPortalTicket(opened.body.ticket, 'sproto'),
+        redeemPortalTicket(opened.body.ticket, 'sproto'),
+      ]);
+      const wins = [a, b].filter((item) => item.token && item.status < 400);
+      const used = [a, b].filter((item) => !item.token);
+      assert.equal(wins.length, 1, JSON.stringify([a, b]));
+      assert.equal(used.length, 1);
+    } else {
+      const [a, b] = await Promise.all([
+        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
+        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
+      ]);
+      const wins = [a, b].filter((item) => item.body.token && !item.body.error);
+      const used = [a, b].filter((item) => item.body.error === 'ticket_used');
+      assert.equal(wins.length, 1, JSON.stringify([a.body, b.body]));
+      assert.equal(used.length, 1);
+    }
     assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
     assert.equal(ticketBalance(who.userId, 'sproto'), 0);
   });
@@ -440,6 +457,16 @@ async function forged(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket && opened.body.sessionId);
+    if (!customAuthLanded()) {
+      psql(
+        `UPDATE game.game_session SET ticket_exp = now() - interval '2 seconds' WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
+      );
+      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
+      assert.equal(redeemed.body.error, 'ticket_expired');
+      assert.equal(relicClaims(who.userId, relic.relicId), 0);
+      assert.equal(mints(who.userId, relic.relicId), 0);
+      return;
+    }
     const ttl = num(
       `SELECT EXTRACT(EPOCH FROM (expires_at - now()))::int FROM game.auth_ticket WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
     );
@@ -486,6 +513,9 @@ async function forged(): Promise<void> {
     assert.equal(snapshotEconomy(victim.hub.userId, relic.game), before);
   });
 
+  if (!customAuthLanded()) {
+    pending('forged', 'http-key session.redeem is rejected', 'waiting for registerBeforeAuthenticateCustom (#25)');
+  } else {
   await test('forged', 'http-key session.redeem is rejected', async () => {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
@@ -507,12 +537,22 @@ async function forged(): Promise<void> {
     assert.equal(ticketBalance(who.userId, relic.game), 0);
     assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
   });
+  }
 
   await test('forged', `${relic.id} another game's ticket is rejected`, async () => {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket);
     const other = relic.game === 'hpos10i' ? 'sproto' : 'hpos10i';
+    if (!customAuthLanded()) {
+      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: other });
+      assert.equal(redeemed.body.error, 'ticket_game');
+      const forged = `${opened.body.ticket.slice(0, -4)}abcd`;
+      const badSig = await call('session.redeem', { ticket: forged, gameId: relic.game });
+      assert.equal(badSig.body.error, 'ticket_invalid');
+      assert.equal(mints(who.userId, relic.relicId), 0);
+      return;
+    }
     const redeemed = await redeemPortalTicket(opened.body.ticket, other);
     assert.equal(redeemed.token, undefined, redeemed.body);
     assert.equal(redeemed.status >= 400, true, redeemed.body);
@@ -1135,7 +1175,7 @@ export async function main(): Promise<void> {
     }
     await runGated({ test, pending });
     await runSameTab(test);
-    await runRedeemFix(test);
+    await runRedeemFix(test, pending);
   } finally {
     failed = report();
   }

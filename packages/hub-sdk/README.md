@@ -1,8 +1,8 @@
 # @metaverse/hub-sdk
 
-Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
+Client for a game page that was opened from the hub. The hub puts a short-lived signed ticket in the URL fragment (`#t=`). `init` strips that fragment and exchanges the ticket for a game-scoped Nakama session. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.2.0 adds `redeemTicket`. Existing method names, argument order, game ids, relic ids, and event ids stay stable.
+Version 0.1.0 is the surface Sproto Duel should build against. Method names, argument order, game ids, relic ids, and event ids below stay stable.
 
 ## Install
 
@@ -15,10 +15,10 @@ npm ci
 npm pack -w @metaverse/hub-sdk
 ```
 
-That writes `metaverse-hub-sdk-0.2.0.tgz` in the repo root. In the game:
+That writes `metaverse-hub-sdk-0.1.0.tgz` in the repo root. In the game:
 
 ```bash
-npm install /absolute/path/to/metaverse-hub-sdk-0.2.0.tgz
+npm install /absolute/path/to/metaverse-hub-sdk-0.1.0.tgz
 ```
 
 A folder install also works after `npm ci` in the hub repo:
@@ -51,7 +51,6 @@ import { HubEvent, createHubSdk, installHubSdk } from '@metaverse/hub-sdk';
 
 const hub = installHubSdk(createHubSdk({
   serverUrl: '', // same origin; the Vite proxy forwards /v2
-  serverKey: import.meta.env.VITE_NAKAMA_SERVER_KEY, // server key only; never the HTTP key
   hubUrl: 'http://127.0.0.1:5173/hub/',
 }));
 
@@ -59,28 +58,7 @@ const profile = await hub.init('sproto');
 // profile.playerId, profile.ranked, profile.relics, profile.effects, profile.ticketsCapLeft
 ```
 
-`init` redeems `#t=` when it is still there. To take the session and refresh token yourself, call `redeemTicket` instead of that first `init` (it removes the fragment, so do not call both on the same load):
-
-```ts
-const session = await hub.redeemTicket({ game: 'sproto' });
-// session.token, session.refreshToken
-```
-
-`redeemTicket({ game })` is the handoff Sproto Duel and HPOS10I should call when they want the Nakama session and refresh token. It reads `#t=` from `location.hash`, removes it with `history.replaceState` before any network call, then:
-
-```ts
-client.authenticateCustom('t:' + ticket, false, { game: 'sproto' })
-```
-
-That request uses the Nakama server key (`Authorization: Basic`). It does not send the HTTP key. The server burns the ticket and signs in the hub account. The function returns:
-
-```ts
-redeemTicket({ game }: { game: GameId }): Promise<{ token: string; refreshToken: string }>
-```
-
-`init(gameId)` still performs that exchange when `#t=` is present and `authenticateCustom` is available, then loads the profile. Call either `redeemTicket` or `init`, not both on the same fragment: the first call removes `#t=`. A reload keeps the session in `sessionStorage` under `hub:<game>:session`, so a ticket is not required twice.
-
-`installHubSdk` also sets `window.hubSdk` for HPOS10I's JavaScriptBridge. Call `redeemTicket` or `init` once at boot, before play starts. Pass `serverKey` from the game's build (`VITE_NAKAMA_SERVER_KEY` in production). Do not ship Nakama's HTTP key.
+`installHubSdk` also sets `window.hubSdk` for HPOS10I's JavaScriptBridge. Call `init` once at boot, before play starts. A reload keeps the session in `sessionStorage` under `hub:<game>:session`, so a ticket is not required twice. `init` removes `#t=` with `history.replaceState`.
 
 When Tinubu falls, including a god-mode win, report it and do not send a score in god mode:
 
@@ -108,8 +86,6 @@ A different operation id is a new request. The relic itself is still earn-once: 
 ## API
 
 ```ts
-redeemTicket({ game }: { game: GameId }): Promise<{ token: string; refreshToken: string }>
-
 init(gameId): Promise<{
   playerId: string;
   ranked: boolean;

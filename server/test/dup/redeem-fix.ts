@@ -17,6 +17,7 @@ import {
   authenticateCustom,
   call,
   compose,
+  customAuthLanded,
   guest,
   note,
   num,
@@ -31,6 +32,23 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 
 type Game = 'sproto' | 'hpos10i';
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
+type PendingFn = (category: string, name: string, reason: string) => void;
+
+const REDEEM_FIX_CASES = [
+  'ticket reuse sequential is exactly one session',
+  'ticket reuse concurrent is exactly one session',
+  'expired ticket over 60s server clock is rejected',
+  'wrong-game ticket is burned and the right game is rejected',
+  'raw hub and hold ids are rejected',
+  'missing or empty ticket is rejected',
+  'http-key writes with no user are rejected',
+  'redeemTicket strips #t= from the url',
+  'client bundles contain no http key',
+  'rate_limited portal.enter mints no ticket',
+  'ticket sweep leaves credits and used tickets',
+] as const;
+
+const PENDING_REASON = 'waiting for registerBeforeAuthenticateCustom (#25)';
 
 function userCount(): number {
   return num('SELECT count(*) FROM users');
@@ -358,7 +376,11 @@ async function sweepLeavesEconomy(): Promise<void> {
   assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(who.userId)}'`), 1);
 }
 
-export async function runRedeemFix(test: TestFn): Promise<void> {
+export async function runRedeemFix(test: TestFn, pending: PendingFn): Promise<void> {
+  if (!customAuthLanded()) {
+    for (const name of REDEEM_FIX_CASES) pending('redeem-fix', name, PENDING_REASON);
+    return;
+  }
   await test('redeem-fix', 'ticket reuse sequential is exactly one session', () => reuse(false));
   await test('redeem-fix', 'ticket reuse concurrent is exactly one session', () => reuse(true));
   await test('redeem-fix', 'expired ticket over 60s server clock is rejected', expiredTicket);

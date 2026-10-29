@@ -8,7 +8,7 @@ Nakama, Postgres, and Caddy for the hub. Economy RPCs live in the TypeScript run
 | Nakama | built from `Dockerfile` (`heroiclabs/nakama:3.41.0`) | 7349 gRPC, 7350 HTTP, 7351 console | Device auth, portal tickets, relic grants. |
 | Caddy | `caddy:2.10.2-alpine` | 8080 | `/v2` proxy with CORS for a game on another port. |
 
-The database password is `localdb`. The Nakama server key is `defaultkey`. The HTTP key is `localhttpkey`. Those are local dev values, not production secrets. The HTTP key stays on the Nakama process. Game and hub bundles do not contain it. A portal ticket is redeemed with custom authentication and the server key. Write RPCs reject a call that has no user id.
+The database password is `localdb`. The Nakama server key is `defaultkey`. The HTTP key is `localhttpkey`. Those are local dev values, not production secrets. The HTTP key is embedded in the game client only so it can exchange a portal ticket before it has a session. Every other RPC rejects that call unless the player has a real session.
 
 ## Run it
 
