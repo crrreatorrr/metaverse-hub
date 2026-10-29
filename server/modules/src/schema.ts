@@ -196,7 +196,7 @@ namespace HubSchema {
      VALUES
        ('sproto', 'win', NULL, NULL, NULL, NULL, '{}'::jsonb, 20),
        ('sproto', 'duel_win', NULL, NULL, NULL, NULL, '{}'::jsonb, 20),
-       ('hpos10i', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
+       ('hpos10i', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 100),
        ('peoples-bitcoin', 'pb_bank', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
        ('peoples-bitcoin', 'pb_drop', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
        ('peoples-bitcoin', 'pb_lobby', NULL, NULL, NULL, NULL, '{}'::jsonb, 200),
