@@ -247,11 +247,13 @@ canvas {
   place-items: center;
   opacity: 0;
   pointer-events: none;
+  padding: 32px;
   background: #07060f;
   color: #07060f;
-  font-size: 28px;
+  font-size: clamp(20px, 4vw, 28px);
   font-weight: 700;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.04em;
+  text-align: center;
   transition: opacity 380ms ease;
 }
 
