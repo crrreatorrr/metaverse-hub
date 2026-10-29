@@ -1,0 +1,28 @@
+{
+  "name": "metaverse-hub",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @metaverse/hub",
+    "build": "npm run build -w @metaverse/hub-sdk && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
+    "typecheck": "npm run typecheck -w @metaverse/hub-sdk && npm run typecheck -w @metaverse/hub && tsc -p scripts/tsconfig.json --noEmit",
+    "lint": "eslint .",
+    "test": "tsx packages/hub-sdk/test/sdk.test.ts && tsx scripts/sim-capsule.ts",
+    "preview": "npm run preview -w @metaverse/hub"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "eslint": "10.13.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.1"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
