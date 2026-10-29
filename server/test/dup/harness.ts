@@ -303,17 +303,51 @@ export async function guest(): Promise<Guest> {
   return authenticate(crypto.randomUUID());
 }
 
+export interface CustomAuthResult {
+  status: number;
+  token?: string;
+  body: string;
+}
+
+/** Game handoff: authenticateCustom('t:' + ticket, create=false, vars.game) with the server key. */
+export async function authenticateCustom(id: string | undefined, game?: string): Promise<CustomAuthResult> {
+  const account: { id?: string; vars?: { game: string } } = {};
+  if (id !== undefined) account.id = id;
+  if (game) account.vars = { game };
+  const response = await fetch(`${BASE}/v2/account/authenticate/custom?create=false`, {
+    method: 'POST',
+    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ account, create: false }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  const body = await response.text();
+  let token: string | undefined;
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as { token?: string };
+      if (parsed.token) token = parsed.token;
+    } catch {
+      token = undefined;
+    }
+  }
+  return { status: response.status, token, body };
+}
+
+export async function redeemPortalTicket(ticket: string, game: string): Promise<CustomAuthResult> {
+  return authenticateCustom(`t:${ticket}`, game);
+}
+
 export async function openGame(hubToken: string, game: string): Promise<GameLogin> {
   const opened = await call('portal.enter', { game, ranked: false }, hubToken);
   if (opened.body.error || !opened.body.ticket || !opened.body.sessionId) {
     throw new Error(`portal.enter ${opened.status} ${JSON.stringify(opened.body)}`);
   }
-  const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: game });
-  if (redeemed.body.error || !redeemed.body.token) {
-    throw new Error(`session.redeem ${redeemed.status} ${JSON.stringify(redeemed.body)}`);
+  const redeemed = await redeemPortalTicket(opened.body.ticket, game);
+  if (!redeemed.token) {
+    throw new Error(`redeem ${redeemed.status} ${redeemed.body}`);
   }
   const userId = userIdFrom(hubToken);
-  return { hub: { token: hubToken, userId }, gameToken: redeemed.body.token, sessionId: opened.body.sessionId };
+  return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
 }
 
 export async function login(game: string): Promise<GameLogin> {
