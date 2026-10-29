@@ -29,7 +29,7 @@ jobs:
 
   duplication:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -53,7 +53,7 @@ jobs:
           done
           exit 1
       - run: npm run test:dup
-        timeout-minutes: 22
+        timeout-minutes: 50
       - name: Economy audit
         if: always()
         run: docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/audit.sql
