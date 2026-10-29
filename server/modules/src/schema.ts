@@ -127,10 +127,14 @@ namespace HubSchema {
       user_id uuid NOT NULL,
       board_id text NOT NULL,
       value bigint NOT NULL CHECK (value >= 0),
+      meta jsonb NOT NULL DEFAULT '{}'::jsonb,
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (user_id, board_id),
-      CONSTRAINT score_best_board CHECK (board_id = 'hpos10i_act_time')
+      CONSTRAINT score_best_board CHECK (board_id IN ('hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins', 'meta'))
     )`,
+    "ALTER TABLE game.score_best ADD COLUMN IF NOT EXISTS meta jsonb NOT NULL DEFAULT '{}'::jsonb",
+    "ALTER TABLE game.score_best DROP CONSTRAINT IF EXISTS score_best_board",
+    "ALTER TABLE game.score_best ADD CONSTRAINT score_best_board CHECK (board_id IN ('hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins', 'meta'))",
 
     `CREATE TABLE IF NOT EXISTS game.fault_arm (
       user_id uuid NOT NULL,
@@ -200,6 +204,7 @@ namespace HubSchema {
        WHERE game_id = p_game
          AND event_type = p_event
          AND relic_id IS NOT NULL
+         -- Subset match: extra payload fields, such as time, do not block a grant.
          AND match <@ COALESCE(p_data, '{}'::jsonb)
        LIMIT 1;
        IF v_relic IS NULL THEN
@@ -581,7 +586,7 @@ namespace HubSchema {
        VALUES (p_user_id, 'verse:' || p_game_id, v_day, v_verse)
        ON CONFLICT (user_id, bucket, day) DO UPDATE
          SET amount = game.earn_window.amount + EXCLUDED.amount;
-       v_response := jsonb_build_object('verse', v_wallet, 'ticketsLeft', v_tickets, 'receiptId', v_receipt);
+       v_response := jsonb_build_object('verse', v_wallet, 'ticketsLeft', v_tickets, 'receiptId', v_receipt, 'verseCapLeft', v_room - v_verse);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.exchange', v_hash, v_response);
        RETURN v_response;

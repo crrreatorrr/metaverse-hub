@@ -63,6 +63,8 @@ export interface ExchangeResult {
   verse: number;
   ticketsLeft: number;
   receiptId: string;
+  /** Verse this game can still earn today. Omitted by older servers. */
+  verseCapLeft?: number;
 }
 
 export interface EventResult {

@@ -281,7 +281,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       if (!Number.isFinite(tickets) || tickets <= 0) {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
-      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
+      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop', verseCapLeft: 0 };
       const session = active;
       const requested = Math.floor(tickets);
       return withIdem(session.playerId, key, 'tickets.exchange', stable({ tickets: requested }), (): ExchangeResult => {
@@ -301,7 +301,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
         writeNumber(resolved.local, ticketsKey(session.game), ticketsLeft);
         writeNumber(resolved.local, 'hub:verse', verse);
         writeNumber(resolved.local, verseDayKey(session.game), today + verseOut);
-        return { verse, ticketsLeft, receiptId: crypto.randomUUID() };
+        return { verse, ticketsLeft, receiptId: crypto.randomUUID(), verseCapLeft: VERSE_DAILY_CAP - (today + verseOut) };
       });
     },
 
