@@ -14,6 +14,7 @@ import {
   type PurchaseFlow,
   type RelicFlow,
 } from './cases.ts';
+import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runShop } from './shop.ts';
 import {
@@ -67,6 +68,7 @@ interface Outcome {
 const outcomes: Outcome[] = [];
 
 function testBudget(name: string): number {
+  if (name.includes('second boot')) return 300_000;
   if (name.includes('kill_between')) return 240_000;
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
@@ -1638,6 +1640,11 @@ export async function main(): Promise<void> {
       }
       await runGated({ test, pending });
       await runShop({ test, pending });
+      await runGameBeaten({ test, pending });
+    } else if (process.env.DUP_ONLY.includes('shop-stock')) {
+      await runShop({ test, pending });
+    } else if (process.env.DUP_ONLY.includes('game_beaten') || process.env.DUP_ONLY.includes('relic trigger')) {
+      await runGameBeaten({ test, pending });
     }
   } finally {
     failed = report();

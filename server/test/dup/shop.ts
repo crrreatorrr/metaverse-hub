@@ -22,6 +22,7 @@ import type { GateRunner } from './gated.ts';
 import {
   arm,
   assertConflict,
+  audit,
   call,
   canonical,
   disarm,
@@ -63,6 +64,9 @@ const SPEND_CASES: Array<[string, string]> = [
   ['wallet', 'pb seeded shop prices match Hopium Soda and item_rounds'],
   ['wallet', 'pb same item is charged each shop price'],
   ['forged', 'item_blue_sproto_coffee cannot mint a ghost item'],
+  ['wallet', 'shop-stock coffee is not seeded'],
+  ['forged', 'shop-stock unlisted item returns unknown_item'],
+  ['wallet', 'shop-stock rows are known items without duplicate keys'],
   ['wallet', 'pb sell_price is at most 45 percent of the cheapest buy'],
   ['wallet', 'pb shop_price matches pb_shop_prices.csv row for row'],
   ['fault', 'pb.tickets_spend after_wallet rolls back'],
@@ -597,6 +601,243 @@ async function runPeoplesBitcoinHub(runner: GateRunner): Promise<void> {
   });
 }
 
+interface StockRow {
+  item_id: string;
+  pack_size: number;
+  price: number;
+  sell_price: number;
+  shop_id: string;
+}
+
+const STOCK_FIXTURE = path.join(ROOT, 'server/test/dup/fixtures/shop_price_by_game.json');
+const COFFEE_ID = 'item_blue_sproto_coffee';
+const ABSENT_ID = 'item_absent_from_shop_price';
+// shop_price is the stock list. A known item is an item_id the boot seed lists
+// for that game in fixtures/shop_price_by_game.json (PR #12 shop_seed, from
+// server/data/pb_shop_prices.csv).
+const KNOWN_ITEM = 'known item = item_id listed for that game in server/test/dup/fixtures/shop_price_by_game.json (the rows PR #12 shop_seed inserts)';
+
+interface StockSnap {
+  balance: number;
+  ledgerCount: number;
+  ledgerSum: number;
+  items: string;
+  itemLedger: number;
+  verse: number;
+}
+
+function stableJson(value: unknown): string {
+  const sort = (current: unknown): unknown => {
+    if (Array.isArray(current)) return current.map(sort);
+    if (current && typeof current === 'object') {
+      const out: Record<string, unknown> = {};
+      const record = current as Record<string, unknown>;
+      for (const key of Object.keys(record).sort()) out[key] = sort(record[key]);
+      return out;
+    }
+    return current;
+  };
+  return `${JSON.stringify(sort(value), null, 2)}\n`;
+}
+
+function loadStockCatalog(): Record<string, StockRow[]> {
+  if (!existsSync(STOCK_FIXTURE)) throw new Error(`missing ${STOCK_FIXTURE}`);
+  const text = readFileSync(STOCK_FIXTURE, 'utf8');
+  const parsed: unknown = JSON.parse(text);
+  if (stableJson(parsed) !== text) {
+    throw new Error('shop_price_by_game.json is not stable JSON (sorted keys, trailing newline)');
+  }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('shop price catalog is not an object');
+  const record = parsed as Record<string, unknown>;
+  const games = Object.keys(record);
+  if (games.join('\n') !== [...games].sort().join('\n')) throw new Error('shop price catalog games are not sorted');
+  const catalog: Record<string, StockRow[]> = {};
+  for (const game of games) {
+    if (!SLUG.test(game)) throw new Error(`catalog game is not a slug: ${game}`);
+    const rows = record[game];
+    if (!Array.isArray(rows)) throw new Error(`${game} catalog is not a list`);
+    catalog[game] = rows.map((row) => {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) throw new Error(`${game} row is not an object`);
+      const rec = row as Record<string, unknown>;
+      const itemId = rec.item_id;
+      const shopId = rec.shop_id;
+      const packSize = rec.pack_size;
+      const price = rec.price;
+      const sellPrice = rec.sell_price;
+      if (typeof itemId !== 'string' || !SLUG.test(itemId)) throw new Error(`catalog item_id is not a slug: ${String(itemId)}`);
+      if (typeof shopId !== 'string' || !SLUG.test(shopId)) throw new Error(`catalog shop_id is not a slug: ${String(shopId)}`);
+      if (typeof packSize !== 'number' || typeof price !== 'number' || typeof sellPrice !== 'number') {
+        throw new Error(`catalog price fields are not numbers for ${game} ${String(itemId)}`);
+      }
+      return { item_id: itemId, pack_size: packSize, price, sell_price: sellPrice, shop_id: shopId };
+    });
+    for (let i = 1; i < catalog[game].length; i += 1) {
+      const prev = catalog[game][i - 1];
+      const cur = catalog[game][i];
+      if (!prev || !cur) continue;
+      const order = prev.shop_id.localeCompare(cur.shop_id) || prev.item_id.localeCompare(cur.item_id);
+      if (order > 0) throw new Error(`${game} catalog is not sorted by shop then item`);
+    }
+  }
+  return catalog;
+}
+
+function stockGames(): string[] {
+  const raw = psql(`SELECT game FROM game.shop_price GROUP BY game ORDER BY game`);
+  return raw.split('\n').filter((game) => {
+    if (!game) return false;
+    if (!SLUG.test(game)) throw new Error(`shop_price game is not a slug: ${game}`);
+    return true;
+  });
+}
+
+function itemRowCount(game: string, itemId: string): number {
+  if (!SLUG.test(game) || !SLUG.test(itemId)) throw new Error(`bad stock id ${game}/${itemId}`);
+  return num(`SELECT count(*) FROM game.shop_price WHERE game = '${game}' AND item_id = '${itemId}'`);
+}
+
+function shopsFor(game: string): string[] {
+  if (!SLUG.test(game)) throw new Error(`bad game ${game}`);
+  const raw = psql(`SELECT DISTINCT shop_id FROM game.shop_price WHERE game = '${game}' ORDER BY shop_id`);
+  const shops = raw.split('\n').filter(Boolean);
+  for (const shopId of shops) {
+    if (!SLUG.test(shopId)) throw new Error(`shop_id is not a slug: ${shopId}`);
+  }
+  if (game === GAME && !shops.includes('shop_terminal')) shops.push('shop_terminal');
+  return shops;
+}
+
+function stockSnap(userId: string, game: string): StockSnap {
+  if (!SLUG.test(game)) throw new Error(`bad game ${game}`);
+  return {
+    balance: ticketBalance(userId, game),
+    ledgerCount: num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = '${game}'`),
+    ledgerSum: num(`SELECT COALESCE(sum(delta), 0) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = '${game}'`),
+    items: itemSnapshot(userId),
+    itemLedger: num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}'`),
+    verse: verseBalance(userId),
+  };
+}
+
+function assertStockHeld(userId: string, game: string, before: StockSnap, label: string): void {
+  const after = stockSnap(userId, game);
+  assert.equal(after.balance, before.balance, `${label} balance ${before.balance} -> ${after.balance}`);
+  assert.equal(after.ledgerSum - before.ledgerSum, 0, `${label} ledger delta ${after.ledgerSum - before.ledgerSum}`);
+  assert.equal(after.ledgerCount, before.ledgerCount, `${label} wrote a ledger row`);
+  assert.equal(after.items, before.items, `${label} granted inventory`);
+  assert.equal(after.itemLedger, before.itemLedger, `${label} granted item_ledger`);
+  assert.equal(after.verse, before.verse, `${label} moved verse`);
+}
+
+async function fundStock(token: string, game: string, key: string): Promise<void> {
+  if (!SLUG.test(game)) throw new Error(`bad game ${game}`);
+  if (game === GAME || game === 'pb') {
+    await fund(token, 10, key);
+    return;
+  }
+  const cols = psql(
+    `SELECT coalesce(string_agg(column_name, ','), '') FROM information_schema.columns WHERE table_schema = 'game' AND table_name = 'event_rule'`,
+  );
+  if (!cols.split(',').includes('max_amount')) throw new Error(`${game} has shop_price rows but event_rule.max_amount is missing`);
+  const reason = psql(
+    `SELECT event_type FROM game.event_rule WHERE game_id = '${game}' AND max_amount IS NOT NULL AND max_amount >= 10 ORDER BY event_type LIMIT 1`,
+  );
+  if (!reason || !SLUG.test(reason)) throw new Error(`${game} has shop_price rows but no legal earn of 10`);
+  await earn(token, 10, reason, key);
+}
+
+function buyRpcs(): string[] {
+  const names = ['tickets.spend'];
+  if (registered('tickets.buy')) names.push('tickets.buy');
+  return names;
+}
+
+async function runStockList(runner: GateRunner): Promise<void> {
+  await runner.test('wallet', 'shop-stock coffee is not seeded', async () => {
+    const listed = psql(
+      `SELECT coalesce(string_agg(game || ' ' || shop_id || ' ' || item_id, E'\\n' ORDER BY game, shop_id, item_id), '') FROM game.shop_price WHERE item_id = '${COFFEE_ID}'`,
+    );
+    assert.equal(listed, '', `item_blue_sproto_coffee is still seeded:\n${listed}`);
+    console.log(`coffee rows: 0; shop_price rows: ${num('SELECT count(*) FROM game.shop_price')}`);
+    audit();
+  });
+
+  await runner.test('forged', 'shop-stock unlisted item returns unknown_item', async () => {
+    const games = stockGames();
+    if (!games.length) throw new Error('game.shop_price has no rows, so no game can prove an unlisted spend');
+    const tried: string[] = [];
+    for (const game of games) {
+      const shops = shopsFor(game);
+      if (!shops.length) throw new Error(`${game} has shop_price rows but no shop_id`);
+      const absent = ABSENT_ID;
+      if (itemRowCount(game, absent) !== 0) throw new Error(`${game} already stocks ${absent}`);
+      const targets: Array<{ shopId: string; itemId: string }> = [{ shopId: shops[0] ?? '', itemId: absent }];
+      if (game === GAME) {
+        for (const shopId of shops) targets.push({ shopId, itemId: COFFEE_ID });
+      }
+      const session = await login(game);
+      await fundStock(session.gameToken, game, `ss-fund-${game}`);
+      const funded = stockSnap(session.hub.userId, game);
+      assert.ok(funded.balance > 0, `${game} balance is ${funded.balance} before the unlisted spend`);
+      for (const rpc of buyRpcs()) {
+        for (const target of targets) {
+          if (!target.shopId) throw new Error(`${game} shop_id is empty`);
+          const key = `ss-${rpc === 'tickets.spend' ? 'spend' : 'buy'}-${target.shopId}-${target.itemId}`;
+          if (key.length > 80) throw new Error(`idempotency key is longer than 80: ${key}`);
+          const body = spendBody(target.shopId, target.itemId, 1, key, {}, game);
+          const result = await call(rpc, body, session.gameToken);
+          const line = `${rpc} ${game} ${target.shopId} ${target.itemId} status=${result.status} body=${JSON.stringify(result.body)} balance=${funded.balance}`;
+          console.log(`unknown_item ${line}`);
+          tried.push(line);
+          assert.equal(result.body.error, 'unknown_item', line);
+          assert.equal(result.body.message, 'unknown_item', line);
+          const granted = result.body as Record<string, unknown>;
+          assert.equal(granted.units, undefined, line);
+          assert.equal(granted.spent, undefined, line);
+          assertStockHeld(session.hub.userId, game, funded, line);
+          const replay = await call(rpc, body, session.gameToken);
+          assert.equal(replay.body.error, 'unknown_item', JSON.stringify(replay.body));
+          assert.equal(canonical(replay.body), canonical(result.body), JSON.stringify(replay.body));
+          assertStockHeld(session.hub.userId, game, funded, `${line} replay`);
+        }
+      }
+    }
+    console.log(`absent ids tried:\n${tried.join('\n')}`);
+    audit();
+  });
+
+  await runner.test('wallet', 'shop-stock rows are known items without duplicate keys', async () => {
+    const cols = shopColumns().slice().sort();
+    assert.deepEqual(cols, ['game', 'item_id', 'pack_size', 'price', 'sell_price', 'shop_id']);
+    const dupes = num(
+      `SELECT count(*) FROM (SELECT game, shop_id, item_id FROM game.shop_price GROUP BY game, shop_id, item_id HAVING count(*) > 1) d`,
+    );
+    assert.equal(dupes, 0, 'duplicate (game, shop_id, item_id) rows');
+    const total = num(`SELECT count(*) FROM game.shop_price`);
+    const distinct = num(`SELECT count(*) FROM (SELECT DISTINCT game, shop_id, item_id FROM game.shop_price) d`);
+    assert.equal(total, distinct, 'shop_price row count differs from distinct keys');
+    const catalog = loadStockCatalog();
+    const expected: string[] = [];
+    for (const game of Object.keys(catalog).sort()) {
+      for (const row of catalog[game] ?? []) {
+        expected.push(`${game}|${row.shop_id}|${row.item_id}|${row.pack_size}|${row.price}|${row.sell_price}`);
+      }
+    }
+    const live = psql(
+      `SELECT game || '|' || shop_id || '|' || item_id || '|' || pack_size::text || '|' || price::text || '|' || sell_price::text FROM game.shop_price ORDER BY game, shop_id, item_id`,
+    );
+    const actual = live ? live.split('\n').filter(Boolean) : [];
+    const known = new Set(expected.map((line) => line.split('|').slice(0, 3).join('|')));
+    const unknown = actual.filter((line) => !known.has(line.split('|').slice(0, 3).join('|')));
+    assert.equal(unknown.length, 0, `${KNOWN_ITEM}\nunknown items:\n${unknown.join('\n')}`);
+    assert.deepEqual(actual, expected, `${KNOWN_ITEM}\nlive shop_price does not match the boot catalog`);
+    const counts = psql(`SELECT game || '=' || count(*)::text FROM game.shop_price GROUP BY game ORDER BY game`);
+    console.log(`shop_price games: ${counts.replaceAll('\n', ', ')}`);
+    console.log(KNOWN_ITEM);
+    audit();
+  });
+}
+
 export async function runShop(runner: GateRunner): Promise<void> {
   const shop = M2_SHOP.find((flow) => flow.game === GAME && flow.rpc === 'tickets.spend');
   if (!shop) throw new Error('M2_SHOP is missing pb.tickets_spend');
@@ -611,6 +852,8 @@ export async function runShop(runner: GateRunner): Promise<void> {
     for (const [category, name] of HOOK_CASES) runner.pending(category, name, HOOK_REASON);
     return;
   }
+
+  await runStockList(runner);
 
   await runner.test('idempotency', 'pb.tickets_spend replay charges once', async () => {
     const item = cheapest();
@@ -884,10 +1127,25 @@ export async function runShop(runner: GateRunner): Promise<void> {
     });
 
     await runner.test('forged', 'item_blue_sproto_coffee cannot mint a ghost item', async () => {
-      const listed = priceCsv.find((row) => row.itemId === 'item_blue_sproto_coffee');
+      const listed = priceCsv.find((row) => row.itemId === COFFEE_ID);
       if (!listed) throw new Error('csv has no item_blue_sproto_coffee');
       const seeded = loadItems().find((row) => row.itemId === listed.itemId && row.shopId === listed.shopId);
-      if (!seeded) throw new Error(`shop_price is missing ${listed.shopId}/${listed.itemId}`);
+      // 262c809 drops this row from the boot seed. A spend must not invent the item.
+      if (!seeded) {
+        assert.equal(itemRowCount(GAME, COFFEE_ID), 0);
+        const session = await login(GAME);
+        await fund(session.gameToken, 10, 'shop-coffee-fund');
+        const before = stockSnap(session.hub.userId, GAME);
+        const body = spendBody(listed.shopId, COFFEE_ID, 1, 'shop-coffee-buy', {}, GAME);
+        const bought = await call('tickets.spend', body, session.gameToken);
+        assert.equal(bought.body.error, 'unknown_item', JSON.stringify(bought.body));
+        assertStockHeld(session.hub.userId, GAME, before, 'coffee');
+        const replay = await call('tickets.spend', body, session.gameToken);
+        assert.equal(replay.body.error, 'unknown_item', JSON.stringify(replay.body));
+        assert.equal(canonical(replay.body), canonical(bought.body));
+        assertStockHeld(session.hub.userId, GAME, before, 'coffee replay');
+        return;
+      }
       assert.equal(seeded.price, listed.ticketPrice);
       const session = await login(GAME);
       const purse = Math.min(sessionPurse(), Math.max(seeded.price, 1));
@@ -1208,11 +1466,18 @@ export async function runShop(runner: GateRunner): Promise<void> {
       assert.deepEqual(header, expected);
       assert.equal(csv.length - 1, 100, `csv has ${csv.length - 1} rows`);
       const seeded = new Map(loadItems().map((row) => [`${row.shopId}|${row.itemId}`, row]));
-      assert.equal(seeded.size, 100, `shop_price has ${seeded.size} peoples-bitcoin rows`);
+      // The v3 CSV still names Coffee. 262c809 no longer seeds that row.
+      assert.equal(seeded.has(`shop_terminal|${COFFEE_ID}`), false, 'item_blue_sproto_coffee is still seeded');
+      assert.equal(seeded.size, 99, `shop_price has ${seeded.size} peoples-bitcoin rows`);
       const hasName = shopColumns().includes('name');
       for (const line of csv.slice(1)) {
         const [game, shopId, itemId, name, packSize, , ticketPrice, sellPrice] = line.split(',');
         assert.equal(game, GAME, line);
+        if (itemId === COFFEE_ID) {
+          assert.equal(shopId, 'shop_terminal', line);
+          assert.equal(seeded.has(`${shopId}|${itemId}`), false, line);
+          continue;
+        }
         const row = seeded.get(`${shopId}|${itemId}`);
         if (!row) throw new Error(`missing seed ${shopId}|${itemId}`);
         if (hasName) assert.equal(row.name, name, line);
