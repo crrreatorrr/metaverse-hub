@@ -33,8 +33,20 @@ const GAMES = {
   sproto: { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
 };
 
+/** Prefer an explicit PAT so private game repos work even when the Cloud Agent install token is scoped to metaverse-hub only. */
+function ghEnv() {
+  const token = process.env.GAME_REPOS_GITHUB_TOKEN || process.env.GH_TOKEN || process.env.GITHUB_TOKEN;
+  if (!token) return process.env;
+  return { ...process.env, GH_TOKEN: token, GITHUB_TOKEN: token };
+}
+
 function run(cmd, args, opts = {}) {
-  const result = spawnSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], ...opts });
+  const result = spawnSync(cmd, args, {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+    env: cmd === 'gh' ? ghEnv() : process.env,
+    ...opts,
+  });
   if (result.status !== 0) {
     throw new Error(`${cmd} ${args.join(' ')}\n${result.stderr || result.stdout}`);
   }
@@ -63,8 +75,11 @@ function fetchArtifact(gameId) {
   } catch (error) {
     const hint = [
       `Cannot read ${game.repo}.`,
-      'Add that repository to the Cursor GitHub App installation for this account,',
-      'then re-run this script.',
+      'This Cloud Agent token is scoped to the environment repos (usually only metaverse-hub).',
+      'Unblock with one of:',
+      '1) Make the game repo Public for a few minutes and re-run,',
+      '2) Set secret GAME_REPOS_GITHUB_TOKEN (fine-grained PAT, Contents: Read) and re-run,',
+      '3) Create a multi-repo Cloud Agent environment that includes the game repos and start a new agent.',
       game.pages ? `Public Pages fallback (cross-origin, no local /v2): ${game.pages}` : '',
     ]
       .filter(Boolean)

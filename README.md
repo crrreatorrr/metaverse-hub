@@ -23,7 +23,9 @@ The four games stay in their own repos. Locally the hub serves their web builds 
 
 ## Run the plaza
 
-Requires Node 22+. `gh` must be able to read the four game repos (Cursor GitHub App installation, or public repos).
+Requires Node 22+. `gh` must be able to read the four game repos.
+
+Cloud Agents often mint a GitHub token scoped only to `metaverse-hub`. If `npm run fetch:games` 404s on the private game repos, either make them public briefly, set `GAME_REPOS_GITHUB_TOKEN` (fine-grained PAT with Contents: Read), or run from a multi-repo Cloud Agent environment that includes those repos.
 
 ```bash
 docker compose -f server/docker-compose.yml up --build
