@@ -675,6 +675,40 @@ namespace HubSchema {
       created_at timestamptz NOT NULL DEFAULT now(),
       CONSTRAINT auth_ticket_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))
     )`,
+
+    `CREATE TABLE IF NOT EXISTS game.portal_attempt (
+      id bigserial PRIMARY KEY,
+      user_id uuid NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    )`,
+    "CREATE INDEX IF NOT EXISTS portal_attempt_recent ON game.portal_attempt (user_id, created_at)",
+
+    `CREATE TABLE IF NOT EXISTS game.maint_sweep (
+      name text PRIMARY KEY,
+      ran_at timestamptz NOT NULL
+    )`,
+
+    `CREATE OR REPLACE FUNCTION game.claim_portal_rate(p_user uuid)
+     RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_n integer;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('portal-rate:' || p_user::text, 0));
+       SELECT count(*) INTO v_n
+       FROM game.portal_attempt
+       WHERE user_id = p_user AND created_at > now() - interval '1 minute';
+       IF v_n >= 10 THEN
+         RETURN jsonb_build_object('error', 'rate_limited');
+       END IF;
+       INSERT INTO game.portal_attempt (user_id) VALUES (p_user);
+       RETURN jsonb_build_object('ok', true);
+     END;
+     $fn$`,
+
+    "DELETE FROM game.auth_ticket WHERE created_at < now() - interval '1 hour'",
+    "DELETE FROM game.portal_attempt WHERE created_at < now() - interval '1 hour'",
+    `INSERT INTO game.maint_sweep (name, ran_at) VALUES ('auth_ticket', now())
+     ON CONFLICT (name) DO UPDATE SET ran_at = now()`,
   ];
 
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
