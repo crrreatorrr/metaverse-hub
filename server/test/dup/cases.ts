@@ -87,7 +87,8 @@ export const M1_FLOWS: DupFlow[] = [
     kind: 'exchange',
     id: 'sproto.tickets_to_verse',
     game: 'sproto',
-    earnAmount: 40,
+    // One sproto `win`. event_rule max_amount is 20, so a second exchange is funded by another earn.
+    earnAmount: 20,
     earnReason: 'win',
     tickets: 20,
     verse: 2,
