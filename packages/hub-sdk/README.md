@@ -55,7 +55,7 @@ const hub = installHubSdk(createHubSdk({
 }));
 
 const profile = await hub.init('sproto');
-// profile.playerId, profile.ranked, profile.relics, profile.effects, profile.ticketsCapLeft
+// profile.playerId, profile.ranked, profile.relics, profile.effects, profile.ticketsCapLeft, profile.serverTime
 ```
 
 `installHubSdk` also sets `window.hubSdk` for HPOS10I's JavaScriptBridge. Call `init` once at boot, before play starts. A reload keeps the session in `sessionStorage` under `hub:<game>:session`, so a ticket is not required twice. `init` removes `#t=` with `history.replaceState`.
@@ -81,7 +81,7 @@ Against Nakama, earn, relic events, exchange, shop purchases, and shop sales are
 
 A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
 
-`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(shopId, itemId, packs, key)` buys `packs` at that shop's price per pack (`price * packs`). `sellItem(shopId, itemId, packs, key)` credits `sell_price * packs` through the same session cap (200) and daily earn window as `earnTickets`. A sale worth 0 Tickets returns `zero_value` and leaves the item, the wallet, and the cap untouched. A sale that does not fit the session cap is rejected entirely with `session_ticket_cap` and `sessionCapLeft`. A credit that does not fit today's earn window is rejected entirely with `daily_ticket_cap` and `dailyCapLeft`. The server does not partial-credit. A successful shop call returns `units` (`packs * pack_size`) and `balance`. An unknown shop item returns `unknown_item`. `getTicketBalance()` returns `{ balance, sessionCapLeft, dailyCapLeft }` so the game can bank only what still fits.
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(shopId, itemId, packs, key)` buys `packs` at that shop's price per pack (`price * packs`). `sellItem(shopId, itemId, packs, key)` credits `sell_price * packs` through the same session cap (200) and daily earn window as `earnTickets`. A sale worth 0 Tickets returns `zero_value` and leaves the item, the wallet, and the cap untouched. A sale that does not fit the session cap is rejected entirely with `session_ticket_cap` and `sessionCapLeft`. A credit that does not fit today's earn window is rejected entirely with `daily_ticket_cap` and `dailyCapLeft`. The server does not partial-credit. A successful shop call returns `units` (`packs * pack_size`) and `balance`. An unknown shop item returns `unknown_item`. `getTicketBalance()` returns `{ balance, sessionCapLeft, dailyCapLeft, serverTime }` so the game can bank only what still fits. `serverTime` is epoch milliseconds from PostgreSQL `now()` on the Nakama server. `init` returns that clock after the portal ticket is swapped for a session, and again from `profile.get` when a saved session is reused. The in-memory mock fills it from `serverNow`, or from `now` when `serverNow` is omitted.
 
 ## API
 
@@ -92,6 +92,7 @@ init(gameId): Promise<{
   relics: RelicId[];
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
+  serverTime: number;
 }>
 
 reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId }>
@@ -100,7 +101,7 @@ earnTickets(amount: number, reason: string, key: string): Promise<{ balance: num
 exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
 spendTickets(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; spent: number; balance: number }>
 sellItem(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; credited: number; balance: number }>
-getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapLeft: number }>
+getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapLeft: number; serverTime: number }>
 exit(reason?: string): void
 ```
 

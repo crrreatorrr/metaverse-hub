@@ -190,6 +190,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       relics: readRelics(),
       effects: { ...session.effects },
       ticketsCapLeft: capLeft(session.game),
+      serverTime: bucketNow(),
     };
   }
 
@@ -200,6 +201,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       relics: [],
       effects: {},
       ticketsCapLeft: 0,
+      serverTime: bucketNow(),
     };
   }
 
@@ -379,12 +381,14 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     },
 
     async getTicketBalance() {
-      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 };
+      const serverTime = bucketNow();
+      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime };
       const rooms = creditRooms(active);
       return {
         balance: readNumber(resolved.local, ticketsKey(active.game)),
         sessionCapLeft: rooms.sessionRoom,
         dailyCapLeft: rooms.dailyRoom,
+        serverTime,
       };
     },
 

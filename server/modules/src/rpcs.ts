@@ -145,6 +145,15 @@ namespace HubRpc {
     throw new Error("bad_json_cell " + typeof raw);
   }
 
+  /** Epoch milliseconds from PostgreSQL now(), the Nakama server clock. */
+  function serverNowMs(nk: nkruntime.Nakama): number {
+    var rows = nk.sqlQuery("SELECT (floor(extract(epoch FROM now()) * 1000))::bigint::text AS ms", []);
+    if (!rows || !rows.length || rows[0].ms === undefined || rows[0].ms === null) throw new Error("empty_result");
+    var ms = Number(rows[0].ms);
+    if (!isFinite(ms)) throw new Error("empty_result");
+    return ms;
+  }
+
   function queryList(nk: nkruntime.Nakama, sql: string, args: unknown[]): unknown[] {
     var rows = nk.sqlQuery(sql, args);
     if (!rows || !rows.length) return [];
@@ -301,6 +310,7 @@ namespace HubRpc {
     if (scopeOf(ctx) === "game" && GAMES[profileGame]) {
       profileBody.ticketsCapLeft = ticketsRoom(nk, userId, profileGame);
     }
+    profileBody.serverTime = serverNowMs(nk);
     return ok(profileBody);
   }
 
@@ -349,7 +359,7 @@ namespace HubRpc {
       iss: "hub",
     });
     logger.info("portal enter " + game + " user " + userId);
-    return ok({ ticket: ticket, sessionId: sessionId, expiresAt: exp });
+    return ok({ ticket: ticket, sessionId: sessionId, expiresAt: exp, serverTime: serverNowMs(nk) });
   }
 
   export function sessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
@@ -394,6 +404,7 @@ namespace HubRpc {
       effects: effects,
       ticketsCapLeft: ticketsRoom(nk, userId, gameId),
       gameBeaten: games,
+      serverTime: serverNowMs(nk),
     });
   }
 
@@ -564,11 +575,11 @@ namespace HubRpc {
     var game = text(body, "game");
     if (!game || game !== session.game) return fail("bad_game", "Unknown game");
     var rows = nk.sqlQuery(
-      "SELECT json_build_object('balance', COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0), 'sessionCapLeft', GREATEST(0, game.session_ticket_cap() - COALESCE((SELECT SUM(delta) FROM game.tickets_ledger WHERE user_id = $1::uuid AND game_id = $2 AND ref_id = $3::uuid AND delta > 0 AND COALESCE(kind, '') <> 'refund' AND reason <> 'refund'), 0)), 'dailyCapLeft', GREATEST(0, 1000 - COALESCE((SELECT amount FROM game.earn_window WHERE user_id = $1::uuid AND bucket = 'tickets:' || $2 AND day = (now() AT TIME ZONE 'utc')::date), 0)))::text AS result",
+      "SELECT json_build_object('balance', COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0), 'sessionCapLeft', GREATEST(0, game.session_ticket_cap() - COALESCE((SELECT SUM(delta) FROM game.tickets_ledger WHERE user_id = $1::uuid AND game_id = $2 AND ref_id = $3::uuid AND delta > 0 AND COALESCE(kind, '') <> 'refund' AND reason <> 'refund'), 0)), 'dailyCapLeft', GREATEST(0, 1000 - COALESCE((SELECT amount FROM game.earn_window WHERE user_id = $1::uuid AND bucket = 'tickets:' || $2 AND day = (now() AT TIME ZONE 'utc')::date), 0)), 'serverTime', floor(extract(epoch FROM now()) * 1000)::bigint)::text AS result",
       [session.userId, session.game, session.sid],
     );
     if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) {
-      return ok({ balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 });
+      return ok({ balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: serverNowMs(nk) });
     }
     var raw = rows[0].result;
     var parsed = typeof raw === "string" ? JSON.parse(raw) : raw;

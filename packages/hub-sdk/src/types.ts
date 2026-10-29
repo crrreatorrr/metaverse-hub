@@ -51,6 +51,8 @@ export interface InitResult {
   /** Resolved effects for this game only. Empty until the server ships the matrix. */
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
+  /** Nakama server clock at this response, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface EarnResult {
@@ -93,6 +95,8 @@ export interface TicketBalanceResult {
   sessionCapLeft: number;
   /** Tickets this game can still credit today before `daily_ticket_cap`. */
   dailyCapLeft: number;
+  /** Nakama server clock at this response, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface EventResult {

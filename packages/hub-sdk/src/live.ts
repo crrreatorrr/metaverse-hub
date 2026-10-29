@@ -59,6 +59,10 @@ function asRelics(value: unknown): RelicId[] {
   return value.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
 }
 
+function clockMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
 function cloneBody(body: Record<string, unknown>): Record<string, unknown> {
   return JSON.parse(JSON.stringify(body)) as Record<string, unknown>;
 }
@@ -184,17 +188,18 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     active = session;
   }
 
-  function profileOf(session: LiveSession): InitResult {
+  function profileOf(session: LiveSession, serverTime: number): InitResult {
     return {
       playerId: session.playerId,
       ranked: session.ranked,
       relics: [...session.relics],
       effects: { ...session.effects },
       ticketsCapLeft: session.ticketsCapLeft,
+      serverTime,
     };
   }
 
-  function standalone(): InitResult {
+  function standalone(serverTime: number): InitResult {
     active = null;
     return {
       playerId: getOrCreateDeviceId(resolved.local),
@@ -202,6 +207,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       relics: [],
       effects: {},
       ticketsCapLeft: 0,
+      serverTime,
     };
   }
 
@@ -236,12 +242,14 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       const game = canonicalGameId(gameId);
       if (!game) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
       const token = readTicketParam(resolved.readHash());
+      let serverTime = 0;
       if (token) {
         const body = await client.rpc<RedeemResult>('session.redeem', { ticket: token, gameId: game }, { httpKey: true });
         if (!body.token || !body.playerId || !body.sid) {
           throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
         }
         resolved.writeHash(stripTicketParam(resolved.readHash()));
+        serverTime = clockMs(body.serverTime);
         writeCached({
           game,
           playerId: body.playerId,
@@ -258,14 +266,16 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           active = null;
         } else {
           try {
-            const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
-              'profile.get',
-              {},
-              { token: cached.token },
-            );
+            const profile = await client.rpc<{
+              playerId?: string;
+              relics?: unknown;
+              ticketsCapLeft?: number;
+              serverTime?: number;
+            }>('profile.get', {}, { token: cached.token });
             cached.relics = asRelics(profile.relics);
             if (profile.playerId) cached.playerId = profile.playerId;
             if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
+            serverTime = clockMs(profile.serverTime);
             writeCached(cached);
           } catch {
             active = cached;
@@ -273,7 +283,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         }
       }
       await drain();
-      return active ? profileOf(active) : standalone();
+      return active ? profileOf(active, serverTime) : standalone(serverTime);
     },
 
     async reportEvent(eventId, data, key) {
@@ -347,12 +357,13 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     },
 
     async getTicketBalance() {
-      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0 };
+      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 };
       const body = await client.rpc<TicketBalanceResult>('tickets.balance', { game: active.game }, { token: active.token });
       return {
         balance: typeof body.balance === 'number' ? body.balance : 0,
         sessionCapLeft: typeof body.sessionCapLeft === 'number' ? body.sessionCapLeft : 0,
         dailyCapLeft: typeof body.dailyCapLeft === 'number' ? body.dailyCapLeft : 0,
+        serverTime: clockMs(body.serverTime),
       };
     },
 
