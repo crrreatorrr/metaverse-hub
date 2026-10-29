@@ -2,6 +2,7 @@ import { BoxGeometry, BufferGeometry, CylinderGeometry, Matrix4, Quaternion, Vec
 import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MONUMENT_RADIUS, PEDESTAL_HEIGHT } from './config';
+import { barBoxColliders, buildingBoxColliders, buildingCylinderColliders } from './blockouts';
 import { bollardPositions, curbBoxes, pillarBoxes, type BoxSpec } from './layout';
 
 export interface Collider {
@@ -44,7 +45,15 @@ export function buildCollider(): Collider {
   core.translate(0, PEDESTAL_HEIGHT + 2.2, 0);
   parts.push(positionsOnly(core));
 
-  for (const spec of [...pillarBoxes(), ...curbBoxes()]) parts.push(boxGeometry(spec));
+  for (const spec of [...pillarBoxes(), ...curbBoxes(), ...buildingBoxColliders(), ...barBoxColliders()]) {
+    parts.push(boxGeometry(spec));
+  }
+
+  for (const column of buildingCylinderColliders()) {
+    const drum = new CylinderGeometry(column.radius, column.radius, column.height, 6);
+    drum.translate(column.x, column.y, column.z);
+    parts.push(positionsOnly(drum));
+  }
 
   for (const post of bollardPositions()) {
     const bollard = new CylinderGeometry(0.2, 0.24, 1.15, 6);

@@ -8,11 +8,13 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @metaverse/hub",
-    "build": "npm run build -w @metaverse/hub-sdk && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
-    "typecheck": "npm run typecheck -w @metaverse/hub-sdk && npm run typecheck -w @metaverse/hub && tsc -p scripts/tsconfig.json --noEmit",
+    "dev": "npm run build -w @metaverse/hub-sdk && npm run dev -w @metaverse/hub",
+    "build": "npm run build -w @metaverse/hub-sdk && tsc -p server/modules/tsconfig.json && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
+    "typecheck": "npm run typecheck -w @metaverse/hub-sdk && npm run build -w @metaverse/hub-sdk && tsc -p server/modules/tsconfig.json && npm run typecheck -w @metaverse/hub && tsc -p scripts/tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx packages/hub-sdk/test/sdk.test.ts && tsx scripts/sim-capsule.ts",
+    "test:dup": "tsx server/test/duplication.test.ts",
+    "pack:sdk": "npm pack -w @metaverse/hub-sdk",
     "preview": "npm run preview -w @metaverse/hub"
   },
   "devDependencies": {

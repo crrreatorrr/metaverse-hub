@@ -1,4 +1,4 @@
-import type { GameId } from '@metaverse/hub-sdk';
+import type { GameId, RelicId } from '@metaverse/hub-sdk';
 
 /**
  * Portal pages and plaza layout. Change `url` when a game is hosted.
@@ -7,6 +7,8 @@ import type { GameId } from '@metaverse/hub-sdk';
 export interface PortalConfig {
   id: GameId;
   label: string;
+  /** Placeholder building around the portal. Final models come later. */
+  place: string;
   url: string;
   /** Radians around the plaza. 0 is north (−Z), increasing toward east. */
   angle: number;
@@ -16,10 +18,10 @@ export interface PortalConfig {
 }
 
 export const PORTALS: readonly PortalConfig[] = [
-  { id: 'hpos10i', label: 'HPOS10I', url: '/play/hpos10i/', angle: 0, color: '#ff2ea6' },
-  { id: 'nobu', label: 'NOBU: Saviour Dog', url: '/play/nobu/', angle: Math.PI / 2, color: '#3ec6ff' },
-  { id: 'pb', label: "The People's Bitcoin", url: '/play/pb/', angle: Math.PI, color: '#f5b942', mature: true },
-  { id: 'sproto', label: 'Sproto Duel', url: '/play/sproto/', angle: -Math.PI / 2, color: '#8d6bff' },
+  { id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', url: '/play/hpos10i/', angle: 0, color: '#ff2ea6' },
+  { id: 'nobu', label: 'NOBU: Saviour Dog', place: 'Kennel', url: '/play/nobu/', angle: Math.PI / 2, color: '#3ec6ff' },
+  { id: 'pb', label: "The People's Bitcoin", place: 'White House', url: '/play/pb/', angle: Math.PI, color: '#f5b942', mature: true },
+  { id: 'sproto', label: 'Sproto Duel', place: 'Castle', url: '/play/sproto/', angle: -Math.PI / 2, color: '#8d6bff' },
 ];
 
 export const PLAZA_RADIUS = 30;
@@ -39,10 +41,10 @@ export const SPRINT_SPEED = 8.6;
 export const CAMERA_ARM = 7.6;
 export const CAMERA_FOV = 78;
 
-/** Empty sockets, same order as the diagonal orbit (NE, SE, SW, NW). */
-export const SOCKETS: readonly { relic: string; color: string; angle: number }[] = [
-  { relic: 'HPOS10I Core', color: '#ff2ea6', angle: Math.PI / 4 },
-  { relic: 'Genesis Block Shard', color: '#f5b942', angle: (3 * Math.PI) / 4 },
-  { relic: "Cone's Tip", color: '#3ec6ff', angle: (-3 * Math.PI) / 4 },
-  { relic: "Tinubu's Crown", color: '#8d6bff', angle: -Math.PI / 4 },
+/** Sockets on the Four Lights, same order as the diagonal orbit (NE, SE, SW, NW). */
+export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
+  { id: 'hpos10i_core', relic: 'HPOS10I Core', color: '#ff2ea6', angle: Math.PI / 4 },
+  { id: 'genesis_shard', relic: 'Genesis Block Shard', color: '#f5b942', angle: (3 * Math.PI) / 4 },
+  { id: 'cones_tip', relic: "Cone's Tip", color: '#3ec6ff', angle: (-3 * Math.PI) / 4 },
+  { id: 'tinubu_crown', relic: "Tinubu's Crown", color: '#8d6bff', angle: -Math.PI / 4 },
 ];

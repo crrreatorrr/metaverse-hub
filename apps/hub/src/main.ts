@@ -1,6 +1,16 @@
-import { getOrCreateDeviceId, mintMockTicket } from '@metaverse/hub-sdk';
+import {
+  HubSdkError,
+  LOCAL_NAKAMA,
+  createNakamaClient,
+  getOrCreateDeviceId,
+  type ProfileResult,
+  type PortalEnterResult,
+  type RecoveryCodeResult,
+  type RecoveryRedeemResult,
+} from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
-import { CAMERA_ARM, PORTAL_DISTANCE, PORTALS, SPRINT_SPEED, WALK_SPEED } from './config';
+import { barContains } from './blockouts';
+import { CAMERA_ARM, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { createWorld } from './scene';
@@ -49,6 +59,8 @@ const ray = new Ray();
 const debug = import.meta.env.DEV ? createDebug() : null;
 
 window.addEventListener('keydown', (event) => {
+  const target = event.target;
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
   if (event.code === 'Space') {
@@ -105,6 +117,9 @@ world.renderer.setAnimationLoop((timestamp) => {
   world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
   world.neonTime.value += dt;
+  for (const socket of world.sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
+  const inBar = barContains(player.position.x, player.position.z);
+  if (barTabs) barTabs.hidden = !inBar;
   placeCamera();
   fadeLabels();
   updateHint();
@@ -211,25 +226,227 @@ function considerPortal(): void {
 async function travel(portal: (typeof PORTALS)[number]): Promise<void> {
   traveling = true;
   wipe.style.background = portal.color;
-  wipe.textContent = portal.label.toUpperCase();
+  wipe.textContent = portal.place.toUpperCase();
   wipe.classList.add('on');
   try {
-    const ticket = await mintMockTicket({
-      game: portal.id,
-      playerId: getOrCreateDeviceId(),
-      ranked: false,
-    });
+    const session = await boot();
+    const entered = await session.client.rpc<PortalEnterResult>(
+      'portal.enter',
+      { game: portal.id, ranked: false },
+      { token: session.token },
+    );
     await new Promise((resolve) => {
       window.setTimeout(resolve, 420);
     });
-    window.location.assign(portalUrl(portal.url, ticket));
+    window.location.assign(portalUrl(portal.url, entered.ticket));
   } catch (error) {
     traveling = false;
     wipe.classList.remove('on');
-    hint.textContent = 'Could not open that portal';
+    hint.textContent = error instanceof Error ? error.message : 'Could not open that portal';
     console.error(error);
   }
 }
+
+const relicTray = document.querySelector('#relics');
+if (relicTray instanceof HTMLElement) {
+  for (const socket of SOCKETS) {
+    const slot = document.createElement('div');
+    slot.className = 'relic-slot';
+    slot.dataset.relic = socket.id;
+    slot.style.setProperty('--relic', socket.color);
+    const name = document.createElement('span');
+    name.className = 'relic-name';
+    name.textContent = socket.relic;
+    const state = document.createElement('span');
+    state.className = 'relic-state';
+    state.textContent = 'Empty';
+    slot.append(name, state);
+    relicTray.append(slot);
+  }
+}
+
+type BoardTab = 'hpos10i' | 'nobu' | 'pb' | 'sproto' | 'total';
+interface EarnedRow { name?: string; gameId?: string; lifetime?: number }
+
+const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
+  hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
+  nobu: [['cone-kid', 30], ['morelight', 12]],
+  pb: [['morelight', 50], ['cone-kid', 20]],
+  sproto: [['sproto', 36], ['morelight', 14]],
+  total: [['morelight', 116], ['cone-kid', 50], ['sproto', 36], ['guest-17', 18], ['dusk-walker', 6]],
+};
+const TAB_TITLE: Record<BoardTab, string> = {
+  hpos10i: 'HPOS10I',
+  nobu: 'NOBU',
+  pb: "PEOPLE'S BITCOIN",
+  sproto: 'SPROTO DUEL',
+  total: 'TOTAL',
+};
+let boardRows: EarnedRow[] = [];
+let boardTab: BoardTab = 'total';
+const barTabs = document.querySelector<HTMLElement>('#bar-tabs');
+
+function formatVerse(value: number): string {
+  return value.toLocaleString('en-US');
+}
+
+function paintBar(tab: BoardTab = boardTab): void {
+  boardTab = tab;
+  const real = tab === 'total'
+    ? totals(boardRows)
+    : boardRows
+      .filter((row) => row.gameId === tab && typeof row.lifetime === 'number' && row.name)
+      .map((row) => [row.name as string, row.lifetime as number] as const);
+  const sample = real.length === 0;
+  const rows = (sample ? SAMPLE[tab] : real)
+    .slice()
+    .sort((a, b) => b[1] - a[1])
+    .map((row) => [row[0], formatVerse(row[1])] as const);
+  world.setBoard(TAB_TITLE[tab], rows, sample);
+  for (const button of document.querySelectorAll<HTMLButtonElement>('#bar-tabs button')) {
+    button.classList.toggle('on', button.dataset.tab === tab);
+  }
+}
+
+function totals(rows: EarnedRow[]): (readonly [string, number])[] {
+  const sums = new Map<string, number>();
+  for (const row of rows) {
+    if (!row.name || typeof row.lifetime !== 'number' || !row.gameId) continue;
+    sums.set(row.name, (sums.get(row.name) ?? 0) + row.lifetime);
+  }
+  return [...sums.entries()];
+}
+
+if (barTabs instanceof HTMLElement) {
+  barTabs.addEventListener('click', (event) => {
+    const button = event.target;
+    if (!(button instanceof HTMLButtonElement) || !button.dataset.tab) return;
+    paintBar(button.dataset.tab as BoardTab);
+  });
+}
+paintBar('total');
+
+function showVerse(balance: number): void {
+  const node = document.querySelector('#verse');
+  if (node) node.textContent = `Verse ${formatVerse(balance)}`;
+}
+
+function showRelics(ids: readonly string[]): void {
+  world.setRelics(ids);
+  const owned = new Set(ids);
+  for (const slot of document.querySelectorAll<HTMLElement>('.relic-slot')) {
+    const on = owned.has(slot.dataset.relic ?? '');
+    slot.classList.toggle('owned', on);
+    const state = slot.querySelector('.relic-state');
+    if (state) state.textContent = on ? 'Owned' : 'Empty';
+  }
+}
+
+interface HubSession {
+  client: ReturnType<typeof createNakamaClient>;
+  token: string;
+  userId: string;
+  deviceId: string;
+}
+
+let sessionPromise: Promise<HubSession> | null = null;
+
+function boot(): Promise<HubSession> {
+  if (!sessionPromise) sessionPromise = openSession();
+  return sessionPromise;
+}
+
+async function openSession(): Promise<HubSession> {
+  const status = document.querySelector('#link-status');
+  try {
+    const client = createNakamaClient({
+      serverUrl: '',
+      serverKey: LOCAL_NAKAMA.serverKey,
+      httpKey: LOCAL_NAKAMA.httpKey,
+    });
+    const deviceId = getOrCreateDeviceId();
+    const auth = await client.authenticateDevice(deviceId);
+    const profile = await client.rpc<ProfileResult>('profile.get', {}, { token: auth.token });
+    showRelics(profile.relics);
+    showVerse(profile.verse ?? 0);
+    const board = await client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: auth.token });
+    boardRows = board.rows ?? [];
+    paintBar(boardTab);
+    const session = { client, token: auth.token, userId: auth.userId, deviceId };
+    bindAccount(session);
+    if (status) status.textContent = 'Guest linked';
+    return session;
+  } catch (error) {
+    sessionPromise = null;
+    if (status) status.textContent = 'Nakama offline';
+    throw error;
+  }
+}
+
+function bindAccount(session: HubSession): void {
+  const toggle = document.querySelector('#account-toggle');
+  const panel = document.querySelector('#account');
+  const idLine = document.querySelector('#account-id');
+  const create = document.querySelector('#recovery-create');
+  const restore = document.querySelector('#recovery-restore');
+  const input = document.querySelector('#recovery-input');
+  const code = document.querySelector('#recovery-code');
+  const note = document.querySelector('#account-status');
+  if (
+    !(toggle instanceof HTMLButtonElement) ||
+    !(panel instanceof HTMLElement) ||
+    !(idLine instanceof HTMLElement) ||
+    !(create instanceof HTMLButtonElement) ||
+    !(restore instanceof HTMLButtonElement) ||
+    !(input instanceof HTMLInputElement) ||
+    !(code instanceof HTMLElement) ||
+    !(note instanceof HTMLElement)
+  ) {
+    return;
+  }
+  idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
+  toggle.addEventListener('click', () => {
+    panel.hidden = !panel.hidden;
+    if (document.pointerLockElement) document.exitPointerLock();
+  });
+  create.addEventListener('click', () => {
+    void (async () => {
+      try {
+        const minted = await session.client.rpc<RecoveryCodeResult>('recovery.create', {}, { token: session.token });
+        code.hidden = false;
+        code.textContent = minted.code;
+        note.textContent = 'Save this code now. It will not be shown again.';
+      } catch (error) {
+        note.textContent = error instanceof HubSdkError ? error.message : 'Could not create a recovery code';
+      }
+    })();
+  });
+  restore.addEventListener('click', () => {
+    void (async () => {
+      try {
+        const restored = await session.client.rpc<RecoveryRedeemResult>(
+          'recovery.redeem',
+          { code: input.value, deviceId: session.deviceId },
+          { token: session.token },
+        );
+        session.token = restored.token;
+        session.userId = restored.userId;
+        idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
+        const profile = await session.client.rpc<ProfileResult>('profile.get', {}, { token: session.token });
+        showRelics(profile.relics);
+        showVerse(profile.verse ?? 0);
+        note.textContent = 'This device is on the recovered guest.';
+        code.hidden = true;
+      } catch (error) {
+        note.textContent = error instanceof HubSdkError ? error.message : 'Could not restore that code';
+      }
+    })();
+  });
+}
+
+void boot().catch((error: unknown) => {
+  hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
+});
 
 function createDebug(): HubDebugState & { element: HTMLElement } {
   const element = document.querySelector('#debug');

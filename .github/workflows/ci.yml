@@ -21,3 +21,17 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
+
+  duplication:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - run: npm run test:dup
+      - if: failure()
+        run: docker compose -f server/docker-compose.yml logs --no-color --tail 200 nakama

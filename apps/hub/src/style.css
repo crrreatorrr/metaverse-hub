@@ -46,6 +46,164 @@ canvas {
   color: #8d7dff;
 }
 
+.verse {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 8px 14px;
+  border: 1px solid rgba(245, 185, 66, 0.7);
+  border-radius: 999px;
+  background: rgba(8, 10, 22, 0.78);
+  color: #f5b942;
+  letter-spacing: 0.16em;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.bar-tabs {
+  position: absolute;
+  left: 50%;
+  bottom: 78px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid rgba(245, 185, 66, 0.45);
+  border-radius: 999px;
+  background: rgba(8, 10, 22, 0.88);
+  pointer-events: auto;
+}
+
+.bar-tabs span {
+  margin-right: 4px;
+  letter-spacing: 0.14em;
+  font-size: 11px;
+  color: #f5b942;
+}
+
+.bar-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 10px;
+  background: transparent;
+  color: #efe7ff;
+  cursor: pointer;
+}
+
+.bar-tabs button.on {
+  background: #f5b942;
+  color: #1a1208;
+}
+
+.relic-tray {
+  position: absolute;
+  top: 18px;
+  right: 18px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: min(320px, calc(100% - 36px));
+}
+
+.relic-slot {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 10px;
+  background: rgba(8, 10, 22, 0.72);
+  font-size: 12px;
+}
+
+.relic-slot .relic-state {
+  color: #8ea2b8;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.relic-slot.owned {
+  border-color: var(--relic);
+  box-shadow: 0 0 16px color-mix(in srgb, var(--relic) 55%, transparent);
+}
+
+.relic-slot.owned .relic-state {
+  color: var(--relic);
+}
+
+.account-toggle,
+.account {
+  pointer-events: auto;
+}
+
+.account-toggle {
+  position: absolute;
+  top: 72px;
+  left: 22px;
+  border: 1px solid rgba(61, 225, 255, 0.45);
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: rgba(8, 10, 22, 0.82);
+  color: #d8f6ff;
+  cursor: pointer;
+}
+
+.account {
+  position: absolute;
+  top: 112px;
+  left: 22px;
+  width: min(320px, calc(100% - 44px));
+  padding: 14px;
+  border: 1px solid rgba(61, 225, 255, 0.35);
+  border-radius: 14px;
+  background: rgba(8, 10, 22, 0.92);
+}
+
+.account button,
+.account input {
+  font: inherit;
+}
+
+.account button {
+  margin-top: 8px;
+  border: 0;
+  border-radius: 999px;
+  padding: 8px 12px;
+  background: #3de1ff;
+  color: #071018;
+  cursor: pointer;
+}
+
+.account input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 8px;
+  background: #120e1c;
+  color: #f4efff;
+}
+
+.recovery-code {
+  margin: 10px 0 0;
+  font: 700 18px ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: #f5b942;
+}
+
+.fine,
+.account-status,
+.account-id {
+  color: #b7c9d6;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .hint {
   position: absolute;
   left: 50%;
