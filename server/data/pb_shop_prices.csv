@@ -1,11 +1,12 @@
 game,shop_id,item_id,name,pack_size,pb_price,ticket_price,sell_price
 peoples-bitcoin,shop_terminal,item_rounds,Rounds,100,0.69,3,1
 peoples-bitcoin,shop_staffwright,item_coom,COOM,100,1.69,7,2
+peoples-bitcoin,shop_staffwright,item_hopium_soda,Hopium Soda,1,1.69,4,0
+peoples-bitcoin,shop_terminal,item_hopium_soda,Hopium Soda,1,1.69,4,0
+peoples-bitcoin,shop_terminal,item_blue_sproto_coffee,Blue Sproto Coffee,1,9.69,9,0
 peoples-bitcoin,shop_staffwright,item_tp_soundbite,Soundbite,1,9.69,9,0
 peoples-bitcoin,shop_terminal,item_tp_soundbite,Soundbite,1,9.69,9,0
-peoples-bitcoin,shop_staffwright,item_hopium_soda,Hopium Soda,1,26.69,15,0
 peoples-bitcoin,shop_terminal,item_tp_zinger,Zinger,1,26.69,15,0
-peoples-bitcoin,shop_terminal,item_hopium_soda,Hopium Soda,1,29.69,16,0
 peoples-bitcoin,shop_terminal,contract_recruit,Recruit Contract,1,69,25,11
 peoples-bitcoin,shop_terminal,gun_campaign_pistol,Campaign Pistol,1,69,25,11
 peoples-bitcoin,shop_terminal,item_business_cards,Business Cards,1,69,25,11
@@ -24,10 +25,10 @@ peoples-bitcoin,shop_terminal,item_tp_mic_drop,Mic Drop,1,69,25,2
 peoples-bitcoin,shop_staffwright,staff_apprentice,Apprentice Staff,1,69,25,1
 peoples-bitcoin,shop_terminal,item_campaign_loafers,Campaign Loafers,1,169,39,17
 peoples-bitcoin,shop_terminal,item_campaign_slacks,Campaign Slacks,1,169,39,17
-peoples-bitcoin,shop_terminal,item_charm_tea,Charm Tea,1,169,39,17
-peoples-bitcoin,shop_terminal,item_miners_espresso,Miner's Espresso,1,169,39,17
-peoples-bitcoin,shop_terminal,item_networking_mints,Networking Mints,1,169,39,17
-peoples-bitcoin,shop_terminal,item_smooth_lozenge,Smooth-Talk Lozenge,1,169,39,17
+peoples-bitcoin,shop_terminal,item_charm_tea,Charm Tea,1,169,39,2
+peoples-bitcoin,shop_terminal,item_miners_espresso,Miner's Espresso,1,169,39,2
+peoples-bitcoin,shop_terminal,item_networking_mints,Networking Mints,1,169,39,2
+peoples-bitcoin,shop_terminal,item_smooth_lozenge,Smooth-Talk Lozenge,1,169,39,2
 peoples-bitcoin,shop_terminal,item_steel_beam,Steel Beam,1,169,39,2
 peoples-bitcoin,shop_terminal,item_toolkit_basic,Basic Toolkit,1,169,39,17
 peoples-bitcoin,shop_terminal,contract_medic,Medic Contract,1,269,49,4
