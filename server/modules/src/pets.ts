@@ -169,15 +169,6 @@ namespace HubPets {
     return parts.join(", ");
   }
 
-  function relicList(): string {
-    var parts: string[] = [];
-    for (var i = 0; i < PETS.length; i++) {
-      if (!PETS[i].relic) continue;
-      parts.push(sqlQuote(PETS[i].relic));
-    }
-    return parts.join(", ");
-  }
-
   function queryList(nk: nkruntime.Nakama, sql: string, args: unknown[]): unknown[] {
     assertCosmetic(sql);
     var rows = nk.sqlQuery(sql, args);
@@ -189,10 +180,34 @@ namespace HubPets {
     return parsed as unknown[];
   }
 
+  function relicForPet(itemId: string): string {
+    for (var i = 0; i < PETS.length; i++) {
+      if (PETS[i].id === itemId) return PETS[i].relic;
+    }
+    return "";
+  }
+
   /**
-   * The only ownership check. profilePets and setHub both call this.
-   * Relic summons are derived from relic_claim. Every other catalog pet
-   * comes from item_owned. This does not grant.
+   * True when itemId is one of the three relic summons and this user has
+   * that relic on relic_claim. M7 store.purchase calls this before any
+   * debit and treats true as already_owned. It does not read item_owned
+   * and it does not grant.
+   */
+  export function derivedOwned(nk: nkruntime.Nakama, userId: string, itemId: string): boolean {
+    var relic = relicForPet(itemId);
+    if (!relic || !UUID.test(userId)) return false;
+    var sql = "SELECT count(*)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid AND relic_id = $2";
+    assertCosmetic(sql);
+    var rows = nk.sqlQuery(sql, [userId, relic]);
+    if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) return false;
+    var n = Number(rows[0].result);
+    return isFinite(n) && n > 0;
+  }
+
+  /**
+   * The only pet-ownership check. profilePets and setHub both call this.
+   * Relic summons go through derivedOwned. Every other catalog pet comes
+   * from item_owned. This does not grant.
    */
   function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
     var have: { [id: string]: boolean } = {};
@@ -204,13 +219,9 @@ namespace HubPets {
       var pet = findPet(id);
       if (pet && !pet.relic) have[id] = true;
     }
-    var relicSql = "SELECT COALESCE(json_agg(relic_id ORDER BY relic_id), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid AND relic_id IN (" + relicList() + ")";
-    var relics = queryList(nk, relicSql, [userId]);
-    for (var r = 0; r < relics.length; r++) {
-      if (typeof relics[r] !== "string") continue;
-      for (var p = 0; p < PETS.length; p++) {
-        if (PETS[p].relic === relics[r]) have[PETS[p].id] = true;
-      }
+    for (var p = 0; p < PETS.length; p++) {
+      if (!PETS[p].relic) continue;
+      if (derivedOwned(nk, userId, PETS[p].id)) have[PETS[p].id] = true;
     }
     return have;
   }

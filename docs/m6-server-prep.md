@@ -9,7 +9,7 @@ The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src
 | File | Role |
 | --- | --- |
 | `server/modules/src/item_grant.ts` | `session.event` item grant. One statement, not an RPC |
-| `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, backfill statement (not executed) |
+| `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, `derivedOwned`, backfill statement (not executed) |
 | `server/modules/src/schema.ts` | `game.lock_open_session`, called by `game.apply_event` |
 | `docs/m6-server-prep.md` | This wiring list |
 
@@ -78,7 +78,7 @@ These catalog ids have no `item_rule` in this prep:
 
 Payload `{ "v": 1, "pet": "<id>"|null, "seq": <positive integer> }`. `v` may be omitted. `pet` is required and is either `null` (unequip) or a catalog id. Any other id, including a forged one, is `not_owned` and writes nothing.
 
-Ownership is the function `ownedSet` in `HubPets`. `profilePets` and `setHub` both call that function and no other ownership check. An `item_owned` row counts for every catalog pet that is not a relic summon. The equip check for `pet_speed_sproto`, `pet_nobu`, and `pet_duelist_sproto` is derived ownership: the pet is owned when `relic_claim` has `hpos10i_core`, `cones_tip`, or `tinubu_crown`. Equipping does not insert `item_owned` and does not write `item_ledger`.
+Ownership for the picker and for equip is the function `ownedSet` in `HubPets`. `profilePets` and `setHub` both call that function and no other ownership check. An `item_owned` row counts for every catalog pet that is not a relic summon. The three summons go through `HubPets.derivedOwned`: `pet_speed_sproto`, `pet_nobu`, and `pet_duelist_sproto` are owned when `relic_claim` has `hpos10i_core`, `cones_tip`, or `tinubu_crown`. Equipping does not insert `item_owned` and does not write `item_ledger`. M7 calls `derivedOwned` with the item id before it debits Verse.
 
 `seq` is an integer from 1 through `2^53 - 1` and must be greater than the stored seq. The same seq with the same pet that is still owned returns `ok: true` and does not write again. A lower or equal seq with a different pet is `stale_seq`.
 
@@ -189,7 +189,7 @@ No migration file is in this branch. #24 (not on main) records `0001_schema_migr
 
 When this is wired, put the statements below in one new ledger entry. The id is the next free id in `game.schema_migrations` at that time. Do not edit `0002_baseline` or any id already stored. A changed checksum fails startup. Do not append these statements to the `HubSchema` list on today's main if the ledger is what boots the database.
 
-`game.item_ledger` and `game.event_rule` already exist. This entry creates the two new tables and widens the ledger check. It does not add a column to `event_rule` and it does not insert an event reason. It does not recreate the ledger.
+`game.item_ledger` and `game.event_rule` already exist. This entry is the only definition of `game.item_owned` and the only widening of `item_ledger_op`. M7 depends on both. M7 does not create `game.item_owned` and does not replace the op check. The columns are `user_id`, `item_id`, `source` checked to exactly `event`, `meta`, `store`, and `migration`, `ref_id`, and `acquired_at`, with primary key `(user_id, item_id)`. The ledger ops are exactly `grant_relic`, `grant_item`, `purchase`, and `admin_revoke`. This entry does not add a column to `event_rule` and it does not insert an event reason. It does not recreate the ledger.
 
 ```sql
 CREATE TABLE game.item_owned (
@@ -229,7 +229,9 @@ ON CONFLICT (game_id, event_type, item_id) DO NOTHING;
 
 Do not change the relic rows for `hpos10i.level_complete`, `nobu.boss_defeated`, `sproto.boss_defeated`, or `pb.quest_complete`. The Pup and Moonward rows are `item_rule` matches on the quest event that already exists. They are not new `event_rule` rows.
 
-`source = 'meta'` and `source = 'store'` and `op = 'purchase'` are in the checks because the spec shares `item_owned` with the store. This branch writes only `source = 'event'` (live quest, boss, and act grants) and `source = 'migration'` (the backfill entry above). Hopium and COOM wait for M7 `store.purchase`. This branch does not write `purchase`.
+`source` allows `store` so M7 can insert a purchase. M7's `item_ledger` op is `purchase`, which this check already allows. This branch writes only `source = 'event'` (live quest, boss, and act grants) and `source = 'migration'` (the backfill entry above). Hopium and COOM wait for M7 `store.purchase`. This branch does not write `purchase`.
+
+M7's pre-debit reject calls `HubPets.derivedOwned(nk, userId, itemId)`. That is the same relic-summon check `ownedSet` uses for `pet_speed_sproto`, `pet_nobu`, and `pet_duelist_sproto`. True means the player already has that summon from `relic_claim`, so the store returns `already_owned` and does not debit Verse or insert `item_owned`. Any other id returns false. M7 still checks `game.item_owned` itself for rows it or M6 stored. M7 does not copy the relic-to-pet map.
 
 ## Audit
 
@@ -330,6 +332,7 @@ Copy `backfillSql` into its own ledger entry when Architect wires historical row
 - The Pup is `item_rule ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup', '{"questId":"quest_hatchery"}')`. There is no `pb.item_obtained` grant.
 - Baby Sproto and Four Lights have no event reasons. Live grants are server-internal inserts, wired later. The historical rows are a one-time ledger migration, not a callable function.
 - Hopium and COOM are granted only by M7 `store.purchase`.
-- The three relic summons equip from `relic_claim` through `ownedSet`, the same function `profilePets` and `setHub` call.
+- The three relic summons equip from `relic_claim` through `derivedOwned`, which `ownedSet` calls. `profilePets` and `setHub` both call `ownedSet`. M7 calls `HubPets.derivedOwned` before a store debit.
+- `game.item_owned` and the `item_ledger` op check in this doc are the only definitions. M7 uses them and does not create a second table. The timestamp column is `acquired_at`. The ops are exactly `grant_relic`, `grant_item`, `purchase`, and `admin_revoke`.
 - The session check is `game.lock_open_session`, shared with the relic path.
 - The hub pet is Nakama storage `loadout/hub` (read 1, write 0, server-built slots, seq-guarded), separate from `game.loadout`.
