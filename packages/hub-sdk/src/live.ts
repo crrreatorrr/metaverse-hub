@@ -1,6 +1,7 @@
 import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
 import type { NakamaClient, RedeemResult } from './nakama';
+import { defaultLiveOutbox, sameBody, type EconomyRpc, type LiveOutbox, type OutboxPending } from './outbox';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
@@ -39,6 +40,28 @@ function asRelics(value: unknown): RelicId[] {
   return value.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
 }
 
+const TERMINAL = new Set([
+  'idempotency_mismatch',
+  'bad_key',
+  'bad_event',
+  'bad_amount',
+  'bad_reason',
+  'bad_json',
+  'bad_game',
+]);
+
+function isRetryable(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return true;
+  if (error.code === 'queued') return true;
+  if (error.code !== 'rpc_failed') return false;
+  const status = error.status ?? 0;
+  return status === 0 || status === 408 || status === 429 || status >= 500;
+}
+
+function operationId(playerId: string, rpc: EconomyRpc, callerKey: string): string {
+  return `${playerId}:${rpc}:${callerKey}`;
+}
+
 /**
  * Hub SDK backed by Nakama. `init` reads `#t=<ticket>`, strips it, and exchanges it
  * for a game-scoped session cached in sessionStorage. Without a ticket or a cached
@@ -46,6 +69,7 @@ function asRelics(value: unknown): RelicId[] {
  */
 export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
   const resolved = resolveHubEnv(env);
+  const outbox: LiveOutbox = env.outbox ?? defaultLiveOutbox();
   let active: LiveSession | null = null;
 
   function sessionKey(game: GameId): string {
@@ -102,6 +126,98 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     };
   }
 
+  function noteGrant(session: LiveSession, response: unknown): void {
+    if (!response || typeof response !== 'object') return;
+    const granted = (response as { granted?: unknown }).granted;
+    if (typeof granted !== 'string' || !isRelicId(granted) || session.relics.includes(granted)) return;
+    session.relics.push(granted);
+    writeCached(session);
+  }
+
+  async function deliver(session: LiveSession, row: OutboxPending, keepalive = false): Promise<unknown> {
+    const response = await client.rpc(
+      row.rpc,
+      { ...row.body, key: row.idemKey },
+      { token: session.token, keepalive },
+    );
+    await outbox.settle(row, response);
+    if (row.rpc === 'session.event') noteGrant(session, response);
+    return response;
+  }
+
+  async function flush(session: LiveSession, except?: string): Promise<void> {
+    await outbox.ready();
+    const rows = outbox
+      .list(session.playerId)
+      .filter((row) => row.game === session.game && row.opId !== except && !TERMINAL.has(row.lastError ?? ''))
+      .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
+    for (const row of rows) {
+      try {
+        await deliver(session, row);
+      } catch (error) {
+        const code = error instanceof HubSdkError ? error.code : 'queued';
+        if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
+        if (isRetryable(error)) return;
+      }
+    }
+  }
+
+  async function flushStored(): Promise<void> {
+    await outbox.ready();
+    const rows = outbox
+      .all()
+      .filter((row) => row.token && !TERMINAL.has(row.lastError ?? ''))
+      .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
+    for (const row of rows) {
+      try {
+        const response = await client.rpc(row.rpc, { ...row.body, key: row.idemKey }, { token: row.token });
+        await outbox.settle(row, response);
+      } catch (error) {
+        const code = error instanceof HubSdkError ? error.code : 'queued';
+        if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
+        if (isRetryable(error)) return;
+      }
+    }
+  }
+
+  async function send<T>(session: LiveSession, rpc: EconomyRpc, callerKey: string, body: Record<string, unknown>): Promise<T> {
+    const opId = operationId(session.playerId, rpc, callerKey);
+    try {
+      await outbox.ready();
+    } catch {
+      throw new HubSdkError('outbox', 'Could not save this request.');
+    }
+    await flush(session, opId);
+    const done = outbox.settled(opId);
+    if (done) {
+      if (done.rpc !== rpc || !sameBody(done.body, body)) {
+        throw new HubSdkError('idempotency_mismatch', 'Idempotency key was reused with a different request');
+      }
+      if (rpc === 'session.event') noteGrant(session, done.response);
+      return done.response as T;
+    }
+    const row = await outbox.claim({
+      opId,
+      rpc,
+      playerId: session.playerId,
+      game: session.game,
+      body,
+      token: session.token,
+      createdAt: Date.now(),
+    });
+    if (row.rpc !== rpc || !sameBody(row.body, body)) {
+      throw new HubSdkError('idempotency_mismatch', 'Idempotency key was reused with a different request');
+    }
+    try {
+      return (await deliver(session, row)) as T;
+    } catch (error) {
+      if (isRetryable(error)) throw new HubSdkError('queued', 'Saved to send when the hub is reachable.');
+      const code = error instanceof HubSdkError ? error.code : 'rpc_failed';
+      if (TERMINAL.has(code)) await outbox.markError(row.opId, code);
+      throw error;
+    }
+  }
+
   return {
     async init(gameId) {
       if (!isGameId(gameId)) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
@@ -123,10 +239,14 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           ticketsCapLeft: typeof body.ticketsCapLeft === 'number' ? body.ticketsCapLeft : 0,
         };
         writeCached(session);
+        await flush(session).catch(() => undefined);
         return profileOf(session);
       }
       const cached = readCached(gameId);
-      if (!cached) return standalone();
+      if (!cached) {
+        await flushStored().catch(() => undefined);
+        return standalone();
+      }
       try {
         const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
           'profile.get',
@@ -140,6 +260,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       } catch {
         active = cached;
       }
+      await flush(cached).catch(() => undefined);
       return profileOf(cached);
     },
 
@@ -149,17 +270,8 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         throw new HubSdkError('bad_event', 'Event data must be an object');
       }
       if (!active) return {};
-      const result = await client.rpc<{ granted?: string }>(
-        'session.event',
-        { eventId, data, key },
-        { token: active.token },
-      );
-      if (result.granted && isRelicId(result.granted)) {
-        if (!active.relics.includes(result.granted)) active.relics.push(result.granted);
-        writeCached(active);
-        return { granted: result.granted };
-      }
-      return {};
+      const result = await send<{ granted?: string }>(active, 'session.event', key, { eventId, data });
+      return result.granted && isRelicId(result.granted) ? { granted: result.granted } : {};
     },
 
     async submitScore(boardId, value, meta) {
@@ -174,7 +286,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!Number.isFinite(amount) || amount <= 0) throw new HubSdkError('bad_amount', 'Ticket amount must be positive');
       if (!reason) throw new HubSdkError('bad_reason', 'A reason is required');
       if (!active) return { balance: 0, capped: false };
-      return client.rpc('tickets.earn', { amount: Math.floor(amount), reason, key }, { token: active.token });
+      return send(active, 'tickets.earn', key, { amount: Math.floor(amount), reason });
     },
 
     async exchange(tickets, key) {
@@ -183,18 +295,31 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
       if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
-      return client.rpc('tickets.exchange', { tickets: Math.floor(tickets), key }, { token: active.token });
+      return send(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) });
     },
 
     exit(reason) {
       if (!active) return;
-      const game = active.game;
-      const token = active.token;
+      const session = active;
+      const game = session.game;
+      const pending = outbox
+        .list(session.playerId)
+        .filter((row) => row.game === game && !TERMINAL.has(row.lastError ?? ''))
+        .sort((a, b) => a.createdAt - b.createdAt || a.idemKey.localeCompare(b.idemKey));
+      for (const row of pending) {
+        void client
+          .rpc(row.rpc, { ...row.body, key: row.idemKey }, { token: session.token, keepalive: true })
+          .then((response) => outbox.settle(row, response))
+          .catch((error: unknown) => {
+            const code = error instanceof HubSdkError ? error.code : 'queued';
+            if (TERMINAL.has(code)) void outbox.markError(row.opId, code);
+          });
+      }
       resolved.session.removeItem(sessionKey(game));
       active = null;
       resolved.clearBeforeUnload();
       resolved.releasePointer();
-      void client.rpc('session.close', { reason: reason ?? '' }, { token, keepalive: true }).catch(() => undefined);
+      void client.rpc('session.close', { reason: reason ?? '' }, { token: session.token, keepalive: true }).catch(() => undefined);
       const base = resolved.hubUrl.replace(/\/$/, '');
       resolved.assign(`${base}/#from=${game}`);
     },

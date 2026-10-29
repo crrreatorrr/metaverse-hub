@@ -77,9 +77,11 @@ if (!godMode && profile.ranked) {
 hub.exit('match_end'); // releases pointer lock and goes to /hub/#from=sproto
 ```
 
-The idempotency key makes a retried request return the same response. A new key still cannot grant the relic twice: the server's earn-once key is `(player, relic)`.
+Against Nakama, the `key` argument on earn, relic events, and exchange is the operation id. The SDK mints one UUIDv7 for that id, writes the call to IndexedDB, and only then sends the UUIDv7 as the server idempotency key. A retry, including after a reload, sends that same UUIDv7. Nakama stores the key with the result and returns the stored result when the key is repeated. After the ack, the pending row is deleted. Calling again with the same operation id does not mint a second key. A dropped connection throws `HubSdkError` with code `queued`; the row stays until a later `init` delivers it. Do not keep a second outbox in the game, and do not replace the operation id when that error is thrown.
 
-`earnTickets` records Tickets on the server. A replay of the same key does not add them twice. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId`. The same key returns that same receipt. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored nowhere yet.
+A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
+
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId`. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored nowhere yet.
 
 ## API
 
