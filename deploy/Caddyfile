@@ -1,0 +1,172 @@
+# Host Caddy in front of Nakama on 127.0.0.1:7350 and the static trees under /srv.
+# {$DOMAIN} is required at process start (systemd EnvironmentFile).
+# GAME_COOP_* is 0 or 1 when Caddy loads. 0 leaves COOP/COEP off for that game.
+# Reload Caddy after changing a toggle (deploy/scripts/install-caddy.sh does).
+# The origin certificate is a Cloudflare Origin CA cert. Visitors never see it.
+{
+	# Stock Caddy has no Cloudflare IP module. cloudflare-ufw.sh writes this
+	# file from the published ranges and reloads Caddy. ufw is what blocks
+	# non-Cloudflare clients; this list is only so logs use CF-Connecting-IP.
+	import /etc/caddy/cloudflare-proxies.caddy
+}
+
+# arg: suffix so the named matcher stays unique when the snippet is imported twice
+(cors) {
+	@ok_origin_{args[0]} {
+		header Origin "https://{$DOMAIN}"
+		header Origin "https://play.{$DOMAIN}"
+	}
+	header @ok_origin_{args[0]} {
+		Access-Control-Allow-Origin "{http.request.header.Origin}"
+		Access-Control-Allow-Headers "Authorization, Content-Type, Accept"
+		Access-Control-Allow-Methods "GET, POST, PUT, DELETE, OPTIONS"
+		Access-Control-Max-Age "600"
+		Vary "Origin"
+	}
+}
+
+# Empty on purpose: COOP/COEP stay unset unless that game's toggle is 1.
+(coop_0) {
+	header {
+		>X-Content-Type-Options nosniff
+	}
+}
+
+(coop_1) {
+	header {
+		Cross-Origin-Opener-Policy "same-origin"
+		Cross-Origin-Embedder-Policy "require-corp"
+	}
+}
+
+# args: url path, 0|1 coop toggle, matcher suffix
+(game) {
+	handle_path /{args[0]}/* {
+		root * /srv/play/{args[0]}/current
+		@html path_regexp html_{args[2]} "(^/$|\.html$)"
+		# Matchers see the path before handle_path strips the game prefix.
+		@hashed path_regexp hashed_{args[2]} "^(/{args[0]})?/index\.[A-Za-z0-9_-]+\.(wasm|pck|js)$"
+		@wasm path_regexp wasm_{args[2]} "\.wasm$"
+		header Cache-Control "public, max-age=300"
+		header @hashed {
+			defer
+			Cache-Control "public, max-age=31536000, immutable"
+		}
+		header @html {
+			defer
+			Cache-Control "no-cache"
+		}
+		header @wasm Content-Type "application/wasm"
+		header {
+			X-Content-Type-Options nosniff
+			Referrer-Policy strict-origin-when-cross-origin
+			Strict-Transport-Security "max-age=15552000; includeSubDomains"
+			-Server
+		}
+		import coop_{args[1]}
+		# Caddy sets Range: bytes=0- so ServeContent emits Content-Length on a
+		# precompressed body. That status is 206. Browsers treat a 206 without
+		# a client Range as a network error, which breaks wasm. Force 200.
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
+	}
+}
+
+{$DOMAIN} {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+	log {
+		output stdout
+		format json
+	}
+	encode gzip
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		-Server
+	}
+
+	handle /v2* {
+		@preflight method OPTIONS
+		handle @preflight {
+			import cors preflight
+			header Cache-Control "no-store"
+			respond 204
+		}
+		import cors api
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:7350
+	}
+
+	handle /ws* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:7350
+	}
+
+	redir / /hub/ 308
+	redir /hub /hub/ 308
+
+	handle /play/* {
+		respond "Games are on the play host." 404
+	}
+
+	handle /assets/* {
+		root * /srv/hub/current
+		@assetwasm path_regexp hub_asset_wasm "\.wasm$"
+		header Cache-Control "public, max-age=31536000, immutable"
+		header @assetwasm Content-Type "application/wasm"
+		file_server
+	}
+
+	handle {
+		root * /srv/hub/current
+		@html path_regexp hub_html "(^/hub/?$|\.html$)"
+		@wasm path_regexp hub_wasm "\.wasm$"
+		header Cache-Control "public, max-age=300"
+		header @html {
+			defer
+			Cache-Control "no-cache"
+		}
+		header @wasm Content-Type "application/wasm"
+		file_server
+	}
+}
+
+www.{$DOMAIN} {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+	redir https://{$DOMAIN}{uri} 308
+}
+
+play.{$DOMAIN} {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin.key
+	log {
+		output stdout
+		format json
+	}
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		Strict-Transport-Security "max-age=15552000; includeSubDomains"
+		-Server
+	}
+
+	redir /hpos10i /hpos10i/ 308
+	redir /nobu /nobu/ 308
+	redir /peoples-bitcoin /peoples-bitcoin/ 308
+	redir /sproto-duel /sproto-duel/ 308
+
+	import game hpos10i {$GAME_COOP_HPOS10I:0} hpos10i
+	import game nobu {$GAME_COOP_NOBU:0} nobu
+	import game peoples-bitcoin {$GAME_COOP_PEOPLES_BITCOIN:0} peoples_bitcoin
+	import game sproto-duel {$GAME_COOP_SPROTO_DUEL:0} sproto_duel
+
+	handle {
+		respond "play host" 404
+	}
+}
