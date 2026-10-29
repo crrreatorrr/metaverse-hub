@@ -154,6 +154,41 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     return Math.max(0, MOCK_TICKET_EARN_CAP - readNumber(resolved.local, earnKey(game)));
   }
 
+  function sessionCreditKey(sid: string): string {
+    return `hub:sessionCredit:${sid}`;
+  }
+
+  /** Same 200 session cap and 1000 daily earn window the server uses for every game. */
+  function creditRooms(session: MockSession): { sessionRoom: number; dailyRoom: number } {
+    const sessionEarned = readNumber(resolved.session, sessionCreditKey(session.sid));
+    return {
+      sessionRoom: Math.max(0, 200 - sessionEarned),
+      dailyRoom: capLeft(session.game),
+    };
+  }
+
+  function rejectCap(capLeftAmount: number): never {
+    throw new HubSdkError('session_ticket_cap', 'session_ticket_cap', undefined, capLeftAmount);
+  }
+
+  function applyCredit(session: MockSession, amount: number, whole: boolean): { applied: number; balance: number } {
+    const rooms = creditRooms(session);
+    if (whole && amount < 1000 && amount > rooms.sessionRoom) rejectCap(rooms.sessionRoom);
+    if (whole && amount > rooms.dailyRoom) rejectCap(rooms.dailyRoom);
+    const applied = whole ? amount : Math.min(amount, rooms.dailyRoom);
+    if (applied > 0) {
+      writeNumber(resolved.local, earnKey(session.game), readNumber(resolved.local, earnKey(session.game)) + applied);
+      writeNumber(
+        resolved.session,
+        sessionCreditKey(session.sid),
+        readNumber(resolved.session, sessionCreditKey(session.sid)) + applied,
+      );
+    }
+    const balance = readNumber(resolved.local, ticketsKey(session.game)) + applied;
+    writeNumber(resolved.local, ticketsKey(session.game), balance);
+    return { applied, balance };
+  }
+
   function profile(session: MockSession): InitResult {
     return {
       playerId: session.playerId,
@@ -275,13 +310,8 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       const session = active;
       const whole = Math.floor(amount);
       return withIdem(session.playerId, key, 'tickets.earn', stable({ amount: whole, reason }), () => {
-        const room = capLeft(session.game);
-        const applied = Math.min(whole, room);
-        const earned = readNumber(resolved.local, earnKey(session.game)) + applied;
-        const balance = readNumber(resolved.local, ticketsKey(session.game)) + applied;
-        writeNumber(resolved.local, earnKey(session.game), earned);
-        writeNumber(resolved.local, ticketsKey(session.game), balance);
-        return { balance, capped: applied < whole };
+        const credited = applyCredit(session, whole, false);
+        return { balance: credited.balance, capped: credited.applied < whole };
       });
     },
 
@@ -324,7 +354,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       const session = active;
       const whole = Math.floor(qty);
       return withIdem(session.playerId, key, 'tickets.spend', stable({ itemId, qty: whole }), (): SpendResult => {
-        const row = session.game === 'pb' ? MOCK_PB_SHOP[itemId] : undefined;
+        const row = session.game === 'peoples-bitcoin' ? MOCK_PB_SHOP[itemId] : undefined;
         if (!row || row.price === null) throw new HubSdkError('unknown_item', 'Unknown item');
         const spent = row.price * whole;
         const balance = readNumber(resolved.local, ticketsKey(session.game));
@@ -345,12 +375,11 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       const session = active;
       const whole = Math.floor(qty);
       return withIdem(session.playerId, key, 'tickets.sell', stable({ itemId, qty: whole }), (): SellResult => {
-        const row = session.game === 'pb' ? MOCK_PB_SHOP[itemId] : undefined;
+        const row = session.game === 'peoples-bitcoin' ? MOCK_PB_SHOP[itemId] : undefined;
         if (!row) throw new HubSdkError('unknown_item', 'Unknown item');
         const credited = row.sell * whole;
-        const next = readNumber(resolved.local, ticketsKey(session.game)) + credited;
-        writeNumber(resolved.local, ticketsKey(session.game), next);
-        return { item_id: itemId, qty: whole, credited, balance: next };
+        const next = applyCredit(session, credited, true);
+        return { item_id: itemId, qty: whole, credited, balance: next.balance };
       });
     },
 

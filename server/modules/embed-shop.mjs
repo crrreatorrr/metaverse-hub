@@ -22,7 +22,7 @@ if (!raw) throw new Error('shop_price.peoples-bitcoin.json was not found');
 const rows = JSON.parse(raw);
 if (!Array.isArray(rows) || rows.length === 0) throw new Error('shop price file must be a non-empty array');
 
-const game = 'pb';
+const game = 'peoples-bitcoin';
 const values = rows.map((row) => {
   if (!row || typeof row !== 'object') throw new Error('shop price row must be an object');
   const item = row.item_id;
@@ -47,7 +47,7 @@ const sql =
 
 const source = `namespace HubShop {
   // TODO: replace server/data/shop_price.peoples-bitcoin.json with the PB agent's real table.
-  // Rows are stored under game id pb. peoples-bitcoin is the play slug, not a second game id.
+  // Rows are stored under game id peoples-bitcoin. Re-running this upsert changes prices without a code change.
   export var GAME = "${game}";
 
   export function seedSql(): string {

@@ -115,8 +115,11 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
       });
       const text = await response.text();
       if (!response.ok) throw new HubSdkError('rpc_failed', text || `HTTP ${response.status}`, response.status);
-      const parsed = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string };
-      if (parsed.error) throw new HubSdkError(parsed.error, parsed.message || parsed.error);
+      const parsed = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string; capLeft?: unknown };
+      if (parsed.error) {
+        const capLeft = typeof parsed.capLeft === 'number' ? parsed.capLeft : undefined;
+        throw new HubSdkError(parsed.error, parsed.message || parsed.error, undefined, capLeft);
+      }
       return parsed;
     },
   };

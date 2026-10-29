@@ -78,10 +78,15 @@ namespace HubRpc {
     return typeof value === "string" ? value : "";
   }
 
-  /** White House builds send this slug. Tickets and rules stay on `pb`. */
-  function canonicalGame(game: string): string {
-    if (game === "peoples-bitcoin") return "pb";
-    return game;
+  function failBody(result: { [key: string]: unknown }): string {
+    var body: { [key: string]: unknown } = {
+      error: String(result.error),
+      message: String(result.message || result.error),
+    };
+    var left = result.capLeft;
+    if (typeof left === "number" && isFinite(left)) body.capLeft = left;
+    else if (typeof left === "string" && left !== "" && isFinite(Number(left))) body.capLeft = Number(left);
+    return JSON.stringify(body);
   }
 
   function wholeQty(value: unknown): number {
@@ -477,7 +482,7 @@ namespace HubRpc {
       "SELECT game.earn_tickets($1::uuid, $2::uuid, $3::text, $4::numeric::bigint, $5::text, $6::text, $7::text)::text AS result",
       [session.userId, session.sid, session.game, amount, reason, key, reqHash],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failBody(result);
     HubFault.apply(ctx, nk, session.userId, "earn.after_commit");
     return ok(result);
   }
@@ -507,7 +512,7 @@ namespace HubRpc {
     var body = parse(payload);
     var key = text(body, "key");
     var itemId = text(body, "item_id");
-    var game = canonicalGame(text(body, "game"));
+    var game = text(body, "game");
     var qty = wholeQty(body.qty);
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (!game || game !== session.game) return fail("bad_game", "Unknown game");
@@ -525,7 +530,7 @@ namespace HubRpc {
       "SELECT game.spend_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
       [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.qty, shop.key, reqHash],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failBody(result);
     return ok(result);
   }
 
@@ -538,14 +543,14 @@ namespace HubRpc {
       "SELECT game.sell_tickets($1::uuid, $2::uuid, $3::text, $4::text, $5::bigint, $6::text, $7::text)::text AS result",
       [shop.session.userId, shop.session.sid, shop.session.game, shop.itemId, shop.qty, shop.key, reqHash],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failBody(result);
     return ok(result);
   }
 
   export function ticketsBalance(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var session = requireGame(ctx);
     var body = parse(payload);
-    var game = canonicalGame(text(body, "game"));
+    var game = text(body, "game");
     if (!game || game !== session.game) return fail("bad_game", "Unknown game");
     var rows = nk.sqlQuery(
       "SELECT COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0)::text AS result",

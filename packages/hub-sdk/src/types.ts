@@ -1,4 +1,4 @@
-/** Game ids stored on the server and used in `/hub#from=<game>`. */
+/** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
 export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
 export type GameId = (typeof GAME_IDS)[number];
 

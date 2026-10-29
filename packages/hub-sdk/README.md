@@ -81,7 +81,7 @@ Against Nakama, earn, relic events, exchange, shop purchases, and shop sales are
 
 A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
 
-`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(itemId, qty, key)` buys at the server price (`price * qty`). The client does not send a price. `sellItem(itemId, qty, key)` credits `sell_price * qty`. A null price can be sold and cannot be bought. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored.
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(itemId, qty, key)` buys at the server price (`price * qty`). The client does not send a price. A null price can be sold and cannot be bought. `sellItem(itemId, qty, key)` credits `sell_price * qty` through the same session cap (200) and daily earn window (1000) as `earnTickets`. A sale that does not fit entirely is rejected with `session_ticket_cap` and `capLeft` (tickets still allowed). Nothing is credited. `getTicketBalance()` is a read and is not queued. God-mode wins should still call `earnTickets` and should skip `submitScore`.
 
 ## API
 

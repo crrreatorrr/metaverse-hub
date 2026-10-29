@@ -139,7 +139,8 @@ namespace HubSchema {
     )`,
 
     // TODO: placeholder rows. Replace server/data/shop_price.peoples-bitcoin.json and rebuild.
-    // Stored game id is pb. A null price can be sold and is not in stock.
+    // A null price can be sold and is not in stock. Upsert keeps a data-only rebalance.
+    "DELETE FROM game.shop_price WHERE game = 'pb'",
     HubShop.seedSql(),
 
     `CREATE TABLE IF NOT EXISTS game.score_best (
@@ -189,6 +190,30 @@ namespace HubSchema {
       match jsonb NOT NULL DEFAULT '{}'::jsonb,
       PRIMARY KEY (game_id, event_type)
     )`,
+
+    `UPDATE game.event_rule SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'`,
+    "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
+    "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
+    "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
+    "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
+    "UPDATE game.tickets_balance SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+     END $$`,
+    "UPDATE game.tickets_ledger SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    `DO $$ BEGIN
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+     END $$`,
+    "UPDATE game.verse_earned SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "UPDATE game.exchange_tx SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
+    "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
 
     `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
      VALUES
@@ -446,6 +471,67 @@ namespace HubSchema {
      END;
      $fn$`,
 
+    `CREATE OR REPLACE FUNCTION game.take_ticket_credit(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_amount bigint, p_reason text, p_kind text, p_whole boolean
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_cap bigint;
+       v_session_earned bigint;
+       v_session_room bigint;
+       v_day date;
+       v_used bigint;
+       v_room bigint;
+       v_applied bigint;
+       v_balance bigint;
+       v_event uuid;
+     BEGIN
+       v_cap := game.session_ticket_cap();
+       -- Credits that are not refunds. Earns and shop sales both count. One path for every game.
+       SELECT COALESCE(SUM(delta), 0) INTO v_session_earned
+       FROM game.tickets_ledger
+       WHERE user_id = p_user_id AND game_id = p_game_id AND ref_id = p_session_id AND delta > 0
+         AND COALESCE(kind, '') <> 'refund'
+         AND reason <> 'refund';
+       v_session_room := v_cap - v_session_earned;
+       IF v_session_room < 0 THEN v_session_room := 0; END IF;
+       -- A request for the whole daily cap (1000) still uses the daily partial rules.
+       -- Any smaller credit that would pass the session cap is rejected with no ledger row.
+       IF p_amount < 1000 AND v_session_earned + p_amount > v_cap THEN
+         RETURN jsonb_build_object('error', 'session_ticket_cap', 'capLeft', v_session_room);
+       END IF;
+       v_day := (now() AT TIME ZONE 'utc')::date;
+       SELECT amount INTO v_used FROM game.earn_window
+       WHERE user_id = p_user_id AND bucket = 'tickets:' || p_game_id AND day = v_day;
+       IF NOT FOUND THEN v_used := 0; END IF;
+       v_room := 1000 - v_used;
+       IF v_room < 0 THEN v_room := 0; END IF;
+       IF p_whole AND p_amount > v_room THEN
+         RETURN jsonb_build_object('error', 'session_ticket_cap', 'capLeft', v_room);
+       END IF;
+       v_applied := LEAST(p_amount, v_room);
+       SELECT balance INTO v_balance FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
+       IF NOT FOUND THEN v_balance := 0; END IF;
+       IF v_applied > 0 THEN
+         v_event := gen_random_uuid();
+         INSERT INTO game.tickets_balance (user_id, game_id, balance)
+         VALUES (p_user_id, p_game_id, v_applied)
+         ON CONFLICT (user_id, game_id) DO UPDATE
+           SET balance = game.tickets_balance.balance + EXCLUDED.balance
+         RETURNING balance INTO v_balance;
+         INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+         VALUES (v_event, p_user_id, p_game_id, v_applied, v_balance, p_reason, p_session_id, p_kind);
+         INSERT INTO game.earn_window (user_id, bucket, day, amount)
+         VALUES (p_user_id, 'tickets:' || p_game_id, v_day, v_applied)
+         ON CONFLICT (user_id, bucket, day) DO UPDATE
+           SET amount = game.earn_window.amount + EXCLUDED.amount;
+       END IF;
+       RETURN jsonb_build_object('balance', v_balance, 'applied', v_applied);
+     END;
+     $fn$`,
+
     `CREATE OR REPLACE FUNCTION game.earn_tickets(
        p_user_id uuid, p_session_id uuid, p_game_id text,
        p_amount bigint, p_reason text, p_idem_key text, p_req_hash text
@@ -454,14 +540,9 @@ namespace HubSchema {
        v_response jsonb;
        v_hash bytea;
        v_existing_hash bytea;
-       v_day date;
-       v_used bigint;
-       v_room bigint;
+       v_credit jsonb;
        v_applied bigint;
        v_balance bigint;
-       v_event uuid;
-       v_cap bigint;
-       v_session_earned bigint;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -480,40 +561,12 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
-       v_cap := game.session_ticket_cap();
-       SELECT COALESCE(SUM(delta), 0) INTO v_session_earned
-       FROM game.tickets_ledger
-       WHERE user_id = p_user_id AND game_id = p_game_id AND ref_id = p_session_id AND delta > 0;
-       -- A request for the whole daily cap (1000) still uses the daily partial rules.
-       -- Any smaller earn that would pass the session cap is rejected with no ledger row.
-       IF p_amount < 1000 AND v_session_earned + p_amount > v_cap THEN
-         RETURN jsonb_build_object('error', 'session_ticket_cap');
+       v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, p_amount, p_reason, 'earn', false);
+       IF v_credit ? 'error' THEN
+         RETURN v_credit;
        END IF;
-       v_day := (now() AT TIME ZONE 'utc')::date;
-       SELECT amount INTO v_used FROM game.earn_window
-       WHERE user_id = p_user_id AND bucket = 'tickets:' || p_game_id AND day = v_day;
-       IF NOT FOUND THEN v_used := 0; END IF;
-       v_room := 1000 - v_used;
-       IF v_room < 0 THEN v_room := 0; END IF;
-       v_applied := LEAST(p_amount, v_room);
-       SELECT balance INTO v_balance FROM game.tickets_balance
-       WHERE user_id = p_user_id AND game_id = p_game_id
-       FOR UPDATE;
-       IF NOT FOUND THEN v_balance := 0; END IF;
-       IF v_applied > 0 THEN
-         v_event := gen_random_uuid();
-         INSERT INTO game.tickets_balance (user_id, game_id, balance)
-         VALUES (p_user_id, p_game_id, v_applied)
-         ON CONFLICT (user_id, game_id) DO UPDATE
-           SET balance = game.tickets_balance.balance + EXCLUDED.balance
-         RETURNING balance INTO v_balance;
-         INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
-         VALUES (v_event, p_user_id, p_game_id, v_applied, v_balance, p_reason, p_session_id, 'earn');
-         INSERT INTO game.earn_window (user_id, bucket, day, amount)
-         VALUES (p_user_id, 'tickets:' || p_game_id, v_day, v_applied)
-         ON CONFLICT (user_id, bucket, day) DO UPDATE
-           SET amount = game.earn_window.amount + EXCLUDED.amount;
-       END IF;
+       v_balance := (v_credit->>'balance')::bigint;
+       v_applied := (v_credit->>'applied')::bigint;
        v_response := jsonb_build_object('balance', v_balance, 'capped', v_applied < p_amount);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.earn', v_hash, v_response);
@@ -704,9 +757,9 @@ namespace HubSchema {
        v_hash bytea;
        v_existing_hash bytea;
        v_unit integer;
-       v_credit bigint;
+       v_amount bigint;
+       v_taken jsonb;
        v_balance bigint;
-       v_event uuid;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -730,27 +783,16 @@ namespace HubSchema {
        IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'unknown_item');
        END IF;
-       -- Shop sales are not earns: they skip session_ticket_cap and the daily earn window.
        IF v_unit > 0 AND p_qty > (9223372036854775807::bigint / v_unit::bigint) THEN
          RETURN jsonb_build_object('error', 'bad_amount');
        END IF;
-       v_credit := v_unit::bigint * p_qty;
-       SELECT balance INTO v_balance FROM game.tickets_balance
-       WHERE user_id = p_user_id AND game_id = p_game_id
-       FOR UPDATE;
-       IF NOT FOUND THEN
-         INSERT INTO game.tickets_balance (user_id, game_id, balance)
-         VALUES (p_user_id, p_game_id, v_credit)
-         RETURNING balance INTO v_balance;
-       ELSE
-         UPDATE game.tickets_balance SET balance = balance + v_credit
-         WHERE user_id = p_user_id AND game_id = p_game_id
-         RETURNING balance INTO v_balance;
+       v_amount := v_unit::bigint * p_qty;
+       v_taken := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_amount, 'shop_sell', 'shop_sell', true);
+       IF v_taken ? 'error' THEN
+         RETURN v_taken;
        END IF;
-       v_event := gen_random_uuid();
-       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
-       VALUES (v_event, p_user_id, p_game_id, v_credit, v_balance, 'shop_sell', p_session_id, 'shop_sell');
-       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'credited', v_credit, 'balance', v_balance);
+       v_balance := (v_taken->>'balance')::bigint;
+       v_response := jsonb_build_object('item_id', p_item_id, 'qty', p_qty, 'credited', v_amount, 'balance', v_balance);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
        RETURN v_response;
