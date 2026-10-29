@@ -44,7 +44,7 @@ import { animated, glow, initLoaders, instanced, loadGLTF, mountGlow, neonMat, p
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
 import { buildInterior, type InteriorBuild } from './v2/interior';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
-import { fourLightsPlaque, loadSignFont } from './v2/signs';
+import { loadSignFont } from './v2/signs';
 
 export interface Warp {
   x: number;
@@ -167,7 +167,6 @@ export async function createWorld(): Promise<HubWorld> {
   ];
   buildFloor(outdoor, slots.map((slot) => ({ a: slot.a, tint: slot.tint, paws: slot.key === 'kennel' })));
   const pedestal = buildPedestal(outdoor);
-  outdoor.add(fourLightsPlaque());
 
   const lampT: { p: [number, number, number]; r: number }[] = [];
   const benchT: { p: [number, number, number]; r: number }[] = [];

@@ -45,9 +45,6 @@ export async function castle(): Promise<{ group: Group; depth: number; portalZ: 
   g.add(at(await part('C4-hall', { h: 24, yaw: Y }), -24, gy(-24, -4), -4, 0.2));
   g.add(at(await part('C5-viaduct', { h: 15, yaw: Y }), -24, gy(-24, -22) * 0.7, -22, 0.25));
   const portalZ = 46;
-  const sign = buildingSign('sign-castle', 'THE CASTLE', 'SPROTO DUEL', '#7b5cff');
-  sign.position.set(0, 18, portalZ);
-  g.add(sign);
   return { group: g, depth: 86, portalZ };
 }
 
@@ -95,9 +92,6 @@ export async function whiteHouse(): Promise<{ group: Group; depth: number; porta
   trim.position.set(0, 24.2, md / 2 - 1.5);
   g.add(glow(trim));
   g.add(coinField(26, 40, md / 2 + 26));
-  const sign = buildingSign('sign-white-house', 'THE WHITE HOUSE', "PEOPLE'S BITCOIN", '#ffc233', '18+');
-  sign.position.set(0, 16, md / 2 + 6);
-  g.add(sign);
   return { group: g, depth: md + 20, portalZ: md / 2 + 30 };
 }
 
@@ -204,9 +198,6 @@ export async function greenHill(): Promise<{ group: Group; depth: number; portal
     { p: [-tw / 2 - 16, 0, -4], r: 0.3 },
     { p: [4, 34, -td / 2 + 6], r: 2.2 },
   ], { h: 16 }));
-  const sign = buildingSign('sign-green-hill', 'GREEN HILL ZONE', 'HPOS10I', '#39ff6a');
-  sign.position.set(0, 14, td / 2 + 4);
-  g.add(sign);
   return { group: g, depth: td, portalZ: td / 2 + 16 };
 }
 
@@ -434,9 +425,6 @@ export async function kennel(): Promise<{ group: Group; depth: number; portalZ: 
     { p: [-hw / 2 - 10, 0, -6], r: 1.1 },
     { p: [hw / 2 - 2, 0, hd / 2 + 20], r: -0.4 },
   ], { h: 3.4, useLod1: false, glow: 0.3 }));
-  const sign = buildingSign('sign-kennel', 'THE KENNEL', 'NOBU: SAVIOUR DOG', '#ff8a1f');
-  sign.position.set(0, 18, hd / 2 + 4);
-  g.add(sign);
   return { group: g, depth: hd, portalZ: hd / 2 + 6 };
 }
 
