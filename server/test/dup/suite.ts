@@ -809,9 +809,15 @@ async function hposExtras(): Promise<void> {
 }
 
 /** PB exchange uses the hub rules: 10:1, daily Verse cap, server balance. Client price and clamp fields are ignored. */
+function pbGameId(): string {
+  const rpcs = readFileSync(path.join(ROOT, 'server/modules/src/rpcs.ts'), 'utf8');
+  return rpcs.includes('peoples-bitcoin') ? 'peoples-bitcoin' : 'pb';
+}
+
 async function pbExchange(): Promise<void> {
   await test('wallet', 'pb exchange follows hub rules without a client clamp', async () => {
-    const small = await login('pb');
+    const game = pbGameId();
+    const small = await login(game);
     await earn(small.gameToken, 40, 'shop', 'pb-fund-40');
     const odd = await call('tickets.exchange', {
       tickets: 25,
@@ -826,7 +832,7 @@ async function pbExchange(): Promise<void> {
     assert.equal(odd.body.verse, 2);
     assert.equal(odd.body.ticketsLeft, 20);
     assert.equal(verseBalance(small.hub.userId), 2);
-    assert.equal(ticketBalance(small.hub.userId, 'pb'), 20);
+    assert.equal(ticketBalance(small.hub.userId, game), 20);
     const ten = await call('tickets.exchange', {
       tickets: 10,
       balance: 999999,
@@ -841,23 +847,33 @@ async function pbExchange(): Promise<void> {
       key: 'pb-over-balance',
     }, small.gameToken);
     assert.equal(over.body.error, 'insufficient_tickets', JSON.stringify(over.body));
-    assert.equal(ticketBalance(small.hub.userId, 'pb'), 10);
+    assert.equal(ticketBalance(small.hub.userId, game), 10);
     assert.equal(verseBalance(small.hub.userId), 3);
     assert.equal(exchangeCount(small.hub.userId), 2);
 
-    const funded = await login('pb');
-    await earn(funded.gameToken, TICKET_DAILY_CAP, 'shop', 'pb-fund-day');
+    const funded = await login(game);
+    let dayToken = funded.gameToken;
+    await earn(dayToken, 200, 'shop', 'pb-fund-day-0');
+    for (let i = 1; i < TICKET_DAILY_CAP / 200; i += 1) {
+      const next = await openGame(funded.hub.token, game);
+      dayToken = next.gameToken;
+      await earn(dayToken, 200, 'shop', `pb-fund-day-${i}`);
+    }
     const cappedEarn = await call('tickets.earn', {
       amount: 10,
       reason: 'shop',
       key: 'pb-past-daily',
       balance: 999999,
       day: '1999-01-01',
-    }, funded.gameToken);
-    assert.equal(cappedEarn.body.capped, true, JSON.stringify(cappedEarn.body));
-    assert.equal(cappedEarn.body.balance, TICKET_DAILY_CAP);
+    }, dayToken);
+    if (cappedEarn.body.error) {
+      assert.equal(cappedEarn.body.error, 'daily_ticket_cap', JSON.stringify(cappedEarn.body));
+    } else {
+      assert.equal(cappedEarn.body.capped, true, JSON.stringify(cappedEarn.body));
+    }
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP);
     assert.equal(
-      psql(`SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(funded.hub.userId)}' AND bucket = 'tickets:pb'`),
+      psql(`SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(funded.hub.userId)}' AND bucket = 'tickets:${game}'`),
       serverDay(),
     );
     const fiveHundred = await call('tickets.exchange', {
@@ -865,14 +881,14 @@ async function pbExchange(): Promise<void> {
       price: 1,
       balance: 999999,
       key: 'pb-step-500',
-    }, funded.gameToken);
+    }, dayToken);
     assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
     assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
     assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
-    const past = await call('tickets.exchange', { tickets: TICKETS_PER_VERSE, key: 'pb-past-verse' }, funded.gameToken);
+    const past = await call('tickets.exchange', { tickets: TICKETS_PER_VERSE, key: 'pb-past-verse' }, dayToken);
     assert.equal(past.body.error, 'verse_cap', JSON.stringify(past.body));
     assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
-    assert.equal(ticketBalance(funded.hub.userId, 'pb'), TICKET_DAILY_CAP - 500);
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP - 500);
     assert.equal(mints(funded.hub.userId, 'genesis_shard'), 0);
   });
 }

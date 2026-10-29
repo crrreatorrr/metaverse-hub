@@ -102,10 +102,16 @@ function shopColumns(): string[] {
   return raw.split(',').filter(Boolean);
 }
 
+function priceColumn(cols: string[]): string {
+  if (cols.includes('ticket_price')) return 'ticket_price';
+  if (cols.includes('price')) return 'price';
+  return '';
+}
+
 export function spendLanded(): boolean {
   const cols = shopColumns();
-  const need = ['game', 'shop_id', 'item_id', 'pack_size', 'ticket_price'];
-  return registered('tickets.spend') && need.every((name) => cols.includes(name));
+  const need = ['game', 'shop_id', 'item_id', 'pack_size'];
+  return registered('tickets.spend') && need.every((name) => cols.includes(name)) && priceColumn(cols) !== '';
 }
 
 function sellRpc(): string | null {
@@ -141,10 +147,12 @@ interface PricedItem {
 
 function loadItems(): PricedItem[] {
   const cols = shopColumns();
+  const price = priceColumn(cols);
+  if (!price) return [];
   const sell = cols.includes('sell_price') ? "coalesce(sell_price::text, '')" : "''";
   const name = cols.includes('name') ? "coalesce(name, '')" : "''";
   const raw = psql(
-    `SELECT shop_id || '|' || item_id || '|' || pack_size::text || '|' || ticket_price::text || '|' || ${sell} || '|' || ${name} FROM game.shop_price WHERE game = '${GAME}' ORDER BY ticket_price ASC, item_id ASC, shop_id ASC`,
+    `SELECT shop_id || '|' || item_id || '|' || pack_size::text || '|' || ${price}::text || '|' || ${sell} || '|' || ${name} FROM game.shop_price WHERE game = '${GAME}' ORDER BY ${price} ASC, item_id ASC, shop_id ASC`,
   );
   if (!raw) return [];
   return raw.split('\n').filter(Boolean).map((line) => {
@@ -184,9 +192,9 @@ function spend(token: string, item: PricedItem, packs: number, key: string, extr
   return call('tickets.spend', spendBody(item.shopId, item.itemId, packs, key, extra), token);
 }
 
-function namedItem(name: string, shopId: string): PricedItem {
-  const item = loadItems().find((row) => row.name === name && row.shopId === shopId);
-  if (!item) throw new Error(`no seeded row name=${name} shop_id=${shopId}`);
+function dbItem(shopId: string, itemId: string): PricedItem {
+  const item = loadItems().find((row) => row.shopId === shopId && row.itemId === itemId);
+  if (!item) throw new Error(`no seeded row ${shopId}/${itemId}`);
   return item;
 }
 
@@ -473,24 +481,24 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
   await runner.test('wallet', name, async () => {
     const session = await login('sproto');
     const cap = sessionPurse();
-    const first = await call('tickets.balance', {}, session.gameToken);
+    const first = await call('tickets.balance', { game: 'sproto' }, session.gameToken);
     assert.equal(first.body.error, undefined, JSON.stringify(first.body));
     const body = first.body as Record<string, unknown>;
     assert.equal(body.sessionCapLeft, cap);
     assert.equal(body.dailyCapLeft, TICKET_DAILY_CAP);
     await earn(session.gameToken, 40, 'win', 'bal-earn');
-    const afterEarn = await call('tickets.balance', { sessionCapLeft: 99999, dailyCapLeft: 99999 }, session.gameToken);
+    const afterEarn = await call('tickets.balance', { game: 'sproto', sessionCapLeft: 99999, dailyCapLeft: 99999 }, session.gameToken);
     const earned = afterEarn.body as Record<string, unknown>;
     assert.equal(earned.sessionCapLeft, cap - 40);
     assert.equal(earned.dailyCapLeft, TICKET_DAILY_CAP - 40);
     const traded = await call('tickets.exchange', { tickets: 10, key: 'bal-ex' }, session.gameToken);
     assert.equal(traded.body.error, undefined, JSON.stringify(traded.body));
-    const afterEx = await call('tickets.balance', {}, session.gameToken);
+    const afterEx = await call('tickets.balance', { game: 'sproto' }, session.gameToken);
     const exchanged = afterEx.body as Record<string, unknown>;
     assert.equal(exchanged.sessionCapLeft, cap - 40, 'exchange is not a Ticket credit');
     assert.equal(exchanged.dailyCapLeft, TICKET_DAILY_CAP - 40);
     psql(`UPDATE game.earn_window SET day = day - 1 WHERE user_id = '${sqlId(session.hub.userId)}' AND bucket = 'tickets:sproto'`);
-    const rolled = await call('tickets.balance', {}, session.gameToken);
+    const rolled = await call('tickets.balance', { game: 'sproto' }, session.gameToken);
     const nextDay = rolled.body as Record<string, unknown>;
     assert.equal(nextDay.dailyCapLeft, TICKET_DAILY_CAP);
     const tooMuch = await call('tickets.earn', {
@@ -787,8 +795,8 @@ export async function runShop(runner: GateRunner): Promise<void> {
       assert.equal(staffCsv.sellPrice, 0);
       assert.equal(roundsCsv.ticketPrice, 3);
       assert.equal(roundsCsv.packSize, 100);
-      const terminal = namedItem('Hopium Soda', 'shop_terminal');
-      const staff = namedItem('Hopium Soda', 'shop_staffwright');
+      const terminal = dbItem(terminalCsv.shopId, terminalCsv.itemId);
+      const staff = dbItem(staffCsv.shopId, staffCsv.itemId);
       const rounds = loadItems().find((row) => row.itemId === 'item_rounds' && row.shopId === 'shop_terminal');
       if (!rounds) throw new Error('no seeded item_rounds at shop_terminal');
       assert.equal(terminal.price, terminalCsv.ticketPrice);
@@ -819,8 +827,8 @@ export async function runShop(runner: GateRunner): Promise<void> {
       const pair = differingShopPair(priceCsv);
       if (!pair) {
         note('pb_shop_prices.csv v3 has no item whose ticket_price differs between shops. Hopium Soda is 4 at both shop_terminal and shop_staffwright.');
-        const terminal = namedItem('Hopium Soda', 'shop_terminal');
-        const staff = namedItem('Hopium Soda', 'shop_staffwright');
+        const terminal = dbItem('shop_terminal', 'item_hopium_soda');
+        const staff = dbItem('shop_staffwright', 'item_hopium_soda');
         assert.equal(terminal.price, staff.price);
         const session = await login(GAME);
         await fund(session.gameToken, terminal.price * 2, 'shop-same-fund');
@@ -831,8 +839,8 @@ export async function runShop(runner: GateRunner): Promise<void> {
         assert.equal(ticketBalance(session.hub.userId, GAME), 0);
         return;
       }
-      const cheap = namedItem(pair.cheap.name, pair.cheap.shopId);
-      const dear = namedItem(pair.dear.name, pair.dear.shopId);
+      const cheap = dbItem(pair.cheap.shopId, pair.cheap.itemId);
+      const dear = dbItem(pair.dear.shopId, pair.dear.itemId);
       assert.equal(cheap.itemId, dear.itemId);
       assert.notEqual(cheap.price, dear.price);
       assert.equal(cheap.price, pair.cheap.ticketPrice);
@@ -1028,7 +1036,7 @@ export async function runShop(runner: GateRunner): Promise<void> {
       const rpc = sellRpc();
       if (!rpc) throw new Error('sell RPC disappeared');
       for (const shopId of ['shop_terminal', 'shop_staffwright']) {
-        const soda = namedItem('Hopium Soda', shopId);
+        const soda = dbItem(shopId, 'item_hopium_soda');
         assert.equal(soda.price, 4, `${shopId} ticket_price`);
         assert.equal(soda.sellPrice, 0, `${shopId} sell_price`);
         assert.equal(sellCredit(soda.sellPrice ?? 0, 1), 0, `${shopId} sell_price`);
