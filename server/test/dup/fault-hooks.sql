@@ -19,7 +19,8 @@ BEGIN
   ELSIF TG_TABLE_NAME = 'verse_wallet' THEN
     v_points := ARRAY['exchange.after_wallet', 'purchase.after_wallet'];
   ELSIF TG_TABLE_NAME = 'tickets_balance' THEN
-    v_points := ARRAY['earn.after_wallet', 'exchange.after_debit'];
+    -- spend.after_wallet is armed only by the PB shop cases. Unarmed calls no-op.
+    v_points := ARRAY['earn.after_wallet', 'exchange.after_debit', 'spend.after_wallet'];
   ELSE
     RETURN NEW;
   END IF;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,6 +15,7 @@ import {
   type RelicFlow,
 } from './cases.ts';
 import { runGated } from './gated.ts';
+import { runShop } from './shop.ts';
 import {
   arm,
   assertConflict,
@@ -40,6 +42,7 @@ import {
   psql,
   relicClaims,
   serverDay,
+  sleep,
   snapshotEconomy,
   sqlId,
   ticketBalance,
@@ -71,6 +74,8 @@ function testBudget(name: string): number {
 }
 
 async function test(category: string, name: string, fn: () => Promise<void>): Promise<void> {
+  const only = process.env.DUP_ONLY;
+  if (only && !name.includes(only)) return;
   const budget = testBudget(name);
   let failure: string | null = null;
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -237,6 +242,8 @@ async function idempotency(): Promise<void> {
     await test('idempotency', `${flow.id} completed key does not debit again`, async () => {
       const session = await login(flow.game);
       await earn(session.gameToken, flow.earnAmount, flow.earnReason, 'fund-new');
+      const secondPurse = flow.tickets * 2 - flow.earnAmount;
+      if (secondPurse > 0) await earn(session.gameToken, secondPurse, flow.earnReason, 'fund-new-b');
       const first = await call('tickets.exchange', exchangeBody(flow, 'ex-1'), session.gameToken);
       assert.equal(first.body.verse, flow.verse);
       const second = await call('tickets.exchange', exchangeBody(flow, 'ex-2'), session.gameToken);
@@ -604,25 +611,35 @@ async function wallet(): Promise<void> {
   for (const exchange of exchangeFlows()) {
   await test('wallet', `${exchange.id} concurrent earns cannot pass the daily cap`, async () => {
     const session = await login(exchange.game);
+    const cap = sessionTicketCap();
+    const funded = await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'cap');
+    const credited = funded.credits;
+    assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
+    assert.equal(earnLedgerCount(session.hub.userId), credited);
+    const next = await openGame(session.hub.token, exchange.game);
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.earn', { amount: TICKET_DAILY_CAP, reason: 'grind', key: `cap-${index}` }, session.gameToken)
+      call('tickets.earn', { amount: cap, reason: 'grind', key: `over-day-${index}` }, next.gameToken)
     )));
     for (const result of results) {
-      assert.equal(result.body.error, undefined, JSON.stringify(result.body));
-      assert.equal(result.body.balance, TICKET_DAILY_CAP);
+      assert.equal(result.body.error, 'daily_ticket_cap', JSON.stringify(result.body));
     }
-    assert.equal(results.filter((item) => item.body.capped === false).length, 1);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
-    assert.equal(earnLedgerCount(session.hub.userId), 1);
+    assert.equal(earnLedgerCount(session.hub.userId), credited);
+    const replay = await call('tickets.earn', { amount: cap, reason: 'grind', key: 'over-day-0' }, next.gameToken);
+    assert.equal(replay.body.error, 'daily_ticket_cap', JSON.stringify(replay.body));
+    assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
+    assert.equal(earnLedgerCount(session.hub.userId), credited);
+    assert.equal(idempotencyRows(session.hub.userId, 'over-day-0'), 0);
   });
 
   await test('wallet', `${exchange.id} concurrent exchanges cannot pass the verse cap`, async () => {
     const session = await login(exchange.game);
-    await earn(session.gameToken, TICKET_DAILY_CAP, 'grind', 'fund-verse-cap');
+    const funded = await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'fund-verse-cap');
+    assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
     const width = Math.max(repeatCount('concurrent'), VERSE_DAILY_CAP / TICKETS_PER_VERSE + 1);
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.exchange', { tickets: 100, key: `vcap-${index}` }, session.gameToken)
+      call('tickets.exchange', { tickets: 100, key: `vcap-${index}` }, funded.token)
     )));
     const wins = results.filter((item) => !item.body.error);
     assert.equal(wins.length, VERSE_DAILY_CAP / 10, JSON.stringify(results.map((item) => item.body)));
@@ -634,23 +651,26 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} concurrent spends cannot go negative`, async () => {
     const session = await login(exchange.game);
-    await earn(session.gameToken, 30, exchange.earnReason, 'fund-neg');
+    const purse = exchange.earnReason === 'win' ? 20 : 30;
+    await earn(session.gameToken, purse, exchange.earnReason, 'fund-neg');
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.exchange', { tickets: 30, key: `neg-${index}` }, session.gameToken)
+      call('tickets.exchange', { tickets: purse, key: `neg-${index}` }, session.gameToken)
     )));
     const wins = results.filter((item) => !item.body.error);
     assert.equal(wins.length, 1, JSON.stringify(results.map((item) => item.body)));
-    assert.equal(wins[0]?.body.verse, 3);
+    assert.equal(wins[0]?.body.verse, purse / TICKETS_PER_VERSE);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), 0);
-    assert.equal(verseBalance(session.hub.userId), 3);
+    assert.equal(verseBalance(session.hub.userId), purse / TICKETS_PER_VERSE);
     assert.ok(ticketBalance(session.hub.userId, exchange.game) >= 0);
     assert.ok(verseBalance(session.hub.userId) >= 0);
   });
 
   await test('wallet', `${exchange.id} daily cap survives a new session and a client clock`, async () => {
     const session = await login(exchange.game);
-    await earn(session.gameToken, TICKET_DAILY_CAP, 'grind', 'fill-day');
+    await fundInSessions(session.gameToken, session.hub.token, exchange.game, TICKET_DAILY_CAP, 'fill-day');
+    const ledger = earnLedgerCount(session.hub.userId);
+    assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
     const next = await openGame(session.hub.token, exchange.game);
     const again = await call('tickets.earn', {
       amount: 10,
@@ -660,10 +680,17 @@ async function wallet(): Promise<void> {
       timestamp: '1999-01-01T00:00:00Z',
       day: '1999-01-01',
     }, next.gameToken);
-    assert.equal(again.body.error, undefined, JSON.stringify(again.body));
-    assert.equal(again.body.capped, true);
-    assert.equal(again.body.balance, TICKET_DAILY_CAP);
+    assert.equal(again.body.error, 'daily_ticket_cap', JSON.stringify(again.body));
+    const replay = await call('tickets.earn', {
+      amount: 10,
+      reason: 'win',
+      key: 'after-session',
+      day: '1999-01-01',
+    }, next.gameToken);
+    assert.equal(replay.body.error, 'daily_ticket_cap', JSON.stringify(replay.body));
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
+    assert.equal(earnLedgerCount(session.hub.userId), ledger);
+    assert.equal(idempotencyRows(session.hub.userId, 'after-session'), 0);
     const bucket = psql(
       `SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(session.hub.userId)}' AND bucket = 'tickets:${exchange.game}'`,
     );
@@ -761,12 +788,19 @@ async function hposExtras(): Promise<void> {
     assert.equal(exchangeCount(broke.hub.userId), 0);
 
     const funded = await login('hpos10i');
-    await earn(funded.gameToken, TICKET_DAILY_CAP, 'level_end', 'fund-500');
-    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, funded.gameToken);
+    const fundedSession = await fundInSessions(
+      funded.gameToken,
+      funded.hub.token,
+      'hpos10i',
+      TICKET_DAILY_CAP,
+      'fund-500',
+    );
+    assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP);
+    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, fundedSession.token);
     assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
     assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
     assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
-    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, funded.gameToken);
+    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, fundedSession.token);
     assert.equal(overCap.body.error, 'verse_cap', JSON.stringify(overCap.body));
     assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
     assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP - 500);
@@ -805,6 +839,149 @@ async function hposExtras(): Promise<void> {
       30,
     );
   });
+}
+
+/** PB exchange uses the hub rules: 10:1, daily Verse cap, server balance. Client price and clamp fields are ignored. */
+function pbGameId(): string {
+  const rpcs = readFileSync(path.join(ROOT, 'server/modules/src/rpcs.ts'), 'utf8');
+  return rpcs.includes('peoples-bitcoin') ? 'peoples-bitcoin' : 'pb';
+}
+
+async function pbExchange(): Promise<void> {
+  await test('wallet', 'pb exchange follows hub rules without a client clamp', async () => {
+    const game = pbGameId();
+    const small = await login(game);
+    await earn(small.gameToken, 40, 'shop', 'pb-fund-40');
+    const odd = await call('tickets.exchange', {
+      tickets: 25,
+      verse: 500,
+      price: 1,
+      cost: 1,
+      balance: 999999,
+      amount: 999999,
+      key: 'pb-step-25',
+    }, small.gameToken);
+    assert.equal(odd.body.error, undefined, JSON.stringify(odd.body));
+    assert.equal(odd.body.verse, 2);
+    assert.equal(odd.body.ticketsLeft, 20);
+    assert.equal(verseBalance(small.hub.userId), 2);
+    assert.equal(ticketBalance(small.hub.userId, game), 20);
+    const ten = await call('tickets.exchange', {
+      tickets: 10,
+      balance: 999999,
+      key: 'pb-step-10',
+    }, small.gameToken);
+    assert.equal(ten.body.error, undefined, JSON.stringify(ten.body));
+    assert.equal(ten.body.verse, 3);
+    assert.equal(ten.body.ticketsLeft, 10);
+    const over = await call('tickets.exchange', {
+      tickets: 30,
+      balance: 999999,
+      key: 'pb-over-balance',
+    }, small.gameToken);
+    assert.equal(over.body.error, 'insufficient_tickets', JSON.stringify(over.body));
+    assert.equal(ticketBalance(small.hub.userId, game), 10);
+    assert.equal(verseBalance(small.hub.userId), 3);
+    assert.equal(exchangeCount(small.hub.userId), 2);
+
+    const funded = await login(game);
+    let dayToken = funded.gameToken;
+    await earn(dayToken, 200, 'shop', 'pb-fund-day-0');
+    for (let i = 1; i < TICKET_DAILY_CAP / 200; i += 1) {
+      const next = await openGame(funded.hub.token, game);
+      dayToken = next.gameToken;
+      await earn(dayToken, 200, 'shop', `pb-fund-day-${i}`);
+    }
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP);
+    assert.equal(
+      psql(`SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(funded.hub.userId)}' AND bucket = 'tickets:${game}'`),
+      serverDay(),
+    );
+    const fiveHundred = await call('tickets.exchange', {
+      tickets: 500,
+      price: 1,
+      balance: 999999,
+      key: 'pb-step-500',
+    }, dayToken);
+    assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
+    assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
+    assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
+    const past = await call('tickets.exchange', { tickets: TICKETS_PER_VERSE, key: 'pb-past-verse' }, dayToken);
+    assert.equal(past.body.error, 'verse_cap', JSON.stringify(past.body));
+    assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP - 500);
+    assert.equal(mints(funded.hub.userId, 'genesis_shard'), 0);
+    const later = await openGame(funded.hub.token, game);
+    const ledger = earnLedgerCount(funded.hub.userId);
+    const cappedEarn = await call('tickets.earn', {
+      amount: 10,
+      reason: 'shop',
+      key: 'pb-past-daily',
+      balance: 999999,
+      day: '1999-01-01',
+    }, later.gameToken);
+    assert.equal(cappedEarn.body.error, 'daily_ticket_cap', JSON.stringify(cappedEarn.body));
+    const replay = await call('tickets.earn', {
+      amount: 10,
+      reason: 'shop',
+      key: 'pb-past-daily',
+      day: '1999-01-01',
+    }, later.gameToken);
+    assert.equal(replay.body.error, 'daily_ticket_cap', JSON.stringify(replay.body));
+    assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP - 500);
+    assert.equal(earnLedgerCount(funded.hub.userId), ledger);
+    assert.equal(idempotencyRows(funded.hub.userId, 'pb-past-daily'), 0);
+  });
+}
+
+/** NOBU payloads from the stated client contract (PR #1, e4b5446). The repo was not readable from this environment. */
+async function nobuRows(): Promise<void> {
+  await test('score', 'nobu_trial_time replay keeps the lowest and grants nothing', async () => {
+    const session = await login('nobu');
+    const meta = { level: 1 };
+    const first = await call('score.submit', { boardId: 'nobu_trial_time', value: 40.125, meta }, session.gameToken);
+    assert.equal(first.body.error, undefined, JSON.stringify(first.body));
+    assert.equal(first.body.accepted, true);
+    assert.equal(first.body.value, 40);
+    const worse = await call('score.submit', { boardId: 'nobu_trial_time', value: 55.5, meta: { level: 2 } }, session.gameToken);
+    assert.equal(worse.body.value, 40);
+    assert.equal(scoreMetaFor(session.hub.userId, 'nobu_trial_time').level, 1);
+    const better = await call('score.submit', { boardId: 'nobu_trial_time', value: 30.2, meta }, session.gameToken);
+    assert.equal(better.body.value, 30);
+    const replay = await call('score.submit', { boardId: 'nobu_trial_time', value: 30.2, meta }, session.gameToken);
+    assert.equal(replay.body.value, 30);
+    assert.equal(
+      num(`SELECT value FROM game.score_best WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'nobu_trial_time'`),
+      30,
+    );
+    assert.equal(mints(session.hub.userId, 'cones_tip'), 0);
+    assert.equal(ticketBalance(session.hub.userId, 'nobu'), 0);
+    assert.equal(verseBalance(session.hub.userId), 0);
+  });
+
+  await test('wallet', 'exchange response has ticketsLeft and not ticketsDebited', async () => {
+    const session = await login('nobu');
+    await earn(session.gameToken, 20, 'level_end', 'nobu-ex-fund');
+    const traded = await call('tickets.exchange', { tickets: 10, key: 'nobu-ex-trade' }, session.gameToken);
+    assert.equal(traded.body.error, undefined, JSON.stringify(traded.body));
+    const body = traded.body as Record<string, unknown>;
+    assert.equal(body.ticketsLeft, 10);
+    assert.equal(body.verse, 1);
+    assert.equal(typeof body.receiptId, 'string');
+    assert.equal(body.verseCapLeft, VERSE_DAILY_CAP - 1);
+    assert.equal(body.ticketsDebited, undefined);
+    assert.equal(body.verseCredited, undefined);
+    assert.equal(verseBalance(session.hub.userId), 1);
+    assert.equal(ticketBalance(session.hub.userId, 'nobu'), 10);
+  });
+}
+
+function scoreMetaFor(userId: string, boardId: string): { level?: number; zone?: string; act?: number } {
+  if (!/^[a-z0-9_]+$/.test(boardId)) throw new Error(`bad board ${boardId}`);
+  const raw = psql(
+    `SELECT meta::text FROM game.score_best WHERE user_id = '${sqlId(userId)}' AND board_id = '${boardId}'`,
+  );
+  return JSON.parse(raw) as { level?: number; zone?: string; act?: number };
 }
 
 function functionBody(source: string, name: string): string {
@@ -1073,22 +1250,395 @@ function report(): number {
   return failed;
 }
 
+function sessionTicketCap(): number {
+  const cap = num('SELECT game.session_ticket_cap()');
+  if (cap <= 0 || TICKET_DAILY_CAP % cap !== 0) {
+    throw new Error(`session cap ${cap} does not tile the daily cap ${TICKET_DAILY_CAP}`);
+  }
+  return cap;
+}
+
+/**
+ * One session of 200 Tickets, in calls that stay inside the reason's event_rule max.
+ * sproto `win` is 20. hpos10i `level_end` is 200. nobu `level_end` is 110, so a
+ * session is 110 then 90. An unlisted reason is one call of 200.
+ */
+function sessionEarns(game: string): { reason: string; amounts: number[] } {
+  if (game === 'sproto') return { reason: 'win', amounts: Array.from({ length: 10 }, () => 20) };
+  if (game === 'hpos10i') return { reason: 'level_end', amounts: [200] };
+  if (game === 'nobu') return { reason: 'level_end', amounts: [110, 90] };
+  return { reason: 'grind', amounts: [200] };
+}
+
+async function fundInSessions(
+  firstToken: string,
+  hubToken: string,
+  game: string,
+  total: number,
+  keyPrefix: string,
+): Promise<{ token: string; credits: number }> {
+  const plan = sessionEarns(game);
+  const perSession = plan.amounts.reduce((sum, amount) => sum + amount, 0);
+  if (perSession !== 200 || total <= 0 || total % perSession !== 0) {
+    throw new Error(`${keyPrefix}: cannot fund ${total} as sessions of ${perSession}`);
+  }
+  let token = firstToken;
+  let credits = 0;
+  const sessions = total / perSession;
+  for (let i = 0; i < sessions; i += 1) {
+    if (i > 0) token = (await openGame(hubToken, game)).gameToken;
+    for (let callIndex = 0; callIndex < plan.amounts.length; callIndex += 1) {
+      const amount = plan.amounts[callIndex] ?? 0;
+      await earn(token, amount, plan.reason, `${keyPrefix}-${i}-${callIndex}`);
+      credits += 1;
+    }
+  }
+  return { token, credits };
+}
+
+function idempotencyRows(userId: string, key: string): number {
+  if (!/^[A-Za-z0-9_.:-]{1,80}$/.test(key)) throw new Error(`bad key ${key}`);
+  return num(`SELECT count(*) FROM game.idempotency WHERE user_id = '${sqlId(userId)}' AND key = '${key}'`);
+}
+
+function dayTickets(userId: string, game: string): number {
+  return num(
+    `SELECT COALESCE((SELECT amount FROM game.earn_window WHERE user_id = '${sqlId(userId)}' AND bucket = 'tickets:${game}'), 0)`,
+  );
+}
+
+function earnLedgerDelta(userId: string, game: string): number {
+  if (!/^[a-z0-9_-]+$/.test(game)) throw new Error(`bad game ${game}`);
+  return num(
+    `SELECT COALESCE(sum(delta), 0) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = '${game}'`,
+  );
+}
+
+/**
+ * #13's earn ceilings are sproto `win` and `duel_win`, hpos10i `level_end`,
+ * nobu `level_end`, and peoples-bitcoin `pb_bank`, `pb_drop`, `pb_lobby`,
+ * `pb_sell`, `pb_quest`. `unlisted_booth` is not one of those rows.
+ */
+const UNLISTED_GAME = 'sproto';
+const UNLISTED_REASON = 'unlisted_booth';
+
+function assertNoEventRule(game: string, reason: string): void {
+  if (!/^[a-z0-9_]+$/.test(game) || !/^[a-z0-9_]+$/.test(reason)) {
+    throw new Error(`bad unlisted earn ${game} ${reason}`);
+  }
+  assert.equal(
+    num(`SELECT count(*) FROM game.event_rule WHERE game_id = '${game}' AND event_type = '${reason}'`),
+    0,
+    `${game}.${reason} is seeded in game.event_rule`,
+  );
+}
+
+function nakamaLogTail(): string {
+  try {
+    return execFileSync(
+      'docker',
+      ['compose', '-f', path.join(ROOT, 'server/docker-compose.yml'), 'logs', '--no-color', '--tail', '400', 'nakama'],
+      { cwd: ROOT, encoding: 'utf8', timeout: 30_000, maxBuffer: 8 * 1024 * 1024 },
+    );
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message?: string };
+    return `${err.stdout ?? ''}\n${err.stderr ?? ''}\n${err.message ?? ''}`;
+  }
+}
+
+function addedLogLines(before: string, after: string): string[] {
+  const seen = new Set(before.split('\n'));
+  return after.split('\n').filter((line) => line.length > 0 && !seen.has(line));
+}
+
+function isWarnLine(line: string): boolean {
+  return line.includes('"level":"warn"') || line.includes('"level":"warning"') || line.includes('WARNING:');
+}
+
+function warningText(line: string): string {
+  const jsonStart = line.indexOf('{');
+  if (jsonStart >= 0) {
+    try {
+      const parsed = JSON.parse(line.slice(jsonStart)) as { msg?: string };
+      if (parsed.msg) return parsed.msg;
+    } catch {
+      // The container line is not JSON. Keep it whole.
+    }
+  }
+  return line.trim();
+}
+
+/** Static logger.warn text in ticketsEarn. Null when this head does not log the fallback. */
+function fallbackWarnLiteral(): string | null {
+  let rpc = '';
+  try {
+    rpc = readFileSync(path.join(ROOT, 'server/modules/src/rpcs.ts'), 'utf8');
+  } catch {
+    return null;
+  }
+  const start = rpc.indexOf('function ticketsEarn');
+  const end = rpc.indexOf('function ticketsExchange');
+  const body = start >= 0 ? rpc.slice(start, end > start ? end : undefined) : rpc;
+  const match = body.match(/logger\.warn\(\s*"([^"]*)"/);
+  return match?.[1] ?? null;
+}
+
+interface Purse {
+  balance: number;
+  ledger: number;
+  sum: number;
+  window: string;
+}
+
+function purseOf(userId: string): Purse {
+  return {
+    balance: ticketBalance(userId, UNLISTED_GAME),
+    ledger: num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}'`),
+    sum: earnLedgerDelta(userId, UNLISTED_GAME),
+    window: psql(
+      `SELECT COALESCE((SELECT amount::text || '|' || day::text FROM game.earn_window WHERE user_id = '${sqlId(userId)}' AND bucket = 'tickets:${UNLISTED_GAME}'), 'none')`,
+    ),
+  };
+}
+
+function assertPurseHeld(userId: string, before: Purse, label: string): void {
+  const after = purseOf(userId);
+  assert.equal(after.balance, before.balance, `${label} changed the balance (${before.balance} -> ${after.balance})`);
+  assert.equal(after.ledger, before.ledger, `${label} wrote a ledger row (${before.ledger} -> ${after.ledger})`);
+  assert.equal(after.sum, before.sum, `${label} ledger delta was ${after.sum - before.sum}`);
+  assert.equal(after.window, before.window, `${label} changed earn_window (${before.window} -> ${after.window})`);
+}
+
+function sessionEarned(userId: string, sessionId: string): number {
+  return num(
+    `SELECT COALESCE((SELECT sum(delta) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = '${UNLISTED_GAME}' AND ref_id = '${sqlId(sessionId)}' AND delta > 0), 0)`,
+  );
+}
+
+const fallbackQuotes: string[] = [];
+const fallbackSnippets: string[] = [];
+
+function isFallbackHit(line: string, literal: string | null): boolean {
+  if (!isWarnLine(line) || !line.includes(UNLISTED_GAME) || !line.includes(UNLISTED_REASON)) return false;
+  return literal ? line.includes(literal) : true;
+}
+
+async function earnWatched(token: string, amount: number, key: string, record: boolean): Promise<RpcResult> {
+  const literal = fallbackWarnLiteral();
+  const before = nakamaLogTail();
+  const result = await call('tickets.earn', { amount, reason: UNLISTED_REASON, key }, token);
+  await sleep(800);
+  const added = addedLogLines(before, nakamaLogTail());
+  const hits = added.filter((line) => isFallbackHit(line, literal));
+  if (record) {
+    fallbackQuotes.push(hits.length ? warningText(hits[0] ?? '') : '');
+    const nearby = added.filter((line) => line.includes(UNLISTED_REASON) || line.includes('warn'));
+    fallbackSnippets.push(nearby.slice(-6).join('\n') || '(no new warn lines)');
+  }
+  return result;
+}
+
+function observed(result: RpcResult, steps: string): string {
+  return `status=${result.status} body=${JSON.stringify(result.body)}\nrepro: ${steps}`;
+}
+
+async function rejectWholeEarn(amount: number, seeded: number): Promise<void> {
+  const session = await login('sproto');
+  if (seeded > 0) {
+    const seededEarn = await earn(session.gameToken, seeded, 'grind', `seed-${amount}`);
+    assert.equal(seededEarn.body.balance, seeded, JSON.stringify(seededEarn.body));
+  }
+  const before = ticketBalance(session.hub.userId, 'sproto');
+  const ledger = earnLedgerCount(session.hub.userId);
+  const dayBefore = dayTickets(session.hub.userId, 'sproto');
+  const key = `over-${amount}-after-${seeded}`;
+  const result = await call('tickets.earn', { amount, reason: 'grind', key }, session.gameToken);
+  assert.equal(
+    result.body.error,
+    'session_ticket_cap',
+    `earn ${amount} after ${seeded} must be rejected whole, got ${JSON.stringify(result.body)}`,
+  );
+  assert.equal(ticketBalance(session.hub.userId, 'sproto'), before, 'a rejected earn must not move the wallet');
+  assert.equal(earnLedgerCount(session.hub.userId), ledger, 'a rejected earn must not write a ledger row');
+  assert.equal(dayTickets(session.hub.userId, 'sproto'), dayBefore, 'a rejected earn must not consume the daily cap');
+  assert.equal(idempotencyRows(session.hub.userId, key), 0);
+  const replay = await call('tickets.earn', { amount, reason: 'grind', key }, session.gameToken);
+  assert.equal(replay.body.error, 'session_ticket_cap', JSON.stringify(replay.body));
+  assert.equal(ticketBalance(session.hub.userId, 'sproto'), before);
+  assert.equal(earnLedgerCount(session.hub.userId), ledger);
+  assert.equal(dayTickets(session.hub.userId, 'sproto'), dayBefore);
+  assert.equal(idempotencyRows(session.hub.userId, key), 0);
+}
+
+async function sessionCapRegression(): Promise<void> {
+  await test('session-cap', 'earn of 1000 on a fresh session is rejected whole', () => rejectWholeEarn(1000, 0));
+  await test('session-cap', 'earn of 5000 on a fresh session is rejected whole', () => rejectWholeEarn(5000, 0));
+  await test('session-cap', 'earn of 1000 after a partial session is rejected whole', () => rejectWholeEarn(1000, 50));
+  await test('session-cap', 'earn of 5000 after a partial session is rejected whole', () => rejectWholeEarn(5000, 50));
+  await test('session-cap', 'sproto win of 21 is amount_over_rule and rejected whole', async () => {
+    const session = await login('sproto');
+    const ok = await earn(session.gameToken, 20, 'win', 'win-20');
+    assert.equal(ok.body.balance, 20, JSON.stringify(ok.body));
+    const ledger = earnLedgerCount(session.hub.userId);
+    const over = await call('tickets.earn', { amount: 21, reason: 'win', key: 'win-21' }, session.gameToken);
+    assert.equal(over.body.error, 'amount_over_rule', JSON.stringify(over.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 20);
+    assert.equal(earnLedgerCount(session.hub.userId), ledger);
+    assert.equal(idempotencyRows(session.hub.userId, 'win-21'), 0);
+    const replay = await call('tickets.earn', { amount: 21, reason: 'win', key: 'win-21' }, session.gameToken);
+    assert.equal(replay.body.error, 'amount_over_rule', JSON.stringify(replay.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 20);
+    assert.equal(earnLedgerCount(session.hub.userId), ledger);
+    assert.equal(idempotencyRows(session.hub.userId, 'win-21'), 0);
+  });
+  await test('session-cap', 'repeated earns stop at 200 and the crossing earn is rejected whole', async () => {
+    const cap = num('SELECT game.session_ticket_cap()');
+    assert.equal(cap, 200);
+    const session = await login('sproto');
+    const first = await earn(session.gameToken, 100, 'grind', 'cap-a');
+    const second = await earn(session.gameToken, 100, 'grind', 'cap-b');
+    assert.equal(first.body.balance, 100);
+    assert.equal(second.body.balance, 200);
+    const third = await call('tickets.earn', { amount: 100, reason: 'grind', key: 'cap-c' }, session.gameToken);
+    assert.equal(third.body.error, 'session_ticket_cap', JSON.stringify(third.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 200);
+    assert.equal(earnLedgerCount(session.hub.userId), 2);
+    const replay = await call('tickets.earn', { amount: 100, reason: 'grind', key: 'cap-c' }, session.gameToken);
+    assert.equal(replay.body.error, 'session_ticket_cap', JSON.stringify(replay.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 200);
+    assert.equal(earnLedgerCount(session.hub.userId), 2);
+  });
+  await runUnknownReasonEarn();
+}
+
+function confirmUnlistedReason(): void {
+  const seeded = psql(
+    `SELECT coalesce(string_agg(game_id || '/' || event_type, ',' ORDER BY game_id, event_type), '') FROM game.event_rule`,
+  );
+  console.log(`event_rule seed: ${seeded}`);
+  assertNoEventRule(UNLISTED_GAME, UNLISTED_REASON);
+  assert.equal(num('SELECT game.session_ticket_cap()'), 200);
+}
+
+async function runUnknownReasonEarn(): Promise<void> {
+  fallbackQuotes.length = 0;
+  fallbackSnippets.length = 0;
+
+  await test('session-cap', 'unknown-reason 250 on a fresh session is amount_over_rule', async () => {
+    confirmUnlistedReason();
+    const session = await login(UNLISTED_GAME);
+    const before = purseOf(session.hub.userId);
+    const steps = 'fresh sproto session; tickets.earn amount 250 reason unlisted_booth';
+    const over = await earnWatched(session.gameToken, 250, 'unk-250', true);
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
+    assertPurseHeld(session.hub.userId, before, 'earn 250');
+    assert.equal(sessionEarned(session.hub.userId, session.sessionId), 0, observed(over, steps));
+    const replay = await call('tickets.earn', { amount: 250, reason: UNLISTED_REASON, key: 'unk-250' }, session.gameToken);
+    assert.equal(replay.body.error, 'amount_over_rule', observed(replay, `${steps}; replay the same key`));
+    assertPurseHeld(session.hub.userId, before, 'earn 250 replay');
+  });
+
+  await test('session-cap', 'unknown-reason 150 past the session cap is session_ticket_cap', async () => {
+    confirmUnlistedReason();
+    const first = await login(UNLISTED_GAME);
+    await earn(first.gameToken, 200, UNLISTED_REASON, 'unk-fund-a');
+    const session = await openGame(first.hub.token, UNLISTED_GAME);
+    await earn(session.gameToken, 80, UNLISTED_REASON, 'unk-fund-b');
+    await earn(session.gameToken, 70, UNLISTED_REASON, 'unk-fund-c');
+    assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150);
+    const before = purseOf(session.hub.userId);
+    const steps = 'fund sproto with real earns of 200, then 80 and 70 on the next session; tickets.earn amount 150 reason unlisted_booth';
+    const over = await earnWatched(session.gameToken, 150, 'unk-150', true);
+    assert.equal(over.body.error, 'session_ticket_cap', observed(over, steps));
+    assertPurseHeld(session.hub.userId, before, 'earn 150');
+    assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150, observed(over, steps));
+    const replay = await call('tickets.earn', { amount: 150, reason: UNLISTED_REASON, key: 'unk-150' }, session.gameToken);
+    assert.equal(replay.body.error, 'session_ticket_cap', observed(replay, `${steps}; replay the same key`));
+    assertPurseHeld(session.hub.userId, before, 'earn 150 replay');
+  });
+
+  await test('session-cap', 'unknown-reason 200 credits once', async () => {
+    confirmUnlistedReason();
+    const session = await login(UNLISTED_GAME);
+    const before = purseOf(session.hub.userId);
+    const steps = 'fresh sproto session; tickets.earn amount 200 reason unlisted_booth; replay the same key';
+    const credited = await earnWatched(session.gameToken, 200, 'unk-200', true);
+    assert.equal(credited.body.error, undefined, observed(credited, steps));
+    assert.equal(credited.body.balance, 200, observed(credited, steps));
+    assert.equal(credited.body.capped, false, observed(credited, steps));
+    const once = purseOf(session.hub.userId);
+    assert.equal(once.balance, before.balance + 200, observed(credited, steps));
+    assert.equal(once.ledger, before.ledger + 1, observed(credited, steps));
+    assert.equal(once.sum, before.sum + 200, observed(credited, steps));
+    assert.equal(once.window, `200|${serverDay()}`, observed(credited, steps));
+    const replay = await call('tickets.earn', { amount: 200, reason: UNLISTED_REASON, key: 'unk-200' }, session.gameToken);
+    assert.equal(replay.body.error, undefined, observed(replay, steps));
+    assert.equal(replay.body.balance, 200, observed(replay, steps));
+    assertPurseHeld(session.hub.userId, once, 'earn 200 replay');
+    assert.equal(earnLedgerCount(session.hub.userId), 1, observed(replay, steps));
+  });
+
+  const warningName = 'unknown-reason fallback warning';
+  const only = process.env.DUP_ONLY;
+  if (!only || warningName.includes(only)) {
+    const literal = fallbackWarnLiteral();
+    const found = fallbackQuotes.filter((quote) => quote.length > 0);
+    if (!literal && found.length === 0) {
+      pending(
+        'session-cap',
+        warningName,
+        'fallback warning is not on the head under test (ticketsEarn has no logger.warn)',
+      );
+    } else {
+      await test('session-cap', warningName, async () => {
+        const detail = fallbackQuotes.map((quote, index) => quote || `missing\n${fallbackSnippets[index] ?? ''}`).join('\n---\n');
+        assert.equal(found.length, 3, `cases 1-3 must each log the fallback warning\n${detail}`);
+        for (const quote of found) {
+          if (literal) assert.ok(quote.includes(literal.trim()), quote);
+          assert.ok(quote.includes(UNLISTED_GAME), quote);
+          assert.ok(quote.includes(UNLISTED_REASON), quote);
+          console.log(`WARN ${quote}`);
+        }
+      });
+    }
+  }
+
+  await test('session-cap', 'unknown-reason over 200 near the cap is amount_over_rule', async () => {
+    confirmUnlistedReason();
+    const session = await login(UNLISTED_GAME);
+    await earn(session.gameToken, 150, UNLISTED_REASON, 'unk-near');
+    assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150);
+    const before = purseOf(session.hub.userId);
+    const steps = 'fresh sproto session; tickets.earn 150 unlisted_booth; then tickets.earn amount 250 reason unlisted_booth';
+    const over = await earnWatched(session.gameToken, 250, 'unk-250-near', false);
+    assert.equal(over.body.error, 'amount_over_rule', observed(over, steps));
+    assertPurseHeld(session.hub.userId, before, 'earn 250 near the cap');
+    assert.equal(sessionEarned(session.hub.userId, session.sessionId), 150, observed(over, steps));
+  });
+}
+
 export async function main(): Promise<void> {
   await waitReady();
   let failed = 0;
   try {
-    await idempotency();
-    await races();
-    await forged();
-    await wallet();
-    await hposExtras();
-    try {
-      await faults();
-    } finally {
-      dropFaultHooks();
-      await ensureNakama();
+    await sessionCapRegression();
+    if (!process.env.DUP_ONLY) {
+      await idempotency();
+      await races();
+      await forged();
+      await wallet();
+      await hposExtras();
+      await pbExchange();
+      await nobuRows();
+      try {
+        await faults();
+      } finally {
+        dropFaultHooks();
+        await ensureNakama();
+      }
+      await runGated({ test, pending });
+      await runShop({ test, pending });
     }
-    await runGated({ test, pending });
   } finally {
     failed = report();
   }

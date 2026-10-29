@@ -155,10 +155,55 @@ BEGIN
       FROM (
         SELECT u.user_id,
           (SELECT count(*) FROM game.tickets_ledger l
-            WHERE l.user_id = u.user_id AND l.delta > 0 AND l.reason <> 'exchange') AS ledgers,
+            WHERE l.user_id = u.user_id AND l.delta > 0
+              AND l.reason <> 'exchange' AND l.reason <> 'shop_sell') AS ledgers,
           (SELECT count(*) FROM game.idempotency i
             WHERE i.user_id = u.user_id AND i.rpc = 'tickets.earn') AS keys
         FROM (SELECT DISTINCT user_id FROM game.tickets_ledger) u
+      ) s
+      WHERE s.ledgers > s.keys
+
+      UNION ALL
+      SELECT 'spend_not_a_debit',
+             user_id::text,
+             'delta=' || delta::text || ' seq=' || seq::text
+      FROM game.tickets_ledger
+      WHERE reason = 'spend' AND delta >= 0
+
+      UNION ALL
+      SELECT 'shop_sell_not_a_credit',
+             user_id::text,
+             'delta=' || delta::text || ' seq=' || seq::text
+      FROM game.tickets_ledger
+      WHERE reason = 'shop_sell' AND delta <= 0
+
+      UNION ALL
+      SELECT 'shop_sell_nets_tickets',
+             s.user_id::text,
+             'sold=' || s.sold::text || ' spent=' || s.spent::text
+      FROM (
+        SELECT user_id,
+          COALESCE(sum(delta) FILTER (WHERE reason = 'shop_sell'), 0) AS sold,
+          COALESCE(sum(-delta) FILTER (WHERE reason = 'spend'), 0) AS spent
+        FROM game.tickets_ledger
+        WHERE reason IN ('spend', 'shop_sell')
+        GROUP BY user_id
+      ) s
+      WHERE s.sold > 0 AND s.sold >= s.spent
+
+      UNION ALL
+      SELECT 'spend_ledger_exceeds_keys',
+             s.user_id::text,
+             'ledger=' || s.ledgers::text || ' keys=' || s.keys::text
+      FROM (
+        SELECT u.user_id,
+          (SELECT count(*) FROM game.tickets_ledger l
+            WHERE l.user_id = u.user_id AND l.reason = 'spend') AS ledgers,
+          (SELECT count(*) FROM game.idempotency i
+            WHERE i.user_id = u.user_id AND i.rpc = 'tickets.spend') AS keys
+        FROM (
+          SELECT DISTINCT user_id FROM game.tickets_ledger WHERE reason = 'spend'
+        ) u
       ) s
       WHERE s.ledgers > s.keys
     ) audit
@@ -189,6 +234,69 @@ BEGIN
              def_id || ' x' || count(*)::text AS detail
       FROM game.cosmetic_owned
       GROUP BY user_id, def_id
+      HAVING count(*) > 1
+    $q$
+    LOOP
+      n := n + 1;
+      msg := msg || r.kind || '|' || r.subject || '|' || r.detail || E'\n';
+    END LOOP;
+  END IF;
+
+  -- `kind` is optional. Tech's spec names the ledger label `spend` / `shop_sell`.
+  -- When the column exists, the same sign and round-trip rules apply to it.
+  IF EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'game' AND table_name = 'tickets_ledger' AND column_name = 'kind'
+  ) THEN
+    FOR r IN EXECUTE $q$
+      SELECT kind, subject, detail FROM (
+        SELECT 'spend_not_a_debit'::text AS kind,
+               user_id::text AS subject,
+               'delta=' || delta::text || ' seq=' || seq::text AS detail
+        FROM game.tickets_ledger
+        WHERE kind = 'spend' AND delta >= 0
+        UNION ALL
+        SELECT 'shop_sell_not_a_credit',
+               user_id::text,
+               'delta=' || delta::text || ' seq=' || seq::text
+        FROM game.tickets_ledger
+        WHERE kind = 'shop_sell' AND delta <= 0
+        UNION ALL
+        SELECT 'shop_sell_nets_tickets',
+               s.user_id::text,
+               'sold=' || s.sold::text || ' spent=' || s.spent::text
+        FROM (
+          SELECT user_id,
+            COALESCE(sum(delta) FILTER (WHERE kind = 'shop_sell'), 0) AS sold,
+            COALESCE(sum(-delta) FILTER (WHERE kind = 'spend'), 0) AS spent
+          FROM game.tickets_ledger
+          WHERE kind IN ('spend', 'shop_sell')
+          GROUP BY user_id
+        ) s
+        WHERE s.sold > 0 AND s.sold >= s.spent
+      ) extra
+    $q$
+    LOOP
+      n := n + 1;
+      msg := msg || r.kind || '|' || r.subject || '|' || r.detail || E'\n';
+    END LOOP;
+  END IF;
+
+  IF to_regclass('game.shop_tx') IS NOT NULL
+     AND EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'game' AND table_name = 'shop_tx' AND column_name = 'idem_key'
+     )
+     AND EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_schema = 'game' AND table_name = 'shop_tx' AND column_name = 'user_id'
+     ) THEN
+    FOR r IN EXECUTE $q$
+      SELECT 'shop_tx_key_multi'::text AS kind,
+             user_id::text AS subject,
+             idem_key || ' x' || count(*)::text AS detail
+      FROM game.shop_tx
+      GROUP BY user_id, idem_key
       HAVING count(*) > 1
     $q$
     LOOP
