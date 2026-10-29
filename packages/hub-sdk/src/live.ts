@@ -128,9 +128,14 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       const cached = readCached(gameId);
       if (!cached) return standalone();
       try {
-        const profile = await client.rpc<{ playerId?: string; relics?: unknown }>('profile.get', {}, { token: cached.token });
+        const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
+          'profile.get',
+          {},
+          { token: cached.token },
+        );
         cached.relics = asRelics(profile.relics);
         if (profile.playerId) cached.playerId = profile.playerId;
+        if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
         writeCached(cached);
       } catch {
         active = cached;

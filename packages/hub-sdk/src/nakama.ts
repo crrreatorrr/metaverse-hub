@@ -34,6 +34,8 @@ export interface ProfileResult {
   scope: string;
   verse?: number;
   verseEarned?: { gameId: string; lifetime: number }[];
+  /** Remaining Tickets this game can still earn today. Present on a game session. */
+  ticketsCapLeft?: number;
 }
 
 export interface PortalEnterResult {
