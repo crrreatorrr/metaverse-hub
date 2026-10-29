@@ -128,12 +128,16 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     return `hub:tickets:${game}`;
   }
 
+  function bucketNow(): number {
+    return env.serverNow ? env.serverNow() : resolved.now();
+  }
+
   function earnKey(game: GameId): string {
-    return `hub:earn:${game}:${dayKey(resolved.now())}`;
+    return `hub:earn:${game}:${dayKey(bucketNow())}`;
   }
 
   function verseDayKey(game: GameId): string {
-    return `hub:verseDay:${game}:${dayKey(resolved.now())}`;
+    return `hub:verseDay:${game}:${dayKey(bucketNow())}`;
   }
 
   function capLeft(game: GameId): number {

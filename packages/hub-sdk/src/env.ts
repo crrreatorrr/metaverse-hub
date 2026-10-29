@@ -19,6 +19,8 @@ export interface HubSdkEnv {
   local?: KeyValue;
   session?: KeyValue;
   now?: () => number;
+  /** UTC clock for mock daily Ticket and Verse buckets. Falls back to `now`. */
+  serverNow?: () => number;
   readHash?: () => string;
   writeHash?: (hash: string) => void;
   assign?: (url: string) => void;
