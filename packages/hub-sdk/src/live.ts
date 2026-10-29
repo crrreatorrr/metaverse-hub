@@ -305,11 +305,12 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!Number.isFinite(tickets) || tickets <= 0) {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
-      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop' };
+      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop', verseCapLeft: 0 };
       return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<{
         verse: number;
         ticketsLeft: number;
         receiptId: string;
+        verseCapLeft?: number;
       }>;
     },
 
