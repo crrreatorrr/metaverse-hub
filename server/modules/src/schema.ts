@@ -137,45 +137,61 @@ namespace HubSchema {
      END;
      $fn$`,
 
-    `CREATE OR REPLACE FUNCTION game.relic_for_event(p_game text, p_event text, p_data jsonb)
-     RETURNS text LANGUAGE plpgsql IMMUTABLE AS $fn$
+    "ALTER TABLE game.game_session ADD COLUMN IF NOT EXISTS event_seq bigint NOT NULL DEFAULT 0",
+
+    `CREATE TABLE IF NOT EXISTS game.event_rule (
+      game_id text NOT NULL,
+      event_type text NOT NULL,
+      relic_id text,
+      tickets bigint,
+      session_limit integer,
+      day_limit integer,
+      match jsonb NOT NULL DEFAULT '{}'::jsonb,
+      PRIMARY KEY (game_id, event_type)
+    )`,
+
+    `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
+     VALUES
+       ('hpos10i', 'game_beaten', 'hpos10i_core', NULL, NULL, NULL, '{}'::jsonb),
+       ('hpos10i', 'hpos10i.level_complete', 'hpos10i_core', NULL, NULL, NULL, '{"zone":"z1_retro_rush_hills","act":1}'::jsonb),
+       ('pb', 'game_beaten', 'genesis_shard', NULL, NULL, NULL, '{}'::jsonb),
+       ('pb', 'pb.quest_complete', 'genesis_shard', NULL, NULL, NULL, '{"questId":"quest_tutorial"}'::jsonb),
+       ('nobu', 'game_beaten', 'cones_tip', NULL, NULL, NULL, '{}'::jsonb),
+       ('nobu', 'nobu.boss_defeated', 'cones_tip', NULL, NULL, NULL, '{"boss":"cone"}'::jsonb),
+       ('sproto', 'game_beaten', 'tinubu_crown', NULL, NULL, NULL, '{}'::jsonb),
+       ('sproto', 'sproto.boss_defeated', 'tinubu_crown', NULL, NULL, NULL, '{"boss":"tinubu"}'::jsonb)
+     ON CONFLICT (game_id, event_type) DO NOTHING`,
+
+    // SESSION_TICKET_CAP is 200: ten wins of 20 Tickets, and two sessions stay under the 1000 daily cap.
+    `CREATE OR REPLACE FUNCTION game.session_ticket_cap()
+     RETURNS bigint LANGUAGE sql IMMUTABLE AS $fn$
+       SELECT 200::bigint
+     $fn$`,
+
+    "DROP FUNCTION IF EXISTS game.relic_for_event(text, text, jsonb)",
+
+    `CREATE FUNCTION game.relic_for_event(p_game text, p_event text, p_data jsonb)
+     RETURNS text LANGUAGE plpgsql STABLE AS $fn$
      DECLARE
-       v_own text;
+       v_relic text;
      BEGIN
-       v_own := CASE p_game
-         WHEN 'hpos10i' THEN 'hpos10i_core'
-         WHEN 'pb' THEN 'genesis_shard'
-         WHEN 'nobu' THEN 'cones_tip'
-         WHEN 'sproto' THEN 'tinubu_crown'
-         ELSE NULL
-       END;
-       IF v_own IS NULL OR p_event = 'ready' THEN
+       IF p_event = 'ready' THEN
          RETURN NULL;
        END IF;
-       IF p_event = 'game_beaten' THEN
-         IF p_data ? 'relicId' AND p_data->>'relicId' <> v_own THEN
-           RETURN NULL;
-         END IF;
-         RETURN v_own;
+       SELECT relic_id INTO v_relic
+       FROM game.event_rule
+       WHERE game_id = p_game
+         AND event_type = p_event
+         AND relic_id IS NOT NULL
+         AND match <@ COALESCE(p_data, '{}'::jsonb)
+       LIMIT 1;
+       IF v_relic IS NULL THEN
+         RETURN NULL;
        END IF;
-       IF p_event = 'hpos10i.level_complete' AND p_game = 'hpos10i'
-          AND p_data->>'zone' = 'z1_retro_rush_hills'
-          AND (p_data->'act') = '1'::jsonb THEN
-         RETURN v_own;
+       IF p_event = 'game_beaten' AND p_data ? 'relicId' AND p_data->>'relicId' <> v_relic THEN
+         RETURN NULL;
        END IF;
-       IF p_event = 'pb.quest_complete' AND p_game = 'pb'
-          AND p_data->>'questId' = 'quest_tutorial' THEN
-         RETURN v_own;
-       END IF;
-       IF p_event = 'nobu.boss_defeated' AND p_game = 'nobu'
-          AND p_data->>'boss' = 'cone' THEN
-         RETURN v_own;
-       END IF;
-       IF p_event = 'sproto.boss_defeated' AND p_game = 'sproto'
-          AND p_data->>'boss' = 'tinubu' THEN
-         RETURN v_own;
-       END IF;
-       RETURN NULL;
+       RETURN v_relic;
      END;
      $fn$`,
 
@@ -255,6 +271,8 @@ namespace HubSchema {
      END;
      $fn$`,
 
+    "DROP FUNCTION IF EXISTS game.apply_event(uuid, uuid, text, text, jsonb, text, text)",
+
     `CREATE OR REPLACE FUNCTION game.apply_event(
        p_user_id uuid,
        p_session_id uuid,
@@ -262,7 +280,8 @@ namespace HubSchema {
        p_event_id text,
        p_data jsonb,
        p_idem_key text,
-       p_req_hash text
+       p_req_hash text,
+       p_seq bigint DEFAULT NULL
      ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
      DECLARE
        v_response jsonb;
@@ -271,6 +290,7 @@ namespace HubSchema {
        v_relic text;
        v_event uuid;
        v_inserted int;
+       v_last bigint;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -283,16 +303,25 @@ namespace HubSchema {
          END IF;
          RETURN v_response;
        END IF;
-       IF NOT EXISTS (
-         SELECT 1 FROM game.game_session
-         WHERE session_id = p_session_id
-           AND user_id = p_user_id
-           AND game_id = p_game_id
-           AND state = 'open'
-           AND lease_until > now()
-           AND ticket_redeemed_at IS NOT NULL
-       ) THEN
+       SELECT event_seq INTO v_last
+       FROM game.game_session
+       WHERE session_id = p_session_id
+         AND user_id = p_user_id
+         AND game_id = p_game_id
+         AND state = 'open'
+         AND lease_until > now()
+         AND ticket_redeemed_at IS NOT NULL
+       FOR UPDATE;
+       IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       IF p_seq IS NOT NULL THEN
+         IF v_last > 0 AND p_seq = v_last THEN
+           RETURN jsonb_build_object('error', 'seq_duplicate');
+         ELSIF p_seq <> v_last + 1 THEN
+           RETURN jsonb_build_object('error', 'seq_stale');
+         END IF;
+         UPDATE game.game_session SET event_seq = p_seq WHERE session_id = p_session_id;
        END IF;
        v_relic := game.relic_for_event(p_game_id, p_event_id, p_data);
        v_response := '{}'::jsonb;
@@ -390,6 +419,8 @@ namespace HubSchema {
        v_applied bigint;
        v_balance bigint;
        v_event uuid;
+       v_cap bigint;
+       v_session_earned bigint;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -407,6 +438,13 @@ namespace HubSchema {
            AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       v_cap := game.session_ticket_cap();
+       SELECT COALESCE(SUM(delta), 0) INTO v_session_earned
+       FROM game.tickets_ledger
+       WHERE user_id = p_user_id AND game_id = p_game_id AND ref_id = p_session_id AND delta > 0;
+       IF v_session_earned + p_amount > v_cap THEN
+         RETURN jsonb_build_object('error', 'session_ticket_cap');
        END IF;
        v_day := (now() AT TIME ZONE 'utc')::date;
        SELECT amount INTO v_used FROM game.earn_window

@@ -356,16 +356,25 @@ namespace HubRpc {
     var eventId = text(body, "eventId");
     var key = text(body, "key");
     var data = body.data;
+    var seq: number | null = null;
     if (!eventId || eventId.length > 80) return fail("bad_event", "Event id is required");
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       return fail("bad_event", "Event data must be an object");
     }
-    var reqHash = nk.sha256Hash("session.event\n" + stable({ eventId: eventId, data: data }));
+    if (body.seq !== undefined && body.seq !== null) {
+      if (typeof body.seq !== "number" || !isFinite(body.seq) || Math.floor(body.seq) !== body.seq) {
+        return fail("bad_event", "seq must be an integer");
+      }
+      seq = body.seq;
+    }
+    var hashed: { [key: string]: unknown } = { eventId: eventId, data: data };
+    if (seq !== null) hashed.seq = seq;
+    var reqHash = nk.sha256Hash("session.event\n" + stable(hashed));
     var result = queryJson(
       nk,
-      "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text)::text AS result",
-      [session.userId, session.sid, session.game, eventId, JSON.stringify(data), key, reqHash],
+      "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text, $8::bigint)::text AS result",
+      [session.userId, session.sid, session.game, eventId, JSON.stringify(data), key, reqHash, seq],
     );
     if (result.error) return fail(String(result.error), String(result.error));
     if (typeof result.granted === "string") {
