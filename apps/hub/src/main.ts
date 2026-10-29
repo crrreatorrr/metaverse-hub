@@ -9,12 +9,17 @@ import {
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
-import { CAMERA_ARM, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
+import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { createWorld } from './scene';
 import './style.css';
 import { parseReturnGame, portalContaining, portalUrl } from './travel';
+
+const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Mouse look  ·  Shift run  ·  Space jump';
+const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+const CAMERA_YAW_RATE = 1.8;
+const CAMERA_PITCH_RATE = 1.15;
 
 const appQuery = document.querySelector('#app');
 const hintQuery = document.querySelector('#hint');
@@ -35,7 +40,7 @@ const world = await createWorld().catch((error: unknown) => {
   hint.textContent = error instanceof Error ? error.message : 'The plaza failed to load';
   throw error;
 });
-hint.textContent = 'Click to look  ·  WASD move  ·  Mouse look  ·  Shift sprint  ·  Space jump';
+hint.textContent = `Click to look  ·  ${CONTROLS_HINT}`;
 app.prepend(world.renderer.domElement);
 
 const player = createPlayerController(world.collider.bvh);
@@ -63,14 +68,11 @@ const ray = new Ray();
 const debug = import.meta.env.DEV ? createDebug() : null;
 
 window.addEventListener('keydown', (event) => {
-  const target = event.target;
-  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) return;
+  if (isTypingTarget(event.target)) return;
+  if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
-  if (event.code === 'Space') {
-    jumpQueued = true;
-    event.preventDefault();
-  }
+  if (event.code === 'Space') jumpQueued = true;
 });
 window.addEventListener('keyup', (event) => {
   keys.delete(event.code);
@@ -104,18 +106,19 @@ world.resize(window.innerWidth, window.innerHeight);
 world.renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const dt = Math.min(timer.getDelta(), 0.05);
+  orbitCamera(dt);
   const input = readInput();
   player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
   const moving = Math.hypot(input.forward, input.strafe) > 0;
   if (moving) cycle += dt * (input.sprint ? 12 : 8);
-  world.bob.position.y = moving ? Math.abs(Math.sin(cycle)) * 0.05 : 0;
+  world.bob.position.y = moving ? Math.abs(Math.sin(cycle)) * 0.05 * AVATAR_SCALE : 0;
   world.avatar.rotation.y = -player.facingYaw;
   world.rig.position.copy(player.position);
 
   const floorY = world.inInterior() ? -300 : 0;
   const lift = Math.max(0, player.position.y - STAND_Y - floorY);
   world.shadow.position.set(player.position.x, player.position.y - STAND_Y + 0.03, player.position.z);
-  world.shadow.scale.setScalar(1.15 + lift * 0.25);
+  world.shadow.scale.setScalar((1.15 + lift * 0.25) * AVATAR_SCALE);
   world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
   for (const socket of world.sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
@@ -151,9 +154,27 @@ world.renderer.setAnimationLoop((timestamp) => {
   }
 });
 
+function isTypingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  if (target instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
+  if (target instanceof HTMLTextAreaElement) return true;
+  if (target.isContentEditable) return true;
+  if (target.getAttribute('role') === 'textbox') return true;
+  return Boolean(target.closest('[contenteditable="true"], [role="textbox"], [data-chat], .chat-field, #chat'));
+}
+
+/** A/D yaw and W/S pitch, matching mouse look. Arrows stay on the character. */
+function orbitCamera(dt: number): void {
+  const yawInput = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0);
+  const pitchInput = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+  yaw += yawInput * CAMERA_YAW_RATE * dt;
+  pitch += pitchInput * CAMERA_PITCH_RATE * dt;
+  pitch = MathUtils.clamp(pitch, -0.42, 1.05);
+}
+
 function readInput(): MoveInput {
-  const forward = (keys.has('KeyW') || keys.has('ArrowUp') ? 1 : 0) - (keys.has('KeyS') || keys.has('ArrowDown') ? 1 : 0);
-  const strafe = (keys.has('KeyD') || keys.has('ArrowRight') ? 1 : 0) - (keys.has('KeyA') || keys.has('ArrowLeft') ? 1 : 0);
+  const forward = (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
+  const strafe = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
   const jump = jumpQueued;
   jumpQueued = false;
   return {
@@ -167,7 +188,7 @@ function readInput(): MoveInput {
 
 /** Third-person spring arm. Mouse yaw/pitch orbit the avatar; the BVH keeps the camera out of walls. */
 function placeCamera(): void {
-  const look = lookTarget.set(player.position.x, player.position.y - 0.15, player.position.z);
+  const look = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
   const cp = Math.cos(pitch);
   desiredPos.set(
     look.x - Math.sin(yaw) * CAMERA_ARM * cp,
@@ -211,7 +232,7 @@ function updateHint(): void {
         ? `${look}Walk through the exit to return to the plaza`
         : near
           ? `${look}Walk into the ring to enter ${near.label}`
-          : `${look}WASD move  ·  Mouse look  ·  Shift sprint  ·  Space jump`;
+          : `${look}${CONTROLS_HINT}`;
   if (hint.textContent !== text) hint.textContent = text;
 }
 

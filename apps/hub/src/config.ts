@@ -40,10 +40,37 @@ export const PILLAR_OFFSET = 1.7;
 export const PILLAR_HEIGHT = 3.05;
 export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
-export const WALK_SPEED = 5.2;
-export const SPRINT_SPEED = 8.6;
+/** 1.5× the previous 5.2 m/s walk. */
+export const WALK_SPEED = 7.8;
+/** Shift run is 1.8× walk. */
+export const SPRINT_SPEED = WALK_SPEED * 1.8;
 export const CAMERA_ARM = 7.6;
 export const CAMERA_FOV = 78;
+/**
+ * Body height the plaza used before the size bump. The baked staff is taller
+ * than this and is not part of the fit.
+ */
+export const AVATAR_BODY_REFERENCE = 1.75;
+/** Ken's size bump, inside the 1.2–1.3 range. */
+export const AVATAR_SCALE = 1.25;
+/** Fitted body height. Collider and camera use this, not the staff tip. */
+export const AVATAR_HEIGHT = AVATAR_BODY_REFERENCE * AVATAR_SCALE;
+/** Look target below the capsule origin, scaled with the body. */
+export const CAMERA_LOOK_DROP = 0.15 * (AVATAR_HEIGHT / AVATAR_BODY_REFERENCE);
+/**
+ * Player model path under the site base. Remote players use this same file.
+ * Bald-yellow wizard, same rig as sproto-duel wizard_player.glb.
+ */
+export const AVATAR_ASSET = 'world/v2/avatar/wizard-player.glb';
+/**
+ * Logical gait → clip inside the GLB. There is no walk clip; walk plays run
+ * at about 0.6× so the stride reads slower than the run.
+ */
+export const AVATAR_CLIPS = {
+  idle: { name: 'idle', timeScale: 1 },
+  walk: { name: 'run', timeScale: 0.6 },
+  run: { name: 'run', timeScale: 1 },
+} as const;
 
 /** Sockets on the Four Lights, same order as the diagonal orbit (NE, SE, SW, NW). */
 export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
