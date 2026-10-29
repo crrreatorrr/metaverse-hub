@@ -632,12 +632,16 @@ namespace HubSchema {
     "DROP TRIGGER IF EXISTS verse_ledger_append_only ON game.verse_ledger",
     "CREATE TRIGGER verse_ledger_append_only BEFORE UPDATE OR DELETE ON game.verse_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
 
+    // Rename legacy `pb` rows to `peoples-bitcoin`. The seed above already
+    // inserts the new id, so drop or merge leftovers instead of UPDATE-into-PK.
     "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
     "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
+    "DELETE FROM game.game_beaten AS old USING game.game_beaten AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
     "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
+    "DELETE FROM game.tickets_balance AS old USING game.tickets_balance AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
     "UPDATE game.tickets_balance SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     `DO $$ BEGIN
        IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
@@ -650,11 +654,13 @@ namespace HubSchema {
          ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
        END IF;
      END $$`,
+    "DELETE FROM game.verse_earned AS old USING game.verse_earned AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
     "UPDATE game.verse_earned SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "UPDATE game.exchange_tx SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "DELETE FROM game.earn_window AS old USING game.earn_window AS neu WHERE old.bucket IN ('tickets:pb', 'verse:pb') AND neu.bucket = replace(old.bucket, ':pb', ':peoples-bitcoin') AND old.user_id = neu.user_id AND old.day = neu.day",
     "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
     "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
-    "UPDATE game.event_rule SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    "DELETE FROM game.event_rule WHERE game_id = 'pb'",
   ];
 
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
