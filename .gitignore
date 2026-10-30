@@ -6,3 +6,9 @@ dist/
 *.tsbuildinfo
 server/modules/build/
 *.tgz
+server/.env
+server/.env.*
+!server/.env.example
+.env
+.env.*
+!.env.example

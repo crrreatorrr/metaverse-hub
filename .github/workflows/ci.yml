@@ -37,6 +37,19 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Generate throwaway Nakama keys
+        # Fresh random keys for this run only, written to the gitignored
+        # server/.env. The test process gets the two keys it needs through
+        # GITHUB_ENV, masked so they never show in the log.
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do
+            echo "::add-mask::${value}"
+          done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
       - name: Start Nakama
         run: |
           set -eu

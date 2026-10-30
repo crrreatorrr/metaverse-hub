@@ -1,2 +1,4 @@
 modules/build
 modules/node_modules
+.env
+.env.*
