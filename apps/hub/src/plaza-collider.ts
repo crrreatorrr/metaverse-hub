@@ -2,6 +2,7 @@ import { BoxGeometry, BufferGeometry, CylinderGeometry } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Collider } from './collider';
+import { CLUB_COLLIDERS } from './v2/club-interior-colliders';
 
 function positionsOnly(source: BufferGeometry): BufferGeometry {
   const geo = source.index ? source.toNonIndexed() : source.clone();
@@ -45,13 +46,16 @@ export function buildPlazaCollider(): Collider {
     y += h;
   }
 
+  // HPOS10I Club interior (club-interior.glb), mounted standalone at y = -300 like before.
+  // Keep in sync with buildClubInterior(): same boxes, same mount. The neon sign box sits inside the back bar, so it is skipped here.
   const floorY = -300;
-  addBox(parts, 20, 1, 13, 0, floorY - 0.5, 0);
-  addBox(parts, 20, 5.2, 0.5, 0, floorY + 2.6, -6.75);
-  addBox(parts, 0.5, 5.2, 13, -10.25, floorY + 2.6, 0);
-  addBox(parts, 0.5, 5.2, 13, 10.25, floorY + 2.6, 0);
-  addBox(parts, 2.7, 5.2, 0.5, -8.65, floorY + 2.6, 6.75);
-  addBox(parts, 14.7, 5.2, 0.5, 2.65, floorY + 2.6, 6.75);
+  for (const box of CLUB_COLLIDERS) {
+    addBox(
+      parts,
+      box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2],
+      (box.min[0] + box.max[0]) / 2, floorY + (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2,
+    );
+  }
 
   const segments = 18;
   const radius = 320;
