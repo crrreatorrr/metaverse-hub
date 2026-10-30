@@ -1,0 +1,247 @@
+{
+ "version": 1,
+ "contract": {
+  "id": "m6-pet-v1",
+  "units": "metres, scale 1",
+  "up": "+Y",
+  "forward": "+Z",
+  "origin": "between the feet on the ground (y=0)",
+  "height_m": {
+   "sproto": 0.6,
+   "sproto_pup": 0.45,
+   "nobu": 0.6
+  },
+  "follow": {
+   "offset_avatar_local_m": {
+    "right": 0.6,
+    "back": 0.9
+   },
+   "note": "spec section 3: spring offset 0.9 m behind and 0.6 m to the right of the avatar (avatar +Z forward, so right = -X in avatar space); follow_run above SPRINT_SPEED; spawn_poof + snap if the gap > 8 m"
+  },
+  "lod": {
+   "lod0": "pet_<name>.glb, <=6000 tris, base+ORM+normal 1024 (costume <=512)",
+   "lod1": "pet_<name>-lod1.glb, 1800-2200 tris, base 512 + ORM 256, no normal map, costume textures 256",
+   "switch_m": 12
+  },
+  "compression": "EXT_meshopt_compression (QUANTIZE filter), required; no KHR_texture_basisu / KTX2",
+  "clips": {
+   "idle": {
+    "dur": 4,
+    "loop": true
+   },
+   "follow_walk": {
+    "dur": 1.0,
+    "loop": true
+   },
+   "follow_run": {
+    "dur": 0.6,
+    "loop": true
+   },
+   "sit_enter": {
+    "dur": 0.4,
+    "loop": false,
+    "next": "sit"
+   },
+   "sit": {
+    "dur": 4,
+    "loop": true
+   },
+   "emote_happy": {
+    "dur": 1.5,
+    "loop": "once (loops seamlessly)"
+   },
+   "emote_dance": {
+    "dur": 2,
+    "loop": true
+   },
+   "spawn_poof": {
+    "dur": 0.5,
+    "loop": false
+   }
+  },
+  "parts_clip": "pet_<name>_parts: 2 s loop, play it always (additively, on top of whichever body clip is playing). It only touches part nodes, never joints.",
+  "idle_rules": "0.5 s stopped -> idle; 10 s idle -> sit_enter then sit"
+ },
+ "pets": {
+  "pet_sproto_base": {
+   "file": "glb/pet_sproto_base.glb",
+   "lod1": "glb/pet_sproto_base-lod1.glb",
+   "item_id": null,
+   "rig": "sproto16",
+   "role": "shared Sproto rig/body for the hub pets (round-2 costumes will reuse this skeleton and clips)",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#46c8ff"
+   },
+   "pulses": [],
+   "pb": {
+    "tint": "#2a5bd7",
+    "props": []
+   }
+  },
+  "pet_speed_sproto": {
+   "file": "glb/pet_speed_sproto.glb",
+   "lod1": "glb/pet_speed_sproto-lod1.glb",
+   "item_id": "pet_speed_sproto",
+   "pb_id": "sp_speed_sproto",
+   "rig": "sproto16",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#35e6ff",
+    "trail": "#2a5bd7"
+   },
+   "pulses": [
+    {
+     "node": "pet_speed_sproto_gem",
+     "material": "pet_speed_sproto_gem_mat",
+     "min": 0.8,
+     "max": 2.4,
+     "hz": 1.0,
+     "color": "#33d9ff"
+    }
+   ],
+   "parts": {
+    "pet_speed_sproto_wings_L": "heel wing, flaps +-16 deg about Z, 4x per parts loop",
+    "pet_speed_sproto_wings_R": "mirror",
+    "pet_speed_sproto_gem": "cyan belt gem, 1 turn per parts loop"
+   },
+   "pb": {
+    "tint": "#2a5bd7",
+    "props": [
+     "heel_wings",
+     "cyan_gem"
+    ]
+   }
+  },
+  "pet_duelist_sproto": {
+   "file": "glb/pet_duelist_sproto.glb",
+   "lod1": "glb/pet_duelist_sproto-lod1.glb",
+   "item_id": "pet_duelist_sproto",
+   "pb_id": "sp_duelist_sproto",
+   "rig": "sproto16",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#46c8ff",
+    "hex": "#bff0ff",
+    "accent": "#ffd21f",
+    "cast_from": "pet_duelist_sproto_staff_orb"
+   },
+   "pulses": [
+    {
+     "node": "pet_duelist_sproto_staff_stars",
+     "material": "pet_duelist_sproto_staff_stars_glow_mat",
+     "min": 1.0,
+     "max": 2.2,
+     "hz": 1.0,
+     "onCast": 3.2,
+     "color": "#ffd959"
+    }
+   ],
+   "parts": {
+    "pet_duelist_sproto_staff": "mini Sproto Duel staff (0.30 m, LOD1 of staff_sproto x0.158, 1.6x thicker), origin at the grip in the right fist, sways 3 deg",
+    "pet_duelist_sproto_staff_orb": "orb bobs 4 mm",
+    "pet_duelist_sproto_staff_rings": "2 turns per parts loop",
+    "pet_duelist_sproto_staff_stars": "LOD0 only, -1 turn per loop"
+   },
+   "pb": {
+    "tint": "#16161e",
+    "props": [
+     "mini_staff"
+    ]
+   }
+  },
+  "pet_sproto_pup": {
+   "file": "glb/pet_sproto_pup.glb",
+   "lod1": "glb/pet_sproto_pup-lod1.glb",
+   "item_id": "pet_sproto_pup",
+   "rig": "sproto16 (fitted to the 0.45 m pup body; same joint names and clips)",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#3dffd8"
+   },
+   "pulses": [
+    {
+     "node": "pet_sproto_pup_gem",
+     "material": "pet_sproto_pup_gem_mat",
+     "min": 0.6,
+     "max": 2.6,
+     "hz": 0.5,
+     "color": "#26ffd0",
+     "boostOn": "old stone (raise min to 1.6)"
+    }
+   ],
+   "parts": {
+    "pet_sproto_pup_gem": "turquoise collar gem, 1 turn per parts loop"
+   },
+   "pb": {
+    "tint": "#f2e27a",
+    "props": [
+     "stone_collar_gem"
+    ]
+   }
+  },
+  "pet_nobu_base": {
+   "file": "glb/pet_nobu_base.glb",
+   "lod1": "glb/pet_nobu_base-lod1.glb",
+   "item_id": null,
+   "rig": "nobu20",
+   "role": "Nobu quadruped base (bandana + coin tag)",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#ffd23f"
+   },
+   "pulses": [],
+   "parts": {
+    "pet_nobu_base_tag": "coin tag, swings +-14 deg from its ring"
+   },
+   "pb": {
+    "tint": "#f4f4f4",
+    "props": [
+     "blue_bandana",
+     "coin_tag"
+    ]
+   }
+  },
+  "pet_nobu": {
+   "file": "glb/pet_nobu.glb",
+   "lod1": "glb/pet_nobu-lod1.glb",
+   "item_id": "pet_nobu",
+   "pb_id": "sp_nobu",
+   "rig": "nobu20",
+   "role": "Relic summon = Nobu base + cape, cone charm, bark rings",
+   "vfx": {
+    "fx_anchor": "pet_fx_anchor",
+    "color": "#ffd23f",
+    "taunt": "#ffb020"
+   },
+   "pulses": [
+    {
+     "node": "pet_nobu_bark_rings",
+     "material": "pet_nobu_bark_mat",
+     "min": 1.5,
+     "max": 3.0,
+     "hz": 2.67,
+     "color": "#ffd040",
+     "note": "rings are only visible during emote_happy (node scale keys)"
+    }
+   ],
+   "parts": {
+    "pet_nobu_tag": "coin tag, swings",
+    "pet_nobu_cape": "rigid cape on spine_3, flutters +-5 deg about its top edge",
+    "pet_nobu_cone": "gold cone charm, swings opposite the tag",
+    "pet_nobu_bark_rings": "inner bark ring, scale 0.001 except 2 pops in emote_happy",
+    "pet_nobu_bark_rings_2": "outer bark ring, 0.05 later"
+   },
+   "pb": {
+    "tint": "#f4f4f4",
+    "props": [
+     "blue_bandana",
+     "coin_tag",
+     "cape",
+     "cone_charm",
+     "bark_rings"
+    ]
+   }
+  }
+ }
+}

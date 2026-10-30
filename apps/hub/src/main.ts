@@ -47,6 +47,10 @@ app.prepend(world.renderer.domElement);
 const player = createPlayerController(world.collider.bvh);
 const initial = spawnFor(parseReturnGame(window.location.hash));
 player.spawn(initial.x, STAND_Y, initial.z, initial.yaw);
+// M6 pets: profile.get / loadout.set_hub are not wired yet (docs/m6-server-prep.md), so the equipped pet
+// comes from ?pet=<catalog id> for previews until the profile hook lands.
+const petParam = new URLSearchParams(window.location.search).get('pet');
+if (petParam) void world.setPet(petParam);
 
 const keys = new Set<string>();
 let yaw = initial.yaw;
