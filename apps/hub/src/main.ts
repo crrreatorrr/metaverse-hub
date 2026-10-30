@@ -56,7 +56,6 @@ let jumpQueued = false;
 let traveling = false;
 let dwell: PortalDwell = initialDwell();
 let portalError = '';
-let cycle = 0;
 let fps = 60;
 let warnedDraws = false;
 const timer = new Timer();
@@ -112,8 +111,8 @@ world.renderer.setAnimationLoop((timestamp) => {
   const input = readInput();
   player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
   const moving = Math.hypot(input.forward, input.strafe) > 0;
-  if (moving) cycle += dt * (input.sprint ? 12 : 8);
-  world.bob.position.y = moving ? Math.abs(Math.sin(cycle)) * 0.05 * AVATAR_SCALE : 0;
+  // P4: the jog / dash clips bake their own bounce, so the procedural bob stays at 0.
+  world.bob.position.y = 0;
   world.avatar.rotation.y = -player.facingYaw;
   world.rig.position.copy(player.position);
 

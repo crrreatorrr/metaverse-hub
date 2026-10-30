@@ -41,8 +41,8 @@ export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
 /** 1.5× the previous 5.2 m/s walk. */
 export const WALK_SPEED = 7.8;
-/** Shift run is 1.8× walk. */
-export const SPRINT_SPEED = WALK_SPEED * 1.8;
+/** Shift sprint: Ken's 16 m/s Sonic-style dash (P4). Explicit, not a multiple of walk. */
+export const SPRINT_SPEED = 16;
 export const CAMERA_ARM = 7.6;
 export const CAMERA_FOV = 78;
 /**
@@ -62,14 +62,19 @@ export const CAMERA_LOOK_DROP = 0.15 * (AVATAR_HEIGHT / AVATAR_BODY_REFERENCE);
  */
 export const AVATAR_ASSET = 'world/v2/avatar/wizard-player.glb';
 /**
- * Logical gait → clip inside the GLB. There is no walk clip; walk plays run
- * at about 0.6× so the stride reads slower than the run.
+ * Logical gait → clip inside the GLB. P4: arrow keys play `jog` (authored for
+ * 7.8 m/s), Shift plays `dash` (authored for 16 m/s). Each clip's glTF extras
+ * carry `speed_mps`; the avatar sets timeScale = actual speed / speed_mps so the
+ * planted foot never slides. Both clips put the left foot down at t = 0, so
+ * jog ↔ dash crossfades keep the step phase.
  */
 export const AVATAR_CLIPS = {
   idle: { name: 'idle', timeScale: 1 },
-  walk: { name: 'run', timeScale: 0.6 },
-  run: { name: 'run', timeScale: 1 },
+  walk: { name: 'jog', timeScale: 1 },
+  run: { name: 'dash', timeScale: 1 },
 } as const;
+/** Crossfade times (s). The clips bake their own bounce, so the old procedural bob is off. */
+export const AVATAR_BLEND = { idleToMove: 0.15, moveToIdle: 0.2, jogToDash: 0.22, dashToJog: 0.28 } as const;
 
 /** Sockets on the Four Lights, same order as the diagonal orbit (NE, SE, SW, NW). */
 export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
