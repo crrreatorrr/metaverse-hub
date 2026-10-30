@@ -40,6 +40,7 @@ import type { Collider } from './collider';
 import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
 import { buildInterior, type InteriorBuild } from './v2/interior';
+import { barBillboard } from './v2/billboard';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
 import { loadSignFont } from './v2/signs';
 
@@ -199,12 +200,13 @@ export async function createWorld(): Promise<HubWorld> {
     });
   }
 
-  const [statue, portals, lamps, benches, palms] = await Promise.all([
+  const [statue, portals, lamps, benches, palms, billboard] = await Promise.all([
     part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
     Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
     instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
     instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
     instanced('B5-palm', palmT, { h: 20 }),
+    barBillboard(),
   ]);
   statue.position.y = pedestal.top;
   statue.name = 'sproto-statue';
@@ -221,6 +223,7 @@ export async function createWorld(): Promise<HubWorld> {
   outdoor.add(lamps);
   outdoor.add(benches);
   outdoor.add(palms);
+  outdoor.add(billboard);
   const lampGlow = new InstancedMesh(new SphereGeometry(0.45, 10, 8), neonMat('#7fe9ff', 5), lampT.length);
   lampGlow.name = 'lamp-glow';
   lampT.forEach((lamp, i) => lampGlow.setMatrixAt(i, new Matrix4().makeTranslation(lamp.p[0], 7.1, lamp.p[2])));
@@ -278,6 +281,7 @@ export async function createWorld(): Promise<HubWorld> {
   let warp: Warp | null = null;
   let elapsed = 0;
   let statueNear = false;
+  let billboardNear = false;
   let buildingCount = 0;
   let drawsMarked = false;
   let sceneDraws = 0;
@@ -364,6 +368,10 @@ export async function createWorld(): Promise<HubWorld> {
     if (!statueNear && player.length() < 48) {
       statueNear = true;
       void upgradeToLod0(statue);
+    }
+    if (!billboardNear && player.distanceTo(billboard.position) < NEAR) {
+      billboardNear = true;
+      void upgradeToLod0(billboard);
     }
     zone = null;
     const door = slots.find((slot) => slot.key === 'club')?.door;
