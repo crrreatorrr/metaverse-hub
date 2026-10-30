@@ -861,6 +861,23 @@ namespace HubSchema {
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
       ],
     },
+    {
+      // 0002_baseline still inserts these four rows, once. This delete is what
+      // leaves them out. 0002 is immutable, so it is not edited and does not run again.
+      // Numbered 0008 so it lands after #12 (0005), #25 (0006), and #13 (0007).
+      id: "0008_drop_open_game_beaten_rules",
+      statements: [
+        `DELETE FROM game.event_rule
+         WHERE event_type = 'game_beaten'
+           AND match = '{}'::jsonb
+           AND (game_id, relic_id) IN (
+             ('hpos10i', 'hpos10i_core'),
+             ('peoples-bitcoin', 'genesis_shard'),
+             ('nobu', 'cones_tip'),
+             ('sproto', 'tinubu_crown')
+           )`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
