@@ -32,10 +32,6 @@ declare namespace nkruntime {
     sqlExec(query: string, args: unknown[]): { rowsAffected: number };
     uuidv4(): string;
     sha256Hash(input: string): string;
-    hmacSha256Hash(input: string, key: string): ArrayBuffer;
-    base64UrlEncode(input: string | ArrayBuffer, padding?: boolean): string;
-    base64UrlDecode(input: string, padding?: boolean): ArrayBuffer;
-    binaryToString(data: ArrayBuffer): string;
     authenticateTokenGenerate(
       userId: string,
       username: string,
@@ -51,8 +47,16 @@ declare namespace nkruntime {
 
   interface Initializer {
     registerRpc(id: string, fn: RpcFunction): void;
+    registerBeforeAuthenticate(fn: BeforeHook): void;
+    registerBeforeAuthenticateApple(fn: BeforeHook): void;
     registerBeforeAuthenticateCustom(fn: BeforeHook): void;
     registerBeforeAuthenticateDevice(fn: BeforeHook): void;
+    registerBeforeAuthenticateEmail(fn: BeforeHook): void;
+    registerBeforeAuthenticateFacebook(fn: BeforeHook): void;
+    registerBeforeAuthenticateFacebookInstantGame(fn: BeforeHook): void;
+    registerBeforeAuthenticateGameCenter(fn: BeforeHook): void;
+    registerBeforeAuthenticateGoogle(fn: BeforeHook): void;
+    registerBeforeAuthenticateSteam(fn: BeforeHook): void;
     registerBeforeSessionRefresh(fn: BeforeHook): void;
     registerBeforeLinkCustom(fn: BeforeHook): void;
     registerBeforeLinkDevice(fn: BeforeHook): void;

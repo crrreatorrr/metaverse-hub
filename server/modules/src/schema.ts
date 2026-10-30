@@ -1432,14 +1432,6 @@ namespace HubSchema {
       logger.error(String(err));
       throw err;
     }
-    // The ledger runs 0006 once. Expired portal rows are still deleted on every boot.
-    // portal.enter repeats the same delete at most hourly.
-    nk.sqlExec("DELETE FROM game.auth_ticket WHERE created_at < now() - interval '1 hour'", []);
-    nk.sqlExec("DELETE FROM game.portal_attempt WHERE created_at < now() - interval '1 hour'", []);
-    nk.sqlExec(
-      "INSERT INTO game.maint_sweep (name, ran_at) VALUES ('auth_ticket', now()) ON CONFLICT (name) DO UPDATE SET ran_at = now()",
-      [],
-    );
     logger.info("game schema ready");
   }
 }

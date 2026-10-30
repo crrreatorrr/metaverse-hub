@@ -449,53 +449,6 @@ namespace HubRpc {
     return ok({ ticket: ticket, sessionId: sessionId, expiresAt: exp, serverTime: serverNowMs(nk) });
   }
 
-  export function sessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    rejectAnonymousWrite(ctx, "session.redeem");
-    var body = parse(payload);
-    var ticket = text(body, "ticket");
-    var gameId = text(body, "gameId");
-    if (!GAMES[gameId]) return fail("bad_game", "Unknown game");
-    var claims = HubTickets.read(ctx, nk, ticket);
-    if (!claims) return fail("ticket_invalid", "Ticket signature or payload is not valid");
-    if (claims.game !== gameId) return fail("ticket_game", "Ticket is for a different game");
-    if (!UUID.test(claims.jti) || !UUID.test(claims.uid) || !UUID.test(claims.sid)) {
-      return fail("ticket_invalid", "Ticket ids are not valid");
-    }
-    var redeemed = queryJson(
-      nk,
-      "SELECT game.redeem_ticket($1::uuid, $2::text, $3::uuid)::text AS result",
-      [claims.jti, gameId, claims.uid],
-    );
-    if (redeemed.error) return fail(String(redeemed.error), String(redeemed.message || redeemed.error));
-    var userId = String(redeemed.userId);
-    var sessionId = String(redeemed.sessionId);
-    var ranked = redeemed.ranked === true;
-    var username = usernameOf(nk, userId);
-    var minted = nk.authenticateTokenGenerate(userId, username, null, {
-      scope: "game",
-      game: gameId,
-      sid: sessionId,
-      ranked: ranked ? "1" : "0",
-    });
-    var relics = relicIds(nk, userId);
-    var beaten = beatenRows(nk, userId);
-    var games: string[] = [];
-    for (var i = 0; i < beaten.length; i++) games.push(beaten[i].gameId);
-    var effects = redeemed.effects && typeof redeemed.effects === "object" ? redeemed.effects : {};
-    logger.info("ticket redeemed " + gameId + " user " + userId);
-    return ok({
-      token: minted.token,
-      playerId: userId,
-      ranked: ranked,
-      sid: sessionId,
-      relics: relics,
-      effects: effects,
-      ticketsCapLeft: ticketsRoom(nk, userId, gameId),
-      gameBeaten: games,
-      serverTime: serverNowMs(nk),
-    });
-  }
-
   export function sessionEvent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "session.event");
     var session = requireGame(ctx);
@@ -795,9 +748,27 @@ namespace HubRpc {
     return forceScope(data, { scope: "hub" });
   }
 
-  // Client link and unlink. The server still calls nk.linkCustom / nk.linkDevice,
-  // which do not pass through these hooks. hub: and t: are reserved for that path.
-  export function beforeLinkIdentity(
+  // Social providers are not configured on this server.
+  export function beforeAuthenticateClosed(
+    _ctx: nkruntime.Context,
+    _logger: nkruntime.Logger,
+    _nk: nkruntime.Nakama,
+    _data: { [key: string]: unknown },
+  ): { [key: string]: unknown } {
+    unauthenticated();
+  }
+
+  // Clients never choose a custom id. The server links hub: itself via nk.linkCustom.
+  export function beforeLinkCustom(
+    _ctx: nkruntime.Context,
+    _logger: nkruntime.Logger,
+    _nk: nkruntime.Nakama,
+    _data: { [key: string]: unknown },
+  ): { [key: string]: unknown } {
+    unauthenticated();
+  }
+
+  export function beforeLinkDevice(
     _ctx: nkruntime.Context,
     _logger: nkruntime.Logger,
     _nk: nkruntime.Nakama,
@@ -821,6 +792,8 @@ namespace HubRpc {
       vars.sid = current.sid || "";
       vars.ranked = current.ranked || "0";
     }
-    return forceScope(data, vars);
+    var next = forceScope(data, vars);
+    next.vars = vars;
+    return next;
   }
 }

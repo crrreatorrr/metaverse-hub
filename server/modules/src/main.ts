@@ -21,10 +21,6 @@ function rpcPortalEnter(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nk
   return guard(HubRpc.portalEnter, ctx, logger, nk, payload);
 }
 
-function rpcSessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-  return guard(HubRpc.sessionRedeem, ctx, logger, nk, payload);
-}
-
 function rpcSessionEvent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.sessionEvent, ctx, logger, nk, payload);
 }
@@ -73,16 +69,24 @@ function beforeCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkru
   return HubRpc.beforeAuthenticateCustom(ctx, logger, nk, data);
 }
 
-function beforeDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+function beforeHub(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateDevice(ctx, logger, nk, data);
+}
+
+function beforeClosed(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeAuthenticateClosed(ctx, logger, nk, data);
 }
 
 function beforeRefresh(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeSessionRefresh(ctx, logger, nk, data);
 }
 
-function beforeLink(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
-  return HubRpc.beforeLinkIdentity(ctx, logger, nk, data);
+function beforeLinkCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeLinkCustom(ctx, logger, nk, data);
+}
+
+function beforeLinkDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeLinkDevice(ctx, logger, nk, data);
 }
 
 function InitModule(
@@ -95,7 +99,6 @@ function InitModule(
   initializer.registerRpc("healthcheck", rpcHealthcheck);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
-  initializer.registerRpc("session.redeem", rpcSessionRedeem);
   initializer.registerRpc("session.event", rpcSessionEvent);
   initializer.registerRpc("session.close", rpcSessionClose);
   initializer.registerRpc("score.submit", rpcScoreSubmit);
@@ -108,11 +111,22 @@ function InitModule(
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
-  initializer.registerBeforeAuthenticateDevice(beforeDevice);
+  initializer.registerBeforeAuthenticateDevice(beforeHub);
+  // Email auth is on in Nakama with no extra provider config. Same hub scope as device.
+  initializer.registerBeforeAuthenticateEmail(beforeHub);
+  // These providers are not configured. Reject them instead of minting a session.
+  // The generic Authenticate hook is the same: this runtime registers no providers.
+  initializer.registerBeforeAuthenticate(beforeClosed);
+  initializer.registerBeforeAuthenticateApple(beforeClosed);
+  initializer.registerBeforeAuthenticateFacebook(beforeClosed);
+  initializer.registerBeforeAuthenticateFacebookInstantGame(beforeClosed);
+  initializer.registerBeforeAuthenticateGameCenter(beforeClosed);
+  initializer.registerBeforeAuthenticateGoogle(beforeClosed);
+  initializer.registerBeforeAuthenticateSteam(beforeClosed);
   initializer.registerBeforeSessionRefresh(beforeRefresh);
-  initializer.registerBeforeLinkCustom(beforeLink);
-  initializer.registerBeforeLinkDevice(beforeLink);
-  initializer.registerBeforeUnlinkCustom(beforeLink);
-  initializer.registerBeforeUnlinkDevice(beforeLink);
+  initializer.registerBeforeLinkCustom(beforeLinkCustom);
+  initializer.registerBeforeUnlinkCustom(beforeLinkCustom);
+  initializer.registerBeforeLinkDevice(beforeLinkDevice);
+  initializer.registerBeforeUnlinkDevice(beforeLinkDevice);
   logger.info("metaverse hub runtime ready");
 }
