@@ -128,5 +128,8 @@ function InitModule(
   initializer.registerBeforeUnlinkCustom(beforeLinkCustom);
   initializer.registerBeforeLinkDevice(beforeLinkDevice);
   initializer.registerBeforeUnlinkDevice(beforeLinkDevice);
+  // Provider-agnostic link and unlink are closed: this runtime registers no providers.
+  initializer.registerBeforeLink(beforeClosed);
+  initializer.registerBeforeUnlink(beforeClosed);
   logger.info("metaverse hub runtime ready");
 }

@@ -780,20 +780,13 @@ namespace HubRpc {
   }
 
   export function beforeSessionRefresh(
-    ctx: nkruntime.Context,
+    _ctx: nkruntime.Context,
     _logger: nkruntime.Logger,
     _nk: nkruntime.Nakama,
     data: { [key: string]: unknown },
   ): { [key: string]: unknown } {
-    var current = ctx.vars || {};
-    var vars: { [key: string]: string } = { scope: current.scope === "game" ? "game" : "hub" };
-    if (vars.scope === "game") {
-      vars.game = current.game || "";
-      vars.sid = current.sid || "";
-      vars.ranked = current.ranked || "0";
-    }
-    var next = forceScope(data, vars);
-    next.vars = vars;
-    return next;
+    // Nakama reuses the vars from the server-signed refresh token (api_session.go:64-66).
+    delete data.vars;
+    return data;
   }
 }
