@@ -35,10 +35,10 @@ Open http://127.0.0.1:5173/hub/
 
 The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
-Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a signed ticket in the fragment:
+Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a one-time ticket in the fragment:
 
 ```
-/play/sproto/#t=<payload>.<hmac>
+/play/sproto/#t=<ticket>
 ```
 
 Sproto Duel's page in this repo is a mock arena: defeat Tinubu, then return. The other three URLs are still placeholders for the real games. Change them in `apps/hub/src/config.ts`.
@@ -82,7 +82,8 @@ A round neon plaza, about 60 m across, built from primitives and emissive materi
 `@metaverse/hub-sdk` is the surface the games call. Outside a redeemed ticket every method no-ops, so a game still runs on its own. Install and the Three.js wiring are in [packages/hub-sdk/README.md](packages/hub-sdk/README.md).
 
 ```ts
-init(gameId)                          // reads #t=, strips it, returns the mock profile
+redeemTicket({ game })                // reads #t=, strips it, custom-auth session + refresh token
+init(gameId)                          // same exchange when a ticket is still in the hash; otherwise the saved session
 reportEvent(eventId, data, key)       // ready, game_beaten, or the four relic triggers
 earnTickets(amount, reason, key)
 exchange(tickets, key)                // 10 Tickets = 1 Verse, 50 Verse per game per day
