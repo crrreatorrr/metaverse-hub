@@ -885,15 +885,47 @@ namespace HubSchema {
     return "EXECUTE $" + tag + "$" + statement + "$" + tag + "$;\n";
   }
 
+  function migrationNumber(id: string): number {
+    var match = /^([0-9]+)_/.exec(id);
+    if (!match) {
+      throw new Error("schema migration id has no numeric prefix: " + id);
+    }
+    return parseInt(match[1], 10);
+  }
+
   function lockedRunQuery(plans: { id: string; checksum: string; statements: string[] }[]): string {
     var ids: string[] = [];
-    for (var i = 0; i < plans.length; i++) ids.push(sqlLiteral(plans[i].id));
-    var sql = "DO $hub_lock$\nDECLARE\n  recorded text;\n  missing text;\nBEGIN\n";
+    var codeValues: string[] = [];
+    for (var i = 0; i < plans.length; i++) {
+      ids.push(sqlLiteral(plans[i].id));
+      codeValues.push("(" + migrationNumber(plans[i].id) + "::int, " + sqlLiteral(plans[i].id) + "::text)");
+    }
+    var sql = "DO $hub_lock$\nDECLARE\n  recorded text;\n  missing text;\n  out_of_order text;\n  highest text;\nBEGIN\n";
     sql += "PERFORM pg_advisory_lock(" + SCHEMA_LOCK_KEY + ");\n";
     sql += "PERFORM pg_advisory_xact_lock(" + SCHEMA_LOCK_KEY + ");\n";
     sql += "BEGIN\n";
+    sql += "CREATE SCHEMA IF NOT EXISTS game;\n";
+    sql += statementExecute("0001_schema_migrations", SCHEMA_MIGRATIONS_TABLE);
     sql += "SELECT id INTO missing FROM game.schema_migrations WHERE id <> ALL (ARRAY[" + ids.join(", ") + "]) LIMIT 1;\n";
     sql += "IF FOUND THEN\n  RAISE EXCEPTION 'schema migration recorded but missing from code: %', missing;\nEND IF;\n";
+    sql += "SELECT string_agg(c.id, ', ' ORDER BY c.n), (\n";
+    sql += "         SELECT id FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       )\n";
+    sql += "  INTO out_of_order, highest\n";
+    sql += "  FROM (VALUES " + codeValues.join(", ") + ") AS c(n, id)\n";
+    sql += " WHERE NOT EXISTS (SELECT 1 FROM game.schema_migrations m WHERE m.id = c.id)\n";
+    sql += "   AND c.n < COALESCE((\n";
+    sql += "         SELECT split_part(id, '_', 1)::int FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       ), 0);\n";
+    sql += "IF out_of_order IS NOT NULL THEN\n";
+    sql += "  RAISE EXCEPTION 'unapplied schema migration % is older than the highest recorded migration %', out_of_order, highest;\n";
+    sql += "END IF;\n";
     for (var p = 0; p < plans.length; p++) {
       var plan = plans[p];
       sql += "SELECT checksum INTO recorded FROM game.schema_migrations WHERE id = " + sqlLiteral(plan.id) + ";\n";
@@ -939,8 +971,6 @@ namespace HubSchema {
       });
     }
 
-    nk.sqlExec("CREATE SCHEMA IF NOT EXISTS game", []);
-    nk.sqlExec(SCHEMA_MIGRATIONS_TABLE, []);
     try {
       nk.sqlExec(lockedRunQuery(plans), []);
     } catch (err) {
