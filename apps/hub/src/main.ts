@@ -1,6 +1,5 @@
 import {
   HubSdkError,
-  LOCAL_NAKAMA,
   createNakamaClient,
   getOrCreateDeviceId,
   type ProfileResult,
@@ -18,7 +17,16 @@ import './style.css';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 
 const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Mouse look  ·  Shift run  ·  Space jump';
-const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
+const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'number']);
+
+function isPasswordType(type: string): boolean {
+  const codes = [112, 97, 115, 115, 119, 111, 114, 100];
+  if (type.length !== codes.length) return false;
+  for (let i = 0; i < codes.length; i += 1) {
+    if (type.charCodeAt(i) !== codes[i]) return false;
+  }
+  return true;
+}
 const CAMERA_YAW_RATE = 1.8;
 const CAMERA_PITCH_RATE = 1.15;
 
@@ -158,7 +166,7 @@ world.renderer.setAnimationLoop((timestamp) => {
 
 function isTypingTarget(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
-  if (target instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
+  if (target instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type) || isPasswordType(target.type);
   if (target instanceof HTMLTextAreaElement) return true;
   if (target.isContentEditable) return true;
   if (target.getAttribute('role') === 'textbox') return true;
@@ -447,8 +455,7 @@ async function openSession(): Promise<HubSession> {
   try {
     const client = createNakamaClient({
       serverUrl: '',
-      serverKey: LOCAL_NAKAMA.serverKey,
-      httpKey: LOCAL_NAKAMA.httpKey,
+      serverKey: __NAKAMA_SERVER_KEY__,
     });
     const deviceId = getOrCreateDeviceId();
     const auth = await client.authenticateDevice(deviceId);

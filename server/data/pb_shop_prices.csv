@@ -1,0 +1,100 @@
+game,shop_id,item_id,name,pack_size,pb_price,ticket_price,sell_price
+peoples-bitcoin,shop_terminal,item_rounds,Rounds,100,0.69,3,1
+peoples-bitcoin,shop_staffwright,item_coom,COOM,100,1.69,7,2
+peoples-bitcoin,shop_staffwright,item_hopium_soda,Hopium Soda,1,1.69,4,0
+peoples-bitcoin,shop_terminal,item_hopium_soda,Hopium Soda,1,1.69,4,0
+peoples-bitcoin,shop_staffwright,item_tp_soundbite,Soundbite,1,9.69,9,0
+peoples-bitcoin,shop_terminal,item_tp_soundbite,Soundbite,1,9.69,9,0
+peoples-bitcoin,shop_terminal,item_tp_zinger,Zinger,1,26.69,15,0
+peoples-bitcoin,shop_terminal,contract_recruit,Recruit Contract,1,69,25,11
+peoples-bitcoin,shop_terminal,gun_campaign_pistol,Campaign Pistol,1,69,25,11
+peoples-bitcoin,shop_terminal,item_business_cards,Business Cards,1,69,25,11
+peoples-bitcoin,shop_terminal,item_campaign_hat,Campaign Hat,1,69,25,11
+peoples-bitcoin,shop_terminal,item_concrete_bag,Concrete Bag,1,69,25,1
+peoples-bitcoin,shop_terminal,item_donor_list,Donor List,1,69,25,11
+peoples-bitcoin,shop_terminal,item_focus_soda,Focus Soda,1,69,25,0
+peoples-bitcoin,shop_terminal,item_oak_gavel,Oak Gavel,1,69,25,11
+peoples-bitcoin,shop_terminal,item_pick_rusty,Rusty Hash Pick,1,69,25,11
+peoples-bitcoin,shop_terminal,item_protein_shake,Protein Shake,1,69,25,0
+peoples-bitcoin,shop_terminal,item_thick_skin_tonic,Thick Skin Tonic,1,69,25,0
+peoples-bitcoin,shop_terminal,item_ticket_bunker,Bunker Ticket,1,69,25,11
+peoples-bitcoin,shop_terminal,item_ticket_treasury,Treasury Ticket,1,69,25,11
+peoples-bitcoin,shop_terminal,item_ticket_trenches,Trenches Camp Ticket,1,69,25,11
+peoples-bitcoin,shop_terminal,item_tp_mic_drop,Mic Drop,1,69,25,2
+peoples-bitcoin,shop_staffwright,staff_apprentice,Apprentice Staff,1,69,25,1
+peoples-bitcoin,shop_terminal,item_campaign_loafers,Campaign Loafers,1,169,39,17
+peoples-bitcoin,shop_terminal,item_campaign_slacks,Campaign Slacks,1,169,39,17
+peoples-bitcoin,shop_terminal,item_charm_tea,Charm Tea,1,169,39,2
+peoples-bitcoin,shop_terminal,item_miners_espresso,Miner's Espresso,1,169,39,2
+peoples-bitcoin,shop_terminal,item_networking_mints,Networking Mints,1,169,39,2
+peoples-bitcoin,shop_terminal,item_smooth_lozenge,Smooth-Talk Lozenge,1,169,39,2
+peoples-bitcoin,shop_terminal,item_steel_beam,Steel Beam,1,169,39,2
+peoples-bitcoin,shop_terminal,item_toolkit_basic,Basic Toolkit,1,169,39,17
+peoples-bitcoin,shop_terminal,contract_medic,Medic Contract,1,269,49,4
+peoples-bitcoin,shop_terminal,item_campaign_jacket,Campaign Jacket,1,269,49,22
+peoples-bitcoin,shop_terminal,item_grip_gloves,Grip Gloves,1,269,49,22
+peoples-bitcoin,shop_terminal,gun_confetti_shotgun,Confetti Shotgun,1,469,65,29
+peoples-bitcoin,shop_terminal,item_circuit_board,Circuit Board,1,469,65,6
+peoples-bitcoin,shop_staffwright,item_moonward_hat,Moonward Hat,1,469,65,7
+peoples-bitcoin,shop_terminal,item_victory_smoothie,Victory Smoothie,1,469,65,6
+peoples-bitcoin,shop_terminal,contract_grunt,Grunt Contract,1,669,78,10
+peoples-bitcoin,shop_terminal,item_aviators,Aviators,1,669,78,35
+peoples-bitcoin,shop_terminal,item_flak_helmet,Flak Helmet,1,669,78,10
+peoples-bitcoin,shop_terminal,item_gold_cards,Gold Cards,1,669,78,9
+peoples-bitcoin,shop_terminal,item_pick_steel,Steel Hash Pick,1,669,78,35
+peoples-bitcoin,shop_terminal,item_press_lanyard,Press Pass Lanyard,1,669,78,35
+peoples-bitcoin,shop_terminal,item_rolodex,Rolodex,1,669,78,35
+peoples-bitcoin,shop_staffwright,staff_hopium,Hopium Staff,1,669,78,11
+peoples-bitcoin,shop_terminal,item_flak_pants,Flak Pants,1,869,88,39
+peoples-bitcoin,shop_terminal,item_iron_gavel,Iron Gavel,1,869,88,39
+peoples-bitcoin,shop_staffwright,item_moonward_robe,Moonward Robe,1,869,88,13
+peoples-bitcoin,shop_terminal,item_combat_boots,Combat Boots,1,1269,107,48
+peoples-bitcoin,shop_terminal,item_flak_vest,Flak Vest,1,1269,107,20
+peoples-bitcoin,shop_terminal,gun_press_pass_smg,Press Pass SMG,1,1469,115,51
+peoples-bitcoin,shop_terminal,contract_sniper,Sniper Contract,1,1669,123,26
+peoples-bitcoin,shop_terminal,item_gala_top_hat,Gala Top Hat,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_gala_trousers,Gala Trousers,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_gavel_pendant,Gavel Pendant,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_hard_hat,Hard Hat,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_patent_shoes,Patent Shoes,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_power_fedora,Power Fedora,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_power_loafers,Power Loafers,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_power_trousers,Power Suit Trousers,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_press_headset,Press Headset,1,1669,123,23
+peoples-bitcoin,shop_terminal,item_press_slacks,Press Slacks,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_press_sneakers,Press Sneakers,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_steel_toe_boots,Steel-Toe Boots,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_toolkit_pro,Pro Toolkit,1,1669,123,55
+peoples-bitcoin,shop_terminal,item_work_trousers,Work Trousers,1,1669,123,55
+peoples-bitcoin,shop_terminal,gun_ballot_blaster,Ballot Blaster,1,2669,155,69
+peoples-bitcoin,shop_terminal,gun_hash_cannon,Hash Cannon,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_black_book,Black Book,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_briefcase_bludgeon,Briefcase Bludgeon,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_gala_tailcoat,Gala Tailcoat,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_hi_vis_vest,Hi-Vis Vest,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_kevlar_fedora,Kevlar Fedora,1,2669,155,42
+peoples-bitcoin,shop_terminal,item_pick_quantum,Quantum Hash Pick,1,2669,155,37
+peoples-bitcoin,shop_terminal,item_platinum_cards,Platinum Cards,1,2669,155,37
+peoples-bitcoin,shop_terminal,item_power_suit,Power Suit Jacket,1,2669,155,37
+peoples-bitcoin,shop_terminal,item_press_blazer,Press Blazer,1,2669,155,69
+peoples-bitcoin,shop_terminal,item_trigger_gloves,Trigger Gloves,1,2669,155,69
+peoples-bitcoin,shop_staffwright,staff_moonward,Moonward Staff,1,2669,155,50
+peoples-bitcoin,shop_terminal,gun_treasury_rifle,Treasury Rifle,1,3669,182,81
+peoples-bitcoin,shop_terminal,item_kevlar_trousers,Kevlar Trousers,1,3669,182,58
+peoples-bitcoin,shop_terminal,contract_heavy,Heavy Contract,1,4669,205,74
+peoples-bitcoin,shop_terminal,item_veto_hammer,Veto Hammer,1,4669,205,92
+peoples-bitcoin,shop_terminal,item_kevlar_suit,Kevlar Suit,1,5669,226,90
+peoples-bitcoin,shop_terminal,item_toolkit_elite,Elite Toolkit,1,6669,245,110
+peoples-bitcoin,shop_terminal,item_diamond_helm,Diamond Hands Helm,1,8669,279,125
+peoples-bitcoin,shop_terminal,gun_gremlin_blaster,Gremlin Blaster,1,9669,295,132
+peoples-bitcoin,shop_terminal,item_diamond_boots,Diamond Boots,1,11669,324,145
+peoples-bitcoin,shop_terminal,item_diamond_gauntlets,Diamond Gauntlets,1,11669,324,145
+peoples-bitcoin,shop_terminal,item_diamond_greaves,Diamond Hands Greaves,1,11669,324,145
+peoples-bitcoin,shop_terminal,item_diamond_plate,Diamond Hands Plate,1,16669,387,150
+peoples-bitcoin,shop_terminal,item_filibuster_mace,Filibuster Mace,1,16669,387,150
+peoples-bitcoin,shop_terminal,item_ticker_amulet,Ticker Amulet,1,16669,387,150
+peoples-bitcoin,shop_terminal,gun_diamond_minigun,Diamond Hands Minigun,1,24669,471,150
+peoples-bitcoin,shop_terminal,item_toolkit_master,Master Toolkit,1,26669,490,150
+peoples-bitcoin,shop_terminal,item_gavel_of_order,Gavel of Order,1,36669,574,150
+peoples-bitcoin,shop_terminal,gun_golden_veto,Golden Veto Cannon,1,69669,792,150
+peoples-bitcoin,shop_terminal,gun_flippening_railgun,Flippening Railgun,1,169669,1236,150
