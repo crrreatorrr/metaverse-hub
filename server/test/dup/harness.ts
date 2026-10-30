@@ -309,12 +309,6 @@ export interface CustomAuthResult {
   body: string;
 }
 
-/** True once #25 registers the custom-auth before-hook. #22 still redeems with session.redeem. */
-export function customAuthLanded(): boolean {
-  const source = readFileSync(path.join(ROOT, 'server/modules/src/main.ts'), 'utf8');
-  return source.includes('registerBeforeAuthenticateCustom');
-}
-
 /**
  * Game handoff. Nakama maps this route with `body: "account"`, so the JSON
  * body is `{ id, vars }` and `create` stays on the query string.
@@ -351,20 +345,12 @@ export async function openGame(hubToken: string, game: string): Promise<GameLogi
   if (opened.body.error || !opened.body.ticket || !opened.body.sessionId) {
     throw new Error(`portal.enter ${opened.status} ${JSON.stringify(opened.body)}`);
   }
-  if (customAuthLanded()) {
-    const redeemed = await redeemPortalTicket(opened.body.ticket, game);
-    if (!redeemed.token) {
-      throw new Error(`redeem ${redeemed.status} ${redeemed.body}`);
-    }
-    const userId = userIdFrom(hubToken);
-    return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
-  }
-  const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: game });
-  if (redeemed.body.error || !redeemed.body.token) {
-    throw new Error(`session.redeem ${redeemed.status} ${JSON.stringify(redeemed.body)}`);
+  const redeemed = await redeemPortalTicket(opened.body.ticket, game);
+  if (!redeemed.token) {
+    throw new Error(`redeem ${redeemed.status} ${redeemed.body}`);
   }
   const userId = userIdFrom(hubToken);
-  return { hub: { token: hubToken, userId }, gameToken: redeemed.body.token, sessionId: opened.body.sessionId };
+  return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
 }
 
 export async function login(game: string): Promise<GameLogin> {
