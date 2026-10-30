@@ -31,7 +31,6 @@ import {
   guest,
   mints,
   num,
-  customAuthLanded,
   outboxSend,
   psql,
   redeemPortalTicket,
@@ -187,9 +186,6 @@ async function enter(hubToken: string, game: Game): Promise<{ ticket: string; se
 }
 
 async function redeem(ticket: string, game: Game): Promise<RpcResult> {
-  if (!customAuthLanded()) {
-    return call('session.redeem', { ticket, gameId: game });
-  }
   const result = await redeemPortalTicket(ticket, game);
   if (result.token) {
     const part = result.token.split('.')[1] ?? '';
