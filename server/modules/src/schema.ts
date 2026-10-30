@@ -1490,12 +1490,12 @@ namespace HubSchema {
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
        SELECT max_amount INTO v_max FROM game.event_rule
-       WHERE game_id = p_game_id AND event_type = p_reason
+       WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
        LIMIT 1;
        IF NOT FOUND THEN
          RETURN jsonb_build_object('error', 'unknown_reason');
        END IF;
-       IF v_max IS NOT NULL AND p_amount > v_max THEN
+       IF p_amount > v_max THEN
          RETURN jsonb_build_object('error', 'amount_over_rule');
        END IF;
        v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, p_amount, p_reason, 'earn', false);
