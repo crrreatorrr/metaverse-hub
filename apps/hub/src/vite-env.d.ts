@@ -1,5 +1,14 @@
 /// <reference types="vite/client" />
 
+interface ImportMetaEnv {
+  /** Apex hostname. Production portals use `https://play.<domain>/<slug>/`. */
+  readonly VITE_PLAY_DOMAIN?: string;
+  readonly VITE_GAME_URL_HPOS10I?: string;
+  readonly VITE_GAME_URL_NOBU?: string;
+  readonly VITE_GAME_URL_PEOPLES_BITCOIN?: string;
+  readonly VITE_GAME_URL_SPROTO_DUEL?: string;
+}
+
 interface HubDebugState {
   drawCalls: number;
   fps: number;

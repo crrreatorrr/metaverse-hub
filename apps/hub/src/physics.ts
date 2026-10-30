@@ -1,8 +1,11 @@
 import { Box3, Line3, Vector3 } from 'three';
 import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from 'three-mesh-bvh';
+import { AVATAR_BODY_REFERENCE, AVATAR_HEIGHT } from './config';
 
-export const CAPSULE_RADIUS = 0.34;
-export const CAPSULE_LENGTH = 1.08;
+/** Previous 0.34 / 1.08 capsule matched a 1.75 m body. Scale with that body, not the staff. */
+const BODY_SCALE = AVATAR_HEIGHT / AVATAR_BODY_REFERENCE;
+export const CAPSULE_RADIUS = 0.34 * BODY_SCALE;
+export const CAPSULE_LENGTH = 1.08 * BODY_SCALE;
 /** Player origin is the top of the capsule segment. Feet rest on y = 0. */
 export const STAND_Y = CAPSULE_RADIUS + CAPSULE_LENGTH;
 

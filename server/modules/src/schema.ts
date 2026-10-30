@@ -763,7 +763,9 @@ namespace HubSchema {
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
     // Sum, rename pb-only rows, then delete pb leftovers. #16's overlap deletes
     // are not run again after this block.
-    `DO $$ BEGIN
+    `DO $$ DECLARE
+       n bigint;
+     BEGIN
        UPDATE game.tickets_balance AS neu
           SET balance = neu.balance + old.balance
          FROM game.tickets_balance AS old
@@ -779,6 +781,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.tickets_balance WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.tickets_balance pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.verse_earned AS neu
           SET lifetime = neu.lifetime + old.lifetime
@@ -795,6 +799,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.verse_earned WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.verse_earned pb rows dropped for unique game_id collision: %', n;
 
        -- Row presence is the beaten flag (OR). Keep the earliest timestamp.
        UPDATE game.game_beaten AS neu
@@ -813,6 +819,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.game_beaten WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.game_beaten pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.earn_window AS neu
           SET amount = neu.amount + old.amount
@@ -831,13 +839,24 @@ namespace HubSchema {
                AND canon.bucket = replace(pb_row.bucket, ':pb', ':peoples-bitcoin')
           );
        DELETE FROM game.earn_window WHERE bucket IN ('tickets:pb', 'verse:pb');
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.earn_window pb rows dropped for unique game_id collision: %', n;
 
+       SELECT count(*) INTO n
+         FROM game.event_rule pb
+        WHERE pb.game_id = 'pb'
+          AND EXISTS (
+            SELECT 1 FROM game.event_rule canon
+             WHERE canon.game_id = 'peoples-bitcoin'
+               AND canon.event_type = pb.event_type
+          );
        INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
        SELECT 'peoples-bitcoin', event_type, relic_id, tickets, session_limit, day_limit, match
          FROM game.event_rule
         WHERE game_id = 'pb'
        ON CONFLICT DO NOTHING;
        DELETE FROM game.event_rule WHERE game_id = 'pb';
+       RAISE NOTICE 'game.event_rule pb rows dropped for unique game_id collision: %', n;
      END $$`,
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
       ],
@@ -845,7 +864,8 @@ namespace HubSchema {
     {
       // 0002_baseline still inserts these four rows, once. This delete is what
       // leaves them out. 0002 is immutable, so it is not edited and does not run again.
-      id: "0004_drop_open_game_beaten_rules",
+      // Numbered 0008 so it lands after #12 (0005), #25 (0006), and #13 (0007).
+      id: "0008_drop_open_game_beaten_rules",
       statements: [
         `DELETE FROM game.event_rule
          WHERE event_type = 'game_beaten'
@@ -882,15 +902,47 @@ namespace HubSchema {
     return "EXECUTE $" + tag + "$" + statement + "$" + tag + "$;\n";
   }
 
+  function migrationNumber(id: string): number {
+    var match = /^([0-9]+)_/.exec(id);
+    if (!match) {
+      throw new Error("schema migration id has no numeric prefix: " + id);
+    }
+    return parseInt(match[1], 10);
+  }
+
   function lockedRunQuery(plans: { id: string; checksum: string; statements: string[] }[]): string {
     var ids: string[] = [];
-    for (var i = 0; i < plans.length; i++) ids.push(sqlLiteral(plans[i].id));
-    var sql = "DO $hub_lock$\nDECLARE\n  recorded text;\n  missing text;\nBEGIN\n";
+    var codeValues: string[] = [];
+    for (var i = 0; i < plans.length; i++) {
+      ids.push(sqlLiteral(plans[i].id));
+      codeValues.push("(" + migrationNumber(plans[i].id) + "::int, " + sqlLiteral(plans[i].id) + "::text)");
+    }
+    var sql = "DO $hub_lock$\nDECLARE\n  recorded text;\n  missing text;\n  out_of_order text;\n  highest text;\nBEGIN\n";
     sql += "PERFORM pg_advisory_lock(" + SCHEMA_LOCK_KEY + ");\n";
     sql += "PERFORM pg_advisory_xact_lock(" + SCHEMA_LOCK_KEY + ");\n";
     sql += "BEGIN\n";
+    sql += "CREATE SCHEMA IF NOT EXISTS game;\n";
+    sql += statementExecute("0001_schema_migrations", SCHEMA_MIGRATIONS_TABLE);
     sql += "SELECT id INTO missing FROM game.schema_migrations WHERE id <> ALL (ARRAY[" + ids.join(", ") + "]) LIMIT 1;\n";
     sql += "IF FOUND THEN\n  RAISE EXCEPTION 'schema migration recorded but missing from code: %', missing;\nEND IF;\n";
+    sql += "SELECT string_agg(c.id, ', ' ORDER BY c.n), (\n";
+    sql += "         SELECT id FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       )\n";
+    sql += "  INTO out_of_order, highest\n";
+    sql += "  FROM (VALUES " + codeValues.join(", ") + ") AS c(n, id)\n";
+    sql += " WHERE NOT EXISTS (SELECT 1 FROM game.schema_migrations m WHERE m.id = c.id)\n";
+    sql += "   AND c.n < COALESCE((\n";
+    sql += "         SELECT split_part(id, '_', 1)::int FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       ), 0);\n";
+    sql += "IF out_of_order IS NOT NULL THEN\n";
+    sql += "  RAISE EXCEPTION 'unapplied schema migration % is older than the highest recorded migration %', out_of_order, highest;\n";
+    sql += "END IF;\n";
     for (var p = 0; p < plans.length; p++) {
       var plan = plans[p];
       sql += "SELECT checksum INTO recorded FROM game.schema_migrations WHERE id = " + sqlLiteral(plan.id) + ";\n";
@@ -936,8 +988,6 @@ namespace HubSchema {
       });
     }
 
-    nk.sqlExec("CREATE SCHEMA IF NOT EXISTS game", []);
-    nk.sqlExec(SCHEMA_MIGRATIONS_TABLE, []);
     try {
       nk.sqlExec(lockedRunQuery(plans), []);
     } catch (err) {

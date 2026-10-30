@@ -33,7 +33,7 @@ npm run dev
 
 Open http://127.0.0.1:5173/hub/
 
-The camera is **third person**: a spring arm behind a low-poly avatar, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. WASD moves (arrows work too), the mouse looks, Shift sprints, Space jumps. Desktop only.
+The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a signed ticket in the fragment:
 
