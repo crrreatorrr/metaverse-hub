@@ -75,6 +75,7 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
   if (event.code === 'Space') jumpQueued = true;
+  if (event.code === 'KeyE' && !event.repeat && world.zone() === 'store') world.verseStoreUi.requestOpen();
 });
 window.addEventListener('keyup', (event) => {
   keys.delete(event.code);
@@ -238,6 +239,8 @@ function updateHint(): void {
       ? `${look}Walk into the door to enter the bar`
       : zone === 'exit'
         ? `${look}Walk through the exit to return to the plaza`
+      : zone === 'store'
+        ? world.verseStoreUi.open ? `${look}Sprotel Bitcoin · Verse store` : `${look}Press E · ${world.verseStoreUi.prompt}`
         : closed
           ? `${look}${closed.label} · Coming soon`
           : entering && inside
