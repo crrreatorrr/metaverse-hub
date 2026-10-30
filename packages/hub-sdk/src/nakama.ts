@@ -36,12 +36,16 @@ export interface ProfileResult {
   verseEarned?: { gameId: string; lifetime: number }[];
   /** Remaining Tickets this game can still earn today. Present on a game session. */
   ticketsCapLeft?: number;
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime?: number;
 }
 
 export interface PortalEnterResult {
   ticket: string;
   sessionId: string;
   expiresAt: number;
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface RedeemResult {
@@ -53,6 +57,8 @@ export interface RedeemResult {
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
   gameBeaten: string[];
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface RecoveryCodeResult {
@@ -115,8 +121,20 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
       });
       const text = await response.text();
       if (!response.ok) throw new HubSdkError('rpc_failed', text || `HTTP ${response.status}`, response.status);
-      const parsed = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string };
-      if (parsed.error) throw new HubSdkError(parsed.error, parsed.message || parsed.error);
+      const parsed = (text ? JSON.parse(text) : {}) as T & {
+        error?: string;
+        message?: string;
+        capLeft?: unknown;
+        sessionCapLeft?: unknown;
+        dailyCapLeft?: unknown;
+      };
+      if (parsed.error) {
+        const num = (value: unknown) => (typeof value === 'number' ? value : undefined);
+        const sessionCapLeft = num(parsed.sessionCapLeft);
+        const dailyCapLeft = num(parsed.dailyCapLeft);
+        const capLeft = num(parsed.capLeft) ?? sessionCapLeft ?? dailyCapLeft;
+        throw new HubSdkError(parsed.error, parsed.message || parsed.error, undefined, capLeft, sessionCapLeft, dailyCapLeft);
+      }
       return parsed;
     },
   };

@@ -16,6 +16,7 @@
   },
   "files": [
     "src/nakama.d.ts",
+    "src/shop_seed.ts",
     "src/schema.ts",
     "src/tickets.ts",
     "src/effects.ts",

@@ -10,7 +10,7 @@
     "preview": "vite preview --host 127.0.0.1 --port 4173 --strictPort"
   },
   "dependencies": {
-    "@metaverse/hub-sdk": "0.1.0",
+    "@metaverse/hub-sdk": "0.3.0",
     "postprocessing": "^6.39.5",
     "three": "0.186.1",
     "three-mesh-bvh": "0.9.17"
