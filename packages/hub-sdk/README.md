@@ -2,7 +2,7 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
-Version 0.4.0-redeem.1 (a prerelease of 0.4.0). `redeemTicket` is the handoff. Existing method names, argument order, game ids, relic ids, and event ids stay stable.
+Version 0.4.0-redeem.1 (a prerelease of 0.4.0). `redeemTicket` is the handoff. Shop calls (`spendTickets`, `sellItem`, and `getTicketBalance`) sit on the same surface. Method names, argument order, game ids, relic ids, and event ids stay stable.
 
 ## Install
 
@@ -56,7 +56,7 @@ const hub = installHubSdk(createHubSdk({
 }));
 
 const profile = await hub.init('sproto');
-// profile.playerId, profile.ranked, profile.relics, profile.effects, profile.ticketsCapLeft
+// profile.playerId, profile.ranked, profile.relics, profile.effects, profile.ticketsCapLeft, profile.serverTime
 ```
 
 `init` redeems `#t=` when it is still there. To take the session and refresh token yourself, call `redeemTicket` instead of that first `init` (it removes the fragment, so do not call both on the same load):
@@ -99,11 +99,11 @@ if (!godMode && profile.ranked) {
 hub.exit('match_end'); // releases pointer lock and goes to /hub/#from=sproto
 ```
 
-Against Nakama, earn, relic events, and exchange are written to IndexedDB (`hub-outbox`, store `writes`) before they are sent. The record keeps the `key` you passed, plus the body, RPC name, session token, and game id. That key is not replaced on a retry. The call rejects if the response is lost, and the record stays queued. It is deleted only after the RPC resolves. `init` drains every queued record, including in a tab with no saved session, using the stored token and key. Nakama returns the stored result when that same key and body are repeated.
+Against Nakama, earn, relic events, exchange, shop purchases, and shop sales are written to IndexedDB (`hub-outbox`, store `writes`) before they are sent. The record keeps the `key` you passed, plus the body, RPC name, session token, and game id. That key is not replaced on a retry. The call rejects if the response is lost, and the record stays queued. It is deleted only after the RPC resolves. `init` drains every queued record, including in a tab with no saved session, using the stored token and key. Nakama returns the stored result when that same key and body are repeated. `getTicketBalance` is a read and is not queued.
 
 A different operation id is a new request. The relic itself is still earn-once: the server's primary key is `(player, relic)`, so a second boss event cannot grant Tinubu's Crown again.
 
-`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId`. God-mode wins should still call `earnTickets` and should skip `submitScore`. `submitScore` is accepted and stored nowhere yet.
+`earnTickets` records Tickets on the server. `exchange` turns Tickets into Verse at 10 to 1, at most 50 Verse per game per day, and returns a `receiptId` plus the Ticket `balance`. `spendTickets(shopId, itemId, packs, key)` buys `packs` at that shop's price per pack (`price * packs`). `sellItem(shopId, itemId, packs, key)` credits `sell_price * packs` through the same session cap (200) and daily earn window as `earnTickets`. A sale worth 0 Tickets returns `zero_value` and leaves the item, the wallet, and the cap untouched. A sale that does not fit the session cap is rejected entirely with `session_ticket_cap` and `sessionCapLeft`. A credit that does not fit today's earn window is rejected entirely with `daily_ticket_cap` and `dailyCapLeft`. The server does not partial-credit. A successful shop call returns `units` (`packs * pack_size`) and `balance`. An unknown shop item returns `unknown_item`. `getTicketBalance()` returns `{ balance, sessionCapLeft, dailyCapLeft, serverTime }` so the game can bank only what still fits. `serverTime` is epoch milliseconds from PostgreSQL `now()` on the Nakama server. `init` returns that clock after the portal ticket is swapped for a session, and again from `profile.get` when a saved session is reused. The in-memory mock fills it from `serverNow`, or from `now` when `serverNow` is omitted.
 
 ## API
 
@@ -116,12 +116,16 @@ init(gameId): Promise<{
   relics: RelicId[];
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
+  serverTime: number;
 }>
 
 reportEvent(eventId: string, data: object, key: string): Promise<{ granted?: RelicId }>
 submitScore(boardId: string, value: number, meta?: object): Promise<void>
 earnTickets(amount: number, reason: string, key: string): Promise<{ balance: number; capped: boolean }>
-exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; receiptId: string }>
+exchange(tickets: number, key: string): Promise<{ verse: number; ticketsLeft: number; balance: number; receiptId: string; verseCapLeft?: number }>
+spendTickets(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; spent: number; balance: number }>
+sellItem(shopId: string, itemId: string, packs: number, key: string): Promise<{ shop_id: string; item_id: string; packs: number; units: number; credited: number; balance: number }>
+getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapLeft: number; serverTime: number }>
 exit(reason?: string): void
 ```
 

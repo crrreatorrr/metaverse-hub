@@ -54,6 +54,10 @@ declare namespace nkruntime {
     registerBeforeAuthenticateCustom(fn: BeforeHook): void;
     registerBeforeAuthenticateDevice(fn: BeforeHook): void;
     registerBeforeSessionRefresh(fn: BeforeHook): void;
+    registerBeforeLinkCustom(fn: BeforeHook): void;
+    registerBeforeLinkDevice(fn: BeforeHook): void;
+    registerBeforeUnlinkCustom(fn: BeforeHook): void;
+    registerBeforeUnlinkDevice(fn: BeforeHook): void;
   }
 
   type RpcFunction = (ctx: Context, logger: Logger, nk: Nakama, payload: string) => string;

@@ -45,6 +45,18 @@ function rpcTicketsExchange(ctx: nkruntime.Context, logger: nkruntime.Logger, nk
   return guard(HubRpc.ticketsExchange, ctx, logger, nk, payload);
 }
 
+function rpcTicketsSpend(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsSpend, ctx, logger, nk, payload);
+}
+
+function rpcTicketsSell(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsSell, ctx, logger, nk, payload);
+}
+
+function rpcTicketsBalance(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsBalance, ctx, logger, nk, payload);
+}
+
 function rpcRecoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.recoveryCreate, ctx, logger, nk, payload);
 }
@@ -69,6 +81,10 @@ function beforeRefresh(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return HubRpc.beforeSessionRefresh(ctx, logger, nk, data);
 }
 
+function beforeLink(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeLinkIdentity(ctx, logger, nk, data);
+}
+
 function InitModule(
   _ctx: nkruntime.Context,
   logger: nkruntime.Logger,
@@ -85,11 +101,18 @@ function InitModule(
   initializer.registerRpc("score.submit", rpcScoreSubmit);
   initializer.registerRpc("tickets.earn", rpcTicketsEarn);
   initializer.registerRpc("tickets.exchange", rpcTicketsExchange);
+  initializer.registerRpc("tickets.spend", rpcTicketsSpend);
+  initializer.registerRpc("tickets.sell", rpcTicketsSell);
+  initializer.registerRpc("tickets.balance", rpcTicketsBalance);
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
   initializer.registerBeforeAuthenticateDevice(beforeDevice);
   initializer.registerBeforeSessionRefresh(beforeRefresh);
+  initializer.registerBeforeLinkCustom(beforeLink);
+  initializer.registerBeforeLinkDevice(beforeLink);
+  initializer.registerBeforeUnlinkCustom(beforeLink);
+  initializer.registerBeforeUnlinkDevice(beforeLink);
   logger.info("metaverse hub runtime ready");
 }

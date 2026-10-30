@@ -3,22 +3,19 @@ import { base64UrlToBytes } from './ticket';
 
 /**
  * Local compose origin. Credentials are not embedded: the app passes `serverKey`
- * (dev builds inject the compose server key). The HTTP key is not a client credential.
+ * (dev builds inject the compose server key).
  */
-export const LOCAL_NAKAMA = {
+export const LOCAL_NAKAMA: {
+  readonly serverUrl: 'http://127.0.0.1:7350';
+  readonly serverKey: '';
+  readonly [extra: string]: string;
+} = {
   serverUrl: 'http://127.0.0.1:7350',
   serverKey: '',
-  /** Kept so older callers still typecheck. Ignored. Never sent. */
-  httpKey: '',
-} as const;
+};
 
 export interface NakamaRpcOptions {
   token?: string;
-  /**
-   * Accepted and ignored. `createNakamaClient` does not send an HTTP key.
-   * An injected test double may still observe the flag.
-   */
-  httpKey?: boolean;
   keepalive?: boolean;
 }
 
@@ -41,9 +38,9 @@ export interface NakamaClient {
 export interface NakamaClientOptions {
   serverUrl: string;
   serverKey?: string;
-  /** Accepted and ignored. The client never sends Nakama's HTTP key. */
-  httpKey?: string;
   fetchImpl?: typeof fetch;
+  /** Ignored. The client sends the server key only. */
+  [extra: string]: unknown;
 }
 
 export interface ProfileResult {
@@ -58,12 +55,16 @@ export interface ProfileResult {
   /** Present on a game session minted by ticket custom-auth. */
   effects?: Record<string, number | boolean | string>;
   ranked?: boolean;
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime?: number;
 }
 
 export interface PortalEnterResult {
   ticket: string;
   sessionId: string;
   expiresAt: number;
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface RedeemResult {
@@ -75,6 +76,8 @@ export interface RedeemResult {
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
   gameBeaten: string[];
+  /** Nakama server clock, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface RecoveryCodeResult {
@@ -173,8 +176,20 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
       });
       const text = await response.text();
       if (!response.ok) throw new HubSdkError('rpc_failed', text || `HTTP ${response.status}`, response.status);
-      const parsed = (text ? JSON.parse(text) : {}) as T & { error?: string; message?: string };
-      if (parsed.error) throw new HubSdkError(parsed.error, parsed.message || parsed.error);
+      const parsed = (text ? JSON.parse(text) : {}) as T & {
+        error?: string;
+        message?: string;
+        capLeft?: unknown;
+        sessionCapLeft?: unknown;
+        dailyCapLeft?: unknown;
+      };
+      if (parsed.error) {
+        const num = (value: unknown) => (typeof value === 'number' ? value : undefined);
+        const sessionCapLeft = num(parsed.sessionCapLeft);
+        const dailyCapLeft = num(parsed.dailyCapLeft);
+        const capLeft = num(parsed.capLeft) ?? sessionCapLeft ?? dailyCapLeft;
+        throw new HubSdkError(parsed.error, parsed.message || parsed.error, undefined, capLeft, sessionCapLeft, dailyCapLeft);
+      }
       return parsed;
     },
   };

@@ -22,6 +22,9 @@ export type {
   InitResult,
   RedeemedSession,
   RelicId,
+  SellResult,
+  SpendResult,
+  TicketBalanceResult,
 } from './types';
 export { HubEvent, relicForEvent } from './events';
 export type { HubEventId } from './events';
