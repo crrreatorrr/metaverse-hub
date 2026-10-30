@@ -59,8 +59,10 @@ declare namespace nkruntime {
     registerBeforeAuthenticateSteam(fn: BeforeHook): void;
     registerBeforeSessionRefresh(fn: BeforeHook): void;
     registerBeforeLinkCustom(fn: BeforeHook): void;
+    registerBeforeLink(fn: BeforeHook): void;
     registerBeforeLinkDevice(fn: BeforeHook): void;
     registerBeforeUnlinkCustom(fn: BeforeHook): void;
+    registerBeforeUnlink(fn: BeforeHook): void;
     registerBeforeUnlinkDevice(fn: BeforeHook): void;
   }
 
