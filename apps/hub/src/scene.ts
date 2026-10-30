@@ -40,6 +40,7 @@ import type { Collider } from './collider';
 import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
 import { buildClubInterior, type ClubInteriorBuild } from './v2/club-interior';
+import { SPROTEL_PROMPT } from './v2/sprotel-npc';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
 import { loadSignFont } from './v2/signs';
 
@@ -50,13 +51,23 @@ export interface Warp {
   yaw: number;
 }
 
-export type PlazaZone = 'door' | 'exit' | 'loading' | null;
+export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | null;
 
 export interface VerseStoreUi {
   /** Empty node `store_ui_anchor`. Null until the player enters the Bar. */
   readonly anchor: Object3D | null;
   /** The hub has no Verse store panel yet. Listeners run once the anchor exists. */
   whenReady(listener: (anchor: Object3D) => void): void;
+  /** True while the Verse store is open (Sprotel talks while it is). */
+  readonly open: boolean;
+  /** Prompt shown inside Sprotel's interact trigger (meta.interact.prompt). */
+  readonly prompt: string;
+  /** Player pressed interact inside Sprotel's trigger (zone 'store'). Opens the store and notifies listeners. */
+  requestOpen(): void;
+  /** Listeners for an open request; the store panel subscribes here once it exists. */
+  onOpenRequest(listener: () => void): void;
+  /** The store panel reports open/closed. Leaving the trigger also closes it. */
+  setOpen(open: boolean): void;
 }
 
 export interface HubWorld {
@@ -285,6 +296,8 @@ export async function createWorld(): Promise<HubWorld> {
   let boardRows: readonly (readonly [string, string])[] = [];
   const storeListeners: ((anchor: Object3D) => void)[] = [];
   let storeAnchor: Object3D | null = null;
+  let storeOpen = false;
+  const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
 
   function applyBoard(): void {
@@ -416,6 +429,12 @@ export async function createWorld(): Promise<HubWorld> {
       }
     }
     if (inside && interior) {
+      const sprotel = interior.sprotel;
+      if (sprotel) {
+        sprotel.update(dt, player, storeOpen);
+        if (sprotel.playerNear) zone = 'store';
+        else storeOpen = false;
+      }
       const distance = Math.min(
         horiz(interior.exit, player.x, player.y, player.z),
         horiz(interior.entry, player.x, player.y, player.z),
@@ -427,6 +446,7 @@ export async function createWorld(): Promise<HubWorld> {
         outdoor.visible = true;
         interior.group.visible = false;
         setClubMood(false);
+        storeOpen = false;
         interior.exit.getWorldPosition(tmp);
         const flat = tmp.clone();
         flat.y = 0;
@@ -515,6 +535,15 @@ export async function createWorld(): Promise<HubWorld> {
         if (storeAnchor) listener(storeAnchor);
         else storeListeners.push(listener);
       },
+      get open() { return storeOpen; },
+      get prompt() { return interior?.sprotel?.prompt ?? SPROTEL_PROMPT; },
+      requestOpen() {
+        if (zone !== 'store' || storeOpen) return;
+        storeOpen = true;
+        for (const listener of openListeners) listener();
+      },
+      onOpenRequest(listener) { openListeners.push(listener); },
+      setOpen(open) { storeOpen = open && zone === 'store'; },
     },
     inInterior: () => inside,
     zone: () => zone,

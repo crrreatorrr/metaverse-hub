@@ -1,0 +1,41 @@
+{
+ "version": 4,
+ "final": true,
+ "hat": "v1 Tripo hat",
+ "scale_vs_v1": 1.08,
+ "height_m": 2.365,
+ "aabb_rest": {
+  "min": [
+   -0.665,
+   0,
+   -0.383
+  ],
+  "max": [
+   0.667,
+   2.365,
+   0.265
+  ]
+ },
+ "collision": {
+  "shape": "capsule",
+  "radius": 0.486,
+  "height": 2.365,
+  "center": [
+   0,
+   1.1826,
+   0
+  ]
+ },
+ "interact": {
+  "shape": "sphere",
+  "radius": 2.5,
+  "center": [
+   0,
+   1.188,
+   0
+  ],
+  "action": "open_verse_store"
+ },
+ "anchor": "barman_spot",
+ "forward": "+Z"
+}
