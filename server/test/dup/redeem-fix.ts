@@ -4,6 +4,7 @@
  * audit.sql runs from the suite wrapper after every case.
  */
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -301,6 +302,10 @@ function economyRows(userId: string): string {
   ].join(' ');
 }
 
+function staleTicketCount(hash: string): number {
+  return num(`SELECT count(*) FROM game.auth_ticket WHERE ticket_hash = decode('${hash}', 'hex')`);
+}
+
 async function sweepLeavesEconomy(): Promise<void> {
   const who = await guest();
   const opened = await enter(who.token, 'sproto');
@@ -317,44 +322,55 @@ async function sweepLeavesEconomy(): Promise<void> {
   }, redeemed.token);
   assert.equal(crowned.body.granted, 'tinubu_crown', JSON.stringify(crowned.body));
   const before = economyRows(who.userId);
+  const staleTicket = 'sweep-stale-ticket';
+  const staleHash = createHash('sha256').update(staleTicket).digest('hex');
   psql(
     `INSERT INTO game.auth_ticket (ticket_hash, user_id, game_id, session_id, ranked, expires_at, created_at)
-     VALUES (decode('${'ab'.repeat(32)}', 'hex'), '${sqlId(who.userId)}', 'sproto', '${sqlId(opened.sessionId)}', false, now() + interval '1 minute', now() - interval '2 hours')`,
+     VALUES (decode('${staleHash}', 'hex'), '${sqlId(who.userId)}', 'sproto', '${sqlId(opened.sessionId)}', false, now() + interval '1 minute', now() - interval '2 hours')`,
   );
   psql(
     `INSERT INTO game.portal_attempt (user_id, created_at) VALUES ('${sqlId(who.userId)}', now() - interval '2 hours')`,
   );
+
+  compose(['restart', 'nakama']);
+  await waitReady();
+  assert.equal(staleTicketCount(staleHash), 1, 'restart deleted a ticket created 2 hours ago');
+  assert.equal(economyRows(who.userId), before, 'restart changed the economy');
+  assert.equal(ticketLedger(who.userId), 20);
+  assert.equal(
+    psql(
+      `SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.sessionId)}' AND ticket_hash <> decode('${staleHash}', 'hex')`,
+    ),
+    't',
+    'restart cleared the redeemed ticket',
+  );
+
   psql(`UPDATE game.maint_sweep SET ran_at = now() - interval '2 hours' WHERE name = 'auth_ticket'`);
   const sweepEnter = await call('portal.enter', { game: 'hpos10i', ranked: false }, who.token);
   assert.equal(sweepEnter.body.error, undefined, JSON.stringify(sweepEnter.body));
-  assert.equal(num(`SELECT count(*) FROM game.auth_ticket WHERE ticket_hash = decode('${'ab'.repeat(32)}', 'hex')`), 0);
+  assert.equal(staleTicketCount(staleHash), 0, 'portal.enter left the ticket created 2 hours ago');
   assert.equal(
     num(`SELECT count(*) FROM game.portal_attempt WHERE user_id = '${sqlId(who.userId)}' AND created_at < now() - interval '1 hour'`),
     0,
   );
   assert.equal(economyRows(who.userId), before, 'hourly sweep changed the economy');
-  const replay = await call('tickets.earn', { amount: 20, reason: 'win', key: 'sweep-earn' }, redeemed.token);
-  assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
-  assert.equal(replay.body.balance, 20);
+  assert.equal(ticketLedger(who.userId), 20);
+  assert.equal(
+    psql(`SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.sessionId)}'`),
+    't',
+    'sweep cleared the redeemed ticket',
+  );
+  const replayEarn = await call('tickets.earn', { amount: 20, reason: 'win', key: 'sweep-earn' }, redeemed.token);
+  assert.equal(replayEarn.body.error, undefined, JSON.stringify(replayEarn.body));
+  assert.equal(replayEarn.body.balance, 20);
   assert.equal(ticketLedger(who.userId), 20);
   const usedAgain = await redeemPortalTicket(opened.ticket, 'sproto');
-  assertRejected(usedAgain.status, usedAgain.token, usedAgain.body, 'used ticket after hourly sweep');
-
-  psql(
-    `INSERT INTO game.auth_ticket (ticket_hash, user_id, game_id, session_id, ranked, expires_at, created_at)
-     VALUES (decode('${'cd'.repeat(32)}', 'hex'), '${sqlId(who.userId)}', 'sproto', '${sqlId(opened.sessionId)}', false, now() + interval '1 minute', now() - interval '2 hours')`,
-  );
-  compose(['restart', 'nakama']);
-  await waitReady();
-  assert.equal(num(`SELECT count(*) FROM game.auth_ticket WHERE ticket_hash = decode('${'cd'.repeat(32)}', 'hex')`), 0);
-  assert.equal(economyRows(who.userId), before, 'boot sweep changed the economy');
-  const afterBoot = await call('tickets.earn', { amount: 20, reason: 'win', key: 'sweep-earn' }, redeemed.token);
-  assert.equal(afterBoot.body.error, undefined, JSON.stringify(afterBoot.body));
-  assert.equal(afterBoot.body.balance, 20);
-  assert.equal(ticketLedger(who.userId), 20);
-  const usedAfterBoot = await redeemPortalTicket(opened.ticket, 'sproto');
-  assertRejected(usedAfterBoot.status, usedAfterBoot.token, usedAfterBoot.body, 'used ticket after boot sweep');
+  assertRejected(usedAgain.status, usedAgain.token, usedAgain.body, 'used ticket after the sweep');
+  const sweptAgain = await redeemPortalTicket(staleTicket, 'sproto');
+  assertRejected(sweptAgain.status, sweptAgain.token, sweptAgain.body, 'replay of the swept ticket');
+  assert.equal(redeemedRows(who.userId), 1, 'replay granted another session');
   assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(who.userId)}'`), 1);
+  assert.equal(economyRows(who.userId), before, 'replay changed the economy');
 }
 
 export async function runRedeemFix(test: TestFn): Promise<void> {
