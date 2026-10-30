@@ -6,7 +6,7 @@
  * replaying statement text from here.
  *
  * The edited-applied-migration boot failure is deferred and not covered.
- * (e) finishes `nakama migrate up` once, then races two hub servers.
+ * (e) finishes `nakama migrate up` once, then races two hub boots.
  * The cold-start race drops `game` first, so the advisory lock has to
  * cover creating the schema. An unapplied migration numbered below the
  * highest recorded id must refuse to boot, name both ids, and write nothing.
@@ -51,17 +51,6 @@ const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
 const SCHEMA_FILE = path.join(ROOT, 'server/modules/src/schema.ts');
 const BOOTS = ['hub-boot-a', 'hub-boot-b'] as const;
 const NAKAMA_DB = 'postgres:localdb@postgres:5432/nakama';
-const HUB_SERVER_ARGS = [
-  '--name', 'metaverse',
-  '--database.address', NAKAMA_DB,
-  '--logger.level', 'INFO',
-  '--session.token_expiry_sec', '7200',
-  '--runtime.http_key', 'localhttpkey',
-  '--runtime.env', 'TICKET_HMAC_KEY=dev-ticket-hmac-key',
-  '--runtime.env', 'RECOVERY_PEPPER=dev-recovery-pepper',
-  '--runtime.env', 'AUDIT_KEY=dev-audit-key',
-  '--runtime.env', 'HUB_FAULT_INJECT=1',
-] as const;
 
 const GAME_ID_TABLES = [
   'game_session',
@@ -411,14 +400,11 @@ function runNakamaMigrate(): void {
   }
 }
 
-/** Hub runtime only. Nakama's own migrate has already finished. */
+/** Full hub boot from the compose service: `nakama migrate up`, then the runtime. */
 async function composeRun(name: string): Promise<void> {
   await execFileAsync('docker', [
-    'compose', '-f', COMPOSE_FILE, 'run', '-d', '--no-deps', '--pull', 'never',
-    '--name', name,
-    '--entrypoint', '/nakama/nakama',
-    'nakama',
-    ...HUB_SERVER_ARGS,
+    'compose', '-f', COMPOSE_FILE, 'run', '-d', '-T', '--no-deps', '--pull', 'never',
+    '--name', name, 'nakama',
   ], { cwd: ROOT, timeout: 120_000 });
 }
 
@@ -459,9 +445,27 @@ function assertNakamaMigratedWithoutGameSchema(): void {
     'game schema exists before the hub boots',
   );
   assert.equal(
+    psql(`SELECT COALESCE(to_regclass('game.schema_migrations')::text, '')`),
+    '',
+    'schema_migrations exists before the hub boots',
+  );
+  assert.equal(
     psql(`SELECT COALESCE(to_regclass('public.users')::text, '')`),
     'users',
     'nakama migrate did not create public.users',
+  );
+}
+
+function assertSchemaCreatedOnce(): void {
+  assert.equal(num(`SELECT count(*) FROM pg_namespace WHERE nspname = 'game'`), 1, 'game schema created once');
+  assert.equal(
+    num(
+      `SELECT count(*) FROM pg_class c
+       JOIN pg_namespace n ON n.oid = c.relnamespace
+       WHERE n.nspname = 'game' AND c.relname = 'schema_migrations' AND c.relkind = 'r'`,
+    ),
+    1,
+    'schema_migrations created once',
   );
 }
 
@@ -718,6 +722,7 @@ export async function runMigrations(test: DupTest): Promise<void> {
       dropGameSchema();
       assertNakamaMigratedWithoutGameSchema();
       await raceHubBoots();
+      assertSchemaCreatedOnce();
     } catch (error) {
       failure = error;
     } finally {
