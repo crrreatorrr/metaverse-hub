@@ -1,0 +1,6 @@
+[Unit]
+Description=Refresh UFW Cloudflare edge ranges
+
+[Service]
+Type=oneshot
+ExecStart=@DEPLOY_ROOT@/scripts/cloudflare-ufw.sh
