@@ -1,4 +1,4 @@
-/** Game ids stored on the server and used in `/hub#from=<game>`. */
+/** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
 export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
 export type GameId = (typeof GAME_IDS)[number];
 
@@ -51,6 +51,8 @@ export interface InitResult {
   /** Resolved effects for this game only. Empty until the server ships the matrix. */
   effects: Record<string, number | boolean | string>;
   ticketsCapLeft: number;
+  /** Nakama server clock at this response, epoch milliseconds. */
+  serverTime: number;
 }
 
 export interface EarnResult {
@@ -62,13 +64,49 @@ export interface ExchangeResult {
   /** Verse wallet balance after the exchange. */
   verse: number;
   ticketsLeft: number;
+  /** Ticket wallet after the exchange. Same number as ticketsLeft. */
+  balance: number;
   receiptId: string;
   /** Verse this game can still earn today. Omitted by older servers. */
   verseCapLeft?: number;
 }
 
+export interface SpendResult {
+  shop_id: string;
+  item_id: string;
+  packs: number;
+  units: number;
+  spent: number;
+  balance: number;
+}
+
+export interface SellResult {
+  shop_id: string;
+  item_id: string;
+  packs: number;
+  units: number;
+  credited: number;
+  balance: number;
+}
+
+export interface TicketBalanceResult {
+  balance: number;
+  /** Tickets this session can still credit before `session_ticket_cap`. */
+  sessionCapLeft: number;
+  /** Tickets this game can still credit today before `daily_ticket_cap`. */
+  dailyCapLeft: number;
+  /** Nakama server clock at this response, epoch milliseconds. */
+  serverTime: number;
+}
+
 export interface EventResult {
   granted?: RelicId;
+}
+
+/** Nakama session from `redeemTicket`. The HTTP key is not involved. */
+export interface RedeemedSession {
+  token: string;
+  refreshToken: string;
 }
 
 /**
@@ -77,11 +115,21 @@ export interface EventResult {
  * `JavaScriptBridge.get_interface("hubSdk")` once `installHubSdk` has run.
  */
 export interface HubSdk {
+  /**
+   * Read `#t=` from the page hash, strip it immediately, and exchange it for a
+   * Nakama session using the server key only (`authenticateCustom`, create=false).
+   */
+  redeemTicket(input: { game: GameId }): Promise<RedeemedSession>;
   init(gameId: GameId): Promise<InitResult>;
   reportEvent(eventId: string, data: object, key: string): Promise<EventResult>;
   submitScore(boardId: string, value: number, meta?: object): Promise<void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
   exchange(tickets: number, key: string): Promise<ExchangeResult>;
+  /** Buy `packs` from `shopId` at the server price per pack. The caller mints `key` once. */
+  spendTickets(shopId: string, itemId: string, packs: number, key: string): Promise<SpendResult>;
+  /** Sell `packs` back to `shopId` at the server sell price per pack. The caller mints `key` once. */
+  sellItem(shopId: string, itemId: string, packs: number, key: string): Promise<SellResult>;
+  getTicketBalance(): Promise<TicketBalanceResult>;
   exit(reason?: string): void;
 }
 

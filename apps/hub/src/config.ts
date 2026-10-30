@@ -1,15 +1,14 @@
 import type { GameId, RelicId } from '@metaverse/hub-sdk';
 
 /**
- * Portal pages and plaza layout. Change `url` when a game is hosted.
- * Walking into a portal opens `url#t=<mock ticket>`.
+ * Plaza layout. Each portal's page is `gameUrl` in `games.ts` (`GAME_URLS`).
+ * Walking into a ring opens that page in this tab with `#t=<ticket>`.
  */
 export interface PortalConfig {
   id: GameId;
   label: string;
   /** Placeholder building around the portal. Final models come later. */
   place: string;
-  url: string;
   /** Radians around the plaza. 0 is north (−Z), increasing toward east. */
   angle: number;
   color: string;
@@ -22,10 +21,10 @@ export const PLAZA_SLOT = (Math.PI * 2) / 5;
 export const PLAZA_YAW = -2 * PLAZA_SLOT;
 
 export const PORTALS: readonly PortalConfig[] = [
-  { id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', url: '/play/hpos10i/', angle: 2 * PLAZA_SLOT + PLAZA_YAW, color: '#39ff6a' },
-  { id: 'nobu', label: 'NOBU: Saviour Dog', place: 'The Kennel', url: '/play/nobu/', angle: 4 * PLAZA_SLOT + PLAZA_YAW, color: '#ff8a1f' },
-  { id: 'peoples-bitcoin', label: "The People's Bitcoin", place: 'The White House', url: '/play/peoples-bitcoin/', angle: 1 * PLAZA_SLOT + PLAZA_YAW, color: '#ffc233', mature: true },
-  { id: 'sproto', label: 'Sproto Duel', place: 'The Castle', url: '/play/sproto/', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
+  { id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', angle: 2 * PLAZA_SLOT + PLAZA_YAW, color: '#39ff6a' },
+  { id: 'nobu', label: 'NOBU: Saviour Dog', place: 'The Kennel', angle: 4 * PLAZA_SLOT + PLAZA_YAW, color: '#ff8a1f' },
+  { id: 'peoples-bitcoin', label: "The People's Bitcoin", place: 'The White House', angle: 1 * PLAZA_SLOT + PLAZA_YAW, color: '#ffc233', mature: true },
+  { id: 'sproto', label: 'Sproto Duel', place: 'The Castle', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
 ];
 
 export const PLAZA_RADIUS = 110;

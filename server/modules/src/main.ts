@@ -21,10 +21,6 @@ function rpcPortalEnter(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nk
   return guard(HubRpc.portalEnter, ctx, logger, nk, payload);
 }
 
-function rpcSessionRedeem(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-  return guard(HubRpc.sessionRedeem, ctx, logger, nk, payload);
-}
-
 function rpcSessionEvent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.sessionEvent, ctx, logger, nk, payload);
 }
@@ -45,6 +41,18 @@ function rpcTicketsExchange(ctx: nkruntime.Context, logger: nkruntime.Logger, nk
   return guard(HubRpc.ticketsExchange, ctx, logger, nk, payload);
 }
 
+function rpcTicketsSpend(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsSpend, ctx, logger, nk, payload);
+}
+
+function rpcTicketsSell(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsSell, ctx, logger, nk, payload);
+}
+
+function rpcTicketsBalance(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsBalance, ctx, logger, nk, payload);
+}
+
 function rpcRecoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.recoveryCreate, ctx, logger, nk, payload);
 }
@@ -57,12 +65,28 @@ function rpcVerseBoard(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return guard(HubRpc.verseBoard, ctx, logger, nk, payload);
 }
 
-function beforeDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+function beforeCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeAuthenticateCustom(ctx, logger, nk, data);
+}
+
+function beforeHub(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateDevice(ctx, logger, nk, data);
+}
+
+function beforeClosed(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeAuthenticateClosed(ctx, logger, nk, data);
 }
 
 function beforeRefresh(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeSessionRefresh(ctx, logger, nk, data);
+}
+
+function beforeLinkCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeLinkCustom(ctx, logger, nk, data);
+}
+
+function beforeLinkDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeLinkDevice(ctx, logger, nk, data);
 }
 
 function InitModule(
@@ -75,16 +99,37 @@ function InitModule(
   initializer.registerRpc("healthcheck", rpcHealthcheck);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
-  initializer.registerRpc("session.redeem", rpcSessionRedeem);
   initializer.registerRpc("session.event", rpcSessionEvent);
   initializer.registerRpc("session.close", rpcSessionClose);
   initializer.registerRpc("score.submit", rpcScoreSubmit);
   initializer.registerRpc("tickets.earn", rpcTicketsEarn);
   initializer.registerRpc("tickets.exchange", rpcTicketsExchange);
+  initializer.registerRpc("tickets.spend", rpcTicketsSpend);
+  initializer.registerRpc("tickets.sell", rpcTicketsSell);
+  initializer.registerRpc("tickets.balance", rpcTicketsBalance);
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
-  initializer.registerBeforeAuthenticateDevice(beforeDevice);
+  initializer.registerBeforeAuthenticateCustom(beforeCustom);
+  initializer.registerBeforeAuthenticateDevice(beforeHub);
+  // Email auth is on in Nakama with no extra provider config. Same hub scope as device.
+  initializer.registerBeforeAuthenticateEmail(beforeHub);
+  // These providers are not configured. Reject them instead of minting a session.
+  // The generic Authenticate hook is the same: this runtime registers no providers.
+  initializer.registerBeforeAuthenticate(beforeClosed);
+  initializer.registerBeforeAuthenticateApple(beforeClosed);
+  initializer.registerBeforeAuthenticateFacebook(beforeClosed);
+  initializer.registerBeforeAuthenticateFacebookInstantGame(beforeClosed);
+  initializer.registerBeforeAuthenticateGameCenter(beforeClosed);
+  initializer.registerBeforeAuthenticateGoogle(beforeClosed);
+  initializer.registerBeforeAuthenticateSteam(beforeClosed);
   initializer.registerBeforeSessionRefresh(beforeRefresh);
+  initializer.registerBeforeLinkCustom(beforeLinkCustom);
+  initializer.registerBeforeUnlinkCustom(beforeLinkCustom);
+  initializer.registerBeforeLinkDevice(beforeLinkDevice);
+  initializer.registerBeforeUnlinkDevice(beforeLinkDevice);
+  // Provider-agnostic link and unlink are closed: this runtime registers no providers.
+  initializer.registerBeforeLink(beforeClosed);
+  initializer.registerBeforeUnlink(beforeClosed);
   logger.info("metaverse hub runtime ready");
 }

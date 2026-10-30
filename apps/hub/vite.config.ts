@@ -7,6 +7,17 @@ const proxy = {
   '/ws': { target: nakama, ws: true, changeOrigin: true },
 };
 
+/** The public slug is sproto-duel. The M1 mock still lives at play/sproto. */
+function rewriteSprotoDuel(url: string): string {
+  const queryAt = url.indexOf('?');
+  const path = queryAt === -1 ? url : url.slice(0, queryAt);
+  const query = queryAt === -1 ? '' : url.slice(queryAt);
+  if (path !== '/play/sproto-duel' && !path.startsWith('/play/sproto-duel/')) return url;
+  const rest = path.slice('/play/sproto-duel'.length);
+  const next = rest === '' ? '/play/sproto/' : `/play/sproto${rest}`;
+  return `${next}${query}`;
+}
+
 function redirectRoot(): Plugin {
   const redirect = (req: { url?: string }, res: { writeHead: (code: number, headers: Record<string, string>) => void; end: () => void }, next: () => void) => {
     if (req.url === '/' || req.url === '') {
@@ -14,6 +25,7 @@ function redirectRoot(): Plugin {
       res.end();
       return;
     }
+    if (req.url) req.url = rewriteSprotoDuel(req.url);
     next();
   };
   return {
@@ -28,7 +40,9 @@ function redirectRoot(): Plugin {
 }
 
 // Plaza at /hub/, mock Sproto Duel at /play/sproto/. Nakama is proxied at /v2.
-export default defineConfig({
+// The dev server key is inlined only for `vite dev`. Production builds take
+// VITE_NAKAMA_SERVER_KEY and never embed the compose default.
+export default defineConfig(({ mode }) => ({
   base: '/',
   plugins: [redirectRoot()],
   resolve: {
@@ -45,6 +59,11 @@ export default defineConfig({
   preview: {
     proxy,
   },
+  define: {
+    __NAKAMA_SERVER_KEY__: JSON.stringify(
+      mode === 'development' ? 'defaultkey' : (process.env.VITE_NAKAMA_SERVER_KEY ?? ''),
+    ),
+  },
   build: {
     target: 'es2022',
     sourcemap: false,
@@ -56,4 +75,4 @@ export default defineConfig({
       },
     },
   },
-});
+}));
