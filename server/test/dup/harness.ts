@@ -5,10 +5,58 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
+const ENV_FILE = path.join(ROOT, 'server/.env');
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
-const SERVER_KEY = 'defaultkey';
-const HTTP_KEY = 'localhttpkey';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Compose reads server/.env from the compose-file directory and lets the
+// shell environment win. Copy only the two keys this process sends.
+function loadComposeProjectEnv(): void {
+  let text: string;
+  try {
+    text = readFileSync(ENV_FILE, 'utf8');
+  } catch (error) {
+    if (isEnoent(error)) return;
+    throw error;
+  }
+  const wanted = new Set(['NAKAMA_SERVER_KEY', 'NAKAMA_HTTP_KEY']);
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^\uFEFF/, '').trim();
+    if (!line || line.startsWith('#')) continue;
+    const body = line.startsWith('export ') ? line.slice('export '.length).trim() : line;
+    const eq = body.indexOf('=');
+    if (eq <= 0) continue;
+    const key = body.slice(0, eq).trim();
+    if (!wanted.has(key) || process.env[key] !== undefined) continue;
+    process.env[key] = envValue(body.slice(eq + 1));
+  }
+}
+
+function envValue(raw: string): string {
+  const trimmed = raw.trim();
+  const quote = trimmed[0];
+  if ((quote === '"' || quote === "'") && trimmed.length >= 2 && trimmed.endsWith(quote)) {
+    return trimmed.slice(1, -1);
+  }
+  const comment = trimmed.search(/\s+#/);
+  return (comment === -1 ? trimmed : trimmed.slice(0, comment)).trim();
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function requireHttpKey(): string {
+  const value = process.env.NAKAMA_HTTP_KEY;
+  if (value === undefined || value === '') {
+    throw new Error('NAKAMA_HTTP_KEY not set; run server/scripts/dev-env.sh');
+  }
+  return value;
+}
+
+loadComposeProjectEnv();
+const SERVER_KEY = process.env.NAKAMA_SERVER_KEY ?? 'defaultkey';
+const HTTP_KEY = requireHttpKey();
 
 export interface RpcBody {
   error?: string;
