@@ -69,7 +69,12 @@ interface Outcome {
 const outcomes: Outcome[] = [];
 
 function testBudget(name: string): number {
-  if (name.includes('concurrent boots')) return 480_000;
+  if (
+    name.includes('concurrent boots')
+    || name.includes('cold start')
+    || name.includes('refuses to boot')
+    || name.includes('still applies')
+  ) return 480_000;
   if (name.includes('ledger sums') || name.includes('second boot')) return 360_000;
   if (name.includes('kill_between')) return 240_000;
   if (name.includes('x100')) return 150_000;

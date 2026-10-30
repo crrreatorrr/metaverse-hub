@@ -6,6 +6,10 @@
  * replaying statement text from here.
  *
  * The edited-applied-migration boot failure is deferred and not covered.
+ * (e) finishes `nakama migrate up` once, then races two hub servers.
+ * The cold-start race drops `game` first, so the advisory lock has to
+ * cover creating the schema. An unapplied migration numbered below the
+ * highest recorded id must refuse to boot, name both ids, and write nothing.
  *
  * Tables seeded with both `pb` and `peoples-bitcoin` for one user:
  * - game.game_session.game_id
@@ -46,6 +50,18 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
 const SCHEMA_FILE = path.join(ROOT, 'server/modules/src/schema.ts');
 const BOOTS = ['hub-boot-a', 'hub-boot-b'] as const;
+const NAKAMA_DB = 'postgres:localdb@postgres:5432/nakama';
+const HUB_SERVER_ARGS = [
+  '--name', 'metaverse',
+  '--database.address', NAKAMA_DB,
+  '--logger.level', 'INFO',
+  '--session.token_expiry_sec', '7200',
+  '--runtime.http_key', 'localhttpkey',
+  '--runtime.env', 'TICKET_HMAC_KEY=dev-ticket-hmac-key',
+  '--runtime.env', 'RECOVERY_PEPPER=dev-recovery-pepper',
+  '--runtime.env', 'AUDIT_KEY=dev-audit-key',
+  '--runtime.env', 'HUB_FAULT_INJECT=1',
+] as const;
 
 const GAME_ID_TABLES = [
   'game_session',
@@ -382,10 +398,27 @@ function dockerLogs(name: string): string {
   return `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
 }
 
+function runNakamaMigrate(): void {
+  try {
+    execFileSync('docker', [
+      'compose', '-f', COMPOSE_FILE, 'run', '-T', '--rm', '--no-deps', '--pull', 'never',
+      '--entrypoint', '/nakama/nakama',
+      'nakama', 'migrate', 'up', '--database.address', NAKAMA_DB,
+    ], { cwd: ROOT, encoding: 'utf8', timeout: 180_000 });
+  } catch (error) {
+    const err = error as { stdout?: string; stderr?: string; message?: string };
+    throw new Error(`nakama migrate up failed\n${err.stdout ?? ''}\n${err.stderr ?? ''}\n${err.message ?? ''}`);
+  }
+}
+
+/** Hub runtime only. Nakama's own migrate has already finished. */
 async function composeRun(name: string): Promise<void> {
   await execFileAsync('docker', [
     'compose', '-f', COMPOSE_FILE, 'run', '-d', '--no-deps', '--pull', 'never',
-    '--name', name, 'nakama',
+    '--name', name,
+    '--entrypoint', '/nakama/nakama',
+    'nakama',
+    ...HUB_SERVER_ARGS,
   ], { cwd: ROOT, timeout: 120_000 });
 }
 
@@ -417,6 +450,140 @@ function freshDatabase(): void {
   compose(['stop', 'nakama'], 180_000);
   psql('DROP DATABASE IF EXISTS nakama WITH (FORCE)', 'postgres');
   psql('CREATE DATABASE nakama', 'postgres');
+}
+
+function assertNakamaMigratedWithoutGameSchema(): void {
+  assert.equal(
+    psql(`SELECT COALESCE(to_regnamespace('game')::text, '')`),
+    '',
+    'game schema exists before the hub boots',
+  );
+  assert.equal(
+    psql(`SELECT COALESCE(to_regclass('public.users')::text, '')`),
+    'users',
+    'nakama migrate did not create public.users',
+  );
+}
+
+function dropGameSchema(): void {
+  compose(['stop', 'nakama'], 180_000);
+  psql(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'nakama' AND pid <> pg_backend_pid()`);
+  psql('DROP SCHEMA IF EXISTS game CASCADE');
+}
+
+interface LedgerRow {
+  checksum: string;
+  appliedAt: string;
+}
+
+function ledgerById(): Map<string, LedgerRow> {
+  const map = new Map<string, LedgerRow>();
+  const raw = migrationSnapshot();
+  if (!raw) return map;
+  for (const line of raw.split('\n')) {
+    const [id, checksum, appliedAt] = line.split('|');
+    if (!id || !checksum || !appliedAt) throw new Error(`bad schema_migrations row ${line}`);
+    map.set(id, { checksum, appliedAt });
+  }
+  return map;
+}
+
+function deleteLedgerRow(id: string): void {
+  if (!/^[0-9]{4}_[a-z0-9_]+$/.test(id)) throw new Error(`bad migration id ${id}`);
+  const removed = num(
+    `WITH deleted AS (DELETE FROM game.schema_migrations WHERE id = '${id}' RETURNING 1) SELECT count(*) FROM deleted`,
+  );
+  assert.equal(removed, 1, `${id} was not recorded`);
+}
+
+function insertLedgerRow(id: string, row: LedgerRow): void {
+  if (!/^[0-9]{4}_[a-z0-9_]+$/.test(id)) throw new Error(`bad migration id ${id}`);
+  if (!/^[0-9a-f]{64}$/.test(row.checksum)) throw new Error(`bad checksum for ${id}`);
+  if (!/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/.test(row.appliedAt)) {
+    throw new Error(`bad applied_at for ${id}: ${row.appliedAt}`);
+  }
+  psql(
+    `INSERT INTO game.schema_migrations (id, checksum, applied_at) VALUES ('${id}', '${row.checksum}', timestamptz '${row.appliedAt}+00')`,
+  );
+}
+
+function serviceLogs(service: string): string {
+  const result = spawnSync(
+    'docker',
+    ['compose', '-f', COMPOSE_FILE, 'logs', '--no-color', '--tail', '250', service],
+    { cwd: ROOT, encoding: 'utf8' },
+  );
+  return `${result.stdout ?? ''}\n${result.stderr ?? ''}`.trim();
+}
+
+function bootExpectingRefusal(): { ok: boolean; logs: string } {
+  let ok = true;
+  let errorText = '';
+  try {
+    bootNakama();
+  } catch (error) {
+    ok = false;
+    errorText = error instanceof Error ? error.message : String(error);
+  }
+  return { ok, logs: `${errorText}\n${serviceLogs('nakama')}`.trim() };
+}
+
+async function restoreMainNakama(failure: unknown): Promise<unknown> {
+  try {
+    rmBoots();
+    await bootAndReady();
+    return failure;
+  } catch (error) {
+    const extra = error instanceof Error ? error.message : String(error);
+    const prior = failure instanceof Error ? failure.message : failure ? String(failure) : '';
+    return new Error(`${prior}\ncleanup: ${extra}`.trim());
+  }
+}
+
+async function raceHubBoots(): Promise<void> {
+  rmBoots();
+  await Promise.all(BOOTS.map((name) => composeRun(name)));
+  const results = await Promise.all(BOOTS.map(async (name) => `${name}: ${await waitBoot(name)}`));
+  const unhealthy = results.filter((line) => !line.endsWith(': ok'));
+  if (unhealthy.length) {
+    let table = '';
+    try {
+      table = psql(`SELECT id || '=' || count(*)::text FROM game.schema_migrations GROUP BY id ORDER BY id`);
+    } catch (error) {
+      table = error instanceof Error ? error.message : String(error);
+    }
+    const logs = BOOTS.map((name) => `--- ${name} ---\n${dockerLogs(name)}`).join('\n');
+    throw new Error(
+      `concurrent boot did not become healthy\n${results.join('\n\n')}\nschema_migrations:\n${table}\n${logs}`,
+    );
+  }
+  for (const name of BOOTS) {
+    const logs = dockerLogs(name);
+    if (!logs.includes('game schema ready')) {
+      throw new Error(`${name} did not finish the migration runner\n${logs}`);
+    }
+  }
+  const counts = psql(`SELECT id || '=' || count(*)::text FROM game.schema_migrations GROUP BY id ORDER BY id`);
+  const expected = [
+    '0001_schema_migrations=1',
+    '0002_baseline=1',
+    '0003_merge_pb_into_peoples_bitcoin=1',
+  ].join('\n');
+  if (counts !== expected) {
+    throw new Error(
+      `applied migrations:\n${counts}\nexpected:\n${expected}\n--- hub-boot-a ---\n${dockerLogs('hub-boot-a')}\n--- hub-boot-b ---\n${dockerLogs('hub-boot-b')}`,
+    );
+  }
+  assert.equal(num('SELECT count(*) FROM game.schema_migrations'), 3);
+  assert.equal(num('SELECT count(*) FROM game.tickets_ledger'), 0);
+  assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
+  assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
+  assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
+  assert.equal(num('SELECT count(*) FROM game.event_rule'), 8);
+  assert.equal(
+    psql(`SELECT checksum FROM game.schema_migrations WHERE id = '0002_baseline'`),
+    fileChecksum('0002_baseline'),
+  );
 }
 
 export async function runMigrations(test: DupTest): Promise<void> {
@@ -533,59 +700,97 @@ export async function runMigrations(test: DupTest): Promise<void> {
       rmBoots();
       freshDatabase();
       prepared = null;
-      await Promise.all(BOOTS.map((name) => composeRun(name)));
-      const results = await Promise.all(BOOTS.map(async (name) => `${name}: ${await waitBoot(name)}`));
-      const unhealthy = results.filter((line) => !line.endsWith(': ok'));
-      if (unhealthy.length) {
-        let table = '';
-        try {
-          table = psql(`SELECT id || '=' || count(*)::text FROM game.schema_migrations GROUP BY id ORDER BY id`);
-        } catch (error) {
-          table = error instanceof Error ? error.message : String(error);
-        }
-        const logs = BOOTS.map((name) => `--- ${name} ---\n${dockerLogs(name)}`).join('\n');
-        throw new Error(
-          `concurrent boot did not become healthy\n${results.join('\n\n')}\nschema_migrations:\n${table}\n${logs}`,
-        );
-      }
-      for (const name of BOOTS) {
-        const logs = dockerLogs(name);
-        if (!logs.includes('game schema ready')) {
-          throw new Error(`${name} did not finish the migration runner\n${logs}`);
-        }
-      }
-      const counts = psql(`SELECT id || '=' || count(*)::text FROM game.schema_migrations GROUP BY id ORDER BY id`);
-      const expected = [
-        '0001_schema_migrations=1',
-        '0002_baseline=1',
-        '0003_merge_pb_into_peoples_bitcoin=1',
-      ].join('\n');
-      if (counts !== expected) {
-        throw new Error(
-          `applied migrations:\n${counts}\nexpected:\n${expected}\n--- hub-boot-a ---\n${dockerLogs('hub-boot-a')}\n--- hub-boot-b ---\n${dockerLogs('hub-boot-b')}`,
-        );
-      }
-      assert.equal(num('SELECT count(*) FROM game.schema_migrations'), 3);
-      assert.equal(num('SELECT count(*) FROM game.tickets_ledger'), 0);
-      assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
-      assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
-      assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-      assert.equal(num('SELECT count(*) FROM game.event_rule'), 8);
-      assert.equal(
-        psql(`SELECT checksum FROM game.schema_migrations WHERE id = '0002_baseline'`),
-        fileChecksum('0002_baseline'),
-      );
+      runNakamaMigrate();
+      assertNakamaMigratedWithoutGameSchema();
+      await raceHubBoots();
+    } catch (error) {
+      failure = error;
+    } finally {
+      failure = await restoreMainNakama(failure);
+    }
+    if (failure) throw failure;
+  });
+
+  await test('migration', 'cold start locks before the game schema exists', async () => {
+    let failure: unknown = null;
+    try {
+      prepared = null;
+      dropGameSchema();
+      assertNakamaMigratedWithoutGameSchema();
+      await raceHubBoots();
+    } catch (error) {
+      failure = error;
+    } finally {
+      failure = await restoreMainNakama(failure);
+    }
+    if (failure) throw failure;
+  });
+
+  await test('migration', 'unapplied migration below the highest recorded one refuses to boot', async () => {
+    const lower = '0002_baseline';
+    const higher = '0003_merge_pb_into_peoples_bitcoin';
+    let failure: unknown = null;
+    let saved: LedgerRow | null = null;
+    try {
+      compose(['stop', 'nakama'], 180_000);
+      const before = ledgerById();
+      const row = before.get(lower);
+      if (!row) throw new Error(`${lower} is not recorded`);
+      if (!before.has(higher)) throw new Error(`${higher} is not recorded`);
+      saved = row;
+      deleteLedgerRow(lower);
+      const sabotaged = migrationSnapshot();
+      const economy = economySnapshot();
+      const boot = bootExpectingRefusal();
+      assert.equal(boot.ok, false, `out-of-order migration booted\n${boot.logs}`);
+      assert.match(boot.logs, /unapplied schema migration/);
+      assert.match(boot.logs, /older than the highest recorded migration/);
+      assert.match(boot.logs, new RegExp(lower));
+      assert.match(boot.logs, new RegExp(higher));
+      assert.equal(migrationSnapshot(), sabotaged, 'schema_migrations changed on a refused boot');
+      assert.equal(economySnapshot(), economy, 'balances or ledger counts changed on a refused boot');
+      assert.equal(num(`SELECT count(*) FROM game.schema_migrations WHERE id = '${lower}'`), 0);
+      assert.equal(num(`SELECT count(*) FROM game.schema_migrations WHERE id = '${higher}'`), 1);
     } catch (error) {
       failure = error;
     } finally {
       try {
-        rmBoots();
-        await bootAndReady();
+        compose(['stop', 'nakama'], 180_000);
+        if (saved && num(`SELECT count(*) FROM game.schema_migrations WHERE id = '${lower}'`) === 0) {
+          insertLedgerRow(lower, saved);
+        }
       } catch (error) {
         const extra = error instanceof Error ? error.message : String(error);
         const prior = failure instanceof Error ? failure.message : failure ? String(failure) : '';
-        failure = new Error(`${prior}\ncleanup: ${extra}`.trim());
+        failure = new Error(`${prior}\nrestore ledger: ${extra}`.trim());
       }
+      failure = await restoreMainNakama(failure);
+    }
+    if (failure) throw failure;
+  });
+
+  await test('migration', 'in-order unapplied migration still applies', async () => {
+    const next = '0003_merge_pb_into_peoples_bitcoin';
+    let failure: unknown = null;
+    try {
+      compose(['stop', 'nakama'], 180_000);
+      const before = ledgerById();
+      const first = before.get('0001_schema_migrations');
+      const second = before.get('0002_baseline');
+      if (!first || !second || !before.has(next)) throw new Error(`ledger not ready\n${migrationSnapshot()}`);
+      const economy = economySnapshot();
+      deleteLedgerRow(next);
+      await bootAndReady();
+      const after = ledgerById();
+      assert.deepEqual(after.get('0001_schema_migrations'), first, '0001 changed while 0003 applied');
+      assert.deepEqual(after.get('0002_baseline'), second, '0002 changed while 0003 applied');
+      assert.equal(after.get(next)?.checksum, fileChecksum(next), '0003 checksum');
+      assert.equal(after.size, 3);
+      assert.equal(economySnapshot(), economy, 'balances or ledger counts changed when 0003 applied in order');
+    } catch (error) {
+      failure = error;
+    } finally {
+      failure = await restoreMainNakama(failure);
     }
     if (failure) throw failure;
   });
