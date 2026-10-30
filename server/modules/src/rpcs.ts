@@ -40,6 +40,8 @@ namespace HubRpc {
       "session_ticket_cap",
       "daily_ticket_cap",
       "amount_over_rule",
+      "unknown_reason",
+      "exchange_not_allowed",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
@@ -530,7 +532,7 @@ namespace HubRpc {
     return ok({ accepted: true, value: Number(rows[0].result), order: mode === "asc" ? "asc" : "desc" });
   }
 
-  export function ticketsEarn(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  export function ticketsEarn(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "tickets.earn");
     var session = requireGame(ctx);
     var body = parse(payload);
@@ -540,7 +542,7 @@ namespace HubRpc {
     if (typeof body.amount !== "number" || !isFinite(body.amount) || body.amount <= 0) {
       return fail("bad_amount", "Ticket amount must be positive");
     }
-    if (!reason) return fail("bad_reason", "A reason is required");
+    if (!reason || reason.length > 64) return fail("bad_reason", "Reason must be 1 to 64 characters");
     var amount = Math.floor(body.amount);
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
@@ -549,10 +551,6 @@ namespace HubRpc {
       "SELECT game.earn_tickets($1::uuid, $2::uuid, $3::text, $4::numeric::bigint, $5::text, $6::text, $7::text)::text AS result",
       [session.userId, session.sid, session.game, amount, reason, key, reqHash],
     );
-    if (result.defaultCap === true) {
-      logger.warn("earn default cap 200 game " + session.game + " reason " + reason);
-      delete result.defaultCap;
-    }
     if (result.error) return failBody(result);
     HubFault.apply(ctx, nk, session.userId, "earn.after_commit");
     return ok(result);
@@ -561,6 +559,7 @@ namespace HubRpc {
   export function ticketsExchange(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "tickets.exchange");
     var session = requireGame(ctx);
+    if (session.game === "hpos10i") return fail("exchange_not_allowed", "Exchange is not available for this game");
     var body = parse(payload);
     var key = text(body, "key");
     var raw = typeof body.tickets === "number" ? body.tickets : body.amount;

@@ -1471,8 +1471,6 @@ namespace HubSchema {
        v_applied bigint;
        v_balance bigint;
        v_max bigint;
-       v_default boolean;
-       v_relic text;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
@@ -1491,29 +1489,17 @@ namespace HubSchema {
        ) THEN
          RETURN jsonb_build_object('error', 'session_closed');
        END IF;
-       v_default := false;
        SELECT max_amount INTO v_max FROM game.event_rule
-       WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
+       WHERE game_id = p_game_id AND event_type = p_reason
        LIMIT 1;
        IF NOT FOUND THEN
-         v_default := true;
-         v_max := 200;
+         RETURN jsonb_build_object('error', 'unknown_reason');
        END IF;
-       IF p_amount > v_max THEN
-         IF v_default THEN
-           RETURN jsonb_build_object('error', 'amount_over_rule', 'defaultCap', true);
-         END IF;
+       IF v_max IS NOT NULL AND p_amount > v_max THEN
          RETURN jsonb_build_object('error', 'amount_over_rule');
        END IF;
        v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, p_amount, p_reason, 'earn', false);
        IF v_credit ? 'error' THEN
-         IF v_credit->>'error' IN ('session_ticket_cap', 'daily_ticket_cap') THEN
-           v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_reason, '{}'::jsonb);
-           v_credit := v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
-         END IF;
-         IF v_default THEN
-           RETURN v_credit || jsonb_build_object('defaultCap', true);
-         END IF;
          RETURN v_credit;
        END IF;
        v_balance := (v_credit->>'balance')::bigint;
@@ -1521,9 +1507,6 @@ namespace HubSchema {
        v_response := jsonb_build_object('balance', v_balance, 'capped', v_applied < p_amount);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
        VALUES (p_user_id, p_idem_key, 'tickets.earn', v_hash, v_response);
-       IF v_default THEN
-         RETURN v_response || jsonb_build_object('defaultCap', true);
-       END IF;
        RETURN v_response;
      EXCEPTION WHEN unique_violation THEN
        SELECT response, req_hash INTO v_response, v_existing_hash
@@ -1554,6 +1537,9 @@ namespace HubSchema {
        v_event uuid;
        v_receipt uuid;
      BEGIN
+       IF p_game_id = 'hpos10i' THEN
+         RETURN jsonb_build_object('error', 'exchange_not_allowed');
+       END IF;
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
        v_hash := decode(p_req_hash, 'hex');
        SELECT response, req_hash INTO v_response, v_existing_hash
