@@ -47,6 +47,13 @@ namespace HubRpc {
       "restore_failed",
       "missing_ticket_key",
       "missing_recovery_pepper",
+      "bad_username",
+      "bad_email",
+      "bad_password",
+      "username_taken",
+      "email_taken",
+      "account_claimed",
+      "claim_failed",
     ];
     for (var i = 0; i < codes.length; i++) {
       if (message.indexOf(codes[i]) >= 0) return codes[i];
@@ -631,6 +638,72 @@ namespace HubRpc {
     return ok({ restored: true, userId: originalId, token: minted.token });
   }
 
+  var USERNAME = /^[a-z0-9_-]{3,20}$/;
+  var EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  function errorText(e: unknown): string {
+    if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+    return String(e);
+  }
+
+  /**
+   * Turn the calling hub guest into a password account: set the username, link the
+   * email and password, then unlink every device so the device id stops opening it.
+   * The guest keeps its Relics, Verse and boards. The email is not verified.
+   */
+  export function accountClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var userId = requireHub(ctx);
+    var body = parse(payload);
+    var username = text(body, "username").trim().toLowerCase();
+    var email = text(body, "email").trim().toLowerCase();
+    var password = text(body, "password");
+    if (!USERNAME.test(username)) return fail("bad_username", "Usernames are 3 to 20 letters, numbers, _ or -");
+    if (email.length > 254 || !EMAIL.test(email)) return fail("bad_email", "That email does not look right");
+    if (password.length < 8 || password.length > 128) return fail("bad_password", "Passwords are 8 to 128 characters");
+
+    var account = nk.accountGetId(userId);
+    if (account.email) return fail("account_claimed", "This guest already has a password");
+    var previous = account.user && account.user.username ? account.user.username : "";
+
+    if (previous !== username) {
+      try {
+        nk.accountUpdateId(userId, username, null, null, null, null, null, null);
+      } catch (e) {
+        if (/in use|already|exists|duplicate/i.test(errorText(e))) return fail("username_taken", "That username is taken");
+        logger.error("claim username failed " + errorText(e));
+        return fail("claim_failed", "Could not create the account");
+      }
+    }
+
+    try {
+      nk.linkEmail(userId, email, password);
+    } catch (e) {
+      if (previous && previous !== username) {
+        try {
+          nk.accountUpdateId(userId, previous, null, null, null, null, null, null);
+        } catch (revert) {
+          logger.error("claim username revert failed " + errorText(revert));
+        }
+      }
+      if (/in use|already|exists|duplicate/i.test(errorText(e))) return fail("email_taken", "That email already has an account");
+      logger.error("claim email failed " + errorText(e));
+      return fail("claim_failed", "Could not create the account");
+    }
+
+    var devices = account.devices || [];
+    for (var i = 0; i < devices.length; i++) {
+      var deviceId = devices[i] && devices[i].id;
+      if (!deviceId) continue;
+      try {
+        nk.unlinkDevice(userId, deviceId);
+      } catch (e) {
+        logger.warn("claim unlink device failed " + errorText(e));
+      }
+    }
+    logger.info("guest claimed as " + username + " " + userId);
+    return ok({ claimed: true, userId: userId, username: username });
+  }
+
   export function forceScope(
     data: { [key: string]: unknown } | null,
     vars: { [key: string]: string },
@@ -654,6 +727,16 @@ namespace HubRpc {
     return forceScope(data, { scope: "hub" });
   }
 
+  /** Username or email login. Same rule as device auth: a client never picks its own scope. */
+  export function beforeAuthenticateEmail(
+    _ctx: nkruntime.Context,
+    _logger: nkruntime.Logger,
+    _nk: nkruntime.Nakama,
+    data: { [key: string]: unknown },
+  ): { [key: string]: unknown } {
+    return forceScope(data, { scope: "hub" });
+  }
+
   export function beforeSessionRefresh(
     ctx: nkruntime.Context,
     _logger: nkruntime.Logger,
@@ -667,6 +750,9 @@ namespace HubRpc {
       vars.sid = current.sid || "";
       vars.ranked = current.ranked || "0";
     }
-    return forceScope(data, vars);
+    // A refresh request carries `vars` at the top level, not under `account`.
+    var next = data || {};
+    next.vars = vars;
+    return next;
   }
 }

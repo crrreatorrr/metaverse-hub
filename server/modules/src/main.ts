@@ -69,6 +69,14 @@ function rpcVerseBoard(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return guard(HubRpc.verseBoard, ctx, logger, nk, payload);
 }
 
+function rpcAccountClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.accountClaim, ctx, logger, nk, payload);
+}
+
+function beforeEmail(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  return HubRpc.beforeAuthenticateEmail(ctx, logger, nk, data);
+}
+
 function beforeDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateDevice(ctx, logger, nk, data);
 }
@@ -99,7 +107,9 @@ function InitModule(
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
+  initializer.registerRpc("account.claim", rpcAccountClaim);
   initializer.registerBeforeAuthenticateDevice(beforeDevice);
+  initializer.registerBeforeAuthenticateEmail(beforeEmail);
   initializer.registerBeforeSessionRefresh(beforeRefresh);
   logger.info("metaverse hub runtime ready");
 }
