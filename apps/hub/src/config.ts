@@ -61,6 +61,36 @@ export const CAMERA_LOOK_DROP = 0.15 * (AVATAR_HEIGHT / AVATAR_BODY_REFERENCE);
  * Bald-yellow wizard, same rig as sproto-duel wizard_player.glb.
  */
 export const AVATAR_ASSET = 'world/v2/avatar/wizard-player.glb';
+/** Sproto Duel's player fit height. Duel characters keep their size relative to it. */
+const DUEL_PLAYER_HEIGHT = 1.9;
+
+/**
+ * Pickable avatars. The wizard is the default. The others are Sproto Duel's
+ * stage-one boss rigs (`models/rigged/<id>_stage1.glb`), placeholders until
+ * hub-made characters exist. Each shares the wizard's clip names.
+ */
+export const CHARACTERS = [
+  { id: 'wizard', label: 'Wizard', blurb: 'The plaza regular.', asset: AVATAR_ASSET, portrait: 'world/v2/avatar/portraits/wizard.webp', duelHeight: DUEL_PLAYER_HEIGHT },
+  { id: 'sahil', label: 'Sahil', blurb: 'Sproto Duel, first boss.', asset: 'world/v2/avatar/sahil.glb', portrait: 'world/v2/avatar/portraits/sahil.webp', duelHeight: 2.0 },
+  { id: 'obama', label: 'Bitcoin Obama', blurb: 'Shills the pump.', asset: 'world/v2/avatar/obama.glb', portrait: 'world/v2/avatar/portraits/obama.webp', duelHeight: 2.1 },
+  { id: 'midget', label: 'The Midget', blurb: "Obama's partner. Quick feet.", asset: 'world/v2/avatar/midget.glb', portrait: 'world/v2/avatar/portraits/midget.webp', duelHeight: 1.25 },
+  { id: 'broccoli', label: 'Broccoli Head', blurb: 'One enormous drag on the vape.', asset: 'world/v2/avatar/broccoli.glb', portrait: 'world/v2/avatar/portraits/broccoli.webp', duelHeight: 2.0 },
+  { id: 'agent', label: 'Glowie', blurb: 'Under laser sights.', asset: 'world/v2/avatar/agent.glb', portrait: 'world/v2/avatar/portraits/agent.webp', duelHeight: 2.0 },
+  { id: 'tinubu', label: 'Tinubu', blurb: 'The final crown.', asset: 'world/v2/avatar/tinubu.glb', portrait: 'world/v2/avatar/portraits/tinubu.webp', duelHeight: 2.1 },
+] as const;
+export type CharacterId = (typeof CHARACTERS)[number]['id'];
+export type CharacterConfig = (typeof CHARACTERS)[number];
+export const DEFAULT_CHARACTER: CharacterId = 'wizard';
+
+export function isCharacterId(value: string): value is CharacterId {
+  return CHARACTERS.some((entry) => entry.id === value);
+}
+
+/** Fitted body height in the plaza. The wizard is `AVATAR_HEIGHT`; the rest keep their Sproto Duel ratio. */
+export function characterHeight(character: CharacterConfig): number {
+  return AVATAR_HEIGHT * (character.duelHeight / DUEL_PLAYER_HEIGHT);
+}
+
 /**
  * Logical gait → clip inside the GLB. There is no walk clip; walk plays run
  * at about 0.6× so the stride reads slower than the run.

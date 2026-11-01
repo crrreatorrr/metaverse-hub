@@ -9,7 +9,22 @@ import {
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
-import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
+import '@fontsource-variable/inter/wght.css';
+import { createChat } from './chat';
+import {
+  AVATAR_SCALE,
+  CAMERA_ARM,
+  CAMERA_LOOK_DROP,
+  CHARACTERS,
+  PORTAL_DISTANCE,
+  PORTALS,
+  SOCKETS,
+  SPRINT_SPEED,
+  WALK_SPEED,
+  characterHeight,
+} from './config';
+import { loadLook, saveLook, type AvatarLook } from './look';
+import { createMenu } from './menu';
 import { gameUrl, type GameUrlContext } from './games';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
@@ -17,7 +32,7 @@ import { createWorld } from './scene';
 import './style.css';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 
-const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Mouse look  ·  Shift run  ·  Space jump';
+const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
 const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
 const CAMERA_YAW_RATE = 1.8;
 const CAMERA_PITCH_RATE = 1.15;
@@ -37,7 +52,8 @@ if (banner instanceof HTMLElement && window.matchMedia('(pointer: coarse)').matc
 }
 
 hint.textContent = 'Loading the plaza…';
-const world = await createWorld().catch((error: unknown) => {
+let look: AvatarLook = loadLook();
+const world = await createWorld(look).catch((error: unknown) => {
   hint.textContent = error instanceof Error ? error.message : 'The plaza failed to load';
   throw error;
 });
@@ -59,6 +75,14 @@ let portalError = '';
 let cycle = 0;
 let fps = 60;
 let warnedDraws = false;
+/** Set while the hub itself drops pointer lock, so the lock change does not open the menu. */
+let releasingLock = false;
+let menuOpenedByLockAt = -Infinity;
+let guestLabel = 'Guest';
+/** 0 = play camera, 1 = menu preview in front of the avatar. */
+let preview = 0;
+let previewSpin = 0;
+const savedView = { yaw: 0, pitch: 0 };
 const timer = new Timer();
 timer.connect(document);
 const lookTarget = new Vector3();
@@ -69,8 +93,84 @@ const ray = new Ray();
 
 const debug = import.meta.env.DEV ? createDebug() : null;
 
+const chat = createChat({
+  name: displayName,
+  onOpen() {
+    keys.clear();
+    releasePointer();
+  },
+  onClose() {
+    keys.clear();
+  },
+});
+chat.system('Welcome to the plaza. Press Enter to chat.');
+chat.system('Only you can see chat until multiplayer goes live.');
+
+const menu = createMenu({
+  look: () => look,
+  setLook(next) {
+    look = next;
+    world.setLook(look);
+    saveLook(look);
+  },
+  onOpen() {
+    keys.clear();
+    releasePointer();
+    if (chat.open) chat.hide();
+    savedView.yaw = yaw;
+    savedView.pitch = pitch;
+    previewSpin = 0;
+  },
+  onClose() {
+    keys.clear();
+    yaw = savedView.yaw;
+    pitch = savedView.pitch;
+  },
+  onSpin(delta) {
+    previewSpin += delta;
+  },
+});
+
+function displayName(): string {
+  return look.name || guestLabel;
+}
+
+function releasePointer(): void {
+  if (!document.pointerLockElement) return;
+  releasingLock = true;
+  document.exitPointerLock();
+}
+
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement) return;
+  const ours = releasingLock;
+  releasingLock = false;
+  // Esc while the mouse is captured: the browser takes the key to free the
+  // mouse and the page may never see it, so the lock loss opens the menu.
+  if (ours || menu.open || chat.open || traveling || !document.hasFocus()) return;
+  menuOpenedByLockAt = performance.now();
+  menu.show();
+});
+
 window.addEventListener('keydown', (event) => {
+  if (event.code === 'Escape' || event.key === 'Escape') {
+    if (traveling || chat.open) return;
+    // Some browsers deliver the Esc that released the lock as well.
+    if (document.pointerLockElement === canvas) return;
+    if (performance.now() - menuOpenedByLockAt < 400) return;
+    event.preventDefault();
+    if (menu.open) menu.hide();
+    else if (!isTypingTarget(event.target)) menu.show();
+    return;
+  }
   if (isTypingTarget(event.target)) return;
+  if (menu.open) return;
+  if ((event.key === 'Enter' || event.code === 'NumpadEnter') && !event.repeat && !traveling) {
+    if (event.target instanceof HTMLButtonElement) return;
+    event.preventDefault();
+    chat.show();
+    return;
+  }
   if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
@@ -86,6 +186,7 @@ window.addEventListener('blur', () => {
 
 const canvas = world.renderer.domElement;
 canvas.addEventListener('pointerdown', (event) => {
+  if (menu.open) return;
   dragging = true;
   canvas.setPointerCapture(event.pointerId);
   void canvas.requestPointerLock();
@@ -94,6 +195,7 @@ window.addEventListener('pointerup', () => {
   dragging = false;
 });
 window.addEventListener('pointermove', (event) => {
+  if (menu.open) return;
   if (document.pointerLockElement !== canvas && !dragging) return;
   yaw -= event.movementX * 0.0017;
   pitch -= event.movementY * 0.0014;
@@ -108,7 +210,9 @@ world.resize(window.innerWidth, window.innerHeight);
 world.renderer.setAnimationLoop((timestamp) => {
   timer.update(timestamp);
   const dt = Math.min(timer.getDelta(), 0.05);
-  orbitCamera(dt);
+  preview = MathUtils.damp(preview, menu.open ? 1 : 0, 9, dt);
+  if (!menu.open && preview < 0.002) preview = 0;
+  if (!menu.open) orbitCamera(dt);
   const input = readInput();
   player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
   const moving = Math.hypot(input.forward, input.strafe) > 0;
@@ -136,6 +240,7 @@ world.renderer.setAnimationLoop((timestamp) => {
   const inBar = world.inInterior();
   if (barTabs) barTabs.hidden = !inBar;
   if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
+  placeOverhead(dt);
   fadeLabels();
   updateHint();
   considerPortal(dt);
@@ -175,6 +280,10 @@ function orbitCamera(dt: number): void {
 }
 
 function readInput(): MoveInput {
+  if (menu.open || chat.open) {
+    jumpQueued = false;
+    return { forward: 0, strafe: 0, sprint: false, jump: false, yaw };
+  }
   const forward = (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
   const strafe = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
   const jump = jumpQueued;
@@ -188,30 +297,82 @@ function readInput(): MoveInput {
   };
 }
 
-/** Third-person spring arm. Mouse yaw/pitch orbit the avatar; the BVH keeps the camera out of walls. */
-function placeCamera(): void {
-  const look = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
-  const cp = Math.cos(pitch);
+const previewLook = new Vector3();
+const previewPos = new Vector3();
+const headPoint = new Vector3();
+
+function bodyHeight(): number {
+  const character = CHARACTERS.find((entry) => entry.id === look.character) ?? CHARACTERS[0];
+  return characterHeight(character) * look.height;
+}
+
+/**
+ * Spring arm from `look` toward yaw/pitch, pulled in when the BVH is in the
+ * way. Writes into `out`.
+ */
+function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number, out: Vector3): Vector3 {
+  const cp = Math.cos(armPitch);
   desiredPos.set(
-    look.x - Math.sin(yaw) * CAMERA_ARM * cp,
-    look.y + Math.sin(pitch) * CAMERA_ARM,
-    look.z + Math.cos(yaw) * CAMERA_ARM * cp,
+    target.x - Math.sin(armYaw) * arm * cp,
+    target.y + Math.sin(armPitch) * arm,
+    target.z + Math.cos(armYaw) * arm * cp,
   );
-  rayDir.subVectors(desiredPos, look);
+  rayDir.subVectors(desiredPos, target);
   const len = rayDir.length();
-  let next = desiredPos;
+  out.copy(desiredPos);
   if (len > 0.001) {
     rayDir.multiplyScalar(1 / len);
-    ray.origin.copy(look);
+    ray.origin.copy(target);
     ray.direction.copy(rayDir);
     const hit = world.collider.bvh.raycastFirst(ray, DoubleSide);
     if (hit && hit.distance < len && hit.distance > 0.05) {
-      next = camPos.copy(look).addScaledVector(rayDir, Math.max(1.25, hit.distance - 0.28));
+      out.copy(target).addScaledVector(rayDir, Math.max(1.25, hit.distance - 0.28));
     }
   }
-  world.camera.position.copy(next);
+  return out;
+}
+
+/**
+ * Third-person spring arm. Mouse yaw/pitch orbit the avatar; the BVH keeps the camera out of walls.
+ * With the menu open the camera swings in front of the avatar and the view shifts right of the panel.
+ */
+function placeCamera(): void {
+  const target = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
+  armFrom(target, yaw, pitch, CAMERA_ARM, camPos);
+  if (preview > 0) {
+    const height = bodyHeight();
+    const feet = player.position.y - STAND_Y;
+    previewLook.set(player.position.x, feet + height * 0.55, player.position.z);
+    const front = player.facingYaw + Math.PI + previewSpin;
+    armFrom(previewLook, front, 0.08, 2.2 + height * 1.25, previewPos);
+    camPos.lerp(previewPos, preview);
+    target.lerp(previewLook, preview);
+  }
+  world.camera.position.copy(camPos);
   if (!world.inInterior() && world.camera.position.y < 0.45) world.camera.position.y = 0.45;
-  world.camera.lookAt(look);
+  world.camera.lookAt(target);
+  const width = window.innerWidth;
+  const height = window.innerHeight;
+  const shift = preview > 0 ? (menu.panelWidth / 2) * preview : 0;
+  if (shift > 0.5) world.camera.setViewOffset(width, height, -shift, 0, width, height);
+  else if (world.camera.view?.enabled) world.camera.clearViewOffset();
+}
+
+/** Keeps the chat line over the avatar's head, shrinking a little with distance. */
+function placeOverhead(dt: number): void {
+  chat.update(dt);
+  headPoint.set(player.position.x, player.position.y - STAND_Y + bodyHeight() + 0.45, player.position.z);
+  const distance = world.camera.position.distanceTo(headPoint);
+  headPoint.project(world.camera);
+  if (headPoint.z > 1 || Math.abs(headPoint.x) > 1.2 || Math.abs(headPoint.y) > 1.2) {
+    chat.place(null);
+    return;
+  }
+  chat.place({
+    x: (headPoint.x * 0.5 + 0.5) * window.innerWidth,
+    y: (-headPoint.y * 0.5 + 0.5) * window.innerHeight,
+    scale: MathUtils.clamp(9 / Math.max(distance, 0.1), 0.7, 1.15),
+  });
 }
 
 function fadeLabels(): void {
@@ -264,7 +425,7 @@ function nearestPortal(x: number, z: number) {
 
 function considerPortal(dt: number): void {
   if (traveling) return;
-  if (world.inInterior() || isTypingTarget(document.activeElement)) {
+  if (world.inInterior() || menu.open || isTypingTarget(document.activeElement)) {
     dwell = initialDwell();
     return;
   }
@@ -281,7 +442,8 @@ const ENTER_FADE_MS = 700;
 
 async function travel(portal: (typeof PORTALS)[number], page: string): Promise<void> {
   traveling = true;
-  if (document.pointerLockElement) document.exitPointerLock();
+  if (chat.open) chat.hide();
+  releasePointer();
   wipe.style.background = portal.color;
   wipe.textContent = `Entering ${portal.label}…`;
   wipe.classList.add('on');
@@ -413,12 +575,14 @@ if (barTabs instanceof HTMLElement) {
 paintBar('total');
 
 function showVerse(balance: number): void {
+  menu.setVerse(balance);
   const node = document.querySelector('#verse');
   if (node) node.textContent = `Verse ${formatVerse(balance)}`;
 }
 
 function showRelics(ids: readonly string[]): void {
   world.setRelics(ids);
+  menu.setRelics(ids);
   const owned = new Set(ids);
   for (const slot of document.querySelectorAll<HTMLElement>('.relic-slot')) {
     const on = owned.has(slot.dataset.relic ?? '');
@@ -455,6 +619,7 @@ async function openSession(): Promise<HubSession> {
     const profile = await client.rpc<ProfileResult>('profile.get', {}, { token: auth.token });
     showRelics(profile.relics);
     showVerse(profile.verse ?? 0);
+    menu.setPets(profile.pets?.owned ?? null);
     const board = await client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: auth.token });
     boardRows = board.rows ?? [];
     paintBar(boardTab);
@@ -467,6 +632,11 @@ async function openSession(): Promise<HubSession> {
     if (status) status.textContent = 'Nakama offline';
     throw error;
   }
+}
+
+function setGuest(userId: string): void {
+  guestLabel = `Guest ${userId.slice(0, 4)}`;
+  menu.setGuest(guestLabel);
 }
 
 function bindAccount(session: HubSession): void {
@@ -491,9 +661,10 @@ function bindAccount(session: HubSession): void {
     return;
   }
   idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
+  setGuest(session.userId);
   toggle.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
-    if (document.pointerLockElement) document.exitPointerLock();
+    releasePointer();
   });
   create.addEventListener('click', () => {
     void (async () => {
@@ -518,9 +689,11 @@ function bindAccount(session: HubSession): void {
         session.token = restored.token;
         session.userId = restored.userId;
         idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
+        setGuest(session.userId);
         const profile = await session.client.rpc<ProfileResult>('profile.get', {}, { token: session.token });
         showRelics(profile.relics);
         showVerse(profile.verse ?? 0);
+        menu.setPets(profile.pets?.owned ?? null);
         note.textContent = 'This device is on the recovered guest.';
         code.hidden = true;
       } catch (error) {
