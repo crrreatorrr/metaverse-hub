@@ -495,22 +495,19 @@ const gameUrls: GameUrlContext = {
   },
 };
 
-const relicTray = document.querySelector('#relics');
-if (relicTray instanceof HTMLElement) {
+// The Relics tab in the Esc menu lists the Relics; the HUD only shows a count that opens it.
+const relicCount = document.querySelector<HTMLButtonElement>('#relic-count');
+const relicPips = new Map<string, HTMLElement>();
+if (relicCount) {
+  const pips = relicCount.querySelector('.relic-pips');
   for (const socket of SOCKETS) {
-    const slot = document.createElement('div');
-    slot.className = 'relic-slot';
-    slot.dataset.relic = socket.id;
-    slot.style.setProperty('--relic', socket.color);
-    const name = document.createElement('span');
-    name.className = 'relic-name';
-    name.textContent = socket.relic;
-    const state = document.createElement('span');
-    state.className = 'relic-state';
-    state.textContent = 'Empty';
-    slot.append(name, state);
-    relicTray.append(slot);
+    const pip = document.createElement('span');
+    pip.className = 'relic-pip';
+    pip.style.setProperty('--relic', socket.color);
+    pips?.append(pip);
+    relicPips.set(socket.id, pip);
   }
+  relicCount.addEventListener('click', () => menu.show('relics'));
 }
 
 type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
@@ -584,12 +581,15 @@ function showRelics(ids: readonly string[]): void {
   world.setRelics(ids);
   menu.setRelics(ids);
   const owned = new Set(ids);
-  for (const slot of document.querySelectorAll<HTMLElement>('.relic-slot')) {
-    const on = owned.has(slot.dataset.relic ?? '');
-    slot.classList.toggle('owned', on);
-    const state = slot.querySelector('.relic-state');
-    if (state) state.textContent = on ? 'Owned' : 'Empty';
+  let count = 0;
+  for (const [id, pip] of relicPips) {
+    const on = owned.has(id);
+    if (on) count += 1;
+    pip.classList.toggle('owned', on);
   }
+  const text = relicCount?.querySelector('.relic-count-text');
+  if (text) text.textContent = `Relics ${count}/${relicPips.size}`;
+  relicCount?.setAttribute('aria-label', `Relics: ${count} of ${relicPips.size}. Open the Relics menu`);
 }
 
 interface HubSession {
@@ -607,7 +607,7 @@ function boot(): Promise<HubSession> {
 }
 
 async function openSession(): Promise<HubSession> {
-  const status = document.querySelector('#link-status');
+  const status = document.querySelector<HTMLElement>('#link-status');
   try {
     const client = createNakamaClient({
       serverUrl: '',
@@ -625,11 +625,17 @@ async function openSession(): Promise<HubSession> {
     paintBar(boardTab);
     const session = { client, token: auth.token, userId: auth.userId, deviceId };
     bindAccount(session);
-    if (status) status.textContent = 'Guest linked';
+    if (status) {
+      status.textContent = 'Guest linked';
+      status.dataset.state = 'online';
+    }
     return session;
   } catch (error) {
     sessionPromise = null;
-    if (status) status.textContent = 'Nakama offline';
+    if (status) {
+      status.textContent = 'Nakama offline';
+      status.dataset.state = 'offline';
+    }
     throw error;
   }
 }
@@ -662,8 +668,11 @@ function bindAccount(session: HubSession): void {
   }
   idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
   setGuest(session.userId);
+  toggle.disabled = false;
+  toggle.removeAttribute('title');
   toggle.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
+    toggle.setAttribute('aria-expanded', String(!panel.hidden));
     releasePointer();
   });
   create.addEventListener('click', () => {

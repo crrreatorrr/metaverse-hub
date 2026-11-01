@@ -375,6 +375,8 @@ export function createMenu(options: MenuOptions): Menu {
       button.setAttribute('aria-selected', String(on));
     }
     for (const [id, body] of bodies) body.hidden = id !== next;
+    // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
+    if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
   }
 
   function show(next: MenuTab = tab): void {
