@@ -475,10 +475,13 @@ function sessionCap(): number {
 }
 
 /** Largest single earn that is still inside the reason's event_rule max_amount and the session cap. */
+/** One earn call's size: the reason's event_rule ceiling when it has one, else the whole cap. */
 function earnChunk(game: string, reason: string, cap: number): number {
-  if (game === 'sproto' && reason === 'win') return Math.min(20, cap);
-  if (game === 'hpos10i' && reason === 'level_end') return Math.min(200, cap);
-  return cap;
+  if (!/^[a-z0-9-]+$/.test(game) || !/^[a-z0-9_]+$/.test(reason)) throw new Error(`bad earn ${game} ${reason}`);
+  const ceiling = psql(
+    `SELECT COALESCE((SELECT max_amount::text FROM game.event_rule WHERE game_id = '${game}' AND event_type = '${reason}'), '')`,
+  );
+  return ceiling ? Math.min(Number(ceiling), cap) : cap;
 }
 
 async function creditToCap(

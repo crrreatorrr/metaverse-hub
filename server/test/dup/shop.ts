@@ -419,7 +419,7 @@ async function runAmountRule(runner: GateRunner): Promise<void> {
   });
 }
 
-const NOBU_LEVEL_REASON = 'waiting for a nobu event_rule max_amount of 110 on level_end (error amount_over_rule)';
+const NOBU_LEVEL_REASON = 'waiting for a nobu event_rule max_amount on level_end (error amount_over_rule)';
 const BALANCE_REASON = 'waiting for tickets.balance sessionCapLeft and dailyCapLeft (hub SDK 0.2.0)';
 const PB_ID_REASON = "waiting for the hub to accept game id 'peoples-bitcoin' (rename / SDK after 0.1.0)";
 
@@ -449,23 +449,25 @@ function peoplesBitcoinHub(): boolean {
 }
 
 async function runNobuLevelEnd(runner: GateRunner): Promise<void> {
-  const name = 'nobu level_end above 110 is amount_over_rule';
+  const name = 'nobu level_end above its ceiling is amount_over_rule';
   const max = nobuLevelMax();
   if (max === null) {
     runner.pending('wallet', name, NOBU_LEVEL_REASON);
     return;
   }
   await runner.test('wallet', name, async () => {
-    assert.equal(max, 110, `nobu event_rule max_amount is ${max}, expected 110`);
+    // #12 (0005) sets 110; #13 (0007) lowers it to 20. Check the one this database shipped.
+    const shipped = num(`SELECT count(*) FROM game.schema_migrations WHERE id = '0007_earn_caps_relic_exchange'`) === 1 ? 20 : 110;
+    assert.equal(max, shipped, `nobu event_rule max_amount is ${max}, expected ${shipped}`);
     const session = await login('nobu');
-    const accepted = await call('tickets.earn', { amount: 110, reason: 'level_end', key: 'nobu-110' }, session.gameToken);
+    const accepted = await call('tickets.earn', { amount: max, reason: 'level_end', key: 'nobu-max' }, session.gameToken);
     assert.equal(accepted.body.error, undefined, JSON.stringify(accepted.body));
-    assert.equal(ticketBalance(session.hub.userId, 'nobu'), 110);
-    assert.equal(dayTicketsFor(session.hub.userId, 'nobu'), 110);
-    const over = await call('tickets.earn', { amount: 111, reason: 'level_end', key: 'nobu-111' }, session.gameToken);
+    assert.equal(ticketBalance(session.hub.userId, 'nobu'), max);
+    assert.equal(dayTicketsFor(session.hub.userId, 'nobu'), max);
+    const over = await call('tickets.earn', { amount: max + 1, reason: 'level_end', key: 'nobu-over' }, session.gameToken);
     assert.equal(over.body.error, 'amount_over_rule', JSON.stringify(over.body));
-    assert.equal(ticketBalance(session.hub.userId, 'nobu'), 110);
-    assert.equal(dayTicketsFor(session.hub.userId, 'nobu'), 110);
+    assert.equal(ticketBalance(session.hub.userId, 'nobu'), max);
+    assert.equal(dayTicketsFor(session.hub.userId, 'nobu'), max);
     const fresh = await login('nobu');
     const three = await call('tickets.earn', { amount: 300, reason: 'level_end', key: 'nobu-300' }, fresh.gameToken);
     assert.equal(three.body.error, 'amount_over_rule', `300 is over the rule and the session cap; got ${JSON.stringify(three.body)}`);
@@ -1498,6 +1500,9 @@ async function spendOutbox(): Promise<void> {
   const dropOnce = new Set<string>();
   const client = createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
+    // harness.ts loads both from server/.env; CI writes random keys.
+    serverKey: process.env.NAKAMA_SERVER_KEY ?? 'defaultkey',
+    httpKey: process.env.NAKAMA_HTTP_KEY,
     fetchImpl: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const url = String(input);
       const marker = '/v2/rpc/';
