@@ -4,7 +4,15 @@ pragma solidity 0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {VerseCashout} from "../src/VerseCashout.sol";
-import {MockToken, NoReturnToken, FalseToken, HookToken, ITransferHook} from "./mocks/Tokens.sol";
+import {
+    MockToken,
+    NoReturnToken,
+    FalseToken,
+    FeeToken,
+    SilentToken,
+    HookToken,
+    ITransferHook
+} from "./mocks/Tokens.sol";
 
 abstract contract CashoutBase is Test {
     uint256 internal constant SIGNER_KEY = 0xA11CE;
@@ -371,6 +379,32 @@ contract TokenBehaviourTest is Test {
         assertFalse(c.claimed(1));
     }
 
+    function test_fee_on_transfer_token_reverts_short_payment() public {
+        FeeToken t = new FeeToken();
+        VerseCashout c = new VerseCashout(IERC20Metadata(address(t)), vm.addr(SIGNER_KEY));
+        t.mint(address(c), 100e18);
+        VerseCashout.Voucher memory v =
+            VerseCashout.Voucher({id: 1, recipient: alice, amount: 3, expiry: block.timestamp + 1});
+        bytes memory sig = sign(c, v);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(VerseCashout.ShortPayment.selector, 3e18, 3e18 - 3e16));
+        c.claim(v, sig);
+        assertFalse(c.claimed(1));
+    }
+
+    function test_silent_failing_token_reverts_short_payment() public {
+        SilentToken t = new SilentToken();
+        VerseCashout c = new VerseCashout(IERC20Metadata(address(t)), vm.addr(SIGNER_KEY));
+        t.mint(address(c), 1e8);
+        VerseCashout.Voucher memory v =
+            VerseCashout.Voucher({id: 1, recipient: alice, amount: 3, expiry: block.timestamp + 1});
+        bytes memory sig = sign(c, v);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(VerseCashout.ShortPayment.selector, 3e8, 0));
+        c.claim(v, sig);
+        assertFalse(c.claimed(1));
+    }
+
     function test_decimals_zero_and_eighteen() public {
         MockToken t0 = new MockToken(0);
         MockToken t18 = new MockToken(18);
@@ -379,14 +413,15 @@ contract TokenBehaviourTest is Test {
     }
 }
 
-/// Recipient contract that re-enters claim from the token's transfer hook.
+/// Recipient contract that tries to re-enter claim from the token's transfer hook.
 contract Reenterer is ITransferHook {
     VerseCashout public cashout;
     VerseCashout.Voucher public v;
     bytes public sig;
     VerseCashout.Voucher public other;
     bytes public otherSig;
-    bytes public reentryError;
+    bytes public replayError;
+    bytes public otherError;
     uint256 public hooks;
 
     function setup(
@@ -407,22 +442,28 @@ contract Reenterer is ITransferHook {
         cashout.claim(v, sig);
     }
 
+    function goOther() external {
+        cashout.claim(other, otherSig);
+    }
+
     function onTokenTransfer(uint256) external {
         hooks++;
         if (hooks > 1) return;
         try cashout.claim(v, sig) {}
         catch (bytes memory err) {
-            reentryError = err;
+            replayError = err;
         }
-        // A different valid voucher may still be claimed while re-entered; it is paid once.
-        cashout.claim(other, otherSig);
+        try cashout.claim(other, otherSig) {}
+        catch (bytes memory err) {
+            otherError = err;
+        }
     }
 }
 
 contract ReentrancyTest is Test {
     uint256 internal constant SIGNER_KEY = 0xA11CE;
 
-    function test_reentrant_replay_fails_other_voucher_paid_once() public {
+    function test_reentry_is_refused_and_each_voucher_pays_once() public {
         HookToken t = new HookToken();
         VerseCashout c = new VerseCashout(IERC20Metadata(address(t)), vm.addr(SIGNER_KEY));
         t.mint(address(c), 1000e18);
@@ -435,7 +476,12 @@ contract ReentrancyTest is Test {
         (uint8 v2, bytes32 r2, bytes32 s2) = vm.sign(SIGNER_KEY, c.voucherDigest(o));
         r.setup(c, v, abi.encodePacked(r1, s1, v1), o, abi.encodePacked(r2, s2, v2));
         r.go();
-        assertEq(r.reentryError(), abi.encodeWithSelector(VerseCashout.AlreadyClaimed.selector, 1));
+        bytes memory guard = abi.encodeWithSignature("ReentrancyGuardReentrantCall()");
+        assertEq(r.replayError(), guard);
+        assertEq(r.otherError(), guard);
+        assertEq(t.balanceOf(address(r)), 5e18);
+        assertFalse(c.claimed(2), "a refused re-entry leaves the other voucher claimable");
+        r.goOther();
         assertEq(t.balanceOf(address(r)), 12e18);
         assertEq(t.balanceOf(address(c)), 988e18);
     }

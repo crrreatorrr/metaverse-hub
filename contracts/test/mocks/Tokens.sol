@@ -50,6 +50,38 @@ contract FalseToken {
     }
 }
 
+/// Token that keeps 1% of every transfer.
+contract FeeToken is ERC20 {
+    constructor() ERC20("Fee", "FEE") {}
+
+    function mint(address to, uint256 amount) external {
+        _mint(to, amount);
+    }
+
+    function _update(address from, address to, uint256 value) internal override {
+        if (from == address(0) || to == address(0)) return super._update(from, to, value);
+        uint256 fee = value / 100;
+        super._update(from, address(0xFEE), fee);
+        super._update(from, to, value - fee);
+    }
+}
+
+/// Token whose transfer returns nothing and does nothing when the balance is short.
+contract SilentToken {
+    mapping(address => uint256) public balanceOf;
+    uint8 public constant decimals = 8;
+
+    function mint(address to, uint256 amount) external {
+        balanceOf[to] += amount;
+    }
+
+    function transfer(address to, uint256 amount) external {
+        if (balanceOf[msg.sender] < amount) return;
+        balanceOf[msg.sender] -= amount;
+        balanceOf[to] += amount;
+    }
+}
+
 interface ITransferHook {
     function onTokenTransfer(uint256 amount) external;
 }
