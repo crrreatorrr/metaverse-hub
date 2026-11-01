@@ -119,8 +119,25 @@ namespace HubExchangeSchema {
 
     "CREATE INDEX purchase_intent_open ON game.purchase_intent (user_id, chain, created_at) WHERE status = 'open'",
 
+    // Voucher ids on chain are random (about 244 bits), so nobody can guess a live id or
+    // pre-claim future ones. The bigserial row id stays internal.
+    `CREATE FUNCTION game.random_voucher_id() RETURNS numeric LANGUAGE plpgsql VOLATILE AS $fn$
+     DECLARE
+       v_hex text := replace(gen_random_uuid()::text, '-', '') || replace(gen_random_uuid()::text, '-', '');
+       v_out numeric := 0;
+       i integer;
+     BEGIN
+       FOR i IN 1..length(v_hex) LOOP
+         v_out := v_out * 16 + ('x' || lpad(substr(v_hex, i, 1), 8, '0'))::bit(32)::integer;
+       END LOOP;
+       RETURN v_out;
+     END;
+     $fn$`,
+
     `CREATE TABLE game.withdrawal (
       id bigserial PRIMARY KEY,
+      voucher_id numeric(78, 0) NOT NULL UNIQUE DEFAULT game.random_voucher_id()
+        CHECK (voucher_id > 0 AND voucher_id < 115792089237316195423570985008687907853269984665640564039457584007913129639936),
       user_id uuid NOT NULL,
       chain text NOT NULL REFERENCES game.chain_config (chain),
       chain_id bigint NOT NULL,
@@ -188,7 +205,7 @@ namespace HubExchangeSchema {
     `CREATE FUNCTION game.withdrawal_guard() RETURNS trigger LANGUAGE plpgsql AS $fn$
      BEGIN
        IF TG_OP = 'DELETE' THEN RAISE EXCEPTION 'append_only'; END IF;
-       IF NEW.id <> OLD.id OR NEW.user_id <> OLD.user_id OR NEW.chain <> OLD.chain
+       IF NEW.id <> OLD.id OR NEW.voucher_id <> OLD.voucher_id OR NEW.user_id <> OLD.user_id OR NEW.chain <> OLD.chain
           OR NEW.chain_id <> OLD.chain_id OR NEW.cashout_address <> OLD.cashout_address
           OR NEW.recipient <> OLD.recipient OR NEW.amount <> OLD.amount OR NEW.expiry <> OLD.expiry
           OR NEW.idem_key <> OLD.idem_key OR NEW.created_at <> OLD.created_at THEN
@@ -378,6 +395,7 @@ namespace HubExchangeSchema {
        v_released bigint;
        v_balance bigint;
        v_id bigint;
+       v_voucher numeric;
        v_expiry timestamptz;
      BEGIN
        PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
@@ -421,9 +439,10 @@ namespace HubExchangeSchema {
        VALUES (p_user_id, p_chain, v_cfg.chain_id, v_cfg.cashout_address, v_link.address, p_amount, v_expiry, 'issued', p_idem_key)
        RETURNING id INTO v_id;
        INSERT INTO game.withdrawal_log (withdrawal_id, status, detail) VALUES (v_id, 'issued', jsonb_build_object('amount', p_amount));
+       SELECT voucher_id INTO v_voucher FROM game.withdrawal WHERE id = v_id;
        INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
        VALUES (gen_random_uuid(), p_user_id, -p_amount, v_balance, 'withdraw:' || p_chain, NULL);
-       v_response := jsonb_build_object('withdrawalId', v_id::text, 'amount', p_amount, 'recipient', v_link.address,
+       v_response := jsonb_build_object('withdrawalId', v_voucher::text, 'amount', p_amount, 'recipient', v_link.address,
          'expiry', extract(epoch FROM v_expiry)::bigint, 'verse', v_balance,
          'accountRoom', v_econ.account_daily_verse - v_used - p_amount);
        INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
@@ -558,9 +577,9 @@ namespace HubExchangeSchema {
 
     // Voucher signer: vouchers waiting for a signature.
     `CREATE FUNCTION game.voucher_pending(p_chain text, p_limit integer)
-     RETURNS TABLE (id bigint, chain_id bigint, cashout_address text, recipient text, amount bigint, expiry bigint)
+     RETURNS TABLE (id bigint, voucher_id text, chain_id bigint, cashout_address text, recipient text, amount bigint, expiry bigint)
      LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
-       SELECT w.id, w.chain_id, w.cashout_address, w.recipient, w.amount, extract(epoch FROM w.expiry)::bigint
+       SELECT w.id, w.voucher_id::text, w.chain_id, w.cashout_address, w.recipient, w.amount, extract(epoch FROM w.expiry)::bigint
        FROM game.withdrawal w
        WHERE w.chain = p_chain AND w.status = 'issued' AND w.expiry > now()
        ORDER BY w.id LIMIT p_limit
@@ -568,8 +587,8 @@ namespace HubExchangeSchema {
 
     // Voucher signer: store a signature. The signer passes back the fields it signed, so a
     // row that changed since voucher_pending can never be signed with stale values.
-    `CREATE FUNCTION game.voucher_store_signature(p_id bigint, p_chain_id bigint, p_cashout text, p_recipient text,
-                                                  p_amount bigint, p_expiry bigint, p_signature text)
+    `CREATE FUNCTION game.voucher_store_signature(p_id bigint, p_voucher_id numeric, p_chain_id bigint, p_cashout text,
+                                                  p_recipient text, p_amount bigint, p_expiry bigint, p_signature text)
      RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
      DECLARE
        v_w game.withdrawal;
@@ -578,7 +597,7 @@ namespace HubExchangeSchema {
      BEGIN
        SELECT * INTO v_w FROM game.withdrawal WHERE id = p_id FOR UPDATE;
        IF NOT FOUND THEN RAISE EXCEPTION 'voucher_unknown'; END IF;
-       IF v_w.chain_id <> p_chain_id OR v_w.cashout_address <> lower(p_cashout) OR v_w.recipient <> lower(p_recipient)
+       IF v_w.voucher_id <> p_voucher_id OR v_w.chain_id <> p_chain_id OR v_w.cashout_address <> lower(p_cashout) OR v_w.recipient <> lower(p_recipient)
           OR v_w.amount <> p_amount OR extract(epoch FROM v_w.expiry)::bigint <> p_expiry THEN
          RAISE EXCEPTION 'voucher_mismatch';
        END IF;
@@ -603,9 +622,7 @@ namespace HubExchangeSchema {
        v_detail jsonb := jsonb_build_object('cashout', lower(p_cashout), 'id', p_id::text, 'recipient', lower(p_recipient),
                                             'amount', p_amount::text, 'tx', lower(p_tx_hash), 'block', p_block);
      BEGIN
-       IF p_id <= 9223372036854775807 THEN
-         SELECT * INTO v_w FROM game.withdrawal WHERE id = p_id::bigint FOR UPDATE;
-       END IF;
+       SELECT * INTO v_w FROM game.withdrawal WHERE voucher_id = p_id FOR UPDATE;
        IF v_w.id IS NULL OR v_w.chain <> p_chain OR v_w.cashout_address <> lower(p_cashout)
           OR v_w.recipient <> lower(p_recipient) OR v_w.amount::numeric <> p_amount THEN
          INSERT INTO game.chain_alert (chain, kind, detail) VALUES (p_chain, 'unknown_claim', v_detail);
@@ -645,44 +662,54 @@ namespace HubExchangeSchema {
        SELECT block_number FROM game.chain_cursor WHERE chain = p_chain AND stream = p_stream
      $fn$`,
 
-    // Watcher: refund vouchers that can no longer be claimed. A voucher is dead only when the
-    // claims stream has processed a finalized block whose timestamp is past its expiry; the
-    // contract rejects it in that block and every later one, so a refund can never pay twice.
-    `CREATE FUNCTION game.voucher_expire(p_chain text, p_limit integer)
-     RETURNS integer LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
+    // Watcher: vouchers that can no longer be claimed. A voucher is dead only when the claims
+    // stream has processed a finalized block whose timestamp is past its expiry; the contract
+    // rejects it in that block and every later one. The chain service then also reads
+    // claimed(voucherId) on chain at a finalized block before calling voucher_refund.
+    `CREATE FUNCTION game.voucher_expiry_due(p_chain text, p_limit integer)
+     RETURNS TABLE (id bigint, voucher_id text, cashout_address text)
+     LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
+       SELECT w.id, w.voucher_id::text, w.cashout_address FROM game.withdrawal w
+       WHERE w.chain = p_chain AND w.status IN ('issued', 'signed')
+         AND w.expiry < (SELECT block_time FROM game.chain_cursor WHERE chain = p_chain AND stream = 'claims')
+       ORDER BY w.id LIMIT p_limit
+     $fn$`,
+
+    // Watcher: refund one dead voucher after confirming claimed(voucherId) is false on chain.
+    `CREATE FUNCTION game.voucher_refund(p_id bigint, p_onchain_claimed boolean)
+     RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
      DECLARE
-       v_seen timestamptz;
-       v_due record;
+       v_user uuid;
        v_w game.withdrawal;
+       v_seen timestamptz;
        v_balance bigint;
-       v_n integer := 0;
      BEGIN
-       SELECT block_time INTO v_seen FROM game.chain_cursor WHERE chain = p_chain AND stream = 'claims';
-       IF v_seen IS NULL THEN RETURN 0; END IF;
-       FOR v_due IN
-         SELECT id, user_id FROM game.withdrawal
-         WHERE chain = p_chain AND status IN ('issued', 'signed') AND expiry < v_seen
-         ORDER BY id LIMIT p_limit
-       LOOP
-         PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || v_due.user_id::text, 0));
-         SELECT * INTO v_w FROM game.withdrawal WHERE id = v_due.id FOR UPDATE;
-         CONTINUE WHEN v_w.status NOT IN ('issued', 'signed');
-         UPDATE game.withdrawal SET status = 'refunded', refunded_at = now() WHERE id = v_w.id;
-         INSERT INTO game.verse_wallet (user_id, balance) VALUES (v_w.user_id, v_w.amount)
-         ON CONFLICT (user_id) DO UPDATE SET balance = game.verse_wallet.balance + EXCLUDED.balance
-         RETURNING balance INTO v_balance;
-         INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
-         VALUES (gen_random_uuid(), v_w.user_id, v_w.amount, v_balance, 'withdraw_refund', NULL);
-         INSERT INTO game.withdrawal_log (withdrawal_id, status, detail)
-         VALUES (v_w.id, 'refunded', jsonb_build_object('claimsSeenThrough', v_seen));
-         v_n := v_n + 1;
-       END LOOP;
-       RETURN v_n;
+       SELECT user_id INTO v_user FROM game.withdrawal WHERE id = p_id;
+       IF NOT FOUND THEN RAISE EXCEPTION 'voucher_unknown'; END IF;
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || v_user::text, 0));
+       SELECT * INTO v_w FROM game.withdrawal WHERE id = p_id FOR UPDATE;
+       IF v_w.status NOT IN ('issued', 'signed') THEN RETURN jsonb_build_object('status', v_w.status, 'skipped', true); END IF;
+       SELECT block_time INTO v_seen FROM game.chain_cursor WHERE chain = v_w.chain AND stream = 'claims';
+       IF v_seen IS NULL OR v_w.expiry >= v_seen THEN RETURN jsonb_build_object('status', v_w.status, 'skipped', true); END IF;
+       IF p_onchain_claimed IS DISTINCT FROM false THEN
+         INSERT INTO game.chain_alert (chain, kind, detail)
+         VALUES (v_w.chain, 'claimed_on_chain_without_event', jsonb_build_object('voucherId', v_w.voucher_id::text));
+         RETURN jsonb_build_object('status', v_w.status, 'alert', 'claimed_on_chain_without_event');
+       END IF;
+       UPDATE game.withdrawal SET status = 'refunded', refunded_at = now() WHERE id = v_w.id;
+       INSERT INTO game.verse_wallet (user_id, balance) VALUES (v_w.user_id, v_w.amount)
+       ON CONFLICT (user_id) DO UPDATE SET balance = game.verse_wallet.balance + EXCLUDED.balance
+       RETURNING balance INTO v_balance;
+       INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
+       VALUES (gen_random_uuid(), v_w.user_id, v_w.amount, v_balance, 'withdraw_refund', NULL);
+       INSERT INTO game.withdrawal_log (withdrawal_id, status, detail)
+       VALUES (v_w.id, 'refunded', jsonb_build_object('claimsSeenThrough', v_seen));
+       RETURN jsonb_build_object('status', 'refunded');
      END;
      $fn$`,
 
     // Watcher: every cashout contract that can still pay an open voucher, plus the current one.
-    // The claims stream must cover all of them before voucher_expire trusts its cursor.
+    // The claims stream must cover all of them before voucher_expiry_due trusts its cursor.
     `CREATE FUNCTION game.cashout_watch_list(p_chain text) RETURNS text[]
      LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, game AS $fn$
        SELECT COALESCE(array_agg(DISTINCT a ORDER BY a), ARRAY[]::text[]) FROM (
@@ -730,7 +757,7 @@ namespace HubExchangeSchema {
          'globalRoom', GREATEST(game.global_released(v_cfg.global_daily_verse, v_cfg.hourly_release) - COALESCE(v_global, 0), 0),
          'refUsdPerToken', v_econ.ref_usd_per_token,
          'vouchers', COALESCE((SELECT jsonb_agg(jsonb_build_object(
-             'id', w.id::text, 'recipient', w.recipient, 'amount', w.amount, 'expiry', extract(epoch FROM w.expiry)::bigint,
+             'id', w.voucher_id::text, 'recipient', w.recipient, 'amount', w.amount, 'expiry', extract(epoch FROM w.expiry)::bigint,
              'status', w.status, 'signature', w.signature, 'cashoutAddress', w.cashout_address, 'chainId', w.chain_id,
              'claimTx', w.claim_tx, 'createdAt', extract(epoch FROM w.created_at)::bigint) ORDER BY w.id DESC)
            FROM (SELECT * FROM game.withdrawal WHERE user_id = p_user_id ORDER BY id DESC LIMIT 50) w), '[]'::jsonb),
@@ -763,9 +790,9 @@ namespace HubExchangeSchema {
 
     `GRANT EXECUTE ON FUNCTION game.deposit_record(text, text, integer, bigint, text, numeric),
        game.deposit_settle_pending(text, integer), game.voucher_pending(text, integer),
-       game.voucher_store_signature(bigint, bigint, text, text, bigint, bigint, text),
+       game.voucher_store_signature(bigint, numeric, bigint, text, text, bigint, bigint, text),
        game.claim_record(text, text, numeric, text, numeric, text, bigint), game.cursor_set(text, text, bigint, timestamptz),
-       game.cursor_get(text, text), game.voucher_expire(text, integer), game.chain_alert_add(text, text, jsonb),
+       game.cursor_get(text, text), game.voucher_expiry_due(text, integer), game.voucher_refund(bigint, boolean), game.chain_alert_add(text, text, jsonb),
        game.chain_service_config(text), game.cashout_watch_list(text) TO hub_chain`,
   ];
 }

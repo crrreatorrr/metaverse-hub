@@ -72,6 +72,17 @@ async function withdraw(user: string, amount: number, key = randomUUID()): Promi
   return json('SELECT game.withdraw_verse($1, $2, $3, $4, $5)', [user, 'eth', amount, key, reqHash({ amount, chain: 'eth' })]);
 }
 
+/** What the chain service does: refund every due voucher it confirms unclaimed on chain. */
+async function expire(onchainClaimed = false): Promise<number> {
+  const due = await q('SELECT * FROM game.voucher_expiry_due($1, $2)', ['eth', 1000]);
+  let n = 0;
+  for (const row of due.rows) {
+    const res = await json('SELECT game.voucher_refund($1, $2)', [row.id, onchainClaimed]);
+    if (res.status === 'refunded') n++;
+  }
+  return n;
+}
+
 async function balance(user: string): Promise<number> {
   const r = await one<{ balance: string } | undefined>('SELECT balance FROM game.verse_wallet WHERE user_id = $1', [user]);
   return r ? Number(r.balance) : 0;
@@ -230,17 +241,18 @@ describe('exchange schema', () => {
     await giveVerse(u, 50);
     await link(u, ADDR(50), { aged: true });
     const w = await withdraw(u, 9);
-    const pending = (await q('SELECT * FROM game.voucher_pending($1, $2)', ['eth', 1000])).rows.find((r) => String(r.id) === w.withdrawalId);
+    const pending = (await q('SELECT * FROM game.voucher_pending($1, $2)', ['eth', 1000])).rows.find((r) => r.voucher_id === w.withdrawalId);
     assert.ok(pending);
-    const args = [pending.id, pending.chain_id, pending.cashout_address, pending.recipient, pending.amount, pending.expiry];
+    assert.ok(BigInt(pending.voucher_id) > 2n ** 128n, 'voucher ids are random and large');
+    const args = [pending.id, pending.voucher_id, pending.chain_id, pending.cashout_address, pending.recipient, pending.amount, pending.expiry];
     await assert.rejects(
-      q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7)', [args[0], args[1], args[2], args[3], 10, args[5], SIG]),
+      q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7,$8)', [args[0], args[1], args[2], args[3], args[4], 10, args[6], SIG]),
       /voucher_mismatch/,
     );
-    await q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7)', [...args, SIG]);
-    const again = await json('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7)', [...args, SIG]);
+    await q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7,$8)', [...args, SIG]);
+    const again = await json('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7,$8)', [...args, SIG]);
     assert.equal(again.status, 'signed');
-    const other = await json('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7)', [...args, '0x' + 'cd'.repeat(65)]);
+    const other = await json('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7,$8)', [...args, '0x' + 'cd'.repeat(65)]);
     assert.equal(other.skipped, true);
     await assert.rejects(q("UPDATE game.withdrawal SET amount = 1000 WHERE id = $1", [pending.id]), /withdrawal_immutable/);
     await assert.rejects(q("UPDATE game.withdrawal SET signature = $2 WHERE id = $1", [pending.id, '0x' + 'cd'.repeat(65)]), /withdrawal_immutable/);
@@ -255,7 +267,7 @@ describe('exchange schema', () => {
     const paid = await withdraw(u, 10);
     const lapsed = await withdraw(u, 15);
     for (const r of (await q('SELECT * FROM game.voucher_pending($1, $2)', ['eth', 1000])).rows) {
-      await q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7)', [r.id, r.chain_id, r.cashout_address, r.recipient, r.amount, r.expiry, SIG]);
+      await q('SELECT game.voucher_store_signature($1,$2,$3,$4,$5,$6,$7,$8)', [r.id, r.voucher_id, r.chain_id, r.cashout_address, r.recipient, r.amount, r.expiry, SIG]);
     }
     const claim = await json('SELECT game.claim_record($1,$2,$3,$4,$5,$6,$7)', ['eth', CASHOUT, paid.withdrawalId, ADDR(60), 10, TX(1), 100]);
     assert.equal(claim.status, 'claimed');
@@ -275,13 +287,18 @@ describe('exchange schema', () => {
 
     // No refund while the claims stream has not passed the expiry.
     await q('SELECT game.cursor_set($1, $2, $3, $4)', ['eth', 'claims', 200, new Date()]);
-    assert.equal(Number((await one<{ n: number }>('SELECT game.voucher_expire($1, $2) AS n', ['eth', 100])).n), 0);
+    assert.equal(await expire(), 0);
     await q('SELECT game.cursor_set($1, $2, $3, $4)', ['eth', 'claims', 300, new Date(Date.now() + 31 * 86_400_000)]);
-    assert.ok(Number((await one<{ n: number }>('SELECT game.voucher_expire($1, $2) AS n', ['eth', 1000])).n) >= 1);
+    const lapsedRow = await one<{ id: string }>('SELECT id FROM game.withdrawal WHERE voucher_id = $1', [lapsed.withdrawalId]);
+    const seen = await json('SELECT game.voucher_refund($1, $2)', [lapsedRow.id, true]);
+    assert.equal(seen.alert, 'claimed_on_chain_without_event', 'no refund when the chain says it was claimed');
+    assert.equal(await balance(u), 25);
+    assert.ok((await expire()) >= 1);
     assert.equal(await balance(u), 40, 'only the unclaimed voucher is refunded');
     const states = await q('SELECT id::text, status FROM game.withdrawal WHERE user_id = $1 ORDER BY id', [u]);
     assert.deepEqual(states.rows.map((x) => x.status), ['claimed', 'refunded']);
-    assert.equal(Number((await one<{ n: number }>('SELECT game.voucher_expire($1, $2) AS n', ['eth', 1000])).n), 0, 'refund happens once');
+    assert.equal(await expire(), 0, 'refund happens once');
+    assert.equal((await json('SELECT game.voucher_refund($1, $2)', [lapsedRow.id, false])).skipped, true);
     assert.equal(await balance(u), 40);
     const room = await json('SELECT game.wallet_status($1)', [u]);
     assert.equal(room.accountRoom, 25, 'an expired voucher does not give daily room back');
@@ -294,6 +311,8 @@ describe('exchange schema', () => {
     assert.equal(late.alert, 'claim_after_refund');
     const alerts = await one<{ n: string }>("SELECT count(*) AS n FROM game.chain_alert WHERE kind IN ('unknown_claim', 'claim_after_refund')");
     assert.equal(Number(alerts.n), 6);
+    const missed = await one<{ n: string }>("SELECT count(*) AS n FROM game.chain_alert WHERE kind = 'claimed_on_chain_without_event'");
+    assert.equal(Number(missed.n), 1);
   });
 
   test('deposits: 1 Verse per whole token, dust, duplicates, unmatched, held', async () => {
