@@ -8,11 +8,13 @@ import {
   type RecoveryCodeResult,
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
-import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
+import { DefaultLoadingManager, DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
+import { signOut } from './auth';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
 import { gameUrl, type GameUrlContext } from './games';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
+import { gate } from './login';
 import { createWorld } from './scene';
 import './style.css';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
@@ -37,8 +39,18 @@ if (banner instanceof HTMLElement && window.matchMedia('(pointer: coarse)').matc
 }
 
 hint.textContent = 'Loading the plaza…';
+// Models and textures the plaza fetches before its first frame. The loader's own
+// total grows as parts are requested one by one, so divide by this instead.
+const EXPECTED_ASSETS = 21;
+const SCRIPT_SHARE = 0.08;
+gate.progress(SCRIPT_SHARE);
+DefaultLoadingManager.onProgress = (_url, loaded, total) => {
+  gate.progress(SCRIPT_SHARE + (1 - SCRIPT_SHARE) * (loaded / Math.max(total, EXPECTED_ASSETS)));
+};
 const world = await createWorld().catch((error: unknown) => {
-  hint.textContent = error instanceof Error ? error.message : 'The plaza failed to load';
+  const message = error instanceof Error ? error.message : 'The plaza failed to load';
+  hint.textContent = message;
+  gate.failed(`${message}. Reload to try again.`);
   throw error;
 });
 hint.textContent = `Click to look  ·  ${CONTROLS_HINT}`;
@@ -68,9 +80,10 @@ const camPos = new Vector3();
 const ray = new Ray();
 
 const debug = import.meta.env.DEV ? createDebug() : null;
+let firstFrame = true;
 
 window.addEventListener('keydown', (event) => {
-  if (isTypingTarget(event.target)) return;
+  if (gate.isOpen() || isTypingTarget(event.target)) return;
   if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
@@ -140,6 +153,11 @@ world.renderer.setAnimationLoop((timestamp) => {
   updateHint();
   considerPortal(dt);
   world.render();
+  if (firstFrame) {
+    firstFrame = false;
+    DefaultLoadingManager.onProgress = () => undefined;
+    gate.ready();
+  }
   if (debug) {
     const calls = world.sceneDraws;
     fps = fps * 0.9 + (dt > 0 ? 0.1 / dt : 0);
@@ -433,6 +451,8 @@ interface HubSession {
   token: string;
   userId: string;
   deviceId: string;
+  /** Set for a username account; null for a device guest. */
+  username: string | null;
 }
 
 let sessionPromise: Promise<HubSession> | null = null;
@@ -451,16 +471,20 @@ async function openSession(): Promise<HubSession> {
       httpKey: LOCAL_NAKAMA.httpKey,
     });
     const deviceId = getOrCreateDeviceId();
-    const auth = await client.authenticateDevice(deviceId);
+    const entry = await gate.entry;
+    const auth = entry.kind === 'account'
+      ? { token: entry.token, userId: entry.userId }
+      : await client.authenticateDevice(deviceId);
+    const username = entry.kind === 'account' ? entry.username : null;
     const profile = await client.rpc<ProfileResult>('profile.get', {}, { token: auth.token });
     showRelics(profile.relics);
     showVerse(profile.verse ?? 0);
     const board = await client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: auth.token });
     boardRows = board.rows ?? [];
     paintBar(boardTab);
-    const session = { client, token: auth.token, userId: auth.userId, deviceId };
+    const session = { client, token: auth.token, userId: auth.userId, deviceId, username };
     bindAccount(session);
-    if (status) status.textContent = 'Guest linked';
+    if (status) status.textContent = username ? `Signed in as ${username}` : 'Guest linked';
     return session;
   } catch (error) {
     sessionPromise = null;
@@ -490,7 +514,19 @@ function bindAccount(session: HubSession): void {
   ) {
     return;
   }
-  idLine.textContent = `Guest ${session.userId.slice(0, 8)}`;
+  idLine.textContent = session.username ?? `Guest ${session.userId.slice(0, 8)}`;
+  toggle.textContent = session.username ?? 'Account';
+  const signOutButton = document.querySelector('#account-signout');
+  if (signOutButton instanceof HTMLButtonElement) {
+    signOutButton.hidden = false;
+    signOutButton.textContent = session.username ? 'Sign out' : 'Sign up or log in';
+    signOutButton.addEventListener('click', () => {
+      signOut();
+      window.location.reload();
+    });
+  }
+  // A username account recovers with its password, so the guest recovery code is hidden.
+  for (const node of panel.querySelectorAll<HTMLElement>('[data-guest-only]')) node.hidden = Boolean(session.username);
   toggle.addEventListener('click', () => {
     panel.hidden = !panel.hidden;
     if (document.pointerLockElement) document.exitPointerLock();
