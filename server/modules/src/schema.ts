@@ -1,5 +1,30 @@
 namespace HubSchema {
-  var STATEMENTS: string[] = [
+  interface SchemaMigration {
+    id: string;
+    statements: string[];
+  }
+
+  // Dev databases have no ledger rows yet. This CREATE is idempotent, so the
+  // first boot can create the table, run it once more as 0001, and record it.
+  var SCHEMA_MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS game.schema_migrations (
+      id text PRIMARY KEY,
+      checksum text NOT NULL,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    )`;
+
+  // Applied migrations are immutable. Any fix goes in a new numbered migration;
+  // do not edit one that has already shipped. 0002_baseline is the schema on
+  // main when this ledger starts. CREATE IF NOT EXISTS will not add columns on
+  // a dev database that already has those tables, so later schema changes are
+  // 0004 and up, never edits to 0002. Checksums cover statement text only.
+  var MIGRATIONS: SchemaMigration[] = [
+    {
+      id: "0001_schema_migrations",
+      statements: [SCHEMA_MIGRATIONS_TABLE],
+    },
+    {
+      id: "0002_baseline",
+      statements: [
     "CREATE SCHEMA IF NOT EXISTS game",
 
     `CREATE TABLE IF NOT EXISTS game.game_session (
@@ -631,17 +656,116 @@ namespace HubSchema {
     "CREATE TRIGGER tickets_ledger_append_only BEFORE UPDATE OR DELETE ON game.tickets_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
     "DROP TRIGGER IF EXISTS verse_ledger_append_only ON game.verse_ledger",
     "CREATE TRIGGER verse_ledger_append_only BEFORE UPDATE OR DELETE ON game.verse_ledger FOR EACH ROW EXECUTE FUNCTION game.reject_mutation()",
-
-    // Rename legacy `pb` rows to `peoples-bitcoin`. The seed above already
-    // inserts the new id, so drop or merge leftovers instead of UPDATE-into-PK.
+      ],
+    },
+    {
+      id: "0003_merge_pb_into_peoples_bitcoin",
+      statements: [
     "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
-    "UPDATE game.game_session SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
+    // Before renaming, drop pb rows that would collide with a peoples-bitcoin
+    // row on a unique index or constraint that includes game_id. Keep the
+    // peoples-bitcoin row. Log the count. Do not fail the boot.
+    `DO $rename$
+     DECLARE
+       tbl text;
+       idx record;
+       colname text;
+       key_cols text[];
+       others text;
+       pb_pred text;
+       canon_pred text;
+       dropped bigint;
+       total bigint;
+       has_game_id boolean;
+     BEGIN
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+       FOREACH tbl IN ARRAY ARRAY['game_session', 'tickets_ledger', 'exchange_tx']
+       LOOP
+         total := 0;
+         FOR idx IN
+           SELECT i.indrelid, i.indkey, ic.relname AS index_name,
+                  pg_get_expr(i.indpred, i.indrelid) AS pred
+           FROM pg_index i
+           JOIN pg_class t ON t.oid = i.indrelid
+           JOIN pg_namespace nsp ON nsp.oid = t.relnamespace
+           JOIN pg_class ic ON ic.oid = i.indexrelid
+           WHERE nsp.nspname = 'game' AND t.relname = tbl AND i.indisunique
+         LOOP
+           has_game_id := false;
+           key_cols := ARRAY[]::text[];
+           IF EXISTS (SELECT 1 FROM unnest(idx.indkey) AS attnum WHERE attnum = 0) THEN
+             CONTINUE;
+           END IF;
+           FOR colname IN
+             SELECT a.attname
+             FROM unnest(idx.indkey) WITH ORDINALITY AS k(attnum, ord)
+             JOIN pg_attribute a ON a.attrelid = idx.indrelid AND a.attnum = k.attnum
+             WHERE k.attnum > 0
+             ORDER BY k.ord
+           LOOP
+             key_cols := array_append(key_cols, colname);
+             IF colname = 'game_id' THEN has_game_id := true; END IF;
+           END LOOP;
+           IF NOT has_game_id THEN CONTINUE; END IF;
+           SELECT string_agg(format('pb.%I IS NOT DISTINCT FROM canon.%I', c, c), ' AND ')
+             INTO others
+           FROM unnest(key_cols) AS c
+           WHERE c <> 'game_id';
+           IF others IS NULL THEN others := 'TRUE'; END IF;
+           pb_pred := 'TRUE';
+           canon_pred := 'TRUE';
+           IF idx.pred IS NOT NULL THEN
+             pb_pred := idx.pred;
+             canon_pred := idx.pred;
+             FOR colname IN
+               SELECT a.attname
+               FROM pg_attribute a
+               WHERE a.attrelid = idx.indrelid AND a.attnum > 0 AND NOT a.attisdropped
+               ORDER BY length(a.attname) DESC
+             LOOP
+               pb_pred := regexp_replace(pb_pred, '\\m' || colname || '\\M', 'pb.' || quote_ident(colname), 'g');
+               canon_pred := regexp_replace(canon_pred, '\\m' || colname || '\\M', 'canon.' || quote_ident(colname), 'g');
+             END LOOP;
+             pb_pred := replace(pb_pred, 'pb.' || quote_ident('game_id'), '''peoples-bitcoin''');
+           END IF;
+           others := replace(others, '%', '%%');
+           pb_pred := replace(pb_pred, '%', '%%');
+           canon_pred := replace(canon_pred, '%', '%%');
+           EXECUTE format(
+             'WITH del AS (
+                DELETE FROM game.%I pb
+                USING game.%I canon
+                WHERE pb.game_id = ''pb''
+                  AND canon.game_id = ''peoples-bitcoin''
+                  AND %s
+                  AND (%s)
+                  AND (%s)
+                RETURNING 1
+              ) SELECT count(*) FROM del',
+             tbl, tbl, others, pb_pred, canon_pred
+           ) INTO dropped;
+           total := total + COALESCE(dropped, 0);
+         END LOOP;
+         EXECUTE format(
+           'UPDATE game.%I SET game_id = %L WHERE game_id = %L',
+           tbl, 'peoples-bitcoin', 'pb'
+         );
+         RAISE NOTICE 'game.% pb rows dropped for unique game_id collision: %', tbl, total;
+       END LOOP;
+       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
+         ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
+       END IF;
+     END
+     $rename$`,
     "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
     "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
-    // Merge before the deletes below. apply() re-runs every statement on startup
-    // with no migration ledger, so this has to precede those deletes. The
-    // game_beaten check was just dropped, and this DO block is one transaction.
-    `DO $$ BEGIN
+    // Sum, rename pb-only rows, then delete pb leftovers. #16's overlap deletes
+    // are not run again after this block.
+    `DO $$ DECLARE
+       n bigint;
+     BEGIN
        UPDATE game.tickets_balance AS neu
           SET balance = neu.balance + old.balance
          FROM game.tickets_balance AS old
@@ -657,6 +781,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.tickets_balance WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.tickets_balance pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.verse_earned AS neu
           SET lifetime = neu.lifetime + old.lifetime
@@ -673,6 +799,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.verse_earned WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.verse_earned pb rows dropped for unique game_id collision: %', n;
 
        -- Row presence is the beaten flag (OR). Keep the earliest timestamp.
        UPDATE game.game_beaten AS neu
@@ -691,6 +819,8 @@ namespace HubSchema {
                AND canon.game_id = 'peoples-bitcoin'
           );
        DELETE FROM game.game_beaten WHERE game_id = 'pb';
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.game_beaten pb rows dropped for unique game_id collision: %', n;
 
        UPDATE game.earn_window AS neu
           SET amount = neu.amount + old.amount
@@ -709,42 +839,143 @@ namespace HubSchema {
                AND canon.bucket = replace(pb_row.bucket, ':pb', ':peoples-bitcoin')
           );
        DELETE FROM game.earn_window WHERE bucket IN ('tickets:pb', 'verse:pb');
+       GET DIAGNOSTICS n = ROW_COUNT;
+       RAISE NOTICE 'game.earn_window pb rows dropped for unique game_id collision: %', n;
 
+       SELECT count(*) INTO n
+         FROM game.event_rule pb
+        WHERE pb.game_id = 'pb'
+          AND EXISTS (
+            SELECT 1 FROM game.event_rule canon
+             WHERE canon.game_id = 'peoples-bitcoin'
+               AND canon.event_type = pb.event_type
+          );
        INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
        SELECT 'peoples-bitcoin', event_type, relic_id, tickets, session_limit, day_limit, match
          FROM game.event_rule
         WHERE game_id = 'pb'
        ON CONFLICT DO NOTHING;
        DELETE FROM game.event_rule WHERE game_id = 'pb';
+       RAISE NOTICE 'game.event_rule pb rows dropped for unique game_id collision: %', n;
      END $$`,
-    "DELETE FROM game.game_beaten AS old USING game.game_beaten AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.game_beaten SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
-    "DELETE FROM game.tickets_balance AS old USING game.tickets_balance AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.tickets_balance SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
-    `DO $$ BEGIN
-       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
-         ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only;
-       END IF;
-     END $$`,
-    "UPDATE game.tickets_ledger SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
-    `DO $$ BEGIN
-       IF EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'tickets_ledger_append_only') THEN
-         ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only;
-       END IF;
-     END $$`,
-    "DELETE FROM game.verse_earned AS old USING game.verse_earned AS neu WHERE old.game_id = 'pb' AND neu.game_id = 'peoples-bitcoin' AND old.user_id = neu.user_id",
-    "UPDATE game.verse_earned SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
-    "UPDATE game.exchange_tx SET game_id = 'peoples-bitcoin' WHERE game_id = 'pb'",
-    "DELETE FROM game.earn_window AS old USING game.earn_window AS neu WHERE old.bucket IN ('tickets:pb', 'verse:pb') AND neu.bucket = replace(old.bucket, ':pb', ':peoples-bitcoin') AND old.user_id = neu.user_id AND old.day = neu.day",
-    "UPDATE game.earn_window SET bucket = 'tickets:peoples-bitcoin' WHERE bucket = 'tickets:pb'",
-    "UPDATE game.earn_window SET bucket = 'verse:peoples-bitcoin' WHERE bucket = 'verse:pb'",
-    "DELETE FROM game.event_rule WHERE game_id = 'pb'",
+      ],
+    },
   ];
 
+  function migrationSource(statements: string[]): string {
+    return statements.join("\n");
+  }
+
+  function sqlLiteral(value: string): string {
+    return "'" + value.replace(/'/g, "''") + "'";
+  }
+
+  // One connection for the whole run. pg_advisory_lock blocks the other boot;
+  // pg_advisory_xact_lock stays until commit, after the session unlock, so the
+  // waiter sees the ledger rows. The fixed key is hub schema_migrations.
+  var SCHEMA_LOCK_KEY = "872341";
+
+  function statementExecute(id: string, statement: string): string {
+    if (statement.indexOf("$hub_lock$") >= 0) {
+      throw new Error("schema migration sql contains the wrapper tag: " + id);
+    }
+    var tag = "stmt";
+    while (statement.indexOf("$" + tag + "$") >= 0) tag += "x";
+    return "EXECUTE $" + tag + "$" + statement + "$" + tag + "$;\n";
+  }
+
+  function migrationNumber(id: string): number {
+    var match = /^([0-9]+)_/.exec(id);
+    if (!match) {
+      throw new Error("schema migration id has no numeric prefix: " + id);
+    }
+    return parseInt(match[1], 10);
+  }
+
+  function lockedRunQuery(plans: { id: string; checksum: string; statements: string[] }[]): string {
+    var ids: string[] = [];
+    var codeValues: string[] = [];
+    for (var i = 0; i < plans.length; i++) {
+      ids.push(sqlLiteral(plans[i].id));
+      codeValues.push("(" + migrationNumber(plans[i].id) + "::int, " + sqlLiteral(plans[i].id) + "::text)");
+    }
+    var sql = "DO $hub_lock$\nDECLARE\n  recorded text;\n  missing text;\n  out_of_order text;\n  highest text;\nBEGIN\n";
+    sql += "PERFORM pg_advisory_lock(" + SCHEMA_LOCK_KEY + ");\n";
+    sql += "PERFORM pg_advisory_xact_lock(" + SCHEMA_LOCK_KEY + ");\n";
+    sql += "BEGIN\n";
+    sql += "CREATE SCHEMA IF NOT EXISTS game;\n";
+    sql += statementExecute("0001_schema_migrations", SCHEMA_MIGRATIONS_TABLE);
+    sql += "SELECT id INTO missing FROM game.schema_migrations WHERE id <> ALL (ARRAY[" + ids.join(", ") + "]) LIMIT 1;\n";
+    sql += "IF FOUND THEN\n  RAISE EXCEPTION 'schema migration recorded but missing from code: %', missing;\nEND IF;\n";
+    sql += "SELECT string_agg(c.id, ', ' ORDER BY c.n), (\n";
+    sql += "         SELECT id FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       )\n";
+    sql += "  INTO out_of_order, highest\n";
+    sql += "  FROM (VALUES " + codeValues.join(", ") + ") AS c(n, id)\n";
+    sql += " WHERE NOT EXISTS (SELECT 1 FROM game.schema_migrations m WHERE m.id = c.id)\n";
+    sql += "   AND c.n < COALESCE((\n";
+    sql += "         SELECT split_part(id, '_', 1)::int FROM game.schema_migrations\n";
+    sql += "         WHERE split_part(id, '_', 1) ~ '^[0-9]+$'\n";
+    sql += "         ORDER BY split_part(id, '_', 1)::int DESC\n";
+    sql += "         LIMIT 1\n";
+    sql += "       ), 0);\n";
+    sql += "IF out_of_order IS NOT NULL THEN\n";
+    sql += "  RAISE EXCEPTION 'unapplied schema migration % is older than the highest recorded migration %', out_of_order, highest;\n";
+    sql += "END IF;\n";
+    for (var p = 0; p < plans.length; p++) {
+      var plan = plans[p];
+      sql += "SELECT checksum INTO recorded FROM game.schema_migrations WHERE id = " + sqlLiteral(plan.id) + ";\n";
+      sql += "IF FOUND THEN\n";
+      sql += "  IF recorded IS DISTINCT FROM " + sqlLiteral(plan.checksum) + " THEN\n";
+      sql += "    RAISE EXCEPTION 'schema migration checksum mismatch: " + plan.id + "';\n";
+      sql += "  END IF;\n";
+      sql += "ELSE\n";
+      for (var s = 0; s < plan.statements.length; s++) {
+        sql += statementExecute(plan.id, plan.statements[s]);
+      }
+      sql += "  INSERT INTO game.schema_migrations (id, checksum, applied_at) VALUES ("
+        + sqlLiteral(plan.id) + ", " + sqlLiteral(plan.checksum) + ", now());\n";
+      sql += "  RAISE NOTICE 'schema migration applied %', " + sqlLiteral(plan.id) + ";\n";
+      sql += "END IF;\n";
+    }
+    sql += "PERFORM pg_advisory_unlock(" + SCHEMA_LOCK_KEY + ");\n";
+    sql += "EXCEPTION WHEN OTHERS THEN\n";
+    sql += "  PERFORM pg_advisory_unlock(" + SCHEMA_LOCK_KEY + ");\n";
+    sql += "  RAISE;\n";
+    sql += "END;\n";
+    sql += "END\n$hub_lock$;";
+    return sql;
+  }
+
+  function fail(logger: nkruntime.Logger, message: string): never {
+    logger.error(message);
+    throw new Error(message);
+  }
+
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
-    for (var i = 0; i < STATEMENTS.length; i++) {
-      nk.sqlExec(STATEMENTS[i], []);
+    var known: { [id: string]: boolean } = {};
+    var plans: { id: string; checksum: string; statements: string[] }[] = [];
+    for (var i = 0; i < MIGRATIONS.length; i++) {
+      if (known[MIGRATIONS[i].id]) {
+        fail(logger, "duplicate schema migration id: " + MIGRATIONS[i].id);
+      }
+      known[MIGRATIONS[i].id] = true;
+      plans.push({
+        id: MIGRATIONS[i].id,
+        checksum: nk.sha256Hash(migrationSource(MIGRATIONS[i].statements)),
+        statements: MIGRATIONS[i].statements,
+      });
+    }
+
+    try {
+      nk.sqlExec(lockedRunQuery(plans), []);
+    } catch (err) {
+      logger.error(String(err));
+      throw err;
     }
     logger.info("game schema ready");
   }
