@@ -1,0 +1,693 @@
+/* ==========================================================================
+   Login gate: retro pixel
+   Same look as the pixel Esc menu: the Higgsfield window frame (9-slice at
+   2x), the red title ribbon, chunky icon tabs, notched pixel boxes on a 4px
+   grid, Press Start 2P for labels and VT323 for text. Palette: royal blue,
+   red, golden yellow. Tokens are scoped here so the gate stands on its own.
+   ========================================================================== */
+
+.login {
+  --ink: #020a28;
+  --navy: #0a1f6b;
+  --blue: #08309e;
+  --blue-2: #1747c9;
+  --blue-3: #2f66e8;
+  --sky: #8cc4ff;
+  --red: #d0080b;
+  --red-2: #ff3a2e;
+  --red-dark: #6d0610;
+  --yellow: #faca07;
+  --yellow-2: #ffe766;
+  --gold: #b07a0c;
+  --cream: #fff4d6;
+  --green: #3dff6a;
+  --pixel-head: "Press Start 2P", ui-monospace, monospace;
+  --pixel-body: "VT323", ui-monospace, monospace;
+  /* Notched pixel box: four offset shadows draw the outline, two insets the bevel. */
+  --px-edge: 0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink);
+
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: stretch;
+  background: var(--ink);
+  font-family: var(--pixel-body);
+  color: var(--cream);
+  transition: opacity 600ms steps(6);
+}
+
+.login[hidden],
+.login [hidden] {
+  display: none !important;
+}
+
+body.gated #hud {
+  visibility: hidden;
+}
+
+.login[data-view="leaving"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.login button,
+.login input {
+  font: inherit;
+  color: inherit;
+}
+
+.login button {
+  cursor: pointer;
+}
+
+.login button:disabled {
+  cursor: not-allowed;
+}
+
+.login :focus-visible {
+  outline: 4px dashed var(--yellow-2);
+  outline-offset: 6px;
+}
+
+/* Hard pixels for the UI art. */
+.login-art,
+.login-panel,
+.login-title,
+.login-tab-icon,
+.login-coin {
+  image-rendering: pixelated;
+}
+
+/* ---------- Key art: Higgsfield pixel plaza at 1/2 scale, enlarged with hard pixels ----------
+   Anchored bottom right and sized from the room right of the window, so all five
+   portals and the statue stay clear of it. The left third of the art is plain
+   night sky; any gap above is filled with that sky colour. */
+
+.login-art {
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, rgba(2, 10, 40, 0.85) 0%, rgba(2, 10, 40, 0.4) 26%, rgba(2, 10, 40, 0) 40%),
+    url("/world/ui/login-art.png") right bottom / max(calc((100vw - 540px) * 1.5), 60vw) auto no-repeat,
+    #000735;
+  animation: login-fade 480ms steps(6) both;
+}
+
+@keyframes login-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---------- The window: the menu frame as a 9-slice at 2x ---------- */
+
+.login-panel {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  width: min(488px, calc(100% - 32px));
+  margin: 40px 0 20px 20px;
+  box-sizing: border-box;
+  padding: 12px 14px 10px;
+  border: 40px solid transparent;
+  border-image: url("/world/ui/frame.png") 20 fill / 40px / 0 round;
+  filter: drop-shadow(8px 8px 0 rgba(2, 10, 40, 0.6));
+  animation: login-pop 260ms steps(5) both;
+}
+
+@keyframes login-pop {
+  0% { transform: translateX(-40px) scale(0.92); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+
+.login[data-view="leaving"] .login-panel {
+  transform: translateX(-40px);
+  transition: transform 600ms steps(6);
+}
+
+/* Title ribbon over the top edge of the frame. */
+.login-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: -64px -20px 0;
+  padding-top: 4px;
+}
+
+.login-title {
+  display: grid;
+  place-items: center;
+  width: 348px;
+  max-width: 100%;
+  height: 76px;
+  margin: 0;
+  padding-bottom: 10px;
+  box-sizing: border-box;
+  background: url("/world/ui/banner.png") center / 348px 76px no-repeat;
+  font: 400 18px/1 var(--pixel-head);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+.login-sub {
+  margin: 2px 0 0;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--sky);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.login-sub-key {
+  margin-right: 6px;
+  font: 8px var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--yellow);
+  vertical-align: 2px;
+}
+
+/* ---------- Views: scroll inside the frame on short screens ---------- */
+
+.login-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin: 0 -6px;
+  padding: 14px 10px 8px;
+  overflow-y: auto;
+  scrollbar-color: var(--yellow) var(--navy);
+}
+
+.login-view::-webkit-scrollbar {
+  width: 12px;
+}
+
+.login-view::-webkit-scrollbar-track {
+  background: var(--navy);
+  box-shadow: inset 0 0 0 4px var(--ink);
+}
+
+.login-view::-webkit-scrollbar-thumb {
+  background: var(--yellow);
+  box-shadow: inset 0 0 0 4px var(--ink), inset -6px -6px 0 0 var(--gold);
+}
+
+/* ---------- Tabs: chunky pixel buttons with Higgsfield icons ---------- */
+
+.login-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 4px 4px 14px;
+}
+
+.login-tab {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 2px;
+  border: 0;
+  background: var(--navy);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 #061450;
+  font: 9px/1 var(--pixel-head) !important;
+  text-transform: uppercase;
+  color: var(--sky);
+}
+
+.login-tab-icon {
+  width: 52px;
+  height: 52px;
+  object-fit: contain;
+  filter: saturate(0.6) brightness(0.8);
+}
+
+.login-tab-key {
+  position: absolute;
+  top: 3px;
+  left: 5px;
+  font: 8px var(--pixel-head);
+  color: var(--sky);
+  opacity: 0.8;
+}
+
+.login-tab:hover:not(:disabled) {
+  background: var(--blue);
+  color: var(--cream);
+}
+
+.login-tab:hover .login-tab-icon {
+  filter: none;
+}
+
+.login-tab[aria-selected="true"] {
+  background: var(--red);
+  color: var(--yellow);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--red-2), inset -4px -4px 0 0 var(--red-dark);
+  transform: translateY(-4px);
+}
+
+.login-tab[aria-selected="true"] .login-tab-icon {
+  filter: none;
+  animation: login-bob 0.8s steps(2) infinite;
+}
+
+.login-tab[aria-selected="true"] .login-tab-key {
+  color: var(--yellow);
+}
+
+@keyframes login-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+
+.login-lede {
+  margin: 0 0 14px;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--sky);
+}
+
+/* ---------- Form ---------- */
+
+.login-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.login-field {
+  display: flex;
+  flex-direction: column;
+}
+
+.login-label {
+  display: flex;
+  align-items: center;
+  margin: 0 0 8px;
+  font: 400 10px/1.4 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.login-label::before {
+  content: "";
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-right: 8px;
+  background: var(--red);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+.login-tag {
+  margin-left: auto;
+  padding: 3px 5px 2px;
+  background: var(--sky);
+  font: 7px var(--pixel-head);
+  color: var(--ink);
+  text-shadow: none;
+}
+
+/* Input: black well, yellow pixel border, as in the menu's name field. */
+.login-input {
+  display: block;
+  width: calc(100% - 8px);
+  height: 40px;
+  margin: 4px;
+  box-sizing: border-box;
+  padding: 6px 12px 4px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
+  box-shadow:
+    0 -4px 0 0 var(--yellow), 0 4px 0 0 var(--yellow), -4px 0 0 0 var(--yellow), 4px 0 0 0 var(--yellow),
+    inset 4px 4px 0 0 #000;
+  font: 400 24px/1 var(--pixel-body);
+  color: var(--cream);
+  caret-color: var(--yellow);
+}
+
+.login-input::placeholder {
+  color: #4f6fb8;
+}
+
+.login .login-input:focus,
+.login .login-input:focus-visible {
+  outline: 4px dashed var(--yellow-2);
+  outline-offset: 8px;
+  background: #04123c;
+  box-shadow:
+    0 -4px 0 0 var(--yellow-2), 0 4px 0 0 var(--yellow-2), -4px 0 0 0 var(--yellow-2), 4px 0 0 0 var(--yellow-2),
+    inset 4px 4px 0 0 #000;
+}
+
+.login-input[aria-invalid="true"] {
+  box-shadow:
+    0 -4px 0 0 var(--red-2), 0 4px 0 0 var(--red-2), -4px 0 0 0 var(--red-2), 4px 0 0 0 var(--red-2),
+    inset 4px 4px 0 0 #000;
+}
+
+.login-input:read-only {
+  opacity: 0.6;
+}
+
+.login-secret {
+  position: relative;
+}
+
+.login-secret .login-input {
+  padding-right: 72px;
+}
+
+.login-reveal {
+  position: absolute;
+  top: 10px;
+  right: 12px;
+  height: 28px;
+  padding: 2px 8px 0;
+  border: 0;
+  background: var(--blue);
+  box-shadow: inset 2px 2px 0 0 var(--blue-2), inset -2px -2px 0 0 var(--navy);
+  font: 7px/1 var(--pixel-head) !important;
+  text-transform: uppercase;
+  color: var(--cream);
+}
+
+.login-reveal:hover {
+  background: var(--blue-2);
+}
+
+.login-hint {
+  margin: 8px 4px 0;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--sky);
+}
+
+.login-hint.is-error {
+  color: #ff8f7a;
+}
+
+.login-hint.is-error::before {
+  content: "! ";
+  color: var(--red-2);
+}
+
+.login-error {
+  margin: 4px;
+  padding: 8px 10px 6px;
+  background: var(--red-dark);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--red);
+  font-size: 20px;
+  line-height: 1;
+  color: var(--cream);
+}
+
+.login-error:empty {
+  display: none;
+}
+
+/* Yellow action button with a blinking cursor, like the menu's Resume. */
+.login-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin: 6px 4px 0;
+  padding: 14px 14px 12px;
+  border: 0;
+  background: var(--yellow);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--yellow-2), inset -4px -4px 0 0 var(--gold);
+  font: 10px/1 var(--pixel-head) !important;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.login-submit::before {
+  content: "";
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+  border-left: 7px solid var(--red);
+  animation: login-blink 0.7s steps(1) infinite;
+}
+
+.login-submit::after {
+  content: "ENTER";
+  padding: 3px 4px 2px;
+  background: var(--ink);
+  font: 7px var(--pixel-head);
+  color: var(--yellow);
+}
+
+.login-submit:hover:not(:disabled) {
+  background: var(--yellow-2);
+}
+
+.login-submit:active:not(:disabled),
+.login-guest:active:not(:disabled),
+.login-tab:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.login-submit:disabled {
+  opacity: 0.7;
+}
+
+.login-submit:disabled::before {
+  animation: none;
+}
+
+@keyframes login-blink {
+  50% { opacity: 0; }
+}
+
+.login-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 4px 14px;
+  font: 8px var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--sky);
+}
+
+.login-or::before,
+.login-or::after {
+  content: "";
+  flex: 1;
+  height: 4px;
+  background: repeating-linear-gradient(90deg, var(--blue-2) 0 8px, transparent 8px 12px);
+}
+
+.login-guest {
+  margin: 4px;
+  padding: 12px 14px 10px;
+  border: 0;
+  background: var(--blue);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 var(--navy);
+  font: 9px/1 var(--pixel-head) !important;
+  text-transform: uppercase;
+  color: var(--cream);
+}
+
+.login-guest:hover:not(:disabled) {
+  background: var(--blue-2);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue-3), inset -4px -4px 0 0 var(--blue);
+}
+
+/* ---------- Footer: plaza load status ---------- */
+
+.login-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 4px 0;
+  padding-top: 10px;
+  border-top: 4px solid var(--navy);
+  font-size: 18px;
+  line-height: 1;
+  color: var(--sky);
+}
+
+.login-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--yellow);
+  box-shadow: 2px 2px 0 var(--ink);
+  animation: login-blink 0.7s steps(1) infinite;
+}
+
+.login-foot[data-state="ready"] .login-dot {
+  background: var(--green);
+  animation: none;
+}
+
+.login[data-failed] .login-dot {
+  background: var(--red-2);
+  animation: none;
+}
+
+.login-foot-pct {
+  margin-left: auto;
+  font: 8px var(--pixel-head);
+  color: var(--yellow);
+}
+
+/* ---------- Loading: the pixel V token and a block bar ---------- */
+
+.login-loading {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+.login-coin-stage {
+  position: relative;
+  flex: none;
+  width: 140px;
+  height: 160px;
+}
+
+/* 12-frame sheet built from the V token art: 140x123 per frame. */
+.login-coin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 140px;
+  height: 123px;
+  background: url("/world/ui/v-token-spin.png") 0 0 / 1680px 123px no-repeat;
+  animation:
+    login-coin-spin 960ms steps(12) infinite,
+    login-coin-bob 1920ms steps(8) infinite;
+}
+
+.login-coin-shadow {
+  position: absolute;
+  left: 50%;
+  bottom: 8px;
+  width: 72px;
+  height: 8px;
+  transform: translateX(-50%);
+  background: var(--ink);
+  box-shadow: 8px 0 0 rgba(2, 10, 40, 0.6), -8px 0 0 rgba(2, 10, 40, 0.6);
+  animation: login-shadow 1920ms steps(8) infinite;
+}
+
+@keyframes login-coin-spin {
+  to { background-position: -1680px 0; }
+}
+
+@keyframes login-coin-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-12px); }
+}
+
+@keyframes login-shadow {
+  0%, 100% { width: 72px; opacity: 1; }
+  50% { width: 48px; opacity: 0.6; }
+}
+
+.login-loading-title {
+  margin: 8px 0 20px;
+  font: 12px/1.5 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/* Pixel bar: ink frame, navy groove, filled in 20 yellow blocks. */
+.login-bar {
+  --fill: 0;
+  position: relative;
+  flex: none;
+  width: 264px;
+  height: 20px;
+  margin: 4px;
+  background: var(--navy);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 #061450;
+}
+
+.login-bar-fill {
+  position: absolute;
+  inset: 4px auto 4px 4px;
+  width: calc((100% - 8px) * var(--fill));
+  background: linear-gradient(180deg, var(--yellow-2) 0 4px, var(--yellow) 4px 8px, var(--gold) 8px);
+  transition: width 120ms steps(2);
+}
+
+/* Gaps between the blocks. */
+.login-bar-fill::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(90deg, transparent 0 10.8px, var(--navy) 10.8px 12.8px);
+}
+
+.login-loading-note {
+  margin: 18px 0 0;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--sky);
+}
+
+.login[data-failed] .login-loading-note {
+  color: #ff8f7a;
+}
+
+.login[data-failed] .login-coin {
+  animation: none;
+  filter: grayscale(1) brightness(0.6);
+}
+
+.login-loading .login-guest {
+  margin-top: 20px;
+}
+
+/* ---------- Small screens ---------- */
+
+@media (max-width: 560px) {
+  .login-panel {
+    width: calc(100% - 16px);
+    margin: 40px 8px 8px;
+  }
+
+  .login-title {
+    font-size: 14px;
+  }
+}
+
+@media (max-height: 760px) {
+  .login-tab-icon {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login,
+  .login-art,
+  .login-panel {
+    animation: none;
+    transition: none;
+  }
+
+  .login-tab[aria-selected="true"] .login-tab-icon,
+  .login-coin-shadow,
+  .login-dot,
+  .login-submit::before {
+    animation: none;
+  }
+
+  .login-coin {
+    animation: login-coin-spin 2400ms steps(12) infinite;
+  }
+}

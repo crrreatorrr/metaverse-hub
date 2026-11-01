@@ -33,6 +33,8 @@ npm run dev
 
 Open http://127.0.0.1:5173/hub/
 
+The hub opens on a sign-up / log-in page: username, password, and a backup email (not verified yet). The plaza downloads and builds behind it. If you finish before the plaza is ready, a spinning V token and a block progress bar hold until it is. **Continue as guest** keeps the old device-only guest for that tab. A signed-in account is remembered on this browser; **Account → Sign out** returns to the page. Details are in [server/README.md](server/README.md#accounts).
+
 The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a signed ticket in the fragment:
@@ -83,7 +85,7 @@ A round neon plaza, about 60 m across, built from primitives and emissive materi
 
 ```ts
 init(gameId)                          // reads #t=, strips it, returns the mock profile
-reportEvent(eventId, data, key)       // ready, game_beaten, or the four relic triggers
+reportEvent(eventId, data, key)       // ready, or the four relic triggers
 earnTickets(amount, reason, key)
 exchange(tickets, key)                // 10 Tickets = 1 Verse, 50 Verse per game per day
 submitScore(boardId, value, meta?)    // ignored unless the ticket was ranked
@@ -95,7 +97,7 @@ exit(reason?)                         // goes to /hub/#from=<game>
 | Event | Grants |
 | --- | --- |
 | `ready` | nothing |
-| `game_beaten` | that game's relic, once |
+| `game_beaten` | nothing. A client cannot claim a Relic by saying it won |
 | `hpos10i.level_complete` with zone `z1_retro_rush_hills` and act `1` | `hpos10i_core` |
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
