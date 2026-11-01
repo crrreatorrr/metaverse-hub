@@ -16,6 +16,7 @@
   },
   "files": [
     "src/nakama.d.ts",
+    "src/exchange_schema.ts",
     "src/schema.ts",
     "src/tickets.ts",
     "src/effects.ts",

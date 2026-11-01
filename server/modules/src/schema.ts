@@ -861,6 +861,11 @@ namespace HubSchema {
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
       ],
     },
+    {
+      // $BITCOIN <-> Verse exchange. Statements live in exchange_schema.ts.
+      id: "0004_crypto_exchange",
+      statements: HubExchangeSchema.STATEMENTS,
+    },
   ];
 
   function migrationSource(statements: string[]): string {
