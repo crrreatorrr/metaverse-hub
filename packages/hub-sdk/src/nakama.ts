@@ -38,6 +38,8 @@ export interface ProfileResult {
   ticketsCapLeft?: number;
   /** Nakama server clock, epoch milliseconds. */
   serverTime?: number;
+  /** Hub pets. Sent once `profile.get` is wired to `HubPets.profilePets` (docs/m6-server-prep.md). */
+  pets?: { owned: string[]; active: string | null };
 }
 
 export interface PortalEnterResult {
