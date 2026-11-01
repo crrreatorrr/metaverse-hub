@@ -29,8 +29,10 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | Player-to-player Verse trading | None |
 | Bot farming | Accepted risk. The daily locks are the control |
 | On-chain limit | None. The contract float, refilled slowly by hand, is the most that can be lost. Accepted risk |
-| Trading location | An arcade cabinet in the Bar; options open when the player is near it |
-| Smart contract | Written by a smart contract engineer and reviewed for exploits by a separate smart contract security QA expert |
+| Trading location | The `arcade` cabinet in the Bar; options open when the player is near it |
+| Buying items with `$BITCOIN` | At the exchange machine and at store checkout |
+| Voucher expiry | 30 days |
+| Smart contract | Built by an AI agent and exploit-reviewed by separate AI agent passes. No paid human audit (no budget) |
 | Game clients | Built by the team, in other repos |
 
 ## Token address
@@ -135,7 +137,7 @@ The signing key is a secp256k1 key in a KMS (AWS KMS and Google Cloud KMS both s
    - the address passes the sanctions check (recommended, below);
    - the kill switch is off.
 
-   If all pass, it debits Verse (`source = 'withdraw:eth'`), adds to both windows, and inserts `game.withdrawal` with a new voucher `id`, `recipient`, the token amount, `expiry` (default 30 days), and status `issued`. Everything happens in one transaction.
+   If all pass, it debits Verse (`source = 'withdraw:eth'`), adds to both windows, and inserts `game.withdrawal` with a new voucher `id`, `recipient`, the token amount, `expiry` (30 days), and status `issued`. Everything happens in one transaction.
 3. The voucher signer service signs the voucher through the KMS and stores the signature on the row (`signed`). The signer only signs rows in `issued`, and only once.
 4. The machine shows every signed, unclaimed voucher. The player claims one or all of them in one transaction from their wallet.
 5. The watcher sees `Claimed` in a finalized block and marks the row `claimed`.
@@ -147,7 +149,7 @@ The player needs ETH in the linked wallet for gas. The machine checks this and s
 
 ## The exchange machine
 
-The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior.ts:285` and `:289`). One of them becomes the exchange machine. The default is `arcade` at `(1.4, 0, 5.7)`; see the open questions.
+The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior.ts:285` and `:289`). `arcade` at `(1.4, 0, 5.7)` becomes the exchange machine. Either cabinet would work; this one was picked.
 
 - **Look.** The cabinet gets an emissive "EXCHANGE" marquee and a screen texture, so players can spot it from across the Bar.
 - **Proximity.** Inside the Bar, when the player is within about 1.6 m of the cabinet's front, the hint line shows `Press E to use the exchange machine`. E is not bound today. Moving away hides the hint. This follows the same pattern as `updateHint` in `apps/hub/src/main.ts`.
@@ -159,7 +161,7 @@ The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior
   - **History**: deposits, vouchers, claims, refunds.
 - **Offline.** With no Nakama session, the machine shows "Exchange offline" and nothing else.
 - **Bundle.** The wallet libraries (viem/wagmi, WalletConnect) load only when the machine opens, never in the main hub bundle. `scripts/check-prod-bundle.mjs` should check this.
-- **Buying items with `$BITCOIN`.** This uses the same wallet flow. Whether it is offered at store checkout as well, or only at the machine, is an open question.
+- **Buying items with `$BITCOIN`.** Offered at the machine and at store checkout. "Pay with $BITCOIN" at checkout opens the same wallet and purchase-intent component the machine uses, so there is only one implementation.
 
 ## Proposed tables
 
@@ -204,31 +206,53 @@ These are new containers in `server/docker-compose.yml`. The Nakama runtime cann
 
 ## Smart contract team and review
 
-The developer and the reviewer are **different people**. The reviewer's job is to break the contract, not to confirm it.
+Both roles are AI agent passes. There is no budget for a paid human audit. Since no human audit backs it up, the process below is stricter than usual, and the small float stays the final backstop.
 
-**Smart contract engineer (builds it)**
-- Writes the spec for `VerseCashout` from this doc: roles, limits, voucher format, events, failure cases.
+### Ground rules
+
+- **Separate agents.** The builder and each reviewer are separate agent sessions. A reviewer gets the spec (this doc) and the code, never the builder's notes, reasoning, or claims that something is safe. Its job is to break the contract, not to confirm it.
+- **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`, `Pausable`, `Ownable2Step` or the Safe as owner). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
+- **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good.
+- **The backend is in scope.** With no on-chain limit, a bug in the server drains the float just like a bug in the contract. Every review pass also covers `wallet.link` signature checks, `game.withdraw_verse`, the voucher signer, and the watcher.
+
+### Builder agent
+
+- Turns this doc into a spec for `VerseCashout`: roles, voucher format, events, failure cases.
 - Builds it in Solidity with Foundry. This includes unit tests, fuzz tests, and invariant tests, for example: the sum of all claims never exceeds the tokens sent to the contract; an `id` is never claimed twice; only the Safe can move the float.
-- Writes the off-chain voucher signing code together with the backend, so the EIP-712 domain, types, and encoding match exactly.
-- Deploys to Sepolia, then mainnet, using deploy scripts and a checklist: owner = Safe, signer = KMS address, guardian set, verified on Etherscan.
+- Writes the off-chain voucher signing code against the same EIP-712 definition, with a shared test vector that both the Solidity side and the TypeScript side must reproduce.
+- Writes the deploy scripts and the deploy checklist: owner = Safe, signer = KMS address, guardian set, source verified on Etherscan.
 
-**Smart contract security QA expert (looks for exploits)**
-- **Review scope:** the contract, the voucher format and signing code, the watcher's handling of `Claimed` and expiry, the refund rule, and how the `$BITCOIN` token itself behaves.
-- **Methods:** manual line-by-line review, static analysis (Slither), their own fuzz and invariant campaigns (Echidna or Medusa), plus attack scenarios:
-  - replaying a voucher, or reusing it on another chain or contract;
-  - signature malleability;
-  - reentrancy through the token;
-  - griefing `claimBatch` with one bad voucher;
-  - draining the whole float with one large voucher or a batch;
-  - a claim and a refund racing at the moment of expiry;
-  - a leaked signer key;
-  - a mistake by an owner or guardian.
-- **Deliverable:** a findings report with a severity for each finding. The engineer fixes them, and the QA expert re-checks every fix. Launch is blocked on any open critical or high finding.
+### Exploit agents
 
-**Launch steps after review**
+- **Several independent passes, each with its own focus.** Each pass runs Slither and its own fuzz and invariant campaign (Foundry, plus Echidna or Medusa), alongside manual reading. The focus areas:
+  1. **Signatures and replay:** reusing a voucher on another chain, contract, or recipient; signature malleability; reuse of an `id`; EIP-712 encoding differences between Solidity and TypeScript.
+  2. **Funds and token behaviour:** reentrancy through the token; the token's return values, fees, blocklist, or pause; draining the whole float with one large voucher or a batch; griefing `claimBatch` with one bad voucher; rounding.
+  3. **Access and operations:** owner and guardian mistakes, a leaked signer key, pause and unpause, signer rotation, withdrawing the float.
+  4. **Backend:**
+     - double withdrawals through concurrent requests or idempotency gaps;
+     - SIWE parsing (wrong domain, chain id, or nonce reuse);
+     - the watcher being fooled by `Transfer` events from a different token contract, or by reorgs;
+     - a claim racing a refund at expiry;
+     - the 72-hour hold being skipped through account recovery or merge.
+- Each pass writes a findings report with a severity and a PoC test for each finding.
+- **Fix and re-review loop.**
+  1. The builder fixes every finding.
+  2. A **fresh** exploit agent, which has not seen earlier findings, reviews the whole contract and backend again, not just the diff.
+  3. Repeat until a full pass finds no critical or high issue.
+
+  Launch is blocked until that happens.
+
+### What a human still does
+
+- Owns the Safe and the guardian keys, and approves the deploy checklist.
+- Approves every refill of the float.
+- Watches the alerts, and is able to pause the contract from a phone.
+
+### Launch steps after review
+
 1. A full end-to-end run on Sepolia with the real hub, watcher, and signer.
 2. Mainnet with a small float and low server-side limits, for example a $50 global lock for the first week. Then raise them.
-3. Optional: a public bug bounty, and a third-party audit if the float grows.
+3. Publish the verified source. Optional: a bug bounty paid in `$BITCOIN`, possibly funded by the token team, to bring in outside reviewers at no upfront cost.
 
 ## Operations
 
@@ -264,17 +288,14 @@ The developer and the reviewer are **different people**. The reviewer's job is t
 
 1. Wallet linking, `wallet.status`, admin rate and limits, kill switches, and the exchange machine shell (proximity, E prompt, overlay, Wallet screen).
 2. Ethereum pay-in: watcher, deposits, purchase intents, Buy Verse screen.
-3. Claim contract: engineer builds it, QA expert reviews it, fixes and re-review, Sepolia.
-4. Ethereum cash-out: voucher signer, KMS, both locks with hourly release, Cash out screen, end-to-end on Sepolia.
+3. Claim contract: builder agent, exploit agent passes, fix and fresh re-review loop until clean, Sepolia.
+4. Ethereum cash-out: voucher signer, KMS, both locks with hourly release, Cash out screen, store checkout "Pay with $BITCOIN", backend exploit passes, end-to-end on Sepolia.
 5. Mainnet with a small float and low server-side limits, then raise them.
 
 ## Later: Solana
 
-Solana uses its own treasury pool (a Squads multisig) and its own float, and the same rate as Ethereum. Verse is one balance, so Verse bought on one chain can be cashed out on the other. The operator rebalances the two pools by hand. Pay-in matches by sender, the same as on Ethereum. Cash-out needs its own claim program, built and reviewed by the same team-and-review process.
+Solana uses its own treasury pool (a Squads multisig) and its own float, and the same rate as Ethereum. Verse is one balance, so Verse bought on one chain can be cashed out on the other. The operator rebalances the two pools by hand. Pay-in matches by sender, the same as on Ethereum. Cash-out needs its own claim program, built and reviewed by the same agent process.
 
 ## Open questions
 
-1. Which Bar cabinet becomes the exchange machine: `arcade` at `(1.4, 0, 5.7)`, `arcade2` at `(9.3, 0, -1.6)`, or both?
-2. Is buying items with `$BITCOIN` offered only at the machine, or at store checkout as well?
-3. Voucher expiry: is 30 days right?
-4. Are the engineer and the QA expert people you hire, or AI agent passes? For a contract that holds funds, at least the final exploit review should be a human with an audit track record.
+None open. These are recommended but not decided: sanctions screening, the age gate on the machine, and a one-time lawyer review.
