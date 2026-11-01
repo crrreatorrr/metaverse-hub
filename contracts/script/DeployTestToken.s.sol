@@ -23,7 +23,7 @@ contract TestBitcoin is ERC20 {
 
 /// Deploys TestBitcoin to Sepolia and mints the whole supply to the broadcasting account.
 ///
-///   forge script script/DeployTestToken.s.sol --rpc-url "$SEPOLIA_RPC_URL" \
+///   forge script script/DeployTestToken.s.sol --tc DeployTestToken --rpc-url "$SEPOLIA_RPC_URL" \
 ///     --private-key "$SEPOLIA_DEPLOYER_KEY" --broadcast --verify
 ///
 /// Use the printed address as CASHOUT_TOKEN for the Sepolia run of Deploy.s.sol, and the

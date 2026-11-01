@@ -19,6 +19,8 @@ The claim contract for Verse → HPOS10I `$BITCOIN` cash-out. Design: [docs/cryp
 | `test/Vector.t.sol`, `test/vectors/voucher.json` | Shared EIP-712 vector. `server/chain/test/voucher.test.ts` checks the same file |
 | `test/exploits/` | Proofs of concept and pinned behaviour from the independent exploit review passes |
 | `script/Deploy.s.sol` | Deploy with argument checks |
+| `script/DeployTestToken.s.sol` | Sepolia only: `TestBitcoin` (tBITCOIN), an 8-decimal, fixed-supply, fee-free stand-in for the real token |
+| `test/fork/MainnetBitcoin.t.sol` | The cashout and the deploy canary against the real `$BITCOIN` on a mainnet fork. Skipped unless `MAINNET_RPC_URL` is set |
 
 `lib/forge-std` and `lib/openzeppelin-contracts` are git submodules pinned to `v1.17.0` and `v5.7.0`. After cloning, run `git submodule update --init --recursive`.
 
@@ -31,6 +33,21 @@ cd contracts && forge test
 ```
 
 If `forge` cannot download `solc`, point it at any 0.8.28 compiler with `FOUNDRY_SOLC=/path/to/solc FOUNDRY_OFFLINE=true`.
+
+### Mainnet fork tests (real `$BITCOIN`)
+
+```bash
+MAINNET_RPC_URL=... forge test --match-path test/fork/MainnetBitcoin.t.sol -vv
+```
+
+Without `MAINNET_RPC_URL` (as in CI) these tests are skipped. They fork the latest block (set `FORK_BLOCK` to pin one) and check, against the real token:
+
+- the code hash is the reviewed one; there is no EIP-1967 proxy; `owner()` is zero (renounced), so `addBots` and `removeLimits` can never be called again;
+- the token's 15% buy / 70% sell taxes, which also apply to plain wallet transfers while `_buyCount <= _reduceBuyTaxAt`, are permanently off: `_buyCount` (storage slot 14) is far past both thresholds (20), which can no longer change;
+- transfers to an EOA and to the cashout arrive in full; a short balance reverts;
+- `claim`, `claimBatch`, a short float reverting without marking the voucher and paying after a refill, gas for a 64-voucher batch (about 2.0M), and `Deploy.canary` itself.
+
+Last run on 2026-11-01 at mainnet block ~26,321,000: 10 of 10 passed.
 
 ## Deploy checklist
 
@@ -54,6 +71,37 @@ The constructor arguments can never be changed after deploy, and the contract ca
    forge script script/Deploy.s.sol --rpc-url "$RPC_URL" --broadcast --verify
    ```
 
+   **Gas.** Forge sets each transaction's gas limit from its own EVM, not from the node. Since Sepolia's fork of 2026-10-06, contract creation there costs about 6.8 times what Foundry 1.5/1.6 models: `VerseCashout` uses 6.2M gas on Sepolia against 0.92M locally. A plain `--broadcast` therefore runs out of gas on Sepolia. Add `--skip-simulation` so forge uses the node's `eth_estimateGas`. All the script's checks and the canary still run first in the local simulation. On mainnet the node and forge agree today (916,045 gas). Check this again before broadcasting, and add `--skip-simulation` if mainnet has activated the same fork.
+
 8. **Verify.** Verify the source on Etherscan. Read back `token()`, `signer()` and `unit()` and compare them with steps 1–3.
 9. **Canary claim.** Send exactly **1 whole token** to the contract. Issue a 1-Verse voucher to a team wallet through the real signer service, and claim it on mainnet. Only after that claim succeeds, and the watcher records it, send the first real float.
 10. **Refill in whole tokens only.** Anything below one whole token can never leave the contract.
+
+## Mainnet dry run (no broadcast)
+
+Run on 2026-11-01 against `MAINNET_RPC_URL`, without `--broadcast`, so nothing was sent. The signer was a throwaway local key with a matching `CASHOUT_SIGNER_PROOF`. Mainnet requires a KMS key, and none exists yet. `CASHOUT_TOKEN_HOLDER` was the Uniswap V2 pair `0x2cC846fFf0b08FB3bFfaD71f53a60B4b6E6d6482`.
+
+- All checks and the canary claim passed on the real token. `unit` = `100000000`, and the estimated deploy cost is 1.18M gas, about 0.0001 ETH at 0.09 gwei.
+- The script refused each of these, as it should: the Sepolia signer reused as the mainnet signer, `CASHOUT_EXPECT_DECIMALS=18`, and a token holder with no tokens.
+
+For the real run, change only the signer (the KMS key's address and its proof), `CASHOUT_TOKEN_HOLDER` (the Safe), and the sender (the deploying account).
+
+## Sepolia deployment
+
+| What | Address | Tx |
+| --- | --- | --- |
+| `TestBitcoin` (tBITCOIN, 8 decimals, supply 1e9) | `0x6FC7448C65B150ea5E44D38DE4c5C06C3a971f89` | `0xada882156031c6ffb60db26840ed641c4eb084729db58411382b16cddb110cc4` |
+| `VerseCashout` | `0x2438f28692b0e21255a659219FD2FD24559B5c97` | `0x87bbc4760fafc8244e76226c65599fca1aa0a39fb01f275bf8912356960469ca` (block 12042477) |
+| Voucher signer (local key, Sepolia only) | `0xab135f4Ff32cA27c3a839E21f6c9bb95d57835Cb` | |
+| Deployer, token holder, test deposit address | `0xE8DE8e50AaA28bCaa45C78DE12F19bCB31C7f942` | |
+
+Read back after deploy: `token()`, `signer()` and `unit()` = `100000000` match the arguments. Two earlier token deploy attempts ran out of gas (see **Gas** above); neither left a contract.
+
+**Source verification is still to do.** The configured `ETHERSCAN_API_KEY` works for chain id 1 but Etherscan rejects it for chain id 11155111 ("Invalid API Key"). Sourcify and Blockscout were not reachable from the build environment. With a key that Etherscan accepts for Sepolia:
+
+```bash
+forge verify-contract 0x6FC7448C65B150ea5E44D38DE4c5C06C3a971f89 script/DeployTestToken.s.sol:TestBitcoin \
+  --chain sepolia --constructor-args $(cast abi-encode "c(address)" 0xE8DE8e50AaA28bCaa45C78DE12F19bCB31C7f942)
+forge verify-contract 0x2438f28692b0e21255a659219FD2FD24559B5c97 src/VerseCashout.sol:VerseCashout \
+  --chain sepolia --constructor-args $(cast abi-encode "c(address,address)" 0x6FC7448C65B150ea5E44D38DE4c5C06C3a971f89 0xab135f4Ff32cA27c3a839E21f6c9bb95d57835Cb)
+```
