@@ -736,7 +736,8 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} concurrent spends cannot go negative`, async () => {
     const session = await login(exchange.game);
-    const purse = exchange.earnReason === 'win' ? 20 : 30;
+    // 20 is under every exchange flow's per-earn ceiling (#13: win and level_end are 20).
+    const purse = 20;
     await earn(session.gameToken, purse, exchange.earnReason, 'fund-neg');
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
@@ -932,11 +933,14 @@ function pbGameId(): string {
   return rpcs.includes('peoples-bitcoin') ? 'peoples-bitcoin' : 'pb';
 }
 
+/** A listed People's Bitcoin earn reason. #13 rejects unlisted reasons; pb_drop's ceiling is 200. */
+const PB_EARN_REASON = 'pb_drop';
+
 async function pbExchange(): Promise<void> {
   await test('wallet', 'pb exchange follows hub rules without a client clamp', async () => {
     const game = pbGameId();
     const small = await login(game);
-    await earn(small.gameToken, 40, 'shop', 'pb-fund-40');
+    await earn(small.gameToken, 40, PB_EARN_REASON, 'pb-fund-40');
     const odd = await call('tickets.exchange', {
       tickets: 25,
       verse: 500,
@@ -971,11 +975,11 @@ async function pbExchange(): Promise<void> {
 
     const funded = await login(game);
     let dayToken = funded.gameToken;
-    await earn(dayToken, 200, 'shop', 'pb-fund-day-0');
+    await earn(dayToken, 200, PB_EARN_REASON, 'pb-fund-day-0');
     for (let i = 1; i < TICKET_DAILY_CAP / 200; i += 1) {
       const next = await openGame(funded.hub.token, game);
       dayToken = next.gameToken;
-      await earn(dayToken, 200, 'shop', `pb-fund-day-${i}`);
+      await earn(dayToken, 200, PB_EARN_REASON, `pb-fund-day-${i}`);
     }
     assert.equal(ticketBalance(funded.hub.userId, game), TICKET_DAILY_CAP);
     assert.equal(
@@ -1000,7 +1004,7 @@ async function pbExchange(): Promise<void> {
     const ledger = earnLedgerCount(funded.hub.userId);
     const cappedEarn = await call('tickets.earn', {
       amount: 10,
-      reason: 'shop',
+      reason: PB_EARN_REASON,
       key: 'pb-past-daily',
       balance: 999999,
       day: '1999-01-01',
@@ -1008,7 +1012,7 @@ async function pbExchange(): Promise<void> {
     assert.equal(cappedEarn.body.error, 'daily_ticket_cap', JSON.stringify(cappedEarn.body));
     const replay = await call('tickets.earn', {
       amount: 10,
-      reason: 'shop',
+      reason: PB_EARN_REASON,
       key: 'pb-past-daily',
       day: '1999-01-01',
     }, later.gameToken);
