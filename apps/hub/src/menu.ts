@@ -4,12 +4,24 @@ import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLo
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
 
-const TABS: readonly { id: MenuTab; label: string; key: string }[] = [
-  { id: 'items', label: 'Items', key: '1' },
-  { id: 'avatar', label: 'Avatar', key: '2' },
-  { id: 'edit', label: 'Edit avatar', key: '3' },
-  { id: 'relics', label: 'Relics', key: '4' },
+const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
+  { id: 'items', label: 'Items', key: '1', icon: 'bag' },
+  { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
+  { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
+  { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
 ];
+
+/** Pixel art made with Higgsfield, in `public/world/ui/`. */
+type PixelIcon = 'bag' | 'helmet' | 'palette' | 'gem' | 'coin' | 'pet' | 'lock' | 'star' | 'staff';
+
+function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
+  const img = document.createElement('img');
+  img.className = className;
+  img.src = `${import.meta.env.BASE_URL}world/ui/icon-${name}.png`;
+  img.alt = '';
+  img.draggable = false;
+  return img;
+}
 
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
 const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string }> = {
@@ -58,7 +70,7 @@ export interface MenuOptions {
 export interface Menu {
   readonly open: boolean;
   readonly tab: MenuTab;
-  /** Width of the panel in CSS pixels, for the camera's preview offset. */
+  /** Right edge of the menu window in CSS pixels, for the camera's preview offset. */
   readonly panelWidth: number;
   show(tab?: MenuTab): void;
   hide(): void;
@@ -96,9 +108,11 @@ export function createMenu(options: MenuOptions): Menu {
   const head = el('header', 'menu-head');
   const title = el('h2', 'menu-title', 'Menu');
   const guest = el('span', 'menu-guest', 'Guest');
+  head.append(title, guest);
+  const foot = el('footer', 'menu-foot');
   const close = el('button', 'menu-close', 'Resume');
   close.type = 'button';
-  head.append(title, guest, close);
+  foot.append(close);
 
   const tabBar = el('nav', 'menu-tabs');
   tabBar.setAttribute('role', 'tablist');
@@ -110,7 +124,7 @@ export function createMenu(options: MenuOptions): Menu {
     button.type = 'button';
     button.setAttribute('role', 'tab');
     button.dataset.tab = tab.id;
-    button.append(el('span', 'menu-tab-key', tab.key), el('span', '', tab.label));
+    button.append(pixelIcon(tab.icon, 'menu-tab-icon'), el('span', 'menu-tab-label', tab.label), el('span', 'menu-tab-key', tab.key));
     tabButtons.set(tab.id, button);
     tabBar.append(button);
     const body = el('div', 'menu-page');
@@ -119,7 +133,7 @@ export function createMenu(options: MenuOptions): Menu {
     bodies.set(tab.id, body);
     content.append(body);
   }
-  panel.append(head, tabBar, content);
+  panel.append(head, tabBar, content, foot);
 
   let open = false;
   let tab: MenuTab = 'avatar';
@@ -132,7 +146,9 @@ export function createMenu(options: MenuOptions): Menu {
   const wallet = el('div', 'menu-wallet');
   const verseLine = el('strong', 'menu-verse', 'Verse 0');
   const relicCount = el('span', 'menu-sub', '0 of 4 Relics');
-  wallet.append(verseLine, relicCount);
+  const walletText = el('div', 'menu-wallet-text');
+  walletText.append(verseLine, relicCount);
+  wallet.append(pixelIcon('coin', 'menu-wallet-coin'), walletText);
   const petHead = el('h3', 'menu-h', 'Pets');
   const petNote = el('p', 'menu-note', 'Equipping a pet comes with the hub pet slot. Relic pets are already yours once the Relic is.');
   const petGrid = el('ul', 'menu-grid pets');
@@ -396,7 +412,8 @@ export function createMenu(options: MenuOptions): Menu {
     for (const pet of sorted) {
       const has = owned(pet);
       const card = el('li', `pet-card${has ? ' owned' : ''}`);
-      const icon = el('span', 'pet-icon', has ? pet.name.slice(0, 1) : '?');
+      const icon = el('span', 'pet-icon');
+      icon.append(pixelIcon(has ? 'pet' : 'lock'));
       const text = el('div', 'pet-text');
       text.append(el('strong', '', pet.name), el('span', 'pet-from', pet.from));
       card.append(icon, text, el('span', 'pet-state', has ? 'Owned' : 'Locked'));
@@ -414,6 +431,8 @@ export function createMenu(options: MenuOptions): Menu {
   }
 
   function setTab(next: MenuTab): void {
+    // Each page starts at its top; the body is shared between tabs.
+    if (next !== tab) content.scrollTop = 0;
     tab = next;
     for (const [id, button] of tabButtons) {
       const on = id === next;
@@ -453,7 +472,8 @@ export function createMenu(options: MenuOptions): Menu {
   return {
     get open() { return open; },
     get tab() { return tab; },
-    get panelWidth() { return open ? panel.getBoundingClientRect().width : 0; },
+    // The window floats off the left edge, so the preview centres on what is right of it.
+    get panelWidth() { return open ? panel.getBoundingClientRect().right : 0; },
     show,
     hide,
     setRelics(ids) {

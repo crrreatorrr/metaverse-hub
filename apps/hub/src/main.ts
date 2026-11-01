@@ -10,6 +10,8 @@ import {
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
 import '@fontsource-variable/inter/wght.css';
+import '@fontsource/press-start-2p/latin-400.css';
+import '@fontsource/vt323/latin-400.css';
 import { createChat } from './chat';
 import {
   AVATAR_SCALE,
@@ -298,7 +300,6 @@ function readInput(): MoveInput {
 }
 
 const previewLook = new Vector3();
-const previewPos = new Vector3();
 const headPoint = new Vector3();
 
 function bodyHeight(): number {
@@ -338,15 +339,23 @@ function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number,
  */
 function placeCamera(): void {
   const target = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
-  armFrom(target, yaw, pitch, CAMERA_ARM, camPos);
   if (preview > 0) {
+    // Swing round the avatar on the arm (angles, not positions), so the camera never cuts through the body.
     const height = bodyHeight();
     const feet = player.position.y - STAND_Y;
     previewLook.set(player.position.x, feet + height * 0.55, player.position.z);
-    const front = player.facingYaw + Math.PI + previewSpin;
-    armFrom(previewLook, front, 0.08, 2.2 + height * 1.25, previewPos);
-    camPos.lerp(previewPos, preview);
     target.lerp(previewLook, preview);
+    const front = player.facingYaw + Math.PI + previewSpin;
+    const turn = Math.atan2(Math.sin(front - yaw), Math.cos(front - yaw));
+    armFrom(
+      target,
+      yaw + turn * preview,
+      MathUtils.lerp(pitch, 0.08, preview),
+      MathUtils.lerp(CAMERA_ARM, 2.2 + height * 1.25, preview),
+      camPos,
+    );
+  } else {
+    armFrom(target, yaw, pitch, CAMERA_ARM, camPos);
   }
   world.camera.position.copy(camPos);
   if (!world.inInterior() && world.camera.position.y < 0.45) world.camera.position.y = 0.45;
