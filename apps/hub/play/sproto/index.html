@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sproto Duel</title>
+  </head>
+  <body>
+    <main>
+      <p class="kicker">Placeholder arena</p>
+      <h1>Sproto Duel</h1>
+      <p id="status" class="status">Opening the portal ticket…</p>
+      <label class="god"><input id="god" type="checkbox" checked /> God mode (still grants Tinubu's Crown)</label>
+      <div class="actions">
+        <button id="defeat" type="button" disabled>Defeat Tinubu</button>
+        <button id="replay" type="button" disabled>Replay last report</button>
+        <button id="exit" type="button">Return to hub</button>
+      </div>
+      <section class="exchange">
+        <h2>Exchange</h2>
+        <p>A win pays 20 Tickets. 10 Tickets become 1 Verse, up to 50 Verse from this game today.</p>
+        <p id="wallet">Tickets 0</p>
+        <label>Tickets to exchange
+          <input id="amount" type="number" min="10" step="10" value="20" />
+        </label>
+        <button id="exchange" type="button" disabled>Exchange for Verse</button>
+      </section>
+      <p id="result" class="result"></p>
+    </main>
+    <script type="module" src="./main.ts"></script>
+  </body>
+</html>

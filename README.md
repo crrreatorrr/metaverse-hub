@@ -7,36 +7,40 @@ The product shape comes from the design doc. Technical ids (games, relics, board
 ## Layout
 
 ```
-apps/hub/            Three.js + TypeScript + Vite plaza at /hub/
+apps/hub/            Three.js + TypeScript + Vite plaza at /hub/, mock Sproto Duel at /play/sproto/
 packages/hub-sdk/    Client the games import. Real Nakama path, plus the in-memory mock the unit tests use.
 server/              Nakama + Postgres + Caddy. TypeScript runtime for tickets and Relics.
 ```
 
-The four games stay in their own repos. Locally the hub serves their web builds same-origin under `/play/<id>/` (so `#t=` tickets and `/v2` still work):
+The four games live in their own repos. Game ids are used in code and in `#from=`; slugs are the page paths (`/play/<slug>/` in dev, `https://play.<domain>/<slug>/` in production, see `apps/hub/src/games.ts`):
 
-| Portal | Id | Repo | Local page |
+| Portal | Id | Slug | Repo |
 | --- | --- | --- | --- |
-| HPOS10I | `hpos10i` | [crrreatorrr/HPOS10I](https://github.com/crrreatorrr/HPOS10I) | `/play/hpos10i/` |
-| NOBU: Saviour Dog | `nobu` | [crrreatorrr/nobu](https://github.com/crrreatorrr/nobu) | `/play/nobu/` |
-| The People's Bitcoin (18+) | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) | `/play/peoples-bitcoin/` |
-| Sproto Duel | `sproto` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) | `/play/sproto/` |
+| HPOS10I | `hpos10i` | `hpos10i` | [crrreatorrr/HPOS10I](https://github.com/crrreatorrr/HPOS10I) |
+| NOBU: Saviour Dog | `nobu` | `nobu` | [crrreatorrr/nobu](https://github.com/crrreatorrr/nobu) |
+| The People's Bitcoin (18+) | `peoples-bitcoin` | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) |
+| Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
 
 ## Run the plaza
 
-Requires Node 22+. `gh` must be able to read the four game repos.
-
-Cloud Agents often mint a GitHub token scoped only to `metaverse-hub`. If `npm run fetch:games` 404s on the private game repos, either make them public briefly, set `GAME_REPOS_GITHUB_TOKEN` (fine-grained PAT with Contents: Read), or run from a multi-repo Cloud Agent environment that includes those repos.
+Requires Node 22+.
 
 ```bash
 docker compose -f server/docker-compose.yml up --build
 npm ci
-npm run fetch:games
+npm run fetch:games   # optional: real game builds, see below
 npm run dev
 ```
 
+`npm run fetch:games` pulls each game's latest web build into `apps/hub/public/play/<slug>/` (gitignored) with `gh`, so the dev plaza opens the real game same-origin and its `#t=` ticket and `/v2` calls reach the local Nakama. A fetched build takes over that portal in dev, including HPOS10I, which otherwise opens its GitHub Pages copy. `VITE_GAME_URL_*` still wins when set. Without a fetched Sproto Duel build, its portal opens the in-repo mock. `npm run build` leaves fetched builds out of `dist`; production serves games from `play.<domain>`.
+
+The game repos are private. If `gh` cannot read them (an agent token scoped to this repo only, for example), set `GAME_REPOS_GITHUB_TOKEN` to a fine-grained token with Contents: Read on those repos.
+
 Open http://127.0.0.1:5173/hub/
 
-The camera is **third person**: a spring arm behind a low-poly avatar, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. WASD moves (arrows work too), the mouse looks, Shift sprints, Space jumps. Desktop only.
+The hub opens on a sign-up / log-in page: username, password, and a backup email (not verified yet). The plaza downloads and builds behind it. If you finish before the plaza is ready, a spinning V token and a block progress bar hold until it is. **Continue as guest** keeps the old device-only guest for that tab. A signed-in account is remembered on this browser; **Account → Sign out** returns to the page. Details are in [server/README.md](server/README.md#accounts).
+
+The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a signed ticket in the fragment:
 
@@ -44,7 +48,7 @@ Walk into a portal ring. The hub plays a short wipe and navigates to that game's
 /play/sproto/#t=<payload>.<hmac>
 ```
 
-Portal paths are set in `apps/hub/src/config.ts`. Production can point them at `https://play.<domain>/<id>/` instead.
+Sproto Duel's in-repo page is a mock arena: defeat Tinubu, then return. It stands in until a real Sproto Duel build is fetched. Portal pages are resolved in `apps/hub/src/games.ts`.
 
 Coming back from a game, open the hub with the game id in the hash. The avatar stands in front of that portal, facing it:
 
@@ -57,8 +61,8 @@ http://127.0.0.1:5173/hub/#from=sproto
 ## Scripts
 
 ```bash
-npm run fetch:games  # pull real web builds into apps/hub/public/play/<id>/
-npm run dev         # plaza + proxied Nakama; portals open /play/<id>/
+npm run fetch:games # real game web builds into apps/hub/public/play/<slug>/ (or fetch:<slug>)
+npm run dev         # plaza and the Sproto mock, proxied to Nakama
 npm run typecheck
 npm run lint
 npm test            # hub-sdk behavior and the capsule collider

@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 /**
- * Pull a game's latest web build into apps/hub/public/play/<gameId>/ so the
- * plaza can open the real game same-origin (ticket + /v2 proxy still work).
+ * Pull a game's latest web build into apps/hub/public/play/<slug>/ so the dev
+ * plaza opens the real game same-origin (ticket + /v2 proxy still work). Slugs
+ * match GAME_URLS in apps/hub/src/games.ts. The folders are gitignored, and the
+ * production build leaves them out: production serves games from play.<domain>.
  *
  * Usage:
  *   node scripts/fetch-game-web.mjs hpos10i
  *   node scripts/fetch-game-web.mjs nobu
  *   node scripts/fetch-game-web.mjs peoples-bitcoin
- *   node scripts/fetch-game-web.mjs sproto
+ *   node scripts/fetch-game-web.mjs sproto-duel   (or: sproto)
  *   node scripts/fetch-game-web.mjs --all
  *
  * Requires `gh` with read access to the game repo (Cursor GitHub App must
@@ -21,7 +23,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** @type {Record<string, { repo: string; artifact?: string; pages?: string }>} */
+/** Keyed by URL slug. @type {Record<string, { repo: string; artifact?: string; pages?: string }>} */
 const GAMES = {
   hpos10i: {
     repo: 'crrreatorrr/HPOS10I',
@@ -30,8 +32,11 @@ const GAMES = {
   },
   nobu: { repo: 'crrreatorrr/nobu', artifact: 'web-build' },
   'peoples-bitcoin': { repo: 'crrreatorrr/peoples-bitcoin', artifact: 'web-build' },
-  sproto: { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
+  'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
 };
+
+/** Nakama game ids that differ from their slug. */
+const ALIASES = { sproto: 'sproto-duel' };
 
 /** Prefer an explicit PAT so private game repos work even when the Cloud Agent install token is scoped to metaverse-hub only. */
 function ghEnv() {
@@ -63,7 +68,8 @@ function installFromDir(src, dest) {
   writeFileSync(join(dest, '.gitkeep'), '');
 }
 
-function fetchArtifact(gameId) {
+function fetchArtifact(name) {
+  const gameId = ALIASES[name] ?? name;
   const game = GAMES[gameId];
   if (!game) throw new Error(`Unknown game "${gameId}". Known: ${Object.keys(GAMES).join(', ')}`);
   const dest = join(root, 'apps/hub/public/play', gameId);

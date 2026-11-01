@@ -36,6 +36,8 @@ export interface ProfileResult {
   verseEarned?: { gameId: string; lifetime: number }[];
   /** Remaining Tickets this game can still earn today. Present on a game session. */
   ticketsCapLeft?: number;
+  /** Hub pets. Sent once `profile.get` is wired to `HubPets.profilePets` (docs/m6-server-prep.md). */
+  pets?: { owned: string[]; active: string | null };
 }
 
 export interface PortalEnterResult {

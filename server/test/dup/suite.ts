@@ -13,7 +13,11 @@ import {
   type PurchaseFlow,
   type RelicFlow,
 } from './cases.ts';
+import { runAccounts } from './accounts.ts';
 import { runGated } from './gated.ts';
+import { runMigrations } from './migrations.ts';
+import { runRedeemFix } from './redeem-fix.ts';
+import { runSameTab } from './same-tab.ts';
 import {
   arm,
   assertConflict,
@@ -37,6 +41,8 @@ import {
   num,
   openGame,
   outboxSend,
+  customAuthLanded,
+  redeemPortalTicket,
   psql,
   relicClaims,
   serverDay,
@@ -57,16 +63,24 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 interface Outcome {
   category: string;
   name: string;
-  status: 'pass' | 'fail' | 'pending';
+  status: 'pass' | 'fail' | 'pending' | 'expected-fail';
   detail?: string;
 }
 
 const outcomes: Outcome[] = [];
 
 function testBudget(name: string): number {
+  if (
+    name.includes('concurrent boots')
+    || name.includes('cold start')
+    || name.includes('refuses to boot')
+    || name.includes('still applies')
+  ) return 480_000;
+  if (name.includes('ledger sums') || name.includes('second boot')) return 360_000;
   if (name.includes('kill_between')) return 240_000;
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
+  if (name.includes('sweep')) return 180_000;
   return 60_000;
 }
 
@@ -343,8 +357,13 @@ async function races(): Promise<void> {
         const tokens: string[] = [];
         for (const entered of [first, second]) {
           if (!entered.body.ticket) continue;
-          const redeemed = await call('session.redeem', { ticket: entered.body.ticket, gameId: flow.game });
-          if (redeemed.body.token) tokens.push(redeemed.body.token);
+          const redeemed = customAuthLanded()
+            ? await redeemPortalTicket(entered.body.ticket, flow.game)
+            : await call('session.redeem', { ticket: entered.body.ticket, gameId: flow.game });
+          const token = customAuthLanded()
+            ? (redeemed as { token?: string }).token
+            : (redeemed as RpcResult).body.token;
+          if (token) tokens.push(token);
         }
         assert.ok(tokens.length >= 1, JSON.stringify([first.body, second.body]));
         await Promise.all(tokens.map((token, index) => (
@@ -396,14 +415,27 @@ async function races(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: 'sproto', ranked: false }, who.token);
     assert.ok(opened.body.ticket);
-    const [a, b] = await Promise.all([
-      call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
-      call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
-    ]);
-    const wins = [a, b].filter((item) => item.body.token && !item.body.error);
-    const used = [a, b].filter((item) => item.body.error === 'ticket_used');
-    assert.equal(wins.length, 1, JSON.stringify([a.body, b.body]));
-    assert.equal(used.length, 1);
+    if (customAuthLanded()) {
+      const [a, b] = await Promise.all([
+        redeemPortalTicket(opened.body.ticket, 'sproto'),
+        redeemPortalTicket(opened.body.ticket, 'sproto'),
+      ]);
+      const wins = [a, b].filter((item) => item.token && item.status < 400);
+      const used = [a, b].filter((item) => !item.token);
+      assert.equal(wins.length, 1, JSON.stringify([a, b]));
+      assert.equal(used.length, 1);
+    } else {
+      const [a, b] = await Promise.all([
+        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
+        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
+      ]);
+      const wins = [a, b].filter((item) => item.body.token && !item.body.error);
+      const used = [a, b].filter((item) => item.body.error === 'ticket_used');
+      assert.equal(wins.length, 1, JSON.stringify([a.body, b.body]));
+      assert.equal(used.length, 1);
+    }
+    assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
+    assert.equal(ticketBalance(who.userId, 'sproto'), 0);
   });
 }
 
@@ -434,13 +466,29 @@ async function forged(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket && opened.body.sessionId);
-    psql(
-      `UPDATE game.game_session SET ticket_exp = now() - interval '2 seconds' WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
+    if (!customAuthLanded()) {
+      psql(
+        `UPDATE game.game_session SET ticket_exp = now() - interval '2 seconds' WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
+      );
+      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
+      assert.equal(redeemed.body.error, 'ticket_expired');
+      assert.equal(relicClaims(who.userId, relic.relicId), 0);
+      assert.equal(mints(who.userId, relic.relicId), 0);
+      return;
+    }
+    const ttl = num(
+      `SELECT EXTRACT(EPOCH FROM (expires_at - now()))::int FROM game.auth_ticket WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
     );
-    const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
-    assert.equal(redeemed.body.error, 'ticket_expired');
+    assert.ok(ttl > 0 && ttl <= 60, `ticket ttl ${ttl}s is not the 60s server window`);
+    psql(
+      `UPDATE game.auth_ticket SET expires_at = now() - interval '1 second' WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
+    );
+    const redeemed = await redeemPortalTicket(opened.body.ticket, relic.game);
+    assert.equal(redeemed.token, undefined, redeemed.body);
+    assert.equal(redeemed.status >= 400, true, redeemed.body);
     assert.equal(relicClaims(who.userId, relic.relicId), 0);
     assert.equal(mints(who.userId, relic.relicId), 0);
+    assert.equal(ticketBalance(who.userId, relic.game), 0);
   });
 
   await test('forged', `${relic.id} replay after the session lease does not mint`, async () => {
@@ -474,17 +522,55 @@ async function forged(): Promise<void> {
     assert.equal(snapshotEconomy(victim.hub.userId, relic.game), before);
   });
 
+  if (!customAuthLanded()) {
+    pending('forged', 'http-key session.redeem is rejected', 'waiting for registerBeforeAuthenticateCustom (#25)');
+  } else {
+  await test('forged', 'http-key session.redeem is rejected', async () => {
+    const who = await guest();
+    const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
+    assert.ok(opened.body.ticket && opened.body.sessionId);
+    const usersBefore = num('SELECT count(*) FROM users');
+    const http = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
+    assert.equal(http.body.token, undefined, JSON.stringify(http.body));
+    assert.ok(http.status >= 400 || http.body.error === 'unauthorized', JSON.stringify(http.body));
+    assert.equal(num('SELECT count(*) FROM users'), usersBefore);
+    assert.equal(ticketBalance(who.userId, relic.game), 0);
+    assert.equal(mints(who.userId, relic.relicId), 0);
+    const burned = psql(
+      `SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
+    );
+    assert.equal(burned, 'f', 'HTTP-key session.redeem burned the ticket');
+    const redeemed = await redeemPortalTicket(opened.body.ticket, relic.game);
+    assert.ok(redeemed.token, redeemed.body);
+    assert.equal(num('SELECT count(*) FROM users'), usersBefore);
+    assert.equal(ticketBalance(who.userId, relic.game), 0);
+    assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
+  });
+  }
+
   await test('forged', `${relic.id} another game's ticket is rejected`, async () => {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket);
     const other = relic.game === 'hpos10i' ? 'sproto' : 'hpos10i';
-    const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: other });
-    assert.equal(redeemed.body.error, 'ticket_game');
+    if (!customAuthLanded()) {
+      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: other });
+      assert.equal(redeemed.body.error, 'ticket_game');
+      const forged = `${opened.body.ticket.slice(0, -4)}abcd`;
+      const badSig = await call('session.redeem', { ticket: forged, gameId: relic.game });
+      assert.equal(badSig.body.error, 'ticket_invalid');
+      assert.equal(mints(who.userId, relic.relicId), 0);
+      return;
+    }
+    const redeemed = await redeemPortalTicket(opened.body.ticket, other);
+    assert.equal(redeemed.token, undefined, redeemed.body);
+    assert.equal(redeemed.status >= 400, true, redeemed.body);
     const forged = `${opened.body.ticket.slice(0, -4)}abcd`;
-    const badSig = await call('session.redeem', { ticket: forged, gameId: relic.game });
-    assert.equal(badSig.body.error, 'ticket_invalid');
+    const badSig = await redeemPortalTicket(forged, relic.game);
+    assert.equal(badSig.token, undefined, badSig.body);
+    assert.equal(badSig.status >= 400, true, badSig.body);
     assert.equal(mints(who.userId, relic.relicId), 0);
+    assert.equal(ticketBalance(who.userId, relic.game), 0);
   });
 
   await test('forged', `${relic.id} unknown event and non-rule payload do not mint`, async () => {
@@ -1048,7 +1134,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'migration', 'accounts'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1056,8 +1142,9 @@ function report(): number {
     const pass = rows.filter((item) => item.status === 'pass').length;
     const fail = rows.filter((item) => item.status === 'fail').length;
     const waiting = rows.filter((item) => item.status === 'pending').length;
+    const expected = rows.filter((item) => item.status === 'expected-fail').length;
     failed += fail;
-    console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending`);
+    console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending, ${expected} expected-fail`);
   }
   const notes = findingsList();
   if (notes.length) {
@@ -1070,25 +1157,46 @@ function report(): number {
       console.log(`- ${item.category} ${item.name}: ${item.detail?.split('\n')[0]}`);
     }
   }
+  const expected = outcomes.filter((row) => row.status === 'expected-fail');
+  if (expected.length) {
+    console.log('\nExpected failures (redeem-fix is not on this commit)');
+    for (const item of expected) {
+      console.log(`- ${item.category} ${item.name}: ${item.detail?.split('\n')[0]}`);
+    }
+  }
   return failed;
+}
+
+/** Local filter. Unset for the full suite. Example: DUP_ONLY=migration */
+function selected(group: string): boolean {
+  const only = process.env.DUP_ONLY;
+  return !only || only.split(',').includes(group);
 }
 
 export async function main(): Promise<void> {
   await waitReady();
   let failed = 0;
   try {
-    await idempotency();
-    await races();
-    await forged();
-    await wallet();
-    await hposExtras();
-    try {
-      await faults();
-    } finally {
-      dropFaultHooks();
-      await ensureNakama();
+    if (selected('idempotency')) await idempotency();
+    if (selected('race')) await races();
+    if (selected('forged')) await forged();
+    if (selected('wallet')) {
+      await wallet();
+      await hposExtras();
     }
-    await runGated({ test, pending });
+    if (selected('fault')) {
+      try {
+        await faults();
+      } finally {
+        dropFaultHooks();
+        await ensureNakama();
+      }
+    }
+    if (selected('gated')) await runGated({ test, pending });
+    if (selected('same-tab')) await runSameTab(test);
+    if (selected('redeem-fix')) await runRedeemFix(test, pending);
+    if (selected('migration')) await runMigrations(test);
+    if (selected('accounts')) await runAccounts(test);
   } finally {
     failed = report();
   }

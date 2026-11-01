@@ -1,12 +1,10 @@
 import {
-  AnimationMixer,
   BackSide,
   Box3,
   BoxGeometry,
   CanvasTexture,
   CircleGeometry,
   Color,
-  AnimationClip,
   DirectionalLight,
   Euler,
   Fog,
@@ -32,15 +30,15 @@ import {
   SRGBColorSpace,
   Vector3,
   WebGLRenderer,
-  type AnimationAction,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
+import { createAvatarRig } from './avatar';
+import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
-import { animated, glow, initLoaders, instanced, loadGLTF, mountGlow, neonMat, part, upgradeToLod0, WORLD_ROOT } from './v2/core';
+import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
 import { buildInterior, type InteriorBuild } from './v2/interior';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
@@ -76,6 +74,7 @@ export interface HubWorld {
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
+  setLook: (look: AvatarLook) => void;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
@@ -107,7 +106,7 @@ interface SlotState {
 const NEAR = 120;
 const FAR = 400;
 
-export async function createWorld(): Promise<HubWorld> {
+export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const scene = new Scene();
   scene.fog = new Fog('#5a1f62', 260, 820);
   const camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.08, 4000);
@@ -117,7 +116,8 @@ export async function createWorld(): Promise<HubWorld> {
     preserveDrawingBuffer: true,
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  // Every pass is fill-bound, and 1.5 drew 2.25x the pixels of 1.0 on high-DPI screens.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
   camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
@@ -202,9 +202,8 @@ export async function createWorld(): Promise<HubWorld> {
     });
   }
 
-  const [statue, avatarGltf, portals, lamps, benches, palms] = await Promise.all([
+  const [statue, portals, lamps, benches, palms] = await Promise.all([
     part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
-    loadGLTF(`${WORLD_ROOT}v2/avatar/sproto-avatar.glb`),
     Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
     instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
     instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
@@ -235,23 +234,12 @@ export async function createWorld(): Promise<HubWorld> {
   const rig = new Group();
   rig.name = 'player-rig';
   const bob = new Group();
-  const avatar = fitAvatar(avatarGltf);
+  const avatarRig = createAvatarRig();
+  const avatar = avatarRig.group;
+  if (initialLook) avatarRig.setLook(initialLook);
   bob.add(avatar);
   rig.add(bob);
   scene.add(rig);
-  const mixer = new AnimationMixer(avatar.children[0] ?? avatar);
-  const clips = {
-    idle: requiredClip(avatarGltf.animations, 'idle'),
-    walk: requiredClip(avatarGltf.animations, 'walk'),
-    run: requiredClip(avatarGltf.animations, 'run'),
-  };
-  const actions: Record<'idle' | 'walk' | 'run', AnimationAction> = {
-    idle: mixer.clipAction(clips.idle),
-    walk: mixer.clipAction(clips.walk),
-    run: mixer.clipAction(clips.run),
-  };
-  let gait: 'idle' | 'walk' | 'run' = 'idle';
-  actions.idle.play();
 
   const shadowMat = new MeshBasicMaterial({
     map: radialShadow(),
@@ -273,6 +261,8 @@ export async function createWorld(): Promise<HubWorld> {
     luminanceSmoothing: 0.4,
     mipmapBlur: true,
     radius: 0.7,
+    // The glow is a blur, so half resolution looks the same at a quarter of the fill cost.
+    resolutionScale: 0.5,
   });
   bloom.ignoreBackground = true;
   mountGlow((obj) => {
@@ -366,13 +356,7 @@ export async function createWorld(): Promise<HubWorld> {
   function update(dt: number, moving: boolean, sprint: boolean): void {
     elapsed += dt;
     for (const fn of animated) fn(elapsed, dt);
-    const next = !moving ? 'idle' : sprint ? 'run' : 'walk';
-    if (next !== gait) {
-      actions[gait].fadeOut(0.18);
-      gait = next;
-      actions[gait].reset().fadeIn(0.18).play();
-    }
-    mixer.update(dt);
+    avatarRig.update(dt, moving, sprint);
     const player = rig.position;
     for (const slot of slots) {
       const guess = slot.group?.position ?? tmp.set(Math.sin(slot.a) * 160, 0, -Math.cos(slot.a) * 160);
@@ -464,6 +448,8 @@ export async function createWorld(): Promise<HubWorld> {
   document.documentElement.dataset.plazaReady = '1';
   document.documentElement.dataset.initialBytes = String(bytes);
   window.plazaLoad = { bytes, files };
+  // Wizard is larger than the previous avatar, so it stays out of this snapshot.
+  avatarRig.load();
 
   const sockets = pedestal.rings.map((mesh) => ({ mesh, on: false }));
   return {
@@ -479,6 +465,7 @@ export async function createWorld(): Promise<HubWorld> {
     labels: [],
     sockets,
     get sceneDraws() { return sceneDraws; },
+    setLook: avatarRig.setLook,
     setRelics(ids) {
       const owned = new Set(ids);
       pedestal.rings.forEach((ring, index) => {
@@ -585,32 +572,6 @@ function radialShadow(): CanvasTexture {
   const texture = new CanvasTexture(canvas);
   texture.colorSpace = SRGBColorSpace;
   return texture;
-}
-
-function requiredClip(clips: readonly AnimationClip[], name: string): AnimationClip {
-  const found = clips.find((clip) => clip.name === name);
-  if (!found) throw new Error(`Sproto avatar is missing the ${name} clip`);
-  return found;
-}
-
-function fitAvatar(gltf: { scene: Group }): Group {
-  const avatar = new Group();
-  avatar.name = 'sproto-avatar';
-  const model = SkeletonUtils.clone(gltf.scene);
-  model.rotation.y = Math.PI;
-  avatar.add(model);
-  model.updateMatrixWorld(true);
-  const box = new Box3().setFromObject(model);
-  const height = box.getSize(new Vector3()).y;
-  model.scale.setScalar(1.75 / Math.max(height, 1e-4));
-  model.updateMatrixWorld(true);
-  const fitted = new Box3().setFromObject(model);
-  model.position.y = -STAND_Y - fitted.min.y;
-  model.traverse((obj) => {
-    const mesh = obj as Mesh;
-    if (mesh.isMesh) mesh.frustumCulled = false;
-  });
-  return avatar;
 }
 
 function resourceFiles(): { name: string; bytes: number }[] {

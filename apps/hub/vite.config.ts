@@ -1,5 +1,6 @@
+import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, type Plugin, type UserConfig } from 'vite';
 
 const nakama = 'http://127.0.0.1:7350';
 const proxy = {
@@ -7,7 +8,63 @@ const proxy = {
   '/ws': { target: nakama, ws: true, changeOrigin: true },
 };
 
-const PLAY_GAMES = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'] as const;
+/**
+ * Real game web builds, pulled by `npm run fetch:games` into public/play/<slug>/
+ * (gitignored). Slugs match GAME_URLS in src/games.ts. Served same-origin so the
+ * `#t=` ticket and the /v2 proxy work as they will on play.<domain>.
+ */
+const PLAY_ROOT = resolve(__dirname, 'public/play');
+const PLAY_GAMES = [
+  { slug: 'hpos10i', env: 'VITE_GAME_URL_HPOS10I' },
+  { slug: 'nobu', env: 'VITE_GAME_URL_NOBU' },
+  { slug: 'peoples-bitcoin', env: 'VITE_GAME_URL_PEOPLES_BITCOIN' },
+  { slug: 'sproto-duel', env: 'VITE_GAME_URL_SPROTO_DUEL' },
+] as const;
+
+function fetchedBuild(slug: string): boolean {
+  return existsSync(resolve(PLAY_ROOT, slug, 'index.html'));
+}
+
+/**
+ * `/play/<slug>/` opens a fetched build's index.html. Without a fetched Sproto Duel
+ * build, `/play/sproto-duel/` falls back to the M1 mock at play/sproto.
+ */
+function rewritePlay(url: string): string {
+  const queryAt = url.indexOf('?');
+  const path = queryAt === -1 ? url : url.slice(0, queryAt);
+  const query = queryAt === -1 ? '' : url.slice(queryAt);
+  for (const { slug } of PLAY_GAMES) {
+    const base = `/play/${slug}`;
+    if (path !== base && !path.startsWith(`${base}/`)) continue;
+    if (fetchedBuild(slug)) return path === base || path === `${base}/` ? `${base}/index.html${query}` : url;
+    if (slug !== 'sproto-duel') return url;
+    const rest = path.slice(base.length);
+    return `${rest === '' ? '/play/sproto/' : `/play/sproto${rest}`}${query}`;
+  }
+  return url;
+}
+
+/**
+ * Dev only: a fetched build wins over a game's default page (HPOS10I otherwise opens
+ * its GitHub Pages copy, which cannot reach the local /v2). An explicit
+ * VITE_GAME_URL_* still wins. Production builds keep play.<domain>.
+ */
+function preferFetchedBuilds(): void {
+  for (const { slug, env } of PLAY_GAMES) {
+    if (process.env[env] === undefined && fetchedBuild(slug)) process.env[env] = `/play/${slug}/`;
+  }
+}
+
+/** Fetched builds are for local play. Production serves games from play.<domain>, so keep them out of dist. */
+function dropFetchedBuilds(): Plugin {
+  return {
+    name: 'drop-fetched-builds',
+    apply: 'build',
+    closeBundle() {
+      for (const { slug } of PLAY_GAMES) rmSync(resolve(__dirname, 'dist/play', slug), { recursive: true, force: true });
+    },
+  };
+}
 
 function redirectRoot(): Plugin {
   const redirect = (req: { url?: string }, res: { writeHead: (code: number, headers: Record<string, string>) => void; end: () => void }, next: () => void) => {
@@ -16,13 +73,7 @@ function redirectRoot(): Plugin {
       res.end();
       return;
     }
-    // Real game builds live under public/play/<id>/ (see scripts/fetch-game-web.mjs).
-    for (const id of PLAY_GAMES) {
-      if (req.url === `/play/${id}` || req.url === `/play/${id}/`) {
-        req.url = `/play/${id}/index.html`;
-        break;
-      }
-    }
+    if (req.url) req.url = rewritePlay(req.url);
     next();
   };
   return {
@@ -36,10 +87,11 @@ function redirectRoot(): Plugin {
   };
 }
 
-// Plaza at /hub/. Portals open real game builds under public/play/<id>/. Nakama at /v2.
-export default defineConfig({
+// Plaza at /hub/. Portals open /play/<slug>/: a fetched real build, or the
+// Sproto Duel mock at /play/sproto/ until that build is fetched. Nakama at /v2.
+const config = {
   base: '/',
-  plugins: [redirectRoot()],
+  plugins: [redirectRoot(), dropFetchedBuilds()],
   resolve: {
     alias: {
       '@metaverse/hub-sdk': resolve(__dirname, '../../packages/hub-sdk/src/index.ts'),
@@ -61,7 +113,13 @@ export default defineConfig({
     rollupOptions: {
       input: {
         hub: resolve(__dirname, 'hub/index.html'),
+        sproto: resolve(__dirname, 'play/sproto/index.html'),
       },
     },
   },
+} satisfies UserConfig;
+
+export default defineConfig(({ command }) => {
+  if (command === 'serve') preferFetchedBuilds();
+  return config;
 });
