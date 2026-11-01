@@ -4,12 +4,12 @@
  * mint hub-scoped sessions only, and refresh must keep that scope.
  */
 import assert from 'node:assert/strict';
-import { authenticate, call, ensureNakama, guest } from './harness.ts';
+import { SERVER_KEY, authenticate, call, ensureNakama, guest } from './harness.ts';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
-const BASIC = `Basic ${Buffer.from('defaultkey:').toString('base64')}`;
+const BASIC = `Basic ${Buffer.from(`${SERVER_KEY}:`).toString('base64')}`;
 const PASSWORD = 'correct-horse-1';
 
 interface Session {

@@ -67,6 +67,7 @@ import {
   ticketBalance,
   verseBalance,
   type RpcResult,
+  SERVER_KEY,
 } from './harness.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -251,7 +252,7 @@ async function makeKit(spec: OutboxGame = SPROTO_OUTBOX): Promise<LiveKit> {
   const dropOnce = new Set<string>();
   const client = createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
+    serverKey: SERVER_KEY,
     fetchImpl: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const rpc = rpcOf(String(input));
       let key = '';

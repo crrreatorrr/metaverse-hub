@@ -26,6 +26,7 @@ import {
   sqlId,
   waitReady,
   type RpcResult,
+  SERVER_KEY,
 } from './harness.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -222,10 +223,10 @@ async function hashStripped(): Promise<void> {
   const opened = await enter(who.token, 'sproto');
   const usersBefore = userCount();
   let hash = `#t=${opened.ticket}`;
-  const client = createNakamaClient({ serverUrl: 'http://127.0.0.1:7350', serverKey: 'defaultkey' });
+  const client = createNakamaClient({ serverUrl: 'http://127.0.0.1:7350', serverKey: SERVER_KEY });
   const env: HubSdkEnv = {
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
+    serverKey: SERVER_KEY,
     client,
     local: memoryKeyValue(),
     session: memoryKeyValue(),

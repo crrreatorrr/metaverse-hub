@@ -55,7 +55,8 @@ function requireHttpKey(): string {
 }
 
 loadComposeProjectEnv();
-const SERVER_KEY = process.env.NAKAMA_SERVER_KEY ?? 'defaultkey';
+/** From server/.env when present. CI writes a random one (dev-env.sh --random-server-key). */
+export const SERVER_KEY = process.env.NAKAMA_SERVER_KEY ?? 'defaultkey';
 const HTTP_KEY = requireHttpKey();
 
 export interface RpcBody {
