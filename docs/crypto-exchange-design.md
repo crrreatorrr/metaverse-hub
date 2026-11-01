@@ -1,6 +1,6 @@
 # $BITCOIN ⇄ Verse exchange: design
 
-Status: **built for Ethereum, not yet deployed.** See [Implementation status](#implementation-status) for what exists, where, and what still has to happen before mainnet.
+Status: **built for Ethereum; deployed and tested end to end on Sepolia, not yet on mainnet.** See [Implementation status](#implementation-status) for what exists, where, and what still has to happen before mainnet.
 
 Players can trade Verse for HarryPotterObamaSonic10Inu `$BITCOIN` (cash-out), and buy in-game items with `$BITCOIN` (pay-in). In the backend every purchase is still a Verse purchase. The crypto side only adds Verse to or removes Verse from `game.verse_wallet`, through `game.verse_ledger`, the same way `game.exchange_tickets` does today.
 
@@ -235,7 +235,7 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 
 - **Separate agents.** The builder and each reviewer are separate agent sessions. A reviewer gets the spec (this doc) and the code, never the builder's notes, reasoning, or claims that something is safe. Its job is to break the contract, not to confirm it.
 - **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`, `ReentrancyGuardTransient`; no `Ownable`). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
-- **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good. *As built:* this environment had no Ethereum RPC, so the PoCs use mock tokens that model each behaviour. Re-running the token-behaviour PoCs on a mainnet fork is a launch step.
+- **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good. *As built:* the original build environment had no Ethereum RPC, so the PoCs use mock tokens that model each behaviour. The token-behaviour checks now also run against the real token on a mainnet fork: `contracts/test/fork/MainnetBitcoin.t.sol`, 10 of 10 passing on 2026-11-01. The token's 15%/70% taxes also apply to plain wallet transfers. They are permanently off: the owner is renounced and `_buyCount` is far past both thresholds.
 - **The backend is in scope.** With no on-chain limit, a bug in the server drains the float just like a bug in the contract. Every review pass also covers `wallet.link` signature checks, `game.withdraw_verse`, the voucher signer, and the watcher.
 
 ### Builder agent
@@ -306,6 +306,8 @@ Deferred to the end of the project, together with the terms and conditions. Not 
 | `server/test/exchange` | Migration 0004 against real Postgres: links, both locks under concurrency, idempotency, signing guards, claims, refunds, deposits, dust, intents, `hub_chain` privileges |
 | `server/chain/test` | Vectors against Solidity, KMS DER/low-s handling, `/verify`, signer guard, and the full watcher loop on Postgres with a fake chain |
 | `packages/hub-sdk/test` | Wallet API calls |
+| `contracts/test/fork` | The cashout and the deploy canary against the real `$BITCOIN` on a mainnet fork (needs `MAINNET_RPC_URL`; skipped in CI) |
+| `server/chain/e2e/sepolia.ts` | `npm run e2e:sepolia`: the real chain service against the Sepolia deployment, from wallet link to expiry refund (about 35 minutes, waits on finality) |
 
 Still to add to `server/test/dup/` (these need Nakama running): the wallet RPCs through Nakama, and account recovery and merge with linked wallets and open vouchers.
 
@@ -320,7 +322,10 @@ Still to add to `server/test/dup/` (these need Nakama running): the wallet RPCs 
 | Backend (SQL, RPCs, chain service) | Independent AI exploit pass: no critical or high findings; its lows are fixed and its PoCs run in CI (`server/test/exchange/exploits`, `server/chain/test/exploits`) |
 | Bar exchange machine UI | Built in `apps/hub` |
 | Store checkout "Pay with $BITCOIN" | Intent and payment matching built; the item grant waits for the M7 store |
-| Sepolia end-to-end, mainnet-fork tests against the real token | **Not done.** This build environment could not reach any Ethereum RPC |
+| Mainnet-fork tests against the real token | Done 2026-11-01: 10 of 10 pass (`contracts/test/fork/MainnetBitcoin.t.sol`) |
+| Mainnet dry run of `Deploy.s.sol` (no broadcast) | Done 2026-11-01 with a throwaway signer. Checks and canary pass on the real token; bad arguments are refused. Still needed for the real deploy: the KMS signer and the Safe as token holder |
+| Sepolia deployment | `TestBitcoin` `0x6FC7448C65B150ea5E44D38DE4c5C06C3a971f89`, `VerseCashout` `0x2438f28692b0e21255a659219FD2FD24559B5c97`, signer `0xab135f4Ff32cA27c3a839E21f6c9bb95d57835Cb`. Source not yet verified on Etherscan (the API key is refused for Sepolia). See `contracts/README.md` |
+| Sepolia end-to-end | **Passed 2026-11-01** (`npm run e2e:sepolia`, 35 minutes): the real chain service process (watcher, local signer, `/verify`) against Sepolia, with Postgres running the module's schema. Covered: SIWE link through `/verify` (a stranger's signature refused); deposits of 30 and 400 credited after finality, the 400 paying a purchase intent; an idempotent withdraw of 12; signing; an on-chain claim paying exactly 12 tokens, recorded by the watcher; `account_limit`; a 2-minute voucher refunded after expiry once `claimed(id)` read false on chain. No alerts; signer not halted. **Not covered:** Nakama itself (no Docker daemon, so the hub side called the same SQL functions as the wallet RPCs) and the AWS KMS signer |
 
 ## Build order
 

@@ -97,6 +97,8 @@ For the real run, change only the signer (the KMS key's address and its proof), 
 
 Read back after deploy: `token()`, `signer()` and `unit()` = `100000000` match the arguments. Two earlier token deploy attempts ran out of gas (see **Gas** above); neither left a contract.
 
+**End to end.** `npm run e2e:sepolia` in `server/chain` passed against this deployment on 2026-11-01. Transactions from that run: deposits [`0xa933c5a4…`](https://sepolia.etherscan.io/tx/0xa933c5a4156c25f709c3b405f9c7558a40109f709049bcfb7b2c33628c17ad4d) and [`0x856bccce…`](https://sepolia.etherscan.io/tx/0x856bccce4e7aa723756a4ca2c85714d22f052081657bef84edf4a0190a80fd74), and claim [`0xd2613609…`](https://sepolia.etherscan.io/tx/0xd26136091e009861c9b8405f77565110e67bcbad1358b53b91b32878c96c1a07). See the design doc's implementation status for what the run covers.
+
 **Source verification is still to do.** The configured `ETHERSCAN_API_KEY` works for chain id 1 but Etherscan rejects it for chain id 11155111 ("Invalid API Key"). Sourcify and Blockscout were not reachable from the build environment. With a key that Etherscan accepts for Sepolia:
 
 ```bash

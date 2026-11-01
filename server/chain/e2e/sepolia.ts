@@ -142,8 +142,8 @@ async function main(): Promise<void> {
   });
   service.stdout!.pipe(logStream);
   service.stderr!.pipe(logStream);
-  service.stdout!.on('data', (b: Buffer) => process.stdout.write(b.toString().replace(/^/gm, '    svc| ')));
-  service.stderr!.on('data', (b: Buffer) => process.stdout.write(b.toString().replace(/^/gm, '    svc! ')));
+  service.stdout!.on('data', (b: Buffer) => process.stdout.write(b.toString().replace(/^(?=.)/gm, '    svc| ')));
+  service.stderr!.on('data', (b: Buffer) => process.stdout.write(b.toString().replace(/^(?=.)/gm, '    svc! ')));
   let exited: number | null = null;
   service.on('exit', (code) => { exited = code ?? -1; });
   report.serviceLog = logFile;
