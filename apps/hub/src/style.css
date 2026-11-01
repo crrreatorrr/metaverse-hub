@@ -82,8 +82,8 @@ button:disabled {
 }
 
 :where(button, input, [tabindex]):focus-visible {
-  outline: none;
-  box-shadow: var(--ring);
+  outline: 3px dashed #ffe766;
+  outline-offset: 4px;
 }
 
 /* Shared glass surface. */
@@ -1784,5 +1784,478 @@ button:disabled {
   .menu * {
     animation: none !important;
     transition: none !important;
+  }
+}
+
+/* ---------- HUD: retro pixel ----------
+   Same palette, fonts and pixel boxes as the Esc menu. Higgsfield icons from
+   public/world/ui/ at 1x. The overhead chat line keeps its modern face. */
+
+:root {
+  --ink: #020a28;
+  --navy: #0a1f6b;
+  --blue: #08309e;
+  --blue-2: #1747c9;
+  --blue-3: #2f66e8;
+  --sky: #8cc4ff;
+  --red: #d0080b;
+  --red-2: #ff3a2e;
+  --red-dark: #6d0610;
+  --yellow: #faca07;
+  --yellow-2: #ffe766;
+  --gold-dk: #b07a0c;
+  --cream: #fff4d6;
+  --pixel-head: "Press Start 2P", ui-monospace, monospace;
+  --pixel-body: "VT323", ui-monospace, monospace;
+  --px-edge: 0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink);
+  --px-blue: var(--px-edge), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 var(--navy);
+  --px-blue-hover: var(--px-edge), inset 4px 4px 0 0 var(--blue-3), inset -4px -4px 0 0 var(--blue);
+  --px-red: var(--px-edge), inset 4px 4px 0 0 var(--red-2), inset -4px -4px 0 0 var(--red-dark);
+  --px-yellow: var(--px-edge), inset 4px 4px 0 0 var(--yellow-2), inset -4px -4px 0 0 var(--gold-dk);
+  --px-gold-frame:
+    0 -4px 0 0 var(--yellow), 0 4px 0 0 var(--yellow), -4px 0 0 0 var(--yellow), 4px 0 0 0 var(--yellow),
+    0 -8px 0 0 var(--ink), 0 8px 0 0 var(--ink), -8px 0 0 0 var(--ink), 8px 0 0 0 var(--ink),
+    -4px -4px 0 0 var(--ink), 4px -4px 0 0 var(--ink), -4px 4px 0 0 var(--ink), 4px 4px 0 0 var(--ink);
+}
+
+#hud .verse,
+#hud .hud-btn,
+#hud .hint,
+#hud .bar-tabs,
+#hud .account,
+#hud .chat-log,
+#hud .chat-row,
+#hud .chat-prompt,
+#hud .banner {
+  border: 0;
+  border-radius: 0;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+#hud .px-art,
+#hud .brand-mark,
+#hud .verse::before,
+#hud .account-avatar {
+  image-rendering: pixelated;
+}
+
+/* ----- Brand */
+
+#hud .brand {
+  gap: 14px;
+  text-shadow: none;
+}
+
+#hud .brand-mark {
+  width: 50px;
+  height: 50px;
+  border: 0;
+  border-radius: 0;
+  background: url("/world/ui/icon-star.png") center / 50px 50px no-repeat;
+  box-shadow: none;
+  filter: drop-shadow(4px 4px 0 var(--ink));
+}
+
+#hud .brand-name {
+  font: 400 12px/1 var(--pixel-head);
+  letter-spacing: 1px;
+  color: var(--yellow);
+  text-shadow: 3px 3px 0 var(--ink);
+}
+
+#hud .brand-status {
+  gap: 8px;
+  margin-top: 4px;
+  font: 400 20px/1 var(--pixel-body);
+  letter-spacing: 0;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .brand-status::before {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--sky);
+  box-shadow: 2px 2px 0 var(--ink);
+  animation: px-blink 1.2s steps(1) infinite;
+}
+
+#hud .brand-status[data-state="online"]::before {
+  background: #3dff6a;
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .brand-status[data-state="offline"]::before {
+  background: var(--red-2);
+  box-shadow: 2px 2px 0 var(--ink);
+}
+
+/* ----- Verse counter */
+
+#hud .verse {
+  top: calc(var(--hud-gap) + 4px);
+  gap: 10px;
+  height: 40px;
+  padding: 0 14px 0 10px;
+  background: var(--red);
+  box-shadow: var(--px-red);
+  font: 400 12px/1 var(--pixel-head);
+  letter-spacing: 0;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .verse::before {
+  content: "";
+  width: 24px;
+  height: 25px;
+  border-radius: 0;
+  background: url("/world/ui/icon-coin.png") center / 24px 25px no-repeat;
+  box-shadow: none;
+  animation: px-bob-sm 1.2s steps(2) infinite;
+}
+
+/* ----- Relics and Account buttons */
+
+#hud .hud-actions {
+  top: calc(var(--hud-gap) + 4px);
+  right: calc(var(--hud-gap) + 4px);
+  gap: 16px;
+}
+
+#hud .hud-btn {
+  gap: 10px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--blue);
+  box-shadow: var(--px-blue);
+  font: 400 9px/1 var(--pixel-head);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--ink);
+  transition: none;
+}
+
+#hud .hud-btn:hover:not(:disabled) {
+  background: var(--blue-2);
+  box-shadow: var(--px-blue-hover);
+}
+
+#hud .hud-btn[aria-expanded="true"] {
+  background: var(--red);
+  box-shadow: var(--px-red);
+  color: var(--yellow);
+}
+
+#hud .hud-btn:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+#hud .hud-btn:disabled {
+  background: #1b2147;
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 #262e5e, inset -4px -4px 0 0 #121736;
+  color: #6b78a8;
+}
+
+#hud .relic-pips {
+  gap: 5px;
+}
+
+#hud .relic-pip {
+  width: 8px;
+  height: 8px;
+  border: 0;
+  border-radius: 0;
+  background: #2a3157;
+  box-shadow: 0 0 0 2px var(--ink);
+  opacity: 1;
+}
+
+#hud .relic-pip.owned {
+  background: var(--relic);
+  box-shadow: 0 0 0 2px var(--ink);
+  animation: px-bob-sm 1s steps(2) infinite;
+}
+
+#hud .account-avatar {
+  width: 24px;
+  height: 27px;
+  border-radius: 0;
+  background: url("/world/ui/icon-helmet.png") center / 24px 27px no-repeat;
+}
+
+#hud .hud-btn:disabled .account-avatar {
+  filter: grayscale(1) brightness(0.7);
+  opacity: 1;
+}
+
+/* ----- Account popover */
+
+#hud .account {
+  top: calc(var(--hud-gap) + 60px);
+  right: calc(var(--hud-gap) + 8px);
+  padding: 18px 16px 16px;
+  background: var(--blue);
+  box-shadow: var(--px-gold-frame), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 var(--navy), 12px 12px 0 0 rgba(2, 10, 40, 0.5);
+  font-family: var(--pixel-body);
+  color: var(--cream);
+  animation: none;
+}
+
+#hud .account-head {
+  border: 0;
+}
+
+#hud .account-title,
+#hud .account-label {
+  font: 400 10px/1.4 var(--pixel-head);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .account-label {
+  font-size: 8px;
+}
+
+#hud .account-id,
+#hud .fine,
+#hud .account-status {
+  font: 400 19px/1 var(--pixel-body);
+  color: var(--sky);
+}
+
+#hud .account-block {
+  border-color: var(--navy);
+}
+
+#hud .recovery-code {
+  font: 400 12px/1.6 var(--pixel-head);
+  letter-spacing: 0;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .btn {
+  height: auto;
+  padding: 10px 12px 8px;
+  border: 0;
+  border-radius: 0;
+  background: var(--blue-2);
+  box-shadow: var(--px-blue-hover);
+  font: 400 8px/1 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--cream);
+  transition: none;
+}
+
+#hud .btn-primary {
+  background: var(--yellow);
+  box-shadow: var(--px-yellow);
+  color: var(--ink);
+}
+
+#hud .btn:hover:not(:disabled) {
+  background: var(--blue-3);
+  border-color: transparent;
+}
+
+#hud .btn-primary:hover:not(:disabled) {
+  background: var(--yellow-2);
+}
+
+#hud .btn:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+#hud .account-restore {
+  gap: 14px;
+  padding: 4px;
+}
+
+#hud .account-restore input {
+  height: auto;
+  padding: 8px 10px 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--ink);
+  box-shadow: 0 -4px 0 0 var(--yellow), 0 4px 0 0 var(--yellow), -4px 0 0 0 var(--yellow), 4px 0 0 0 var(--yellow);
+  font: 400 20px/1 var(--pixel-body);
+  color: var(--cream);
+  caret-color: var(--yellow);
+}
+
+#hud .account-restore input::placeholder {
+  color: #4f6fb8;
+}
+
+/* ----- Controls hint, Bar board tabs, banner */
+
+#hud .hint {
+  padding: 8px 14px 6px;
+  background: rgba(10, 31, 107, 0.92);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue);
+  font: 400 20px/1.05 var(--pixel-body);
+  letter-spacing: 0;
+  color: var(--cream);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .bar-tabs {
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--blue);
+  box-shadow: var(--px-gold-frame), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 var(--navy);
+}
+
+#hud .bar-tabs-label {
+  font: 400 8px/1 var(--pixel-head);
+  letter-spacing: 0;
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .bar-tabs button {
+  padding: 8px 8px 6px;
+  border: 0;
+  border-radius: 0;
+  background: var(--navy);
+  box-shadow: var(--px-edge);
+  font: 400 8px/1 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--sky);
+}
+
+#hud .bar-tabs button:hover {
+  background: var(--blue-2);
+  color: var(--cream);
+}
+
+#hud .bar-tabs button.on {
+  background: var(--red);
+  box-shadow: var(--px-red);
+  color: var(--yellow);
+}
+
+#hud .banner {
+  padding: 10px 12px 8px;
+  background: var(--red);
+  box-shadow: var(--px-red);
+  font: 400 8px/1.5 var(--pixel-head);
+  color: var(--yellow);
+}
+
+/* ----- Chat box */
+
+#hud .chat {
+  left: calc(var(--hud-gap) + 4px);
+  bottom: calc(var(--hud-gap) + 4px);
+  gap: 14px;
+  font-family: var(--pixel-body);
+}
+
+#hud .chat-log {
+  padding: 10px 12px;
+  background: rgba(10, 31, 107, 0.88);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 rgba(23, 71, 201, 0.9), inset -4px -4px 0 0 rgba(2, 10, 40, 0.6);
+  font: 400 20px/1 var(--pixel-body);
+  scrollbar-color: var(--yellow) var(--navy);
+}
+
+#hud .chat-line {
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .chat-line + .chat-line {
+  margin-top: 4px;
+}
+
+#hud .chat-name,
+#hud .chat-who {
+  font-weight: 400;
+  color: var(--yellow);
+}
+
+#hud .chat-line.public .chat-text {
+  color: var(--cream);
+}
+
+#hud .chat-line.system .chat-text {
+  font-style: normal;
+  color: var(--sky);
+}
+
+#hud .chat-row {
+  gap: 10px;
+  padding: 8px 12px 6px;
+  background: var(--ink);
+  box-shadow: 0 -4px 0 0 var(--yellow), 0 4px 0 0 var(--yellow), -4px 0 0 0 var(--yellow), 4px 0 0 0 var(--yellow), 8px 8px 0 0 rgba(2, 10, 40, 0.5);
+}
+
+#hud .chat-who {
+  font: 400 20px/1 var(--pixel-body);
+  text-shadow: 2px 2px 0 #000;
+}
+
+#hud .chat-field {
+  font: 400 21px/1 var(--pixel-body);
+  color: var(--cream);
+  caret-color: var(--yellow);
+}
+
+#hud .chat-field::placeholder {
+  color: #4f6fb8;
+}
+
+#hud .chat-field:focus-visible {
+  outline: none;
+}
+
+#hud .chat-prompt {
+  gap: 8px;
+  padding: 6px 10px 4px 6px;
+  background: rgba(10, 31, 107, 0.88);
+  box-shadow: var(--px-edge);
+  font: 400 18px/1 var(--pixel-body);
+  color: var(--sky);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+#hud .chat-prompt::before {
+  content: "ENTER";
+  min-width: 0;
+  height: auto;
+  padding: 4px 5px 3px;
+  border: 0;
+  border-radius: 0;
+  background: var(--yellow);
+  box-shadow: 0 2px 0 0 var(--gold-dk), 2px 2px 0 0 var(--ink);
+  font: 400 7px/1 var(--pixel-head);
+  color: var(--ink);
+  text-shadow: none;
+}
+
+/* ----- Portal wipe */
+
+#wipe {
+  font: 400 16px/1.6 "Press Start 2P", ui-monospace, monospace;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  text-shadow: 4px 4px 0 rgba(2, 10, 40, 0.35);
+}
+
+@keyframes px-bob-sm {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #hud * {
+    animation: none !important;
   }
 }
