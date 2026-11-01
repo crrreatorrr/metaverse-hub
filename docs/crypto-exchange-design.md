@@ -30,6 +30,8 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | Bot farming | Accepted risk. The daily locks are the control |
 | On-chain limit | None. The contract float, refilled slowly by hand, is the most that can be lost. Accepted risk |
 | Contract pause | None. Nothing on chain can stop a signed voucher from being claimed while the float covers it |
+| Contract owner | None. No admin functions, no signer rotation, no withdrawal of the float. A new signer means a new contract |
+| Legal, terms and conditions | Done at the end, before mainnet launch |
 | Trading location | The `arcade` cabinet in the Bar; options open when the player is near it |
 | Buying items with `$BITCOIN` | At the exchange machine and at store checkout |
 | Voucher expiry | 30 days |
@@ -116,13 +118,14 @@ The player pays gas, so cash-out uses a claim contract. The server never sends t
 
 Written by the smart contract engineer, reviewed by the security QA expert (see [Smart contract team and review](#smart-contract-team-and-review)). Required behaviour:
 
-- It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe. The Safe is the owner. The float is the most that can be lost on chain, so it stays small: about one day of the global lock plus the vouchers already issued.
+- It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe with plain token transfers. The float is the most that can be lost on chain, so it stays small: about one day of the global lock plus the vouchers already issued.
 - `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. With batching, a player can save up several days of vouchers and pay gas once.
 - A voucher is EIP-712 typed data: `id`, `recipient`, `amount`, `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
 - Each `id` can be claimed exactly once. A claim after `expiry` reverts.
 - **No on-chain limit** (decision). Only the voucher amounts and the float bound what can be claimed.
 - **No pause** (decision). Players can always claim a signed, unexpired voucher while the float covers it.
-- Signer rotation and withdrawing the float back to the Safe are Safe only. See the open questions: both can also block vouchers that were already issued.
+- **No owner** (decision). The signer address and the token address are `immutable`, set in the constructor. There are no admin functions, no signer rotation, and no way to take tokens out except a valid voucher claim. Once deployed, nobody can change the contract's rules, the operator included.
+- **Replacing the contract.** Deploy a new contract with a new signer, point the voucher signer at it, and stop refilling the old one. Vouchers already issued for the old contract stay claimable there until they expire. Whatever is left after that stays in the old contract for good, so it is kept small.
 - Not upgradeable. A new version is a new deployment, with the old one drained to the Safe.
 - Tokens move with `SafeERC20`. The reviewer confirms how the `$BITCOIN` token behaves (return values, fees, blocklists, pausing) before launch.
 - Emits `Claimed(id, recipient, amount)`.
@@ -213,23 +216,23 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 ### Ground rules
 
 - **Separate agents.** The builder and each reviewer are separate agent sessions. A reviewer gets the spec (this doc) and the code, never the builder's notes, reasoning, or claims that something is safe. Its job is to break the contract, not to confirm it.
-- **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`, `Ownable2Step` or the Safe as owner). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
+- **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`; no `Ownable`). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
 - **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good.
 - **The backend is in scope.** With no on-chain limit, a bug in the server drains the float just like a bug in the contract. Every review pass also covers `wallet.link` signature checks, `game.withdraw_verse`, the voucher signer, and the watcher.
 
 ### Builder agent
 
 - Turns this doc into a spec for `VerseCashout`: roles, voucher format, events, failure cases.
-- Builds it in Solidity with Foundry. This includes unit tests, fuzz tests, and invariant tests, for example: the sum of all claims never exceeds the tokens sent to the contract; an `id` is never claimed twice; only the Safe can move the float.
+- Builds it in Solidity with Foundry. This includes unit tests, fuzz tests, and invariant tests, for example: the sum of all claims never exceeds the tokens sent to the contract; an `id` is never claimed twice; no call moves tokens out except a claim of a valid voucher.
 - Writes the off-chain voucher signing code against the same EIP-712 definition, with a shared test vector that both the Solidity side and the TypeScript side must reproduce.
-- Writes the deploy scripts and the deploy checklist: owner = Safe, signer = KMS address, source verified on Etherscan.
+- Writes the deploy scripts and the deploy checklist: token = the address above, signer = the KMS address, no owner, source verified on Etherscan.
 
 ### Exploit agents
 
 - **Several independent passes, each with its own focus.** Each pass runs Slither and its own fuzz and invariant campaign (Foundry, plus Echidna or Medusa), alongside manual reading. The focus areas:
   1. **Signatures and replay:** reusing a voucher on another chain, contract, or recipient; signature malleability; reuse of an `id`; EIP-712 encoding differences between Solidity and TypeScript.
   2. **Funds and token behaviour:** reentrancy through the token; the token's return values, fees, blocklist, or pause; draining the whole float with one large voucher or a batch; griefing `claimBatch` with one bad voucher; rounding.
-  3. **Access and operations:** owner mistakes, a leaked signer key, signer rotation, withdrawing the float, and confirming that no path exists to freeze issued vouchers.
+  3. **Access and operations:** confirm the contract has no admin path at all (no owner, no hidden selector, no `selfdestruct`/`delegatecall`), that no path exists to freeze or cancel issued vouchers, and that a mistake in the constructor arguments is caught by the deploy checklist, since it can't be fixed later. Also the impact of a leaked signer key.
   4. **Backend:**
      - double withdrawals through concurrent requests or idempotency gaps;
      - SIWE parsing (wrong domain, chain id, or nonce reuse);
@@ -264,11 +267,13 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
   - the global window is used up early;
   - the implied dollar value goes past the threshold;
   - the watcher falls behind;
-  - a `Claimed` event arrives with no matching `withdrawal` row, or claims in a day go past the global lock. Either means the signer or backend is compromised. Response: turn off voucher issuing, stop refilling the float, and move to a new signer or a new contract. Nothing on chain stops a drain in progress, so the float size is what bounds the loss.
+  - a `Claimed` event arrives with no matching `withdrawal` row, or claims in a day go past the global lock. Either means the signer or backend is compromised. Response: turn off voucher issuing, stop refilling the float, and deploy a new contract with a new signer. Nothing on chain stops a drain in progress, so the float size is what bounds the loss.
   - a single address appears on more than one account over time.
 - **Daily reconciliation.** Sum of deposits minus sum of claims, compared against the actual movement in the Safe and the contract.
 
 ## Compliance notes
+
+Handled at the end, before mainnet launch (build order step 5), together with the terms and conditions.
 
 - **KYC.** None is required by decision. Telling players to report income covers their own taxes, not the operator's obligations. A small daily limit does not by itself put the service outside money-transmission rules. Recommended: a one-time review with a crypto lawyer before cash-out launches.
 - **Sanctions screening (recommended).** Check addresses against published sanctions lists at link time and before each voucher is issued. It needs no player identity.
@@ -292,7 +297,8 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 2. Ethereum pay-in: watcher, deposits, purchase intents, Buy Verse screen.
 3. Claim contract: builder agent, exploit agent passes, fix and fresh re-review loop until clean, Sepolia.
 4. Ethereum cash-out: voucher signer, KMS, both locks with hourly release, Cash out screen, store checkout "Pay with $BITCOIN", backend exploit passes, end-to-end on Sepolia.
-5. Mainnet with a small float and low server-side limits, then raise them.
+5. Legal review, terms and conditions, and the compliance items below.
+6. Mainnet with a small float and low server-side limits, then raise them.
 
 ## Later: Solana
 
@@ -300,13 +306,4 @@ Solana uses its own treasury pool (a Squads multisig) and its own float, and the
 
 ## Open questions
 
-1. With pause gone, two owner powers left in the contract can also block vouchers that were already issued:
-   - signer rotation: vouchers signed by the old key stop working;
-   - withdrawing the float: there is nothing left to claim.
-
-   Options:
-   - **(a)** Remove both, so the contract has no owner at all. A new key means a new contract. When replacing the contract, stop refilling the old one and let it drain through claims; any leftover dust stays there for good.
-   - **(b)** Keep both behind a public 30-day on-chain notice, so every voucher already issued (30-day expiry) can still be claimed first.
-   - **(c)** Keep both as they are.
-
-Recommended but not decided: sanctions screening, the age gate on the machine, and a one-time lawyer review.
+None open. Legal, terms and conditions, sanctions screening, and the age gate on the machine are handled at the end (build order step 5).
