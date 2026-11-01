@@ -4,7 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Metaverse Hub</title>
-    <link rel="preload" as="image" href="/world/ui/login-art.jpg" fetchpriority="high" />
+    <link rel="preload" as="image" href="/world/ui/login-art.png" fetchpriority="high" />
+    <link rel="preload" as="image" href="/world/ui/frame.png" />
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect fill='%2307060f' width='32' height='32'/%3E%3Ccircle cx='16' cy='16' r='6' fill='none' stroke='%233de1ff' stroke-width='2'/%3E%3C/svg%3E" />
   </head>
   <body>
@@ -44,21 +45,25 @@
       <section id="login" class="login" data-view="checking" aria-labelledby="login-title">
         <div class="login-art" aria-hidden="true"></div>
         <div class="login-panel">
-          <header class="login-brand">
-            <span class="login-mark" aria-hidden="true"></span>
-            <span class="login-brand-text">
-              <span class="login-brand-name">Metaverse Hub</span>
-              <span class="login-brand-sub">Four Lights Plaza</span>
-            </span>
+          <header class="login-head">
+            <h1 id="login-title" class="login-title">New game</h1>
+            <p class="login-sub"><span class="login-sub-key">Hub</span> Four Lights Plaza</p>
           </header>
 
           <div id="login-form-view" class="login-view" hidden>
-            <h1 id="login-title" class="login-title">Enter the plaza</h1>
-            <p id="login-lede" class="login-lede">Pick a name to keep your Relics and Verse on any device.</p>
             <div class="login-tabs" role="tablist" aria-label="Account">
-              <button id="login-tab-signup" class="login-tab" type="button" role="tab" data-mode="signup" aria-selected="true" aria-controls="login-form">Sign up</button>
-              <button id="login-tab-login" class="login-tab" type="button" role="tab" data-mode="login" aria-selected="false" aria-controls="login-form" tabindex="-1">Log in</button>
+              <button id="login-tab-signup" class="login-tab" type="button" role="tab" data-mode="signup" aria-selected="true" aria-controls="login-form">
+                <span class="login-tab-key" aria-hidden="true">1</span>
+                <img class="login-tab-icon" src="/world/ui/icon-star.png" alt="" width="52" height="52" />
+                <span>Sign up</span>
+              </button>
+              <button id="login-tab-login" class="login-tab" type="button" role="tab" data-mode="login" aria-selected="false" aria-controls="login-form" tabindex="-1">
+                <span class="login-tab-key" aria-hidden="true">2</span>
+                <img class="login-tab-icon" src="/world/ui/icon-helmet.png" alt="" width="52" height="52" />
+                <span>Log in</span>
+              </button>
             </div>
+            <p id="login-lede" class="login-lede">Pick a name to keep your Relics and Verse on any device.</p>
             <form id="login-form" class="login-form" role="tabpanel" novalidate>
               <div class="login-field">
                 <label class="login-label" for="login-username">Username</label>
@@ -74,7 +79,7 @@
                 <p id="login-password-hint" class="login-hint">At least 8 characters</p>
               </div>
               <div id="login-email-field" class="login-field">
-                <label class="login-label" for="login-email">Backup email <span class="login-tag">Not verified yet</span></label>
+                <label class="login-label" for="login-email">Backup email <span class="login-tag">Not verified</span></label>
                 <input id="login-email" class="login-input" name="email" type="email" autocomplete="email" spellcheck="false" maxlength="254" aria-describedby="login-email-hint" required />
                 <p id="login-email-hint" class="login-hint">Only used to recover your account.</p>
               </div>

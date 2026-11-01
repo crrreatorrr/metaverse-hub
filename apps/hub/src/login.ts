@@ -12,6 +12,8 @@ import {
   signUp,
   type HubEntry,
 } from './auth';
+import '@fontsource/press-start-2p/latin-400.css';
+import '@fontsource/vt323/latin-400.css';
 import './login.css';
 
 /**
@@ -33,13 +35,13 @@ type Field = 'username' | 'password' | 'email';
 
 const COPY: Record<Mode, { title: string; lede: string; submit: string; busy: string }> = {
   signup: {
-    title: 'Enter the plaza',
+    title: 'New game',
     lede: 'Pick a name to keep your Relics and Verse on any device.',
     submit: 'Create account',
     busy: 'Creating account…',
   },
   login: {
-    title: 'Welcome back',
+    title: 'Continue',
     lede: 'Log in to pick up where you left off.',
     submit: 'Log in',
     busy: 'Logging in…',
@@ -185,6 +187,7 @@ function createGate(): Gate {
     formView.hidden = true;
     loadView.hidden = false;
     foot.hidden = true;
+    title.textContent = 'Loading';
     loadTitle.textContent = heading;
     if (note) loadNote.textContent = note;
     paintProgress();
