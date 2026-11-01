@@ -16,7 +16,7 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | Chains | **Ethereum only for now.** Solana is later work |
 | Payout source | Own treasury plus `$BITCOIN` that players paid in |
 | Treasury pools | One pool per chain, kept separate |
-| Exchange rate | Fixed; the operator changes it from an admin control |
+| Exchange rate | **1 Verse = 1 `$BITCOIN`**, fixed. Built into the contract; nobody can change it |
 | What can be cashed out | All Verse, earned or bought |
 | Per-account cash-out limit | A second daily lock, separate from the earning cap, worth about $5 per day |
 | Global cash-out limit | $500 per day across all accounts |
@@ -31,7 +31,7 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | On-chain limit | None. The contract float, refilled slowly by hand, is the most that can be lost. Accepted risk |
 | Contract pause | None. Nothing on chain can stop a signed voucher from being claimed while the float covers it |
 | Contract owner | None. No admin functions, no signer rotation, no withdrawal of the float. A new signer means a new contract |
-| Legal, terms and conditions | Done at the end, before mainnet launch |
+| Legal, terms and conditions | Deferred to the end of the project. Not part of this build order |
 | Trading location | The `arcade` cabinet in the Bar; options open when the player is near it |
 | Buying items with `$BITCOIN` | At the exchange machine and at store checkout |
 | Voucher expiry | 30 days |
@@ -45,7 +45,7 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | Ethereum (ERC-20) | `0x72e4f9f808c49a2a61de9c5896298920dc4eeea9` | Team |
 | Solana (SPL mint, later) | `CTgiaZUK12kCcB8sosn4Nt2NZtzLgtPqDwyQyr2syATC` | Team |
 
-The services read `decimals` from the contract at startup. Nothing hardcodes them. Before launch, check the address on chain against the project's official channels. All token amounts are stored in base units as `numeric`, never as a float.
+The services read `decimals` from the contract at startup. Nothing hardcodes them. One whole token is `10^decimals` base units, and 1 Verse equals one whole token. Before launch, check the address on chain against the project's official channels. All token amounts are stored in base units as `numeric`, never as a float.
 
 ## Accepted risk: bot farming
 
@@ -61,7 +61,7 @@ The bot risk is accepted too. The plan does not gate cash-out on server-checked 
 
 ## Limits
 
-Every limit is stored in Verse in one config row, and every change is logged. The admin page shows the implied dollar value using a reference price the operator enters with the rate. Every daily window resets at **00:00 UTC**.
+Every limit is stored in Verse in one config row, and every change is logged. Since 1 Verse = 1 `$BITCOIN`, a limit in Verse is the same number of tokens. The admin page shows the dollar value using a reference `$BITCOIN` price the operator enters. Every daily window resets at **00:00 UTC**.
 
 | Lock | Scope | Where it is counted |
 | --- | --- | --- |
@@ -72,9 +72,10 @@ Every limit is stored in Verse in one config row, and every change is logged. Th
 
 The server enforces every lock. The claim contract enforces none of them, by decision.
 
-- With the current earn caps an account can earn up to 200 Verse a day. The cash-out lock is set on its own so it is worth about $5 at the configured rate.
+- With the current earn caps an account can earn up to 200 Verse a day. The cash-out lock is set on its own so it is worth about $5 at the current `$BITCOIN` price: `$5 ÷ price` Verse.
 - **Hourly release (default; can be turned off).** The global $500 opens in 24 equal slices, about $20.83 an hour. Unused budget rolls forward until midnight UTC.
-- **Price drift.** Since the rate is fixed in tokens, a jump in the `$BITCOIN` price raises the real dollar value of every limit. An optional price check (a DEX quote) only alerts, or turns off voucher issuing on the server, when the implied value of the global limit goes past a threshold the operator sets. It never changes the rate itself.
+- **Price drift.** The rate never moves, so the limits are the dial. When the `$BITCOIN` price moves, the operator changes the per-account and global locks in Verse to keep them near $5 and $500. An optional price check (a DEX quote) alerts, or turns off voucher issuing on the server, when the dollar value of the global lock goes past a threshold the operator sets.
+- **The rest of the economy moves with the token price too.** Ticket-to-Verse (10:1), the earn caps (50 Verse per game per day), and store prices (Hopium 400 Verse, COOM 600 Verse) all now have a dollar value equal to that many tokens. Those numbers are the levers for the in-game economy; the exchange rate is not.
 
 ## Wallet linking
 
@@ -86,10 +87,10 @@ The server enforces every lock. The claim contract enforces none of them, by dec
 
 ## Exchange rate
 
-- `game.verse_rate (version, chain, tokens_per_verse, ref_usd_per_verse, effective_at, set_by)`, append-only. The current rate is the highest version that has taken effect.
-- Every deposit, purchase intent, and voucher stores the `rate_version` it used.
-- **Rate changes and bought Verse.** Since bought Verse can be cashed out at the same fixed rate, buying and then cashing out with no rate change gains the player nothing and costs them gas. A rate change is different: raising `tokens_per_verse` gives every Verse holder more tokens at cash-out. That exposure is bounded by the two cash-out locks. To keep it small, pause voucher issuing for an hour around a change, or announce changes ahead of time.
-- **Admin control.** An RPC that accepts only the Nakama server key (`http_key`), called from a CLI script or a small admin page behind Caddy auth. It sets the rate, the limits, and the kill switches. Every call writes `game.economy_config_log`.
+- **1 Verse = 1 `$BITCOIN`.** It is not stored in a table and there is no rate version. Verse stays an integer, and only whole tokens are paid out.
+- **In the contract.** A voucher's `amount` is in whole Verse, and the contract pays `amount × 10^decimals` base units, with `decimals` read from the token when the contract is deployed and stored as `immutable`. Since the contract has no owner, the 1:1 rule can never change.
+- **No rate-change arbitrage.** Buying and cashing out is a round trip that only costs the player gas, because the rate never changes.
+- **Admin control.** An RPC that accepts only the Nakama server key (`http_key`), called from a CLI script or a small admin page behind Caddy auth. It sets the limits, the reference price, and the kill switches. Every call writes `game.economy_config_log`.
 
 ## Pay-in: `$BITCOIN` → Verse → item
 
@@ -98,14 +99,14 @@ The deposit address is the Ethereum treasury multisig (Safe) itself. Pay-in uses
 Matching is by sender. Each account has at most one linked Ethereum wallet, so any `$BITCOIN` transfer **from a linked wallet to the deposit address** is credited to that account. No memo, reference key, or payment contract is needed. The player pays the gas for the transfer.
 
 - **Watching.** Watch `Transfer(from, to = treasury, value)` logs on the token contract. The dedupe key is `(chain, tx_hash, log_index)`. Credit the logged `value` (what was actually received), and only after the block is `finalized`.
-- **Conversion.** `verse = floor(amount / tokens_per_verse)`. The remainder is kept per account in `game.deposit_dust` and added to the next deposit.
+- **Conversion.** `verse = floor(amount / 10^decimals)`: one Verse per whole token. A fraction of a token is kept per account in `game.deposit_dust` and added to the next deposit.
 - **Ledger.** `game.verse_ledger` gets `source = 'deposit:eth'`. Deposits never write `game.verse_earned`, so bought Verse does not count on the Bar scoreboard.
 - **Unmatched deposits.** A transfer from an address that is not linked is stored with status `unmatched`. If that address is linked later, the signature proves ownership, so the deposit is credited to that account at that point.
 - **Wrong token or wrong chain.** It is not watched and not credited. The machine says so before the player sends anything.
 
 **Buying an item with `$BITCOIN`:**
 
-1. Checkout writes `game.purchase_intent (intent_id, user_id, item_id, verse_price, chain, token_amount, rate_version, expires_at)`. Since the rate is fixed, `token_amount` is exact.
+1. Checkout writes `game.purchase_intent (intent_id, user_id, item_id, verse_price, chain, token_amount, expires_at)`. `token_amount` is `verse_price` whole tokens.
 2. The player sends `token_amount` from their linked wallet.
 3. When the deposit is credited, the same transaction looks for an open intent from that account whose `token_amount` is less than or equal to the credited amount. If it finds one, it runs the M7 `store.purchase` debit with the intent id as the idempotency key.
 4. If no intent matches, it has expired, or the item is already owned (`HubPets.derivedOwned` or `game.item_owned`), the Verse just stays in the wallet. There are no refunds.
@@ -116,11 +117,11 @@ The player pays gas, so cash-out uses a claim contract. The server never sends t
 
 ### Claim contract (`VerseCashout`)
 
-Written by the smart contract engineer, reviewed by the security QA expert (see [Smart contract team and review](#smart-contract-team-and-review)). Required behaviour:
+Written by the builder agent, attacked by the exploit agents (see [Smart contract team and review](#smart-contract-team-and-review)). Required behaviour:
 
 - It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe with plain token transfers. The float is the most that can be lost on chain, so it stays small: about one day of the global lock plus the vouchers already issued.
 - `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. With batching, a player can save up several days of vouchers and pay gas once.
-- A voucher is EIP-712 typed data: `id`, `recipient`, `amount`, `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
+- A voucher is EIP-712 typed data: `id`, `recipient`, `amount` (whole Verse, paid 1:1 as whole tokens), `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
 - Each `id` can be claimed exactly once. A claim after `expiry` reverts.
 - **No on-chain limit** (decision). Only the voucher amounts and the float bound what can be claimed.
 - **No pause** (decision). Players can always claim a signed, unexpired voucher while the float covers it.
@@ -161,7 +162,7 @@ The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior
 - **Open.** Pressing E releases pointer lock and opens an overlay styled as the cabinet screen. Movement keys are ignored while it is open. Esc or walking away closes it.
 - **Screens on the machine:**
   - **Wallet**: link or replace the Ethereum wallet (MetaMask or WalletConnect), show the linked address and the 72-hour hold.
-  - **Buy Verse**: the rate, the deposit address, the exact amount, and pending and credited deposits.
+  - **Buy Verse**: 1 Verse = 1 `$BITCOIN`, the deposit address, the exact amount, and pending and credited deposits.
   - **Cash out**: Verse balance, today's room on the per-account lock, the global room for the current hour, the amount picker, and the vouchers waiting to be claimed with a Claim all button.
   - **History**: deposits, vouchers, claims, refunds.
 - **Offline.** With no Nakama session, the machine shows "Exchange offline" and nothing else.
@@ -177,7 +178,6 @@ All tables go through the schema migration ledger as new entries. No existing id
 | `game.wallet_link` | `(user_id, chain)` PK, `address` unique per chain, `linked_at` |
 | `game.wallet_link_log` | Append-only link and unlink history |
 | `game.link_nonce` | Single-use nonces for the signing messages |
-| `game.verse_rate` | Append-only, versioned rate |
 | `game.economy_config` / `_log` | Limits, kill switches, reference price; append-only log |
 | `game.deposit` | One row per credited or unmatched transfer, unique chain key |
 | `game.deposit_dust` | Token remainder per account |
@@ -197,7 +197,7 @@ All tables go through the schema migration ledger as new entries. No existing id
 | `wallet.status` | Player. Linked wallet, hold expiry, both windows, open vouchers |
 | `store.intent` | Player. Creates a `$BITCOIN` purchase intent |
 | `wallet.withdraw` | Player. Debits Verse and issues a voucher |
-| `economy.admin` | Server key only. Rate, limits, kill switches |
+| `economy.admin` | Server key only. Limits, reference price, kill switches |
 | `chain.credit` | Server key only. The watcher reports a finalized deposit |
 | `chain.claim_update` | Server key only. The watcher reports claims and expiries |
 | `voucher.sign` | Server key only. The signer stores a voucher signature |
@@ -273,7 +273,7 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 
 ## Compliance notes
 
-Handled at the end, before mainnet launch (build order step 5), together with the terms and conditions.
+Deferred to the end of the project, together with the terms and conditions. Not part of the build order.
 
 - **KYC.** None is required by decision. Telling players to report income covers their own taxes, not the operator's obligations. A small daily limit does not by itself put the service outside money-transmission rules. Recommended: a one-time review with a crypto lawyer before cash-out launches.
 - **Sanctions screening (recommended).** Check addresses against published sanctions lists at link time and before each voucher is issued. It needs no player identity.
@@ -287,23 +287,22 @@ Handled at the end, before mainnet launch (build order step 5), together with th
 - A deposit reported twice. A deposit inside a range the watcher replays.
 - A claim in the same block as the voucher's expiry. No refund before a finalized block past expiry.
 - A `Claimed` event for an id the database doesn't have.
-- A rate change between the purchase intent and the deposit.
+- A deposit with a fraction of a token, and the dust carried into the next one.
 - A wallet change followed by a withdrawal attempt inside the 72-hour hold.
 - Account recovery and merge with linked wallets and open vouchers.
 
 ## Build order
 
-1. Wallet linking, `wallet.status`, admin rate and limits, kill switches, and the exchange machine shell (proximity, E prompt, overlay, Wallet screen).
+1. Wallet linking, `wallet.status`, admin limits, kill switches, and the exchange machine shell (proximity, E prompt, overlay, Wallet screen).
 2. Ethereum pay-in: watcher, deposits, purchase intents, Buy Verse screen.
 3. Claim contract: builder agent, exploit agent passes, fix and fresh re-review loop until clean, Sepolia.
 4. Ethereum cash-out: voucher signer, KMS, both locks with hourly release, Cash out screen, store checkout "Pay with $BITCOIN", backend exploit passes, end-to-end on Sepolia.
-5. Legal review, terms and conditions, and the compliance items below.
-6. Mainnet with a small float and low server-side limits, then raise them.
+5. Mainnet with a small float and low server-side limits, then raise them.
 
 ## Later: Solana
 
-Solana uses its own treasury pool (a Squads multisig) and its own float, and the same rate as Ethereum. Verse is one balance, so Verse bought on one chain can be cashed out on the other. The operator rebalances the two pools by hand. Pay-in matches by sender, the same as on Ethereum. Cash-out needs its own claim program, built and reviewed by the same agent process.
+Solana uses its own treasury pool (a Squads multisig) and its own float, and the same 1:1 rate. Verse is one balance, so Verse bought on one chain can be cashed out on the other. The operator rebalances the two pools by hand. Pay-in matches by sender, the same as on Ethereum. Cash-out needs its own claim program, built and reviewed by the same agent process.
 
 ## Open questions
 
-None open. Legal, terms and conditions, sanctions screening, and the age gate on the machine are handled at the end (build order step 5).
+None open. Legal, terms and conditions, sanctions screening, and the age gate on the machine are deferred to the end of the project.
