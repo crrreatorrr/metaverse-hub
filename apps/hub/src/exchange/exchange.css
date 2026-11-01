@@ -334,3 +334,73 @@
   border: 1px solid rgba(57, 255, 106, 0.35);
   border-radius: 10px;
 }
+
+/* Wallet picker */
+.exchange-wallet-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.exchange-wallet {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(120, 255, 240, 0.35);
+  border-radius: 8px;
+  background: rgba(10, 20, 40, 0.6);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.exchange-wallet:hover:not(:disabled) {
+  border-color: rgba(120, 255, 240, 0.9);
+}
+
+.exchange-wallet:disabled,
+.exchange-wallet.off {
+  opacity: 0.6;
+}
+
+.exchange-wallet-icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  font-weight: 700;
+}
+
+.exchange-wallet-name {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 2px;
+}
+
+.exchange-wallet-name .exchange-fine {
+  margin: 0;
+}
+
+.exchange-wallet-go {
+  font-size: 0.85em;
+  opacity: 0.8;
+}
+
+.exchange-qr {
+  display: block;
+  width: 240px;
+  height: 240px;
+  margin: 10px auto;
+  padding: 8px;
+  border-radius: 8px;
+  background: #fff;
+  image-rendering: pixelated;
+}

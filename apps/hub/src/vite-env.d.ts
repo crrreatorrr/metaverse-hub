@@ -7,6 +7,8 @@ interface ImportMetaEnv {
   readonly VITE_GAME_URL_NOBU?: string;
   readonly VITE_GAME_URL_PEOPLES_BITCOIN?: string;
   readonly VITE_GAME_URL_SPROTO_DUEL?: string;
+  /** WalletConnect (Reown) project id for the exchange machine. Without it WalletConnect is shown as not set up. */
+  readonly VITE_WALLETCONNECT_PROJECT_ID?: string;
 }
 
 interface HubDebugState {

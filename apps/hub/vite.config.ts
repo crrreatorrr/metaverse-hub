@@ -46,6 +46,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@metaverse/hub-sdk': resolve(__dirname, '../../packages/hub-sdk/src/index.ts'),
+      // WalletConnect's QR modal (Reown AppKit) is never used: the exchange machine draws its
+      // own QR code with showQrModal: false. The stub keeps the modal out of the build.
+      '@reown/appkit/core': resolve(__dirname, 'src/exchange/appkit-stub.ts'),
     },
   },
   server: {

@@ -171,7 +171,10 @@ The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior
 - **Proximity.** Inside the Bar, when the player is within about 1.6 m of the cabinet's front, the hint line shows `Press E to use the exchange machine`. E is not bound today. Moving away hides the hint. This follows the same pattern as `updateHint` in `apps/hub/src/main.ts`.
 - **Open.** Pressing E releases pointer lock and opens an overlay styled as the cabinet screen. Movement keys are ignored while it is open. Esc or walking away closes it.
 - **Screens on the machine:**
-  - **Wallet**: link or replace the Ethereum wallet (an injected wallet such as MetaMask; WalletConnect is not built yet), show the linked address and the 72-hour hold.
+  - **Wallet**: pick a wallet, link or replace it, show the linked address and the 72-hour hold.
+    - **Browser extensions** are found with EIP-6963, so several can be installed side by side and each is listed by name. MetaMask, Rabby, Phantom and Trust Wallet are always listed, with an Install link when missing.
+    - **Phone wallets** (Trust Wallet, MetaMask, Rabby, Rainbow and others) connect with WalletConnect v2 through a QR code drawn on the machine. WalletConnect needs `VITE_WALLETCONNECT_PROJECT_ID`, a free project id from cloud.reown.com, at build time; without it, WalletConnect shows as not set up.
+    - The choice is remembered, and the WalletConnect code (about 143 kB gzip) loads only when it is picked.
   - **Buy Verse**: 1 Verse = 1 `$BITCOIN`, the deposit address, the exact amount, and pending and credited deposits.
   - **Cash out**: Verse balance, today's room on the per-account lock, the global room for the current hour, the amount picker, and the vouchers waiting to be claimed with a Claim all button.
   - **History**: deposits, vouchers, claims, refunds.

@@ -1,12 +1,8 @@
-// Injected-wallet (EIP-1193) calls for the exchange machine. Lazy chunk only: main.ts never
-// imports this file, so viem stays out of the hub entry bundle.
+// EIP-1193 calls for the exchange machine, against whichever wallet ./wallets has selected
+// (a browser extension or WalletConnect). Lazy chunk only: main.ts never imports this file,
+// so viem stays out of the hub entry bundle.
 import { encodeFunctionData, erc20Abi, getAddress, isAddress, parseAbi, stringToHex, type Hex } from 'viem';
-
-interface Eip1193Provider {
-  request(args: { method: string; params?: readonly unknown[] }): Promise<unknown>;
-  on?(event: string, listener: (...args: unknown[]) => void): void;
-  removeListener?(event: string, listener: (...args: unknown[]) => void): void;
-}
+import { activeProvider, onWalletsChange, type Eip1193Provider } from './wallets';
 
 /** A voucher as the claim contract takes it: `(uint256 id, address recipient, uint256 amount, uint256 expiry)`. */
 export interface ClaimVoucher {
@@ -35,15 +31,14 @@ export class WalletError extends Error {
   }
 }
 
+/** The selected wallet, or null until the player picks one. */
 export function provider(): Eip1193Provider | null {
-  const injected = (window as { ethereum?: unknown }).ethereum;
-  if (!injected || typeof (injected as Eip1193Provider).request !== 'function') return null;
-  return injected as Eip1193Provider;
+  return activeProvider();
 }
 
 function need(): Eip1193Provider {
   const p = provider();
-  if (!p) throw new WalletError('No Ethereum wallet in this browser');
+  if (!p) throw new WalletError('Choose a wallet on the Wallet tab first.');
   return p;
 }
 
@@ -142,16 +137,29 @@ export function sendClaim(from: string, cashout: string, vouchers: readonly Clai
   return send(from, checksum(cashout), data);
 }
 
-/** Wallet events while the machine is open. Returns the unsubscribe. */
+/** Wallet events while the machine is open, following the selected wallet. Returns the unsubscribe. */
 export function watchWallet(onChange: () => void): () => void {
-  const p = provider();
-  if (!p?.on) return () => {};
   const listener = () => onChange();
-  p.on('accountsChanged', listener);
-  p.on('chainChanged', listener);
+  let bound: Eip1193Provider | null = null;
+  const bind = () => {
+    bound?.removeListener?.('accountsChanged', listener);
+    bound?.removeListener?.('chainChanged', listener);
+    bound?.removeListener?.('disconnect', listener);
+    bound = provider();
+    bound?.on?.('accountsChanged', listener);
+    bound?.on?.('chainChanged', listener);
+    bound?.on?.('disconnect', listener);
+  };
+  bind();
+  const off = onWalletsChange(() => {
+    bind();
+    onChange();
+  });
   return () => {
-    p.removeListener?.('accountsChanged', listener);
-    p.removeListener?.('chainChanged', listener);
+    off();
+    bound?.removeListener?.('accountsChanged', listener);
+    bound?.removeListener?.('chainChanged', listener);
+    bound?.removeListener?.('disconnect', listener);
   };
 }
 

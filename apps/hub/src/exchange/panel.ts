@@ -15,8 +15,10 @@ import {
 } from '@metaverse/hub-sdk';
 import { formatUnits, type Hex } from 'viem';
 import { explain, retryable } from './copy';
+import qrcode from 'qrcode-generator';
 import * as eth from './eth';
 import type { ExchangeSession } from './machine';
+import * as wallets from './wallets';
 
 export type PanelMode = { kind: 'machine' } | { kind: 'pay'; itemId: string };
 
@@ -104,7 +106,11 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
     buyAmount: '',
     cashAmount: '',
     pendingWithdraw: null as { amount: number; key: string } | null,
+    /** WalletConnect pairing link while the QR code is on screen. */
+    wcUri: null as string | null,
   };
+  /** Bumped when a WalletConnect pairing is cancelled, so its late result is ignored. */
+  let pairing = 0;
   let api: WalletApi | null = null;
   let sentKey = 'hub.exchange.sent';
   let sent: SentLog = { deposits: [], claims: {} };
@@ -187,6 +193,9 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
   }
 
   async function readWallet(): Promise<void> {
+    if (!eth.provider() && state.status) {
+      await wallets.restoreWallet(state.status.chain.chainId).catch((error) => console.warn('[exchange] wallet restore failed', error));
+    }
     if (!eth.provider()) {
       state.account = null;
       state.chain = null;
@@ -257,6 +266,43 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
   const connect = () => act('connect', async () => {
     state.account = await eth.requestAccount();
     await refresh();
+  });
+
+  /** Picks a wallet from the list, then asks it for an account. */
+  const choose = (option: wallets.WalletOption) => {
+    if (option.kind === 'injected') {
+      return act('connect', async () => {
+        await wallets.selectWallet(option.id, state.status?.chain.chainId ?? 1, () => {});
+        state.account = await eth.requestAccount();
+        await refresh();
+      });
+    }
+    return act('pair', async () => {
+      const ticket = ++pairing;
+      await wallets.selectWallet(option.id, state.status?.chain.chainId ?? 1, (uri) => {
+        if (ticket !== pairing || dead) return;
+        state.wcUri = uri;
+        render();
+      });
+      if (ticket !== pairing) return;
+      state.account = await eth.requestAccount();
+      await refresh();
+    });
+  };
+
+  const cancelPairing = () => {
+    pairing++;
+    state.wcUri = null;
+    state.busy = '';
+    void wallets.forgetWallet().then(() => readWallet()).then(render);
+    render();
+  };
+
+  const changeWallet = () => act('forget', async () => {
+    await wallets.forgetWallet();
+    state.account = null;
+    state.chain = null;
+    state.gas = null;
   });
 
   const switchChain = (target: number) => act('switch', async () => {
@@ -457,7 +503,7 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
     if (!status.wallet) return 'Link a wallet on the Wallet tab first. Deposits are matched by the wallet they come from.';
     if (!status.chain.depositAddress) return 'The deposit address is not set up yet.';
     if (status.chain.tokenDecimals === null) return 'Token details are not ready yet. Try again shortly.';
-    if (!eth.provider()) return 'Open this page in a browser with MetaMask or another Ethereum wallet.';
+    if (!eth.provider()) return 'Choose a wallet on the Wallet tab first.';
     return tokenMismatch(status, status.chain.tokenAddress);
   }
 
@@ -530,6 +576,8 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
   function busyText(label: string): string {
     switch (label) {
       case 'connect': return 'Waiting for your wallet…';
+      case 'pair': return 'Scan the code with your phone wallet, then approve the connection there.';
+      case 'forget': return 'Disconnecting…';
       case 'switch': return 'Waiting for your wallet to switch network…';
       case 'link': return 'Sign the message in your wallet. Signing is free and sends nothing.';
       case 'buy':
@@ -576,7 +624,51 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
   }
 
   function noWalletApp(): HTMLElement {
-    return warn('No Ethereum wallet found. Open this page in a browser with MetaMask or another Ethereum wallet.');
+    return h('div', { class: 'exchange-row' },
+      warn('Choose a wallet first.'),
+      h('button', { type: 'button', class: 'exchange-button ghost', 'data-key': 'to-wallet', onclick: () => { state.tab = 'wallet'; render(); } }, 'Choose a wallet'),
+    );
+  }
+
+  function walletPicker(): HTMLElement {
+    const box = h('div', { class: 'exchange-wallets' });
+    if (state.wcUri) {
+      const qr = qrcode(0, 'M');
+      qr.addData(state.wcUri);
+      qr.make();
+      const img = h('img', { class: 'exchange-qr', alt: 'WalletConnect QR code', src: qr.createDataURL(6, 2) });
+      box.append(
+        h('p', {}, 'Scan with your phone wallet (Trust Wallet, MetaMask, Rabby, Rainbow…) using its WalletConnect scanner.'),
+        img,
+        h('div', { class: 'exchange-row' },
+          h('button', { type: 'button', class: 'exchange-copy', 'data-key': 'copy-wc', onclick: () => copy(state.wcUri ?? '') }, 'Copy link'),
+          h('button', { type: 'button', class: 'exchange-button ghost', 'data-key': 'cancel-wc', onclick: cancelPairing }, 'Cancel'),
+        ),
+      );
+      return box;
+    }
+    box.append(h('p', {}, 'Choose your wallet:'));
+    const list = h('div', { class: 'exchange-wallet-list' });
+    for (const option of wallets.walletOptions()) {
+      const icon = option.icon ? h('img', { class: 'exchange-wallet-icon', src: option.icon, alt: '' }) : h('span', { class: 'exchange-wallet-icon' }, option.name.slice(0, 1));
+      const label = h('span', { class: 'exchange-wallet-name' }, option.name, option.note ? h('span', { class: 'exchange-fine' }, option.note) : null);
+      if (option.installed) {
+        list.append(h('button', {
+          type: 'button',
+          class: 'exchange-wallet',
+          'data-key': `wallet-${option.id}`,
+          disabled: Boolean(state.busy),
+          onclick: () => void choose(option),
+        }, icon, label, h('span', { class: 'exchange-wallet-go' }, option.kind === 'walletconnect' ? 'Scan QR' : 'Connect')));
+      } else if (option.installUrl) {
+        list.append(h('a', { class: 'exchange-wallet off', href: option.installUrl, target: '_blank', rel: 'noopener' },
+          icon, label, h('span', { class: 'exchange-wallet-go' }, 'Install')));
+      } else {
+        list.append(h('div', { class: 'exchange-wallet off' }, icon, label));
+      }
+    }
+    box.append(list, fine('Phantom and Trust Wallet work here through their browser extensions. Phone wallets connect with WalletConnect.'));
+    return box;
   }
 
   function chainCheck(status: WalletStatus): HTMLElement | null {
@@ -599,18 +691,26 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
     } else {
       box.append(h('p', {}, 'No wallet linked yet. Link one to buy Verse with HPOS10I $BITCOIN and to cash out.'));
     }
-    box.append(h('h3', {}, 'Wallet in this browser'));
+    box.append(h('h3', {}, 'Your wallet'));
     if (!eth.provider()) {
-      box.append(noWalletApp());
+      box.append(walletPicker());
       return box;
     }
+    const chosen = wallets.activeWallet();
     if (!state.account) {
-      box.append(h('p', {}, 'Not connected.'), button('Connect wallet', 'connect', () => void connect()));
+      box.append(
+        h('p', {}, `${chosen?.name ?? 'Wallet'} is not connected.`),
+        h('div', { class: 'exchange-row' },
+          button('Connect wallet', 'connect', () => void connect()),
+          button('Use a different wallet', 'change', () => void changeWallet(), { primary: false }),
+        ),
+      );
       return box;
     }
     box.append(
       addressRow('Connected', state.account, status.chain.chainId),
-      fine(`Network: ${state.chain === null ? 'unknown' : eth.chainName(state.chain)}`),
+      fine(`${chosen?.name ?? 'Wallet'} · Network: ${state.chain === null ? 'unknown' : eth.chainName(state.chain)}`),
+      button('Use a different wallet', 'change', () => void changeWallet(), { primary: false }),
     );
     box.append(chainCheck(status) ?? '');
     if (linked && eth.sameAddress(linked.address, state.account)) {
@@ -858,7 +958,7 @@ export function mountPanel(root: HTMLElement, options: PanelOptions): PanelHandl
     const block = !status.wallet ? 'Link a wallet on the Wallet tab first.'
       : !status.chain.depositsOpen ? 'Deposits are closed right now. Do not send tokens until they reopen.'
         : intent.expiresAt <= now() ? 'This checkout expired. Start again from the store.'
-          : !eth.provider() ? 'Open this page in a browser with MetaMask or another Ethereum wallet.'
+          : !eth.provider() ? 'Choose a wallet on the Wallet tab first.'
             : tokenMismatch(status, intent.tokenAddress);
     if (block) box.append(warn(block));
     else box.append(button(`Send ${tokens} ${TOKEN}`, 'pay', () => void pay()));
