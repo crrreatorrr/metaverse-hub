@@ -20,7 +20,14 @@ import {
 import { WORLD_ROOT, animated, glow, loadGLTF, neonMat } from './core';
 
 export const R = 110;
+/** Floor drawing space in px. The canvases are smaller and scale this down. */
 export const S = 4096;
+/** Base colour canvas. 4096 squared cost ~170 MB of GPU memory across both maps and stalled the first frame. */
+const BASE_PX = 2048;
+/** The glow is blurred anyway, so it gets a quarter of the drawing space. */
+const GLOW_PX = 1024;
+/** shadowBlur ignores the canvas transform, so blur radii are scaled by hand. */
+const GLOW_SCALE = GLOW_PX / S;
 const toPx = (x: number) => ((x / R + 1) / 2) * S;
 
 export interface FloorPath {
@@ -31,12 +38,14 @@ export interface FloorPath {
 
 export function drawFloor(paths: readonly FloorPath[]): { map: CanvasTexture; emissiveMap: CanvasTexture } {
   const base = document.createElement('canvas');
-  base.width = base.height = S;
+  base.width = base.height = BASE_PX;
   const emi = document.createElement('canvas');
-  emi.width = emi.height = S;
+  emi.width = emi.height = GLOW_PX;
   const b = base.getContext('2d');
   const e = emi.getContext('2d');
   if (!b || !e) throw new Error('2d context unavailable');
+  b.setTransform(BASE_PX / S, 0, 0, BASE_PX / S, 0, 0);
+  e.setTransform(GLOW_SCALE, 0, 0, GLOW_SCALE, 0, 0);
   b.fillStyle = '#100a1d';
   b.fillRect(0, 0, S, S);
   b.strokeStyle = 'rgba(120,100,200,0.10)';
@@ -67,7 +76,7 @@ export function drawFloor(paths: readonly FloorPath[]): { map: CanvasTexture; em
     e.strokeStyle = c;
     e.lineWidth = w;
     e.shadowColor = c;
-    e.shadowBlur = 18;
+    e.shadowBlur = 18 * GLOW_SCALE;
     e.beginPath();
     e.arc(S / 2, S / 2, (r / R) * S / 2, 0, Math.PI * 2);
     e.stroke();
@@ -82,7 +91,7 @@ export function drawFloor(paths: readonly FloorPath[]): { map: CanvasTexture; em
     const c = rnd() < 0.6 ? '#00d9ff' : '#ff3bd4';
     e.strokeStyle = c;
     e.shadowColor = c;
-    e.shadowBlur = 8;
+    e.shadowBlur = 8 * GLOW_SCALE;
     e.lineWidth = 3;
     e.beginPath();
     e.moveTo(...P(Math.sin(a0) * r0, -Math.cos(a0) * r0));
@@ -130,7 +139,7 @@ export function drawFloor(paths: readonly FloorPath[]): { map: CanvasTexture; em
     }
     e.strokeStyle = p.tint;
     e.shadowColor = p.tint;
-    e.shadowBlur = 20;
+    e.shadowBlur = 20 * GLOW_SCALE;
     e.lineWidth = 9;
     for (const w of [W / 2, -W / 2]) {
       e.beginPath();
@@ -172,7 +181,7 @@ function drawPaw(e: CanvasRenderingContext2D, x: number, y: number, c: string, a
   e.rotate(a);
   e.fillStyle = c;
   e.shadowColor = c;
-  e.shadowBlur = 20;
+  e.shadowBlur = 20 * GLOW_SCALE;
   const s = 34;
   e.beginPath();
   e.ellipse(0, 0, s, s * 0.8, 0, 0, Math.PI * 2);
