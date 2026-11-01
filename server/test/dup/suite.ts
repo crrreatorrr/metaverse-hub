@@ -833,7 +833,7 @@ async function wallet(): Promise<void> {
     const before = earnFootprint(session.hub.userId, exchange.game);
     const again = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'after-session',
       now: 0,
       timestamp: '1999-01-01T00:00:00Z',
@@ -862,7 +862,7 @@ async function wallet(): Promise<void> {
     const session = await login(exchange.game);
     const stamped = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'stamped',
       now: 0,
       timestamp: '1999-01-01T00:00:00Z',
@@ -878,7 +878,7 @@ async function wallet(): Promise<void> {
     );
     const today = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'server-today',
       day: '1999-01-01',
     }, session.gameToken);
