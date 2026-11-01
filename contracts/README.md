@@ -46,13 +46,14 @@ The constructor arguments can never be changed after deploy, and the contract ca
    - `CASHOUT_SIGNER` is the Ethereum address of the voucher signer's KMS key. Derive it from the KMS public key with `npm run signer-address` in `server/chain`.
    - Mainnet and Sepolia use **different** KMS keys. The mainnet run needs `CASHOUT_SEPOLIA_SIGNER` and refuses to deploy if it equals the mainnet signer.
 4. **Proof that the key exists.** Run `npm run signer-proof -- <chainId> <token>` in `server/chain` and put the output in `CASHOUT_SIGNER_PROOF`. The script recovers the signer from it and refuses to deploy otherwise. This rules out precompiles, the cashout's own address, and keys that do not exist. The script also refuses the deploying account as signer.
-5. **`CASHOUT_CHAIN_ID`** must be `1` or `11155111` and must equal the RPC's chain.
-6. **Sepolia first.** Run once against Sepolia with a test token and run the full end-to-end flow. Then deploy to mainnet:
+5. **`CASHOUT_CHAIN_ID`** must be `1` or `11155111`. The script asks the RPC itself (`eth_chainId`) and refuses if that differs from forge's chain id, so a stale `--chain` or `FOUNDRY_CHAIN_ID` cannot deploy to mainnet under Sepolia rules.
+6. **Canary in simulation.** `CASHOUT_TOKEN_HOLDER` is an address holding at least one whole token, for example the Safe. Before broadcasting anything, the script deploys a throwaway cashout in simulation, funds it with one token from that holder, claims a 1-Verse voucher, and refuses unless exactly one token left the contract and exactly one arrived. This tests the real token's transfer behaviour at the current block. Nothing from this step is broadcast.
+7. **Sepolia first.** Run once against Sepolia with a test token and run the full end-to-end flow. Then deploy to mainnet:
 
    ```bash
    forge script script/Deploy.s.sol --rpc-url "$RPC_URL" --broadcast --verify
    ```
 
-7. **Verify.** Verify the source on Etherscan. Read back `token()`, `signer()` and `unit()` and compare them with steps 1–3.
-8. **Canary claim.** Send exactly **1 whole token** to the contract. Issue a 1-Verse voucher to a team wallet through the real signer service, and claim it on mainnet. Only after that claim succeeds, and the watcher records it, send the first real float.
-9. **Refill in whole tokens only.** Anything below one whole token can never leave the contract.
+8. **Verify.** Verify the source on Etherscan. Read back `token()`, `signer()` and `unit()` and compare them with steps 1–3.
+9. **Canary claim.** Send exactly **1 whole token** to the contract. Issue a 1-Verse voucher to a team wallet through the real signer service, and claim it on mainnet. Only after that claim succeeds, and the watcher records it, send the first real float.
+10. **Refill in whole tokens only.** Anything below one whole token can never leave the contract.

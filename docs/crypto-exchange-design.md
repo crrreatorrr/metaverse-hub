@@ -122,11 +122,11 @@ Written by the builder agent, attacked by the exploit agents (see [Smart contrac
 
 - It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe with plain token transfers, **in whole tokens only**. The float is the most that can be lost on chain.
 - **How big the float is.** Vouchers last 30 days and players may save them up. A claim that the float can't cover reverts with nothing marked, and the voucher stays claimable once the float is refilled. So a float smaller than the open vouchers delays players; it never loses their vouchers. Keep the float near one or two days of the global lock and refill as it is claimed. Honouring every open voucher at once would need up to about 30 days of the global lock, roughly $15,000 at $500 a day, which is also what a leaked key could take.
-- `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. With batching, a player can save up several days of vouchers and pay gas once.
+- `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. Only the recipient can submit a voucher, so nobody can front-run or grief someone else's claim. With batching, a player can save up several days of vouchers and pay gas once.
 - A voucher is EIP-712 typed data: `id`, `recipient`, `amount` (whole Verse, paid 1:1 as whole tokens), `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
 - Each `id` can be claimed exactly once. A claim after `expiry` reverts.
 - **No on-chain limit** (decision). Only the voucher amounts and the float bound what can be claimed.
-- **No pause** (decision). Players can always claim a signed, unexpired voucher while the float covers it.
+- **No pause** (decision). Players can always claim a signed, unexpired voucher while the float covers it, unless the token itself pauses or blocklists transfers.
 - **No owner** (decision). The signer address and the token address are `immutable`, set in the constructor. There are no admin functions, no signer rotation, and no way to take tokens out except a valid voucher claim. Once deployed, nobody can change the contract's rules, the operator included.
 - **Replacing the contract.** Deploy a new contract with a new signer, point the voucher signer at it, and stop refilling the old one. Vouchers already issued for the old contract stay claimable there until they expire. The only way anything comes back out is a voucher, signed by the old key, to the Safe, for whole tokens. Less than one whole token stays forever.
 - Not upgradeable. A new version is a new deployment.
@@ -153,7 +153,7 @@ Before signing for a cashout contract, the signer reads that contract's `signer(
    - the address passes the sanctions check (recommended, below);
    - the kill switch is off.
 
-   If all pass, it debits Verse (`source = 'withdraw:eth'`), adds to both windows, and inserts `game.withdrawal` with a new voucher `id`, `recipient`, the token amount, `expiry` (30 days), and status `issued`. Everything happens in one transaction.
+   If all pass, it debits Verse (`source = 'withdraw:eth'`), adds to both windows, and inserts `game.withdrawal` with a new random voucher `id`, `recipient`, the amount in whole Verse, `expiry` (30 days), and status `issued`. Everything happens in one transaction.
 3. The voucher signer service signs the voucher through the KMS and stores the signature on the row (`signed`). The signer only signs rows in `issued`, and only once.
 4. The machine shows every signed, unclaimed voucher. The player claims one or all of them in one transaction from their wallet.
 5. The watcher sees `Claimed` in a finalized block. If the voucher's id, recipient and amount all match the row, it marks the row `claimed`. Anything else raises an `unknown_claim` alert.
@@ -310,7 +310,7 @@ Still to add to `server/test/dup/` (these need Nakama running): the wallet RPCs 
 
 | Piece | State |
 | --- | --- |
-| `VerseCashout` contract, deploy script, checklist | Built; reviewed by four independent AI exploit passes, fixes applied |
+| `VerseCashout` contract, deploy script, checklist | Built. Three focused AI exploit passes, fixes, then a fresh full re-review: no critical, high or medium findings left. Every PoC is kept in `contracts/test/exploits/` |
 | Migration 0004 and SQL functions | Built and tested on Postgres 16 |
 | Nakama wallet RPCs, SDK wallet API | Built; compiled and unit-tested, not yet run inside Nakama |
 | Chain service (verifier, watcher, signer, KMS, admin CLI) | Built; tested with a fake chain and real Postgres |
