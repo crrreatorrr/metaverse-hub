@@ -33,6 +33,8 @@ npm run dev
 
 Open http://127.0.0.1:5173/hub/
 
+The hub opens on a sign-up / log-in page: username, password, and a backup email (not verified yet). The plaza downloads and builds behind it. If you finish before the plaza is ready, a spinning V token and a block progress bar hold until it is. **Continue as guest** keeps the old device-only guest for that tab. A signed-in account is remembered on this browser; **Account → Sign out** returns to the page. Details are in [server/README.md](server/README.md#accounts).
+
 The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a one-time ticket in the fragment:

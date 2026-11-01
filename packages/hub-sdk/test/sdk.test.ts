@@ -256,34 +256,41 @@ async function main(): Promise<void> {
   console.log('hub-sdk tests ok');
 }
 
-function fakeJwt(userId: string): string {
-  const part = Buffer.from(JSON.stringify({ uid: userId })).toString('base64url');
+function fakeJwt(userId: string, vars?: Record<string, string>): string {
+  const payload: { uid: string; vrs?: Record<string, string> } = { uid: userId };
+  if (vars) payload.vrs = vars;
+  const part = Buffer.from(JSON.stringify(payload)).toString('base64url');
   return `e30.${part}.sig`;
 }
 
 async function liveSdk(): Promise<void> {
-  const calls: { id: string; token?: string; httpKey?: boolean; keepalive?: boolean; body: object }[] = [];
+  const calls: { id: string; token?: string; keepalive?: boolean; body: object }[] = [];
+  const custom: { id: string; create?: boolean; vars?: Record<string, string> }[] = [];
   const client: NakamaClient = {
     async authenticateDevice() {
       return { token: 'hub', userId: 'user-1' };
     },
-    async rpc<T>(id: string, body: object, opts?: { token?: string; httpKey?: boolean; keepalive?: boolean }): Promise<T> {
-      calls.push({ id, token: opts?.token, httpKey: opts?.httpKey, keepalive: opts?.keepalive, body });
-      if (id === 'session.redeem') {
-        if ((body as { ticket?: string }).ticket === 'spent') throw new HubSdkError('ticket_used', 'spent');
+    async authenticateCustom(id, create, vars) {
+      custom.push({ id, create, vars });
+      if (id === 't:spent') throw new HubSdkError('ticket_used', 'spent');
+      return {
+        token: fakeJwt('user-1', { sid: 'sid-1', ranked: '1', scope: 'game', game: 'sproto' }),
+        refreshToken: 'refresh-1',
+        userId: 'user-1',
+      };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string; keepalive?: boolean }): Promise<T> {
+      calls.push({ id, token: opts?.token, keepalive: opts?.keepalive, body });
+      if (id === 'profile.get') {
         return {
-          token: 'game-token',
           playerId: 'user-1',
+          relics: ['tinubu_crown'],
+          gameBeaten: ['sproto'],
+          scope: 'game',
           ranked: true,
-          sid: 'sid-1',
-          relics: [],
           effects: { staff: 'momentum' },
           ticketsCapLeft: 0,
-          gameBeaten: [],
         } as T;
-      }
-      if (id === 'profile.get') {
-        return { playerId: 'user-1', relics: ['tinubu_crown'], gameBeaten: ['sproto'], scope: 'game' } as T;
       }
       if (id === 'session.event') {
         const data = body as { key?: string; data?: { godMode?: boolean } };
@@ -320,7 +327,9 @@ async function liveSdk(): Promise<void> {
   assert.equal(init.ranked, true);
   assert.equal(init.effects.staff, 'momentum');
   assert.equal(hash, '');
-  assert.equal(calls[0]?.httpKey, true);
+  assert.equal(custom[0]?.id, 't:ticket-1');
+  assert.equal(custom[0]?.create, false);
+  assert.deepEqual(custom[0]?.vars, { game: 'sproto' });
   const refreshed = await sdk.init('sproto');
   assert.deepEqual(refreshed.relics, ['tinubu_crown']);
   const grant = await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 4, godMode: true }, 'beat');
@@ -343,7 +352,9 @@ async function liveSdk(): Promise<void> {
     assert.equal(error.code, 'ticket_used');
     return true;
   });
-  assert.equal(hash, '#t=spent');
+  assert.equal(hash, '');
+  assert.equal(custom.at(-1)?.id, 't:spent');
+  assert.equal(custom.at(-1)?.create, false);
 }
 
 async function nakamaClientWire(): Promise<void> {
@@ -352,7 +363,6 @@ async function nakamaClientWire(): Promise<void> {
   const client = createNakamaClient({
     serverUrl: 'http://nakama.test/',
     serverKey: LOCAL_NAKAMA.serverKey,
-    httpKey: LOCAL_NAKAMA.httpKey,
     fetchImpl: async (url, init) => {
       seen.push(String(url));
       if (String(url).includes('/authenticate/device')) {
