@@ -1,18 +1,41 @@
 import {
+  AdditiveBlending,
   AnimationClip,
   AnimationMixer,
   Box3,
+  CanvasTexture,
+  CylinderGeometry,
+  DoubleSide,
   Group,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
+  MeshStandardMaterial,
+  Quaternion,
+  RingGeometry,
   SkinnedMesh,
+  SRGBColorSpace,
   Vector3,
   Vector4,
   type AnimationAction,
-  type Object3D,
+  type Material,
+  Object3D,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { AVATAR_ASSET, AVATAR_CLIPS, AVATAR_HEIGHT } from './config';
+import {
+  AVATAR_CLIPS,
+  AVATAR_HEIGHT,
+  CHARACTERS,
+  DEFAULT_CHARACTER,
+  SOCKETS,
+  STAFFS,
+  characterHeight,
+  staffScale,
+  type CharacterConfig,
+  type CharacterId,
+  type StaffId,
+} from './config';
+import type { AvatarLook } from './look';
 import { STAND_Y } from './physics';
 import { loadGLTF } from './v2/core';
 
@@ -21,9 +44,15 @@ export interface AvatarRig {
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
   update(dt: number, moving: boolean, sprint: boolean): void;
+  /** Tint, glow, height and Relic aura. Applies now, or when the mesh arrives. */
+  setLook(look: AvatarLook): void;
 }
 
 const size = new Vector3();
+
+function characterById(id: CharacterId): CharacterConfig {
+  return CHARACTERS.find((entry) => entry.id === id) ?? CHARACTERS[0];
+}
 const point = new Vector3();
 const bindVertex = new Vector4();
 const skinned = new Vector4();
@@ -32,31 +61,78 @@ const bone = new Matrix4();
 
 export function createAvatarRig(): AvatarRig {
   const group = new Group();
-  group.name = 'wizard-avatar';
+  group.name = 'player-avatar';
   let mixer: AnimationMixer | null = null;
   let actions: Record<'idle' | 'walk' | 'run', AnimationAction> | null = null;
   let gait: 'idle' | 'walk' | 'run' = 'idle';
   let started = false;
+  let materials: MeshStandardMaterial[] = [];
+  let look: AvatarLook | null = null;
+  let auraClock = 0;
+  /** Character whose mesh is on screen or loading. */
+  let shown: CharacterId | null = null;
+  let loadToken = 0;
+  let model: Object3D | null = null;
+  /** Where the staff mounts on the current model. */
+  let socket: Object3D | null = null;
+  /** Staff the look asks for, the loaded prop, and the copy on the socket. */
+  let staffWanted: StaffId = 'none';
+  let staffLoaded: { id: StaffId; scene: Object3D; animations: AnimationClip[] } | null = null;
+  let staffToken = 0;
+  let staffObject: Object3D | null = null;
+  let staffMixer: AnimationMixer | null = null;
+  const body = new Group();
+  body.name = 'avatar-body';
+  group.add(body);
+  const aura = createAura();
+  group.add(aura.group);
 
   function load(): void {
     if (started) return;
     started = true;
-    const url = `${import.meta.env.BASE_URL}${AVATAR_ASSET}`;
+    show(look?.character ?? DEFAULT_CHARACTER);
+  }
+
+  /** Swap the mesh. The old one stays until the new one is ready, so the player never vanishes. */
+  function show(id: CharacterId): void {
+    if (id === shown) return;
+    shown = id;
+    const token = ++loadToken;
+    const character = characterById(id);
+    const url = `${import.meta.env.BASE_URL}${character.asset}`;
     void loadGLTF(url)
       .then((gltf) => {
-        const model = fitWizard(gltf.scene);
-        group.add(model);
-        mixer = new AnimationMixer(model);
+        if (token !== loadToken) return;
+        const next = fitModel(gltf.scene, characterHeight(character));
+        const nextMaterials = ownMaterials(next);
+        // Before the mixer runs, so the socket is placed against the rest pose.
+        const nextSocket = staffSocket(next, staffScale(character));
+        const nextMixer = new AnimationMixer(next);
         const claimed = new WeakSet<AnimationClip>();
-        actions = {
-          idle: playClip(mixer, gltf.animations, 'idle', claimed),
-          walk: playClip(mixer, gltf.animations, 'walk', claimed),
-          run: playClip(mixer, gltf.animations, 'run', claimed),
+        const nextActions = {
+          idle: playClip(nextMixer, gltf.animations, 'idle', claimed),
+          walk: playClip(nextMixer, gltf.animations, 'walk', claimed),
+          run: playClip(nextMixer, gltf.animations, 'run', claimed),
         };
-        actions.idle.play();
+        unmountStaff();
+        if (model) disposeModel(model, materials);
+        model = next;
+        socket = nextSocket;
+        materials = nextMaterials;
+        mixer = nextMixer;
+        actions = nextActions;
+        body.add(next);
+        if (look) paint(look);
+        actions[gait].play();
+        mountStaff();
       })
       .catch((error: unknown) => {
-        console.error('[hub] wizard avatar failed to load', error);
+        console.error(`[hub] ${character.label} avatar failed to load`, error);
+        if (token !== loadToken) return;
+        if (id !== DEFAULT_CHARACTER) {
+          shown = null;
+          show(DEFAULT_CHARACTER);
+        }
       });
   }
 
@@ -71,7 +147,259 @@ export function createAvatarRig(): AvatarRig {
     mixer.update(dt);
   }
 
-  return { group, load, update };
+  function setStaff(id: StaffId): void {
+    if (id === staffWanted) return;
+    staffWanted = id;
+    unmountStaff();
+    const staff = STAFFS.find((entry) => entry.id === id);
+    if (!staff?.asset) return;
+    if (staffLoaded?.id === id) {
+      mountStaff();
+      return;
+    }
+    const token = ++staffToken;
+    void loadGLTF(`${import.meta.env.BASE_URL}${staff.asset}`)
+      .then((gltf) => {
+        if (token !== staffToken) return;
+        staffLoaded = { id, scene: gltf.scene, animations: gltf.animations };
+        mountStaff();
+      })
+      .catch((error: unknown) => {
+        console.error(`[hub] ${staff.label} failed to load`, error);
+      });
+  }
+
+  function mountStaff(): void {
+    unmountStaff();
+    if (!socket || !staffLoaded || staffLoaded.id !== staffWanted) return;
+    if (shown && characterById(shown).ownStaff) return;
+    const prop = staffLoaded.scene.clone(true);
+    prop.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (mesh.isMesh) mesh.frustumCulled = false;
+    });
+    socket.add(prop);
+    staffObject = prop;
+    const idle = staffLoaded.animations.find((clip) => clip.name.endsWith('_idle')) ?? staffLoaded.animations[0];
+    if (idle) {
+      staffMixer = new AnimationMixer(prop);
+      staffMixer.clipAction(idle).play();
+    }
+  }
+
+  function unmountStaff(): void {
+    staffMixer?.stopAllAction();
+    staffMixer = null;
+    staffObject?.removeFromParent();
+    staffObject = null;
+  }
+
+  function paint(next: AvatarLook): void {
+    for (const material of materials) {
+      material.color.set(next.tint);
+      material.emissive.set(next.glow);
+      material.emissiveIntensity = next.glowStrength * 0.9;
+    }
+  }
+
+  function setLook(next: AvatarLook): void {
+    look = next;
+    setStaff(next.staff);
+    if (started) show(next.character);
+    // Scale about the feet: the rig origin is the capsule top, STAND_Y above the floor.
+    body.scale.setScalar(next.height);
+    body.position.y = -STAND_Y * (1 - next.height);
+    paint(next);
+    const socket = SOCKETS.find((entry) => entry.id === next.aura);
+    aura.group.visible = Boolean(socket);
+    if (socket) aura.setColor(socket.color);
+  }
+
+  function tick(dt: number, moving: boolean, sprint: boolean): void {
+    if (aura.group.visible) {
+      auraClock += dt;
+      aura.ring.rotation.z += dt * 0.9;
+      const pulse = 0.5 + 0.5 * Math.sin(auraClock * 2.6);
+      aura.ringMat.opacity = 0.55 + pulse * 0.35;
+      aura.columnMat.opacity = 0.22 + pulse * 0.16;
+    }
+    update(dt, moving, sprint);
+    staffMixer?.update(dt);
+    if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
+  }
+
+  return { group, load, update: tick, setLook };
+}
+
+const holdHand = new Quaternion();
+const holdBody = new Quaternion();
+
+/** Generated sockets follow the fist but stay upright and facing the body's front. */
+function holdUpright(socket: Object3D, model: Object3D): void {
+  const hand = socket.parent;
+  if (!hand) return;
+  hand.getWorldQuaternion(holdHand);
+  model.getWorldQuaternion(holdBody);
+  socket.quaternion.copy(holdHand.invert()).multiply(holdBody);
+}
+
+const handAt = new Vector3();
+const forearmAt = new Vector3();
+const socketWorld = new Matrix4();
+const handInverse = new Matrix4();
+const socketQuat = new Quaternion();
+const socketScale = new Vector3();
+
+/**
+ * The wizard rig ships `socket_staff` under RightHand. The boss rigs share the
+ * skeleton names but not bone axes, so their socket is built the same way the
+ * wizard's was authored: at the right fist in the rest pose, staff upright
+ * (+Y) and facing the character's front (+Z).
+ */
+function staffSocket(model: Object3D, scale: number): Object3D | null {
+  const authored = model.getObjectByName('socket_staff');
+  if (authored) return authored;
+  const hand = model.getObjectByName('RightHand');
+  const forearm = hand?.parent;
+  if (!hand || !forearm) return null;
+  model.updateMatrixWorld(true);
+  hand.getWorldPosition(handAt);
+  forearm.getWorldPosition(forearmAt);
+  const reach = handAt.distanceTo(forearmAt);
+  // Fist centre: a little past the wrist, along the forearm.
+  if (reach > 1e-4) handAt.addScaledVector(forearmAt.sub(handAt).multiplyScalar(-1 / reach), reach * 0.3);
+  model.getWorldQuaternion(socketQuat);
+  // Source rigs are in metres, so one staff metre is the fit scale (as on the authored wizard socket).
+  socketScale.setScalar(model.scale.y * scale);
+  socketWorld.compose(handAt, socketQuat, socketScale);
+  handInverse.copy(hand.matrixWorld).invert();
+  const socket = new Object3D();
+  socket.name = 'socket_staff';
+  // The mocap turns each rig's wrist differently; `holdUpright` keeps this one vertical.
+  socket.userData.upright = true;
+  socketWorld.premultiply(handInverse);
+  socketWorld.decompose(socket.position, socket.quaternion, socket.scale);
+  hand.add(socket);
+  return socket;
+}
+
+/** Frees this copy's skeleton and cloned materials. Geometry and textures stay in the GLTF cache. */
+function disposeModel(root: Object3D, materials: readonly Material[]): void {
+  root.removeFromParent();
+  root.traverse((obj) => {
+    const mesh = obj as SkinnedMesh;
+    if (mesh.isSkinnedMesh) mesh.skeleton.dispose();
+  });
+  for (const material of materials) material.dispose();
+}
+
+/** The GLTF cache shares materials. Clone them so a tint stays on this avatar. */
+function ownMaterials(root: Object3D): MeshStandardMaterial[] {
+  const owned: MeshStandardMaterial[] = [];
+  const swap = (material: Material): Material => {
+    if (!(material instanceof MeshStandardMaterial)) return material;
+    const copy = material.clone();
+    owned.push(copy);
+    return copy;
+  };
+  root.traverse((obj) => {
+    const mesh = obj as Mesh;
+    if (!mesh.isMesh) return;
+    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
+  });
+  return owned;
+}
+
+/** Spinning floor ring plus a soft column. Two draw calls, shown only with a Relic aura. */
+function createAura(): {
+  group: Group;
+  ring: Mesh;
+  ringMat: MeshBasicMaterial;
+  columnMat: MeshBasicMaterial;
+  setColor: (color: string) => void;
+} {
+  const group = new Group();
+  group.name = 'relic-aura';
+  group.visible = false;
+  const ringMat = new MeshBasicMaterial({
+    map: ringTexture(),
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: DoubleSide,
+    toneMapped: false,
+  });
+  const ring = new Mesh(new RingGeometry(0.55, 1.05, 48, 1), ringMat);
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = -STAND_Y + 0.05;
+  ring.renderOrder = 2;
+  const columnMat = new MeshBasicMaterial({
+    map: columnTexture(),
+    transparent: true,
+    depthWrite: false,
+    blending: AdditiveBlending,
+    side: DoubleSide,
+    toneMapped: false,
+  });
+  const columnHeight = AVATAR_HEIGHT * 1.1;
+  const column = new Mesh(new CylinderGeometry(0.62, 0.78, columnHeight, 32, 1, true), columnMat);
+  column.position.y = -STAND_Y + columnHeight / 2;
+  column.renderOrder = 2;
+  group.add(ring, column);
+  return {
+    group,
+    ring,
+    ringMat,
+    columnMat,
+    setColor(color: string) {
+      ringMat.color.set(color);
+      columnMat.color.set(color);
+    },
+  };
+}
+
+function ringTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const c = 128;
+    const fade = ctx.createRadialGradient(c, c, 60, c, c, 128);
+    fade.addColorStop(0, 'rgba(255,255,255,0)');
+    fade.addColorStop(0.55, 'rgba(255,255,255,0.9)');
+    fade.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, 256, 256);
+    // Rune ticks so the spin reads.
+    ctx.fillStyle = 'rgba(255,255,255,1)';
+    for (let i = 0; i < 12; i += 1) {
+      const a = (i / 12) * Math.PI * 2;
+      ctx.beginPath();
+      ctx.arc(c + Math.cos(a) * 100, c + Math.sin(a) * 100, i % 3 === 0 ? 5 : 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
+}
+
+function columnTexture(): CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 4;
+  canvas.height = 128;
+  const ctx = canvas.getContext('2d');
+  if (ctx) {
+    const fade = ctx.createLinearGradient(0, 0, 0, 128);
+    fade.addColorStop(0, 'rgba(255,255,255,0)');
+    fade.addColorStop(1, 'rgba(255,255,255,0.7)');
+    ctx.fillStyle = fade;
+    ctx.fillRect(0, 0, 4, 128);
+  }
+  const texture = new CanvasTexture(canvas);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
 }
 
 /** Resolve idle / walk / run through `AVATAR_CLIPS`. Walk's source clip is `run`. */
@@ -82,7 +410,7 @@ function requiredClip(
 ): AnimationClip {
   const source = AVATAR_CLIPS[gait].name;
   const found = clips.find((clip) => clip.name === source);
-  if (!found) throw new Error(`Wizard avatar is missing the ${source} clip (${gait})`);
+  if (!found) throw new Error(`Avatar is missing the ${source} clip (${gait})`);
   if (claimed.has(found)) {
     const copy = found.clone();
     copy.name = gait;
@@ -103,16 +431,16 @@ function playClip(
   return action;
 }
 
-/** Height-fit the body. The baked staff stays in the mesh and is left out of the bounds. */
-function fitWizard(source: Group): Object3D {
+/** Height-fit the body. Props held in the hands (staff, phone, vape) stay in the mesh and are left out of the bounds. */
+function fitModel(source: Group, height: number): Object3D {
   const model = SkeletonUtils.clone(source);
   model.rotation.y = Math.PI;
   model.updateMatrixWorld(true);
   const body = bodySpan(model);
   if (body.height < 0.2 || body.height > 20) {
-    throw new Error(`Wizard body height is implausible (${body.height.toFixed(3)} m)`);
+    throw new Error(`Avatar body height is implausible (${body.height.toFixed(3)} m)`);
   }
-  model.scale.setScalar(AVATAR_HEIGHT / body.height);
+  model.scale.setScalar(height / body.height);
   const fitted = bodySpan(model);
   model.position.y = -STAND_Y - fitted.minY;
   model.traverse((obj) => {
@@ -122,7 +450,7 @@ function fitWizard(source: Group): Object3D {
   return model;
 }
 
-/** The staff is skinned to the hands and reaches above the head. */
+/** Staffs and props are skinned to the hands and can reach above the head. */
 const STAFF_BONES = new Set(['LeftHand', 'RightHand']);
 
 /**
