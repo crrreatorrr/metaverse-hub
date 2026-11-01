@@ -13,7 +13,7 @@ namespace HubRpc {
     return JSON.stringify({ error: code, message: message });
   }
 
-  function ok(body: { [key: string]: unknown }): string {
+  export function ok(body: { [key: string]: unknown }): string {
     return JSON.stringify(body);
   }
 
@@ -42,6 +42,12 @@ namespace HubRpc {
       "restore_failed",
       "missing_ticket_key",
       "missing_recovery_pepper",
+      "bad_chain",
+      "chain_unavailable",
+      "missing_chain_service_url",
+      "missing_chain_service_key",
+      "missing_hub_domain",
+      "missing_hub_uri",
     ];
     for (var i = 0; i < codes.length; i++) {
       if (message.indexOf(codes[i]) >= 0) return codes[i];
@@ -62,7 +68,7 @@ namespace HubRpc {
     };
   }
 
-  function parse(payload: string): { [key: string]: unknown } {
+  export function parse(payload: string): { [key: string]: unknown } {
     if (!payload) return {};
     if (payload.length > 8192) throw new Error("bad_json");
     var data = JSON.parse(payload) as unknown;
@@ -72,7 +78,7 @@ namespace HubRpc {
     return data as { [key: string]: unknown };
   }
 
-  function text(data: { [key: string]: unknown }, key: string): string {
+  export function text(data: { [key: string]: unknown }, key: string): string {
     var value = data[key];
     return typeof value === "string" ? value : "";
   }
@@ -90,7 +96,7 @@ namespace HubRpc {
     return ctx.vars && ctx.vars.scope ? ctx.vars.scope : "";
   }
 
-  function requireHub(ctx: nkruntime.Context): string {
+  export function requireHub(ctx: nkruntime.Context): string {
     var userId = requireUser(ctx);
     if (scopeOf(ctx) === "game") throw new Error("not_hub_session");
     return userId;
@@ -105,7 +111,7 @@ namespace HubRpc {
     return { userId: userId, game: vars.game, sid: vars.sid, ranked: vars.ranked === "1" };
   }
 
-  function queryJson(nk: nkruntime.Nakama, sql: string, args: unknown[]): { [key: string]: unknown } {
+  export function queryJson(nk: nkruntime.Nakama, sql: string, args: unknown[]): { [key: string]: unknown } {
     var rows = nk.sqlQuery(sql, args);
     if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) {
       throw new Error("empty_result");
@@ -126,7 +132,7 @@ namespace HubRpc {
     return parsed as unknown[];
   }
 
-  function stable(value: unknown): string {
+  export function stable(value: unknown): string {
     if (value === null || typeof value !== "object") return JSON.stringify(value) || "null";
     if (Object.prototype.toString.call(value) === "[object Array]") {
       var items = value as unknown[];

@@ -42,7 +42,11 @@ services:
           --runtime.env TICKET_HMAC_KEY=dev-ticket-hmac-key \
           --runtime.env RECOVERY_PEPPER=dev-recovery-pepper \
           --runtime.env AUDIT_KEY=dev-audit-key \
-          --runtime.env HUB_FAULT_INJECT=1
+          --runtime.env HUB_FAULT_INJECT=1 \
+          --runtime.env CHAIN_SERVICE_URL=http://chain:8090 \
+          --runtime.env CHAIN_SERVICE_KEY=dev-chain-service-key \
+          --runtime.env HUB_DOMAIN=127.0.0.1:5173 \
+          --runtime.env HUB_URI=http://127.0.0.1:5173/hub/
     depends_on:
       postgres:
         condition: service_healthy

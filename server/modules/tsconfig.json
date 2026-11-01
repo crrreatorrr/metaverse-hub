@@ -22,6 +22,7 @@
     "src/effects.ts",
     "src/fault.ts",
     "src/rpcs.ts",
+    "src/wallet.ts",
     "src/main.ts"
   ]
 }

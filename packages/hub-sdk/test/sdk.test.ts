@@ -6,7 +6,9 @@ import {
   VERSE_DAILY_CAP,
   createHubSdk,
   createNakamaClient,
+  createWalletApi,
   memoryKeyValue,
+  tokenUnits,
   mintMockTicket,
   userIdFromToken,
   verifyMockTicket,
@@ -369,8 +371,45 @@ async function nakamaClientWire(): Promise<void> {
   assert.match(seen[1] ?? '', /\/v2\/rpc\/profile\.get\?unwrap=true$/);
 }
 
+async function walletApiCalls(): Promise<void> {
+  const calls: { id: string; body: object; token?: string }[] = [];
+  const fake: NakamaClient = {
+    authenticateDevice: async () => ({ token: '', userId: '' }),
+    rpc: async <T>(id: string, body: object, opts?: { token?: string }) => {
+      calls.push({ id, body, token: opts?.token });
+      return {} as T;
+    },
+  };
+  let token = 'hub-1';
+  const wallet = createWalletApi(fake, () => token);
+  await wallet.status();
+  await wallet.nonce('0x00000000000000000000000000000000000000aa');
+  token = 'hub-2';
+  await wallet.link('n'.repeat(64), '0x' + '1'.repeat(130));
+  await wallet.withdraw(5, 'k1');
+  await wallet.intent('pet_hopium_sproto');
+  assert.deepEqual(
+    calls.map((c) => [c.id, c.token]),
+    [
+      ['wallet.status', 'hub-1'],
+      ['wallet.nonce', 'hub-1'],
+      ['wallet.link', 'hub-2'],
+      ['wallet.withdraw', 'hub-2'],
+      ['store.intent', 'hub-2'],
+    ],
+  );
+  assert.deepEqual(calls[3]?.body, { amount: 5, key: 'k1', chain: 'eth' });
+  await assert.rejects(wallet.withdraw(1.5, 'k2'), (e: unknown) => e instanceof HubSdkError && e.code === 'bad_amount');
+  await assert.rejects(wallet.withdraw(0, 'k3'), (e: unknown) => e instanceof HubSdkError && e.code === 'bad_amount');
+  assert.equal(calls.length, 5, 'invalid amounts never reach the server');
+  assert.equal(tokenUnits(50, 8), 5_000_000_000n);
+  assert.equal(tokenUnits(1, 18), 10n ** 18n);
+  assert.throws(() => tokenUnits(1, 37));
+}
+
 function TICKETS_FOR_CAP(): number {
   return VERSE_DAILY_CAP * 10;
 }
 
 await main();
+await walletApiCalls();

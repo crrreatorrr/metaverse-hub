@@ -57,6 +57,26 @@ function rpcVerseBoard(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return guard(HubRpc.verseBoard, ctx, logger, nk, payload);
 }
 
+function rpcWalletNonce(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubWallet.nonce, ctx, logger, nk, payload);
+}
+
+function rpcWalletLink(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubWallet.link, ctx, logger, nk, payload);
+}
+
+function rpcWalletStatus(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubWallet.status, ctx, logger, nk, payload);
+}
+
+function rpcWalletWithdraw(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubWallet.withdraw, ctx, logger, nk, payload);
+}
+
+function rpcStoreIntent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubWallet.intent, ctx, logger, nk, payload);
+}
+
 function beforeDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateDevice(ctx, logger, nk, data);
 }
@@ -84,6 +104,11 @@ function InitModule(
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
+  initializer.registerRpc("wallet.nonce", rpcWalletNonce);
+  initializer.registerRpc("wallet.link", rpcWalletLink);
+  initializer.registerRpc("wallet.status", rpcWalletStatus);
+  initializer.registerRpc("wallet.withdraw", rpcWalletWithdraw);
+  initializer.registerRpc("store.intent", rpcStoreIntent);
   initializer.registerBeforeAuthenticateDevice(beforeDevice);
   initializer.registerBeforeSessionRefresh(beforeRefresh);
   logger.info("metaverse hub runtime ready");

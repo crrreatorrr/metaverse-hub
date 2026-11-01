@@ -27,7 +27,21 @@ declare namespace nkruntime {
     permissionWrite: number;
   }
 
+  interface HttpResponse {
+    code: number;
+    headers: { [key: string]: string[] };
+    body: string;
+  }
+
   interface Nakama {
+    httpRequest(
+      url: string,
+      method: "get" | "post" | "put" | "patch" | "delete" | "head",
+      headers?: { [key: string]: string },
+      body?: string,
+      timeout?: number,
+      insecure?: boolean,
+    ): HttpResponse;
     sqlQuery(query: string, args: unknown[]): { [key: string]: unknown }[];
     sqlExec(query: string, args: unknown[]): { rowsAffected: number };
     uuidv4(): string;

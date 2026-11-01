@@ -52,3 +52,19 @@ export type {
   RecoveryRedeemResult,
   RedeemResult,
 } from './nakama';
+export { BITCOIN_TOKEN_ETH, createWalletApi, tokenUnits } from './wallet';
+export type {
+  DepositView,
+  ExchangeChain,
+  ExchangeChainStatus,
+  IntentResult,
+  IntentView,
+  LinkNonce,
+  LinkResult,
+  LinkedWallet,
+  VoucherStatus,
+  VoucherView,
+  WalletApi,
+  WalletStatus,
+  WithdrawResult,
+} from './wallet';
