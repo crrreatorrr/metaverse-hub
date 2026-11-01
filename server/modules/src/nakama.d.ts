@@ -14,6 +14,7 @@ declare namespace nkruntime {
 
   interface Account {
     user?: { userId?: string; username?: string };
+    email?: string;
     devices?: { id?: string }[];
     customId?: string;
   }
@@ -39,6 +40,17 @@ declare namespace nkruntime {
       vars: { [key: string]: string },
     ): { token: string; exp: number };
     accountGetId(userId: string): Account;
+    accountUpdateId(
+      userId: string,
+      username: string | null,
+      displayName: string | null,
+      timezone: string | null,
+      location: string | null,
+      langTag: string | null,
+      avatarUrl: string | null,
+      metadata: { [key: string]: unknown } | null,
+    ): void;
+    linkEmail(userId: string, email: string, password: string): void;
     linkCustom(userId: string, customId: string): void;
     linkDevice(userId: string, deviceId: string): void;
     unlinkDevice(userId: string, deviceId: string): void;

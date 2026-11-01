@@ -65,6 +65,10 @@ function rpcVerseBoard(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return guard(HubRpc.verseBoard, ctx, logger, nk, payload);
 }
 
+function rpcAccountClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.accountClaim, ctx, logger, nk, payload);
+}
+
 function beforeCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateCustom(ctx, logger, nk, data);
 }
@@ -110,6 +114,7 @@ function InitModule(
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
+  initializer.registerRpc("account.claim", rpcAccountClaim);
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
   initializer.registerBeforeAuthenticateDevice(beforeHub);
   // Email auth is on in Nakama with no extra provider config. Same hub scope as device.

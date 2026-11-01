@@ -5,10 +5,21 @@ Nakama, Postgres, and Caddy for the hub. Economy RPCs live in the TypeScript run
 | Service | Image | Host port | Role |
 | --- | --- | --- | --- |
 | Postgres | `postgres:16.8-alpine` | 5432 | Nakama plus the `game` schema (relics, ledger, recovery codes). |
-| Nakama | built from `Dockerfile` (`heroiclabs/nakama:3.41.0`) | 7349 gRPC, 7350 HTTP, 7351 console | Device auth, portal tickets, relic grants. |
+| Nakama | built from `Dockerfile` (`heroiclabs/nakama:3.41.0`) | 7349 gRPC, 7350 HTTP, 7351 console | Device and username auth, portal tickets, relic grants. |
 | Caddy | `caddy:2.10.2-alpine` | 8080 | `/v2` proxy with CORS for a game on another port. |
 
 The database password is `localdb`. The Nakama server key is `defaultkey`. The HTTP key is `localhttpkey`. Those are local dev values, not production secrets. The HTTP key stays on the Nakama process. Game and hub bundles do not contain it. A portal ticket is redeemed with custom authentication and the server key. Write RPCs reject a call that has no user id.
+
+## Accounts
+
+The hub opens on a sign-up / log-in page. Accounts use Nakama's email auth with a username:
+
+- **Sign up** authenticates this device's guest, then calls `account.claim` with `{ username, email, password }`. That sets the username, links the email and password, and unlinks the guest's devices, so the Relics and Verse the guest already had stay on the account and the device id no longer opens it. If the guest already has a password, the client creates a fresh account with `authenticate/email?create=true&username=…` instead.
+- **Log in** is `authenticate/email?create=false&username=…` with an empty email and the password.
+- Usernames are 3–20 of `a-z 0-9 _ -`, lowercased. Passwords are 8–128 characters. The email is a backup address and is **not verified** yet.
+- `account.claim` returns `bad_username`, `bad_email`, `bad_password`, `username_taken`, `email_taken`, or `account_claimed`.
+- A before-hook on email auth forces `vars.scope = "hub"`, the same rule as device auth, so a client cannot mint itself a game-scoped session.
+- The hub keeps the refresh token in `localStorage` and refreshes on load, so a game round trip does not ask again. Compose sets `session.refresh_token_expiry_sec` to 30 days. The refresh before-hook writes `vars` at the top level of the refresh request.
 
 ## Run it
 
