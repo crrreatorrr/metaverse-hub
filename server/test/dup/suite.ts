@@ -13,6 +13,7 @@ import {
   type PurchaseFlow,
   type RelicFlow,
 } from './cases.ts';
+import { runAccounts } from './accounts.ts';
 import { runGated } from './gated.ts';
 import { runMigrations } from './migrations.ts';
 import { runRedeemFix } from './redeem-fix.ts';
@@ -1133,7 +1134,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'migration'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'migration', 'accounts'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1195,6 +1196,7 @@ export async function main(): Promise<void> {
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test, pending);
     if (selected('migration')) await runMigrations(test);
+    if (selected('accounts')) await runAccounts(test);
   } finally {
     failed = report();
   }
