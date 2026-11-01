@@ -28,6 +28,7 @@ In this doc, "$BITCOIN" always means the HPOS10I token, never BTC. The UI must s
 | Refunds | None |
 | Player-to-player Verse trading | None |
 | Bot farming | Accepted risk. The daily locks are the control |
+| On-chain limit | None. The contract float, refilled slowly by hand, is the most that can be lost. Accepted risk |
 | Trading location | An arcade cabinet in the Bar; options open when the player is near it |
 | Smart contract | Written by a smart contract engineer and reviewed for exploits by a separate smart contract security QA expert |
 | Game clients | Built by the team, in other repos |
@@ -45,7 +46,9 @@ The services read `decimals` from the contract at startup. Nothing hardcodes the
 
 `tickets.earn` (`server/modules/src/rpcs.ts:448`) credits whatever `amount` the game client sends, up to the session cap and the 1000-per-game daily cap. A script with a free guest account can earn the full Verse cap without playing. There is no holding minimum or KYC, so each bot account can take the full per-account cash-out lock every day. The $500 global lock caps the total loss per day.
 
-This risk is accepted. The plan does not gate cash-out on server-checked earning. It does recommend these to the game repos as hardening, and nothing in the cash-out design depends on them:
+A second accepted risk: the claim contract has no on-chain limit. If the voucher signing key or the backend is compromised, everything in the contract can be claimed at once. The operator keeps the float small and refills it slowly, so the loss is bounded by whatever is in the contract at that moment.
+
+The bot risk is accepted too. The plan does not gate cash-out on server-checked earning. It does recommend these to the game repos as hardening, and nothing in the cash-out design depends on them:
 
 1. Send typed events through `session.event` (`sproto.boss_defeated`, `pb.quest_complete`, …) instead of Ticket amounts through `tickets.earn`. The server then credits Tickets from `game.event_rule`. `event_rule.tickets` already exists but is `NULL` in every seed row, and nothing credits from it today.
 2. Add each game's own plausibility checks: minimum match length, score bounds, event rate per minute.
@@ -55,12 +58,14 @@ This risk is accepted. The plan does not gate cash-out on server-checked earning
 
 Every limit is stored in Verse in one config row, and every change is logged. The admin page shows the implied dollar value using a reference price the operator enters with the rate. Every daily window resets at **00:00 UTC**.
 
-| Lock | Scope | Where it is counted | Enforced on chain |
-| --- | --- | --- | --- |
-| Earn cap (exists) | Account × game | `game.earn_window` bucket `verse:<game>` | No |
-| Cash-out lock | Account | `game.earn_window` bucket `withdraw` | No |
-| Global cash-out lock | All accounts | `game.payout_window` | Yes, by the claim contract |
-| Pay-in | None by default | — | — |
+| Lock | Scope | Where it is counted |
+| --- | --- | --- |
+| Earn cap (exists) | Account × game | `game.earn_window` bucket `verse:<game>` |
+| Cash-out lock | Account | `game.earn_window` bucket `withdraw` |
+| Global cash-out lock | All accounts | `game.payout_window` |
+| Pay-in | None by default | — |
+
+The server enforces every lock. The claim contract enforces none of them, by decision.
 
 - With the current earn caps an account can earn up to 200 Verse a day. The cash-out lock is set on its own so it is worth about $5 at the configured rate.
 - **Hourly release (default; can be turned off).** The global $500 opens in 24 equal slices, about $20.83 an hour. Unused budget rolls forward until midnight UTC.
@@ -108,17 +113,17 @@ The player pays gas, so cash-out uses a claim contract. The server never sends t
 
 Written by the smart contract engineer, reviewed by the security QA expert (see [Smart contract team and review](#smart-contract-team-and-review)). Required behaviour:
 
-- It holds a float of `$BITCOIN`, about two days of the global lock, refilled by hand from the Safe. The Safe is the owner.
+- It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe. The Safe is the owner. The float is the most that can be lost on chain, so it stays small: about one day of the global lock plus the vouchers already issued.
 - `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. With batching, a player can save up several days of vouchers and pay gas once.
 - A voucher is EIP-712 typed data: `id`, `recipient`, `amount`, `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
 - Each `id` can be claimed exactly once. A claim after `expiry` reverts.
-- **On-chain daily cap** in tokens, by UTC day (`block.timestamp / 86400`). This is the second defense. If the signing key leaks, the loss is capped at one day's on-chain cap until someone pauses the contract. The cap leaves room for vouchers issued on one day and claimed on a later day.
-- `pause()` can be called by the Safe or a guardian key. `unpause()`, signer rotation, cap changes, and withdrawing the float back to the Safe are Safe only.
+- **No on-chain limit** (decision). Only the voucher amounts and the float bound what can be claimed.
+- `pause()` can be called by the Safe or a guardian key. `unpause()`, signer rotation, and withdrawing the float back to the Safe are Safe only.
 - Not upgradeable. A new version is a new deployment, with the old one drained to the Safe.
 - Tokens move with `SafeERC20`. The reviewer confirms how the `$BITCOIN` token behaves (return values, fees, blocklists, pausing) before launch.
 - Emits `Claimed(id, recipient, amount)`.
 
-The signing key is a secp256k1 key in a KMS (AWS KMS and Google Cloud KMS both support it). It is never in the Nakama environment, `.env`, or the repo. The key can only sign vouchers. It cannot move funds, and on-chain limits bound what its vouchers can claim.
+The signing key is a secp256k1 key in a KMS (AWS KMS and Google Cloud KMS both support it). It is never in the Nakama environment, `.env`, or the repo. The key can only sign vouchers. It cannot move funds by itself. But with no on-chain limit, a leaked key can sign vouchers for the whole float, so on chain the only protections are the float size and `pause()`.
 
 ### Flow
 
@@ -203,9 +208,9 @@ The developer and the reviewer are **different people**. The reviewer's job is t
 
 **Smart contract engineer (builds it)**
 - Writes the spec for `VerseCashout` from this doc: roles, limits, voucher format, events, failure cases.
-- Builds it in Solidity with Foundry. This includes unit tests, fuzz tests, and invariant tests, for example: total claimed in a UTC day ≤ the cap; an `id` is never claimed twice; only the Safe can move the float.
+- Builds it in Solidity with Foundry. This includes unit tests, fuzz tests, and invariant tests, for example: the sum of all claims never exceeds the tokens sent to the contract; an `id` is never claimed twice; only the Safe can move the float.
 - Writes the off-chain voucher signing code together with the backend, so the EIP-712 domain, types, and encoding match exactly.
-- Deploys to Sepolia, then mainnet, using deploy scripts and a checklist: owner = Safe, signer = KMS address, caps set, verified on Etherscan.
+- Deploys to Sepolia, then mainnet, using deploy scripts and a checklist: owner = Safe, signer = KMS address, guardian set, verified on Etherscan.
 
 **Smart contract security QA expert (looks for exploits)**
 - **Review scope:** the contract, the voucher format and signing code, the watcher's handling of `Claimed` and expiry, the refund rule, and how the `$BITCOIN` token itself behaves.
@@ -214,7 +219,7 @@ The developer and the reviewer are **different people**. The reviewer's job is t
   - signature malleability;
   - reentrancy through the token;
   - griefing `claimBatch` with one bad voucher;
-  - the cap rolling over at the UTC day boundary;
+  - draining the whole float with one large voucher or a batch;
   - a claim and a refund racing at the moment of expiry;
   - a leaked signer key;
   - a mistake by an owner or guardian.
@@ -222,7 +227,7 @@ The developer and the reviewer are **different people**. The reviewer's job is t
 
 **Launch steps after review**
 1. A full end-to-end run on Sepolia with the real hub, watcher, and signer.
-2. Mainnet with low caps, for example a $50 global lock for the first week. Then raise the caps.
+2. Mainnet with a small float and low server-side limits, for example a $50 global lock for the first week. Then raise them.
 3. Optional: a public bug bounty, and a third-party audit if the float grows.
 
 ## Operations
@@ -233,7 +238,7 @@ The developer and the reviewer are **different people**. The reviewer's job is t
   - the global window is used up early;
   - the implied dollar value goes past the threshold;
   - the watcher falls behind;
-  - a `Claimed` event arrives with no matching `withdrawal` row (that means the signer is compromised: pause at once);
+  - a `Claimed` event arrives with no matching `withdrawal` row, or claims in a day go past the global lock. Either means the signer or backend is compromised: pause at once. With no on-chain limit, this alert is the main tripwire, so a guardian should be able to call `pause()` from a phone.
   - a single address appears on more than one account over time.
 - **Daily reconciliation.** Sum of deposits minus sum of claims, compared against the actual movement in the Safe and the contract.
 
@@ -261,7 +266,7 @@ The developer and the reviewer are **different people**. The reviewer's job is t
 2. Ethereum pay-in: watcher, deposits, purchase intents, Buy Verse screen.
 3. Claim contract: engineer builds it, QA expert reviews it, fixes and re-review, Sepolia.
 4. Ethereum cash-out: voucher signer, KMS, both locks with hourly release, Cash out screen, end-to-end on Sepolia.
-5. Mainnet with low caps, then raise them.
+5. Mainnet with a small float and low server-side limits, then raise them.
 
 ## Later: Solana
 
