@@ -813,16 +813,18 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} concurrent spends cannot go negative`, async () => {
     const session = await login(exchange.game);
-    await earn(session.gameToken, 30, exchange.earnReason, 'fund-neg');
+    // 20 is under every exchange flow's per-earn ceiling (win and level_end are 20).
+    const purse = 20;
+    await earn(session.gameToken, purse, exchange.earnReason, 'fund-neg');
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.exchange', { tickets: 30, key: `neg-${index}` }, session.gameToken)
+      call('tickets.exchange', { tickets: purse, key: `neg-${index}` }, session.gameToken)
     )));
     const wins = results.filter((item) => !item.body.error);
     assert.equal(wins.length, 1, JSON.stringify(results.map((item) => item.body)));
-    assert.equal(wins[0]?.body.verse, 3);
+    assert.equal(wins[0]?.body.verse, purse / TICKETS_PER_VERSE);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), 0);
-    assert.equal(verseBalance(session.hub.userId), 3);
+    assert.equal(verseBalance(session.hub.userId), purse / TICKETS_PER_VERSE);
     assert.ok(ticketBalance(session.hub.userId, exchange.game) >= 0);
     assert.ok(verseBalance(session.hub.userId) >= 0);
   });
