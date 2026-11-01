@@ -10,6 +10,7 @@ import {
   MOCK_TICKET_EARN_CAP,
   TICKETS_PER_VERSE,
   VERSE_DAILY_CAP,
+  canonicalGameId,
   isBoardId,
   isRelicId,
   type BoardId,
@@ -198,30 +199,29 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
 
   return {
     async init(gameId) {
-      if (!(GAME_IDS as readonly string[]).includes(gameId)) {
-        throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
-      }
+      const game = canonicalGameId(gameId);
+      if (!game) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
       const token = readTicketParam(resolved.readHash());
       if (token) {
         const claims = await verifyMockTicket(token);
         if (!claims) throw new HubSdkError('ticket_invalid', 'Ticket signature or payload is not valid');
         if (claims.exp * 1000 <= resolved.now()) throw new HubSdkError('ticket_expired', 'Ticket expired');
-        if (claims.game !== gameId) throw new HubSdkError('ticket_game', 'Ticket is for a different game');
+        if (claims.game !== game) throw new HubSdkError('ticket_game', 'Ticket is for a different game');
         if (spentSet().has(claims.jti)) throw new HubSdkError('ticket_used', 'Ticket was already redeemed');
         markSpent(claims.jti);
         resolved.writeHash(stripTicketParam(resolved.readHash()));
         return profile(openSession(claims));
       }
-      const saved = resolved.session.getItem(sessionKey(gameId));
+      const saved = resolved.session.getItem(sessionKey(game));
       if (saved) {
         try {
           const session = JSON.parse(saved) as MockSession;
-          if (session.game === gameId && session.playerId) {
+          if (session.game === game && session.playerId) {
             active = session;
             return profile(session);
           }
         } catch {
-          resolved.session.removeItem(sessionKey(gameId));
+          resolved.session.removeItem(sessionKey(game));
         }
       }
       active = null;

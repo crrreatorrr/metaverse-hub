@@ -86,28 +86,3 @@ export function buildingSign(name: string, title: string, subtitle: string, tint
   mesh.name = name;
   return glow(mesh);
 }
-
-export function fourLightsPlaque(): Mesh {
-  const name = 'sign-four-lights';
-  const canvas = document.createElement('canvas');
-  canvas.width = 1024;
-  canvas.height = 256;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('2d context unavailable');
-  ctx.fillStyle = '#140e22';
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
-  ctx.strokeStyle = '#ffd21f';
-  ctx.lineWidth = 12;
-  ctx.strokeRect(16, 16, canvas.width - 32, canvas.height - 32);
-  ctx.fillStyle = '#ffd21f';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  fitFont(ctx, 'THE FOUR LIGHTS', 940, 108);
-  ctx.fillText('THE FOUR LIGHTS', 512, 128);
-  const material = new MeshBasicMaterial({ map: canvasTexture(canvas), toneMapped: false });
-  material.name = name;
-  const mesh = new Mesh(new PlaneGeometry(9.2, 2.3), material);
-  mesh.name = name;
-  mesh.position.set(0, 2.55, 25.6);
-  return mesh;
-}

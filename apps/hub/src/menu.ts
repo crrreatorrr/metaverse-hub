@@ -1,0 +1,535 @@
+import type { RelicId } from '@metaverse/hub-sdk';
+import { CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
+import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
+
+export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
+
+const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
+  { id: 'items', label: 'Items', key: '1', icon: 'bag' },
+  { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
+  { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
+  { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
+];
+
+/** Pixel art made with Higgsfield, in `public/world/ui/`. */
+type PixelIcon = 'bag' | 'helmet' | 'palette' | 'gem' | 'coin' | 'pet' | 'lock' | 'star' | 'staff';
+
+function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
+  const img = document.createElement('img');
+  img.className = className;
+  img.src = `${import.meta.env.BASE_URL}world/ui/icon-${name}.png`;
+  img.alt = '';
+  img.draggable = false;
+  return img;
+}
+
+/** Where each Relic comes from. Matches the `reportEvent` table in the README. */
+const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string }> = {
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto' },
+};
+
+interface PetInfo {
+  id: string;
+  name: string;
+  from: string;
+  /** Owned whenever this Relic is claimed. */
+  relic?: RelicId;
+}
+
+/** Hub pet catalog, mirrored from `server/modules/src/pets.ts` and docs/m6-server-prep.md. */
+const PETS: readonly PetInfo[] = [
+  { id: 'pet_speed_sproto', name: 'Speed Sproto', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
+  { id: 'pet_nobu', name: 'Nobu', from: "Relic: Cone's Tip", relic: 'cones_tip' },
+  { id: 'pet_duelist_sproto', name: 'Duelist Sproto', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
+  { id: 'pet_four_lights_sproto', name: 'Four Lights Sproto', from: 'Own all four Relics' },
+  { id: 'pet_baby_sproto', name: 'Baby Sproto', from: 'Your first Ticket exchange' },
+  { id: 'pet_honk_sproto', name: 'Honk Sproto', from: 'HPOS10I: Retro Rush Hills, act 2' },
+  { id: 'pet_spiral_sproto', name: 'Spiral Sproto', from: 'HPOS10I: Wizard Academy, act 2' },
+  { id: 'pet_mecha_sproto', name: 'Mecha Sproto', from: 'NOBU: defeat the Bird' },
+  { id: 'pet_conehead_sproto', name: 'Conehead Sproto', from: 'NOBU: defeat the Cat' },
+  { id: 'pet_presidential_sproto', name: 'Presidential Sproto', from: 'Sproto Duel: defeat Obama' },
+  { id: 'pet_moon_sproto', name: 'Moon Sproto', from: "People's Bitcoin: Moonward quest" },
+  { id: 'pet_sproto_pup', name: 'Sproto Pup', from: "People's Bitcoin: Hatchery quest" },
+  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: 'Store: 400 Verse' },
+  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: 'Store: 600 Verse' },
+];
+
+export interface MenuOptions {
+  look: () => AvatarLook;
+  /** Apply and store a new look. */
+  setLook: (look: AvatarLook) => void;
+  onOpen: () => void;
+  onClose: () => void;
+  /** Drag on the empty side of the menu to turn the preview. Radians. */
+  onSpin: (delta: number) => void;
+}
+
+export interface Menu {
+  readonly open: boolean;
+  readonly tab: MenuTab;
+  /** Right edge of the menu window in CSS pixels, for the camera's preview offset. */
+  readonly panelWidth: number;
+  show(tab?: MenuTab): void;
+  hide(): void;
+  setRelics(ids: readonly string[]): void;
+  /** `owned` from `profile.get` once the server sends `pets`; null until then. */
+  setPets(owned: readonly string[] | null): void;
+  setVerse(balance: number): void;
+  setGuest(label: string): void;
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, text?: string): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+export function createMenu(options: MenuOptions): Menu {
+  const app = document.querySelector('#app');
+  if (!(app instanceof HTMLElement)) throw new Error('Hub markup is missing');
+
+  const root = el('div', 'menu');
+  root.id = 'menu';
+  root.hidden = true;
+  const panel = el('section', 'menu-panel');
+  panel.setAttribute('role', 'dialog');
+  panel.setAttribute('aria-modal', 'true');
+  panel.setAttribute('aria-label', 'Menu');
+  const stage = el('div', 'menu-stage');
+  const stageHint = el('p', 'menu-stage-hint', 'Drag to turn · Esc to close');
+  stage.append(stageHint);
+  root.append(panel, stage);
+  app.append(root);
+
+  const head = el('header', 'menu-head');
+  const title = el('h2', 'menu-title', 'Menu');
+  const guest = el('span', 'menu-guest', 'Guest');
+  head.append(title, guest);
+  const foot = el('footer', 'menu-foot');
+  const close = el('button', 'menu-close', 'Resume');
+  close.type = 'button';
+  foot.append(close);
+
+  const tabBar = el('nav', 'menu-tabs');
+  tabBar.setAttribute('role', 'tablist');
+  const tabButtons = new Map<MenuTab, HTMLButtonElement>();
+  const bodies = new Map<MenuTab, HTMLElement>();
+  const content = el('div', 'menu-body');
+  for (const tab of TABS) {
+    const button = el('button', 'menu-tab');
+    button.type = 'button';
+    button.setAttribute('role', 'tab');
+    button.dataset.tab = tab.id;
+    button.append(pixelIcon(tab.icon, 'menu-tab-icon'), el('span', 'menu-tab-label', tab.label), el('span', 'menu-tab-key', tab.key));
+    tabButtons.set(tab.id, button);
+    tabBar.append(button);
+    const body = el('div', 'menu-page');
+    body.setAttribute('role', 'tabpanel');
+    body.hidden = true;
+    bodies.set(tab.id, body);
+    content.append(body);
+  }
+  panel.append(head, tabBar, content, foot);
+
+  let open = false;
+  let tab: MenuTab = 'avatar';
+  let relics = new Set<string>();
+  let serverPets: Set<string> | null = null;
+  let verse = 0;
+
+  // ---------- Items
+  const itemsPage = bodies.get('items') as HTMLElement;
+  const wallet = el('div', 'menu-wallet');
+  const verseLine = el('strong', 'menu-verse', 'Verse 0');
+  const relicCount = el('span', 'menu-sub', '0 of 4 Relics');
+  const walletText = el('div', 'menu-wallet-text');
+  walletText.append(verseLine, relicCount);
+  wallet.append(pixelIcon('coin', 'menu-wallet-coin'), walletText);
+  const petHead = el('h3', 'menu-h', 'Pets');
+  const petNote = el('p', 'menu-note', 'Equipping a pet comes with the hub pet slot. Relic pets are already yours once the Relic is.');
+  const petGrid = el('ul', 'menu-grid pets');
+  itemsPage.append(wallet, petHead, petNote, petGrid);
+
+  // ---------- Avatar
+  const avatarPage = bodies.get('avatar') as HTMLElement;
+  avatarPage.append(
+    el('h3', 'menu-h', 'Choose avatar'),
+    el('p', 'menu-note', 'Placeholder characters from Sproto Duel, stage one.'),
+  );
+  const charGrid = el('ul', 'menu-grid chars');
+  const charButtons = new Map<CharacterId, HTMLButtonElement>();
+  for (const character of CHARACTERS) {
+    const item = el('li');
+    const button = el('button', 'char-card');
+    button.type = 'button';
+    button.dataset.character = character.id;
+    const portrait = el('span', 'char-portrait');
+    const picture: string | null = character.portrait;
+    if (picture) {
+      const img = el('img');
+      img.src = `${import.meta.env.BASE_URL}${picture}`;
+      img.alt = '';
+      img.loading = 'lazy';
+      portrait.append(img);
+    } else {
+      portrait.classList.add('char-glyph');
+      portrait.textContent = character.label.slice(0, 1);
+    }
+    button.append(portrait, el('span', 'char-name', character.label), el('span', 'char-blurb', character.blurb));
+    button.addEventListener('click', () => {
+      update({ ...options.look(), character: character.id });
+    });
+    charButtons.set(character.id, button);
+    item.append(button);
+    charGrid.append(item);
+  }
+  avatarPage.append(charGrid);
+
+  // ---------- Edit avatar
+  const editPage = bodies.get('edit') as HTMLElement;
+  const nameField = el('input', 'menu-input');
+  nameField.type = 'text';
+  nameField.maxLength = 12;
+  nameField.autocomplete = 'off';
+  nameField.spellcheck = false;
+  nameField.placeholder = 'Guest';
+  nameField.addEventListener('input', () => {
+    const clean = cleanName(nameField.value);
+    if (clean !== nameField.value) nameField.value = clean;
+    update({ ...options.look(), name: clean.trim() }, false);
+  });
+  const nameRow = labelled('Display name', nameField, 'Shown in front of your chat lines.');
+
+  const presetRow = el('div', 'chip-row');
+  const presetButtons = new Map<string, HTMLButtonElement>();
+  for (const preset of LOOK_PRESETS) {
+    const chip = el('button', 'chip');
+    chip.type = 'button';
+    chip.title = preset.blurb;
+    const swatch = el('span', 'chip-swatch');
+    swatch.style.background = `linear-gradient(135deg, ${preset.tint} 50%, ${preset.glowStrength > 0 ? preset.glow : preset.tint} 50%)`;
+    chip.append(swatch, el('span', '', preset.label));
+    chip.addEventListener('click', () => update(applyPreset(options.look(), preset)));
+    presetButtons.set(preset.id, chip);
+    presetRow.append(chip);
+  }
+
+  const tintField = colorInput((value) => update({ ...options.look(), tint: value, preset: 'custom' }, false));
+  const glowField = colorInput((value) => update({ ...options.look(), glow: value, preset: 'custom' }, false));
+  const glowRange = rangeInput(0, 100, 1, (value) => update({ ...options.look(), glowStrength: value / 100, preset: 'custom' }, false));
+  const heightRange = rangeInput(MIN_HEIGHT * 100, MAX_HEIGHT * 100, 1, (value) => update({ ...options.look(), height: value / 100 }, false));
+  const heightValue = el('span', 'menu-value');
+
+  const auraRow = el('div', 'chip-row');
+  const auraButtons = new Map<string, HTMLButtonElement>();
+  const auraNone = el('button', 'chip', 'None');
+  auraNone.type = 'button';
+  auraNone.addEventListener('click', () => update({ ...options.look(), aura: 'none' }));
+  auraButtons.set('none', auraNone);
+  auraRow.append(auraNone);
+  for (const socket of SOCKETS) {
+    const chip = el('button', 'chip aura');
+    chip.type = 'button';
+    chip.style.setProperty('--relic', socket.color);
+    chip.append(el('span', 'chip-dot'), el('span', '', socket.relic));
+    chip.addEventListener('click', () => {
+      if (!relics.has(socket.id)) return;
+      update({ ...options.look(), aura: socket.id });
+    });
+    auraButtons.set(socket.id, chip);
+    auraRow.append(chip);
+  }
+
+  const reset = el('button', 'menu-reset', 'Reset look');
+  reset.type = 'button';
+  reset.addEventListener('click', () => {
+    const current = options.look();
+    update({ ...defaultLook(), character: current.character, name: current.name });
+  });
+
+  const colorRow = el('div', 'menu-pair');
+  colorRow.append(labelled('Tint', tintField), labelled('Glow', glowField));
+  const heightLabel = labelled('Height', heightRange);
+  heightLabel.querySelector('.menu-label')?.append(heightValue);
+  editPage.append(
+    nameRow,
+    section('Style', presetRow),
+    colorRow,
+    labelled('Glow strength', glowRange),
+    heightLabel,
+    section('Relic aura', auraRow, 'Each aura needs its Relic.'),
+    reset,
+  );
+
+  // ---------- Staff (Edit avatar)
+  const staffGrid = el('ul', 'menu-grid staffs');
+  const staffButtons = new Map<StaffId, HTMLButtonElement>();
+  for (const staff of STAFFS) {
+    const item = el('li');
+    const button = el('button', 'staff-card');
+    button.type = 'button';
+    button.dataset.staff = staff.id;
+    button.style.setProperty('--accent', staff.accent);
+    const icon = el('span', 'staff-icon');
+    const art: string | null = staff.icon;
+    if (art) {
+      const img = el('img');
+      img.src = `${import.meta.env.BASE_URL}${art}`;
+      img.alt = '';
+      img.loading = 'lazy';
+      icon.append(img);
+    } else {
+      icon.textContent = '∅';
+    }
+    button.append(icon, el('span', 'staff-name', staff.label), el('span', 'staff-line', staff.line));
+    button.addEventListener('click', () => update({ ...options.look(), staff: staff.id }));
+    staffButtons.set(staff.id, button);
+    item.append(button);
+    staffGrid.append(item);
+  }
+  const staffNote = el('span', 'menu-note small');
+  const staffSection = section('Staff', staffGrid);
+  staffSection.append(staffNote);
+  editPage.insertBefore(staffSection, editPage.children[2] ?? null);
+
+  function paintStaffs(look: AvatarLook): void {
+    const character = CHARACTERS.find((entry) => entry.id === look.character);
+    const own = Boolean(character?.ownStaff);
+    for (const [id, button] of staffButtons) {
+      const on = id === look.staff;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+    staffGrid.classList.toggle('muted', own);
+    staffNote.textContent = own
+      ? `${character?.label ?? 'This character'} carries his own staff. Your pick returns on other avatars.`
+      : 'Staffs from Sproto Duel. Held in the right hand.';
+  }
+
+  // ---------- Relics
+  const relicsPage = bodies.get('relics') as HTMLElement;
+  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. A Relic lights its socket on the Four Lights and unlocks an aura in Edit avatar.'));
+  const relicGrid = el('ul', 'menu-grid relics');
+  const relicCards = new Map<string, HTMLElement>();
+  for (const socket of SOCKETS) {
+    const info = RELIC_INFO[socket.id];
+    const card = el('li', 'relic-card');
+    card.style.setProperty('--relic', socket.color);
+    const gem = el('span', 'relic-gem');
+    const text = el('div', 'relic-text');
+    text.append(
+      el('strong', '', socket.relic),
+      el('span', 'relic-game', info.game),
+      el('span', 'relic-how', info.how),
+      el('span', 'relic-unlock', `Unlocks: ${socket.relic} aura${info.pet ? ` · ${info.pet}` : ''}`),
+    );
+    const state = el('span', 'relic-badge', 'Locked');
+    card.append(gem, text, state);
+    relicCards.set(socket.id, card);
+    relicGrid.append(card);
+  }
+  relicsPage.append(relicGrid);
+
+  // ---------- Behaviour
+  tabBar.addEventListener('click', (event) => {
+    const button = (event.target as HTMLElement).closest('button');
+    if (button?.dataset.tab) setTab(button.dataset.tab as MenuTab);
+  });
+  close.addEventListener('click', () => hide());
+  root.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') return;
+    if (event.target instanceof HTMLInputElement && event.target.type === 'text') return;
+    const match = TABS.find((entry) => entry.key === event.key);
+    if (match) {
+      event.preventDefault();
+      setTab(match.id);
+    }
+  });
+
+  let dragging = false;
+  stage.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    stage.setPointerCapture(event.pointerId);
+  });
+  stage.addEventListener('pointermove', (event) => {
+    if (dragging) options.onSpin(event.movementX * 0.012);
+  });
+  const stopDrag = () => {
+    dragging = false;
+  };
+  stage.addEventListener('pointerup', stopDrag);
+  stage.addEventListener('pointercancel', stopDrag);
+
+  function update(next: AvatarLook, repaint = true): void {
+    options.setLook(next);
+    if (repaint) paintLook();
+    else paintValues();
+  }
+
+  function paintValues(): void {
+    const look = options.look();
+    heightValue.textContent = `${Math.round(look.height * 100)}%`;
+    for (const [id, button] of presetButtons) button.classList.toggle('on', id === look.preset);
+  }
+
+  function paintLook(): void {
+    const look = options.look();
+    for (const [id, button] of charButtons) {
+      const on = id === look.character;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+    if (document.activeElement !== nameField) nameField.value = look.name;
+    tintField.value = look.tint;
+    glowField.value = look.glow;
+    glowRange.value = String(Math.round(look.glowStrength * 100));
+    heightRange.value = String(Math.round(look.height * 100));
+    for (const [id, button] of auraButtons) {
+      const owned = id === 'none' || relics.has(id);
+      button.classList.toggle('on', id === look.aura);
+      button.classList.toggle('locked', !owned);
+      button.disabled = !owned;
+      button.title = owned ? '' : 'Earn this Relic to unlock its aura';
+    }
+    paintStaffs(look);
+    paintValues();
+  }
+
+  function paintItems(): void {
+    verseLine.textContent = `Verse ${verse.toLocaleString('en-US')}`;
+    relicCount.textContent = `${SOCKETS.filter((socket) => relics.has(socket.id)).length} of 4 Relics`;
+    petGrid.replaceChildren();
+    const all = SOCKETS.every((socket) => relics.has(socket.id));
+    const owned = (pet: PetInfo) =>
+      Boolean(serverPets?.has(pet.id)) ||
+      (pet.relic ? relics.has(pet.relic) : false) ||
+      (pet.id === 'pet_four_lights_sproto' && all && !serverPets);
+    const sorted = [...PETS].sort((a, b) => Number(owned(b)) - Number(owned(a)));
+    for (const pet of sorted) {
+      const has = owned(pet);
+      const card = el('li', `pet-card${has ? ' owned' : ''}`);
+      const icon = el('span', 'pet-icon');
+      icon.append(pixelIcon(has ? 'pet' : 'lock'));
+      const text = el('div', 'pet-text');
+      text.append(el('strong', '', pet.name), el('span', 'pet-from', pet.from));
+      card.append(icon, text, el('span', 'pet-state', has ? 'Owned' : 'Locked'));
+      petGrid.append(card);
+    }
+  }
+
+  function paintRelics(): void {
+    for (const [id, card] of relicCards) {
+      const on = relics.has(id);
+      card.classList.toggle('owned', on);
+      const badge = card.querySelector('.relic-badge');
+      if (badge) badge.textContent = on ? 'Owned' : 'Locked';
+    }
+  }
+
+  function setTab(next: MenuTab): void {
+    // Each page starts at its top; the body is shared between tabs.
+    if (next !== tab) content.scrollTop = 0;
+    tab = next;
+    for (const [id, button] of tabButtons) {
+      const on = id === next;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-selected', String(on));
+    }
+    for (const [id, body] of bodies) body.hidden = id !== next;
+    // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
+    if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
+  }
+
+  function show(next: MenuTab = tab): void {
+    setTab(next);
+    paintLook();
+    paintItems();
+    paintRelics();
+    if (open) return;
+    open = true;
+    root.hidden = false;
+    options.onOpen();
+    (tabButtons.get(tab) ?? close).focus({ preventScroll: true });
+  }
+
+  function hide(): void {
+    if (!open) return;
+    open = false;
+    root.hidden = true;
+    dragging = false;
+    if (document.activeElement instanceof HTMLElement && root.contains(document.activeElement)) {
+      document.activeElement.blur();
+    }
+    options.onClose();
+  }
+
+  setTab(tab);
+
+  return {
+    get open() { return open; },
+    get tab() { return tab; },
+    // The window floats off the left edge, so the preview centres on what is right of it.
+    get panelWidth() { return open ? panel.getBoundingClientRect().right : 0; },
+    show,
+    hide,
+    setRelics(ids) {
+      relics = new Set(ids);
+      // A Relic that is no longer owned (restored to another guest) drops its aura.
+      const look = options.look();
+      if (look.aura !== 'none' && !relics.has(look.aura)) options.setLook({ ...look, aura: 'none' });
+      if (open) {
+        paintLook();
+        paintItems();
+        paintRelics();
+      }
+    },
+    setPets(owned) {
+      serverPets = owned ? new Set(owned) : null;
+      if (open) paintItems();
+    },
+    setVerse(balance) {
+      verse = balance;
+      if (open) paintItems();
+    },
+    setGuest(label) {
+      guest.textContent = label;
+      nameField.placeholder = label;
+    },
+  };
+}
+
+function labelled(text: string, control: HTMLElement, note?: string): HTMLLabelElement {
+  const label = el('label', 'menu-field');
+  const caption = el('span', 'menu-label', text);
+  label.append(caption, control);
+  if (note) label.append(el('span', 'menu-note small', note));
+  return label;
+}
+
+function section(text: string, body: HTMLElement, note?: string): HTMLElement {
+  const wrap = el('div', 'menu-field');
+  wrap.append(el('span', 'menu-label', text), body);
+  if (note) wrap.append(el('span', 'menu-note small', note));
+  return wrap;
+}
+
+function colorInput(onInput: (value: string) => void): HTMLInputElement {
+  const input = el('input', 'menu-color');
+  input.type = 'color';
+  input.addEventListener('input', () => onInput(input.value.toLowerCase()));
+  return input;
+}
+
+function rangeInput(min: number, max: number, step: number, onInput: (value: number) => void): HTMLInputElement {
+  const input = el('input', 'menu-range');
+  input.type = 'range';
+  input.min = String(min);
+  input.max = String(max);
+  input.step = String(step);
+  input.addEventListener('input', () => onInput(Number(input.value)));
+  return input;
+}

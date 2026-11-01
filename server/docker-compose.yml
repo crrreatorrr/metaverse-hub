@@ -38,6 +38,7 @@ services:
           --database.address postgres:localdb@postgres:5432/nakama \
           --logger.level INFO \
           --session.token_expiry_sec 7200 \
+          --session.refresh_token_expiry_sec 2592000 \
           --runtime.http_key localhttpkey \
           --runtime.env TICKET_HMAC_KEY=dev-ticket-hmac-key \
           --runtime.env RECOVERY_PEPPER=dev-recovery-pepper \

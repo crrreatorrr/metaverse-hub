@@ -7,6 +7,17 @@ const proxy = {
   '/ws': { target: nakama, ws: true, changeOrigin: true },
 };
 
+/** The public slug is sproto-duel. The M1 mock still lives at play/sproto. */
+function rewriteSprotoDuel(url: string): string {
+  const queryAt = url.indexOf('?');
+  const path = queryAt === -1 ? url : url.slice(0, queryAt);
+  const query = queryAt === -1 ? '' : url.slice(queryAt);
+  if (path !== '/play/sproto-duel' && !path.startsWith('/play/sproto-duel/')) return url;
+  const rest = path.slice('/play/sproto-duel'.length);
+  const next = rest === '' ? '/play/sproto/' : `/play/sproto${rest}`;
+  return `${next}${query}`;
+}
+
 function redirectRoot(): Plugin {
   const redirect = (req: { url?: string }, res: { writeHead: (code: number, headers: Record<string, string>) => void; end: () => void }, next: () => void) => {
     if (req.url === '/' || req.url === '') {
@@ -14,6 +25,7 @@ function redirectRoot(): Plugin {
       res.end();
       return;
     }
+    if (req.url) req.url = rewriteSprotoDuel(req.url);
     next();
   };
   return {

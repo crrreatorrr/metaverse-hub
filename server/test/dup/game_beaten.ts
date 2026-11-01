@@ -1,5 +1,5 @@
 /**
- * Open `game_beaten` rules. Pending until migration 0004_drop_open_game_beaten_rules
+ * Open `game_beaten` rules. Pending until the drop_open_game_beaten_rules migration (PR #27, 0008)
  * is recorded. After that, a client-posted game_beaten grants nothing. The relic
  * comes from the real trigger: sproto.boss_defeated, hpos10i.level_complete,
  * nobu.boss_defeated, pb.quest_complete. Those same triggers are what the
@@ -21,8 +21,11 @@ import {
   waitReady,
 } from './harness.ts';
 
-const MIGRATION = '0004_drop_open_game_beaten_rules';
-const PENDING = 'waiting for migration 0004_drop_open_game_beaten_rules (client game_beaten grants nothing; real relic triggers remain)';
+// PR #27 ships this as 0008 (after #12, #25 and #13). Match the name, not the
+// number, so a renumber before merge does not leave these cases pending forever.
+const MIGRATION_SUFFIX = '_drop_open_game_beaten_rules';
+const MIGRATION_MATCH = `id LIKE '%' || '${MIGRATION_SUFFIX}' AND split_part(id, '_', 1) ~ '^[0-9]+$'`;
+const PENDING = 'waiting for the drop_open_game_beaten_rules migration (PR #27, 0008) (client game_beaten grants nothing; real relic triggers remain)';
 const SLUG = /^[A-Za-z0-9_.:-]{1,80}$/;
 
 interface Trigger {
@@ -69,7 +72,7 @@ function triggerNames(): string[] {
 
 export function openGameBeatenDropped(): boolean {
   if (psql(`SELECT to_regclass('game.schema_migrations') IS NOT NULL`) !== 't') return false;
-  return num(`SELECT count(*) FROM game.schema_migrations WHERE id = '${MIGRATION}'`) === 1;
+  return num(`SELECT count(*) FROM game.schema_migrations WHERE ${MIGRATION_MATCH}`) === 1;
 }
 
 function slug(value: string, label: string): string {
@@ -204,7 +207,7 @@ export async function runGameBeaten(runner: GateRunner): Promise<void> {
       others,
       'a second boot changed the non-game_beaten rules',
     );
-    assert.equal(num(`SELECT count(*) FROM game.schema_migrations WHERE id = '${MIGRATION}'`), 1);
+    assert.equal(num(`SELECT count(*) FROM game.schema_migrations WHERE ${MIGRATION_MATCH}`), 1);
   });
   for (const trigger of TRIGGERS) {
     await runner.test('idempotency', `${trigger.game} relic trigger grants once`, () => realTrigger(trigger));
