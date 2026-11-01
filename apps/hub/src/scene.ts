@@ -77,6 +77,8 @@ export interface HubWorld {
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
   zone: () => PlazaZone;
+  /** World-space floor point in front of the Bar exchange machine. Null until the Bar is built. */
+  exchangeFront: () => Vector3 | null;
   update: (dt: number, moving: boolean, sprint: boolean) => void;
   consumeWarp: () => Warp | null;
   render: () => void;
@@ -284,6 +286,7 @@ export async function createWorld(): Promise<HubWorld> {
   let boardRows: readonly (readonly [string, string])[] = [];
   const storeListeners: ((anchor: Object3D) => void)[] = [];
   let storeAnchor: Object3D | null = null;
+  let exchangeFront: Vector3 | null = null;
   const shot = new URLSearchParams(window.location.search).get('shot');
 
   function applyBoard(): void {
@@ -296,6 +299,8 @@ export async function createWorld(): Promise<HubWorld> {
     interiorTask = buildInterior(scene).then((built) => {
       interior = built;
       storeAnchor = built.storeAnchor;
+      built.group.updateMatrixWorld(true);
+      exchangeFront = built.group.localToWorld(built.exchangeFront.clone());
       applyBoard();
       for (const listener of storeListeners) listener(built.storeAnchor);
     }).catch((error: unknown) => {
@@ -485,6 +490,7 @@ export async function createWorld(): Promise<HubWorld> {
     },
     inInterior: () => inside,
     zone: () => zone,
+    exchangeFront: () => exchangeFront,
     update,
     consumeWarp() {
       const pending = warp;

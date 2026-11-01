@@ -1,0 +1,336 @@
+/* Exchange machine overlay. Loaded with the lazy panel chunk, not with the hub entry. */
+
+.exchange {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: radial-gradient(ellipse at center, rgba(42, 11, 58, 0.55), rgba(4, 3, 12, 0.82));
+  pointer-events: auto;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #e7f6ff;
+}
+
+.exchange-cabinet {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(780px, 100%);
+  max-height: calc(100vh - 48px);
+  box-sizing: border-box;
+  padding: 16px 18px 18px;
+  border: 3px solid #3de1ff;
+  border-radius: 22px;
+  background: linear-gradient(160deg, #120a2e, #2a0b3a);
+  box-shadow:
+    0 0 0 6px #0b0b10,
+    0 0 0 8px rgba(255, 59, 212, 0.55),
+    0 0 40px rgba(61, 225, 255, 0.35),
+    inset 0 0 30px rgba(0, 0, 0, 0.6);
+}
+
+.exchange-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.exchange-marquee {
+  margin: 0;
+  font: 400 34px LilitaOne, 'Arial Black', sans-serif;
+  letter-spacing: 0.12em;
+  color: #ffd21f;
+  text-shadow: 0 0 10px rgba(255, 59, 212, 0.9), 0 0 22px rgba(255, 210, 31, 0.45);
+}
+
+.exchange-close {
+  border: 1px solid rgba(61, 225, 255, 0.45);
+  border-radius: 999px;
+  padding: 7px 12px;
+  background: rgba(8, 10, 22, 0.82);
+  color: #d8f6ff;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.exchange-rate {
+  margin: 0;
+  color: #f5b942;
+  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.exchange-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 6px;
+  border: 1px solid rgba(245, 185, 66, 0.45);
+  border-radius: 999px;
+  background: rgba(8, 10, 22, 0.88);
+  align-self: flex-start;
+}
+
+.exchange-tabs button {
+  border: 0;
+  border-radius: 999px;
+  padding: 7px 14px;
+  background: transparent;
+  color: #efe7ff;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.exchange-tabs button.on {
+  background: #f5b942;
+  color: #1a1208;
+  font-weight: 700;
+}
+
+.exchange-screen {
+  flex: 1 1 auto;
+  min-height: 260px;
+  overflow: auto;
+  padding: 16px 18px;
+  border: 2px solid rgba(57, 255, 106, 0.45);
+  border-radius: 14px;
+  background:
+    repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.025) 0 1px, transparent 1px 3px),
+    #081a24;
+  box-shadow: inset 0 0 24px rgba(0, 229, 255, 0.12);
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.exchange-center {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  margin: 0;
+  color: #9be7ff;
+  font-size: 18px;
+}
+
+.exchange-offline {
+  font: 400 34px LilitaOne, 'Arial Black', sans-serif;
+  letter-spacing: 0.08em;
+  color: #ff5ab4;
+  text-shadow: 0 0 14px rgba(255, 59, 212, 0.7);
+}
+
+.exchange-tab h3 {
+  margin: 18px 0 8px;
+  color: #3de1ff;
+  letter-spacing: 0.14em;
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.exchange-tab h3:first-child {
+  margin-top: 0;
+}
+
+.exchange-tab p {
+  margin: 8px 0;
+}
+
+.exchange-big {
+  font: 400 24px LilitaOne, 'Arial Black', sans-serif;
+  letter-spacing: 0.04em;
+  color: #39ff6a;
+}
+
+.exchange-field {
+  display: grid;
+  grid-template-columns: 130px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.exchange-label {
+  color: #8ea2b8;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.exchange-mono {
+  font: 13px ui-monospace, monospace;
+  color: #9be7ff;
+  word-break: break-all;
+}
+
+.exchange a {
+  color: #9be7ff;
+}
+
+.exchange-copy {
+  border: 1px solid rgba(61, 225, 255, 0.4);
+  border-radius: 999px;
+  padding: 3px 10px;
+  background: transparent;
+  color: #d8f6ff;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.exchange-warn {
+  margin: 10px 0;
+  padding: 8px 12px;
+  border-left: 3px solid #f5b942;
+  border-radius: 4px;
+  background: rgba(245, 185, 66, 0.09);
+  color: #ffe2a8;
+}
+
+.exchange-warn ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+
+.exchange-fine {
+  color: #b7c9d6;
+  font-size: 13px;
+}
+
+.exchange-ok {
+  color: #39ff6a;
+}
+
+.exchange-dim {
+  color: #8ea2b8;
+}
+
+.exchange-notice {
+  margin: 0 0 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(61, 225, 255, 0.08);
+}
+
+.exchange-notice.ok {
+  background: rgba(57, 255, 106, 0.1);
+  color: #a8ffbf;
+}
+
+.exchange-notice.error {
+  background: rgba(255, 59, 120, 0.12);
+  color: #ffc0d4;
+}
+
+.exchange-button {
+  margin: 6px 8px 6px 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 9px 16px;
+  background: #3de1ff;
+  color: #071018;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.exchange-button.ghost {
+  border: 1px solid rgba(61, 225, 255, 0.5);
+  background: transparent;
+  color: #d8f6ff;
+}
+
+.exchange-button:disabled,
+.exchange-copy:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.exchange-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+
+.exchange-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  color: #8ea2b8;
+  letter-spacing: 0.1em;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.exchange-form input {
+  width: 140px;
+  box-sizing: border-box;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  padding: 9px;
+  background: #120e1c;
+  color: #f4efff;
+  font: 16px ui-monospace, monospace;
+}
+
+.exchange-form .exchange-button {
+  margin: 0;
+}
+
+.exchange-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.exchange-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.exchange-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(245, 185, 66, 0.35);
+  border-radius: 10px;
+  background: rgba(8, 10, 22, 0.6);
+}
+
+.exchange-stat strong {
+  color: #f5b942;
+  font-size: 20px;
+}
+
+.exchange-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.exchange-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.4fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.exchange-claim {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(57, 255, 106, 0.35);
+  border-radius: 10px;
+}

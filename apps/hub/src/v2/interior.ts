@@ -1,4 +1,5 @@
 import {
+  Box3,
   BoxGeometry,
   CanvasTexture,
   Color,
@@ -23,7 +24,7 @@ import {
   Vector3,
 } from 'three';
 import { WORLD_ROOT, animated, bakeInstanceColors, glow, instanced, neonMat, part } from './core';
-import { SIGN_FONT } from './signs';
+import { SIGN_FONT, marqueeSign } from './signs';
 
 const Y = -Math.PI / 2;
 export const INTERIOR_ORIGIN = new Vector3(0, -300, 0);
@@ -192,6 +193,8 @@ export interface InteriorBuild {
   exit: Group;
   leaderboard: CanvasTexture;
   storeAnchor: Object3D;
+  /** Floor point in front of the exchange machine, in interior-group space. */
+  exchangeFront: Vector3;
 }
 
 export async function buildInterior(parent: Object3D): Promise<InteriorBuild> {
@@ -285,7 +288,22 @@ export async function buildInterior(parent: Object3D): Promise<InteriorBuild> {
   const arcade = await part('I7-arcade', { h: 1.95, yaw: Y, glow: 0.3, level: 'lod0' });
   arcade.position.set(1.4, 0, 5.7);
   arcade.rotation.y = Math.PI;
+  arcade.name = 'exchange-machine';
   g.add(arcade);
+  // The exchange machine. Its front faces -z, into the room; `exchangeFront` is the floor point
+  // the hint and E key measure from. The interior group has no rotation or scale.
+  g.updateMatrixWorld(true);
+  const cab = new Box3().setFromObject(arcade);
+  cab.min.sub(g.position);
+  cab.max.sub(g.position);
+  const exchangeFront = new Vector3(arcade.position.x, 0, cab.min.z);
+  const marquee = marqueeSign('exchange-marquee', 'EXCHANGE', '#ff3bd4', 1.7, 0.5);
+  marquee.position.set(arcade.position.x, cab.max.y + 0.34, cab.min.z + 0.12);
+  marquee.rotation.y = Math.PI;
+  g.add(marquee);
+  const marqueeTrim = new Mesh(new BoxGeometry(1.7, 0.04, 0.04), neonMat('#3de8ff', 4));
+  marqueeTrim.position.set(arcade.position.x, cab.max.y + 0.07, cab.min.z + 0.12);
+  g.add(glow(marqueeTrim));
   const arcade2 = await part('I7-arcade', { h: 1.95, yaw: Y, glow: 0.3, level: 'lod0' });
   arcade2.position.set(9.3, 0, -1.6);
   arcade2.rotation.y = -Math.PI / 2;
@@ -437,5 +455,5 @@ export async function buildInterior(parent: Object3D): Promise<InteriorBuild> {
   animated.push((t) => {
     if (Math.floor(t * 2) % 8 === 0) tvTex.offset.x = Math.sin(t) * 0.02;
   });
-  return { group: g, exit, leaderboard: lbTex, storeAnchor: ui };
+  return { group: g, exit, leaderboard: lbTex, storeAnchor: ui, exchangeFront };
 }

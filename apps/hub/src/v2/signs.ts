@@ -86,3 +86,33 @@ export function buildingSign(name: string, title: string, subtitle: string, tint
   mesh.name = name;
   return glow(mesh);
 }
+
+/** Arcade marquee: one lit word on a dark panel, sized `width` × `height` metres. Faces +z. */
+export function marqueeSign(name: string, title: string, tint: string, width: number, height: number): Mesh {
+  const canvas = document.createElement('canvas');
+  canvas.width = 1024;
+  canvas.height = Math.round((1024 * height) / width);
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('2d context unavailable');
+  ctx.fillStyle = 'rgba(8, 6, 18, 0.92)';
+  roundRect(ctx, 12, 12, canvas.width - 24, canvas.height - 24, 36);
+  ctx.fill();
+  ctx.strokeStyle = tint;
+  ctx.lineWidth = 16;
+  ctx.stroke();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  fitFont(ctx, title, canvas.width - 120, Math.round(canvas.height * 0.62));
+  ctx.shadowColor = tint;
+  ctx.shadowBlur = 28;
+  ctx.fillStyle = '#ffd21f';
+  ctx.fillText(title, canvas.width / 2, canvas.height / 2 + 4);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#fff6c8';
+  ctx.fillText(title, canvas.width / 2, canvas.height / 2 + 4);
+  const material = new MeshBasicMaterial({ map: canvasTexture(canvas), transparent: true, toneMapped: false });
+  material.name = name;
+  const mesh = new Mesh(new PlaneGeometry(width, height), material);
+  mesh.name = name;
+  return glow(mesh);
+}

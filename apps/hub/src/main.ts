@@ -10,6 +10,7 @@ import {
 } from '@metaverse/hub-sdk';
 import { DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, PORTAL_DISTANCE, PORTALS, SOCKETS, SPRINT_SPEED, WALK_SPEED } from './config';
+import { EXCHANGE_REACH, installExchangeMachine } from './exchange/machine';
 import { gameUrl, type GameUrlContext } from './games';
 import { portalPosition, spawnFor } from './layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
@@ -69,8 +70,32 @@ const ray = new Ray();
 
 const debug = import.meta.env.DEV ? createDebug() : null;
 
+let exchangeNote = '';
+let exchangeDistance = Infinity;
+const exchange = installExchangeMachine({
+  root: app,
+  async session() {
+    const session = await boot();
+    return { client: session.client, token: () => session.token };
+  },
+  onOpen() {
+    keys.clear();
+    jumpQueued = false;
+    dragging = false;
+    exchangeNote = '';
+  },
+  onError(message) {
+    exchangeNote = message;
+  },
+});
+
 window.addEventListener('keydown', (event) => {
-  if (isTypingTarget(event.target)) return;
+  if (exchange.isOpen || isTypingTarget(event.target)) return;
+  if (event.code === 'KeyE' && !event.repeat && exchangeDistance <= EXCHANGE_REACH) {
+    event.preventDefault();
+    exchange.open();
+    return;
+  }
   if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
   if (event.repeat && event.code === 'Space') return;
   keys.add(event.code);
@@ -135,6 +160,9 @@ world.renderer.setAnimationLoop((timestamp) => {
   }
   const inBar = world.inInterior();
   if (barTabs) barTabs.hidden = !inBar;
+  exchangeDistance = distanceToExchange();
+  if (exchangeDistance > EXCHANGE_REACH) exchangeNote = '';
+  exchange.tick(exchangeDistance);
   if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
   fadeLabels();
   updateHint();
@@ -222,6 +250,13 @@ function fadeLabels(): void {
   }
 }
 
+/** Horizontal distance from the player to the exchange machine's front, `Infinity` outside the Bar. */
+function distanceToExchange(): number {
+  const front = world.exchangeFront();
+  if (!world.inInterior() || !front) return Infinity;
+  return Math.hypot(player.position.x - front.x, player.position.z - front.z);
+}
+
 function updateHint(): void {
   const look = document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
   const zone = world.zone();
@@ -232,6 +267,12 @@ function updateHint(): void {
   const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
   const text = portalError
     ? portalError
+    : exchange.isOpen
+    ? 'Esc to close the exchange machine'
+    : exchangeNote
+    ? exchangeNote
+    : exchangeDistance <= EXCHANGE_REACH
+    ? `${look}Press E to use the exchange machine`
     : zone === 'loading'
     ? 'Loading the bar…'
     : zone === 'door'
