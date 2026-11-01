@@ -1,6 +1,6 @@
 # $BITCOIN ⇄ Verse exchange: design
 
-Status: design only. Nothing in this doc is built, registered, or migrated.
+Status: **built for Ethereum, not yet deployed.** See [Implementation status](#implementation-status) for what exists, where, and what still has to happen before mainnet.
 
 Players can trade Verse for HarryPotterObamaSonic10Inu `$BITCOIN` (cash-out), and buy in-game items with `$BITCOIN` (pay-in). In the backend every purchase is still a Verse purchase. The crypto side only adds Verse to or removes Verse from `game.verse_wallet`, through `game.verse_ledger`, the same way `game.exchange_tickets` does today.
 
@@ -90,7 +90,8 @@ The server enforces every lock. The claim contract enforces none of them, by dec
 - **1 Verse = 1 `$BITCOIN`.** It is not stored in a table and there is no rate version. Verse stays an integer, and only whole tokens are paid out.
 - **In the contract.** A voucher's `amount` is in whole Verse, and the contract pays `amount × 10^decimals` base units, with `decimals` read from the token when the contract is deployed and stored as `immutable`. Since the contract has no owner, the 1:1 rule can never change.
 - **No rate-change arbitrage.** Buying and cashing out is a round trip that only costs the player gas, because the rate never changes.
-- **Admin control.** An RPC that accepts only the Nakama server key (`http_key`), called from a CLI script or a small admin page behind Caddy auth. It sets the limits, the reference price, and the kill switches. Every call writes `game.economy_config_log`.
+- **Admin control.** `npm run admin -- set '<json>'` in `server/chain` calls `game.economy_config_set` over an owner database connection (`ADMIN_DATABASE_URL`), with the operator's name in `OPERATOR`. It sets the limits, the reference price, the chain addresses, and the kill switches. Every call writes `game.economy_config_log`. There is no HTTP admin endpoint.
+- **Everything starts closed.** After migration, both switches are off, every limit is 0, and the token decimals, deposit address and cashout address are unset. Nothing can be deposited or cashed out until an operator sets them.
 
 ## Pay-in: `$BITCOIN` → Verse → item
 
@@ -108,7 +109,7 @@ Matching is by sender. Each account has at most one linked Ethereum wallet, so a
 
 1. Checkout writes `game.purchase_intent (intent_id, user_id, item_id, verse_price, chain, token_amount, expires_at)`. `token_amount` is `verse_price` whole tokens.
 2. The player sends `token_amount` from their linked wallet.
-3. When the deposit is credited, the same transaction looks for an open intent from that account whose `token_amount` is less than or equal to the credited amount. If it finds one, it runs the M7 `store.purchase` debit with the intent id as the idempotency key.
+3. When the deposit is credited, the same transaction looks for an open intent from that account whose price is covered by the credited Verse, and marks it `paid`. **Not wired yet:** the M7 store does not exist, so nothing grants the item. When M7 lands, `store.purchase` consumes `paid` intents, using the intent id as its idempotency key. Until then the Verse simply stays in the wallet. Prices come from a server-side list in `server/modules/src/wallet.ts`, never from the client.
 4. If no intent matches, it has expired, or the item is already owned (`HubPets.derivedOwned` or `game.item_owned`), the Verse just stays in the wallet. There are no refunds.
 
 ## Cash-out: Verse → `$BITCOIN` through a claim contract
@@ -119,19 +120,28 @@ The player pays gas, so cash-out uses a claim contract. The server never sends t
 
 Written by the builder agent, attacked by the exploit agents (see [Smart contract team and review](#smart-contract-team-and-review)). Required behaviour:
 
-- It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe with plain token transfers. The float is the most that can be lost on chain, so it stays small: about one day of the global lock plus the vouchers already issued.
+- It holds a float of `$BITCOIN`, refilled slowly by hand from the Safe with plain token transfers, **in whole tokens only**. The float is the most that can be lost on chain.
+- **How big the float is.** Vouchers last 30 days and players may save them up. A claim that the float can't cover reverts with nothing marked, and the voucher stays claimable once the float is refilled. So a float smaller than the open vouchers delays players; it never loses their vouchers. Keep the float near one or two days of the global lock and refill as it is claimed. Honouring every open voucher at once would need up to about 30 days of the global lock, roughly $15,000 at $500 a day, which is also what a leaked key could take.
 - `claim(voucher, signature)` and `claimBatch(vouchers[], signatures[])` transfer tokens to the voucher's `recipient`. With batching, a player can save up several days of vouchers and pay gas once.
 - A voucher is EIP-712 typed data: `id`, `recipient`, `amount` (whole Verse, paid 1:1 as whole tokens), `expiry`. The signing domain includes the chain id and the contract address, so a voucher can't be replayed on another chain or contract.
 - Each `id` can be claimed exactly once. A claim after `expiry` reverts.
 - **No on-chain limit** (decision). Only the voucher amounts and the float bound what can be claimed.
 - **No pause** (decision). Players can always claim a signed, unexpired voucher while the float covers it.
 - **No owner** (decision). The signer address and the token address are `immutable`, set in the constructor. There are no admin functions, no signer rotation, and no way to take tokens out except a valid voucher claim. Once deployed, nobody can change the contract's rules, the operator included.
-- **Replacing the contract.** Deploy a new contract with a new signer, point the voucher signer at it, and stop refilling the old one. Vouchers already issued for the old contract stay claimable there until they expire. Whatever is left after that stays in the old contract for good, so it is kept small.
-- Not upgradeable. A new version is a new deployment, with the old one drained to the Safe.
-- Tokens move with `SafeERC20`. The reviewer confirms how the `$BITCOIN` token behaves (return values, fees, blocklists, pausing) before launch.
-- Emits `Claimed(id, recipient, amount)`.
+- **Replacing the contract.** Deploy a new contract with a new signer, point the voucher signer at it, and stop refilling the old one. Vouchers already issued for the old contract stay claimable there until they expire. The only way anything comes back out is a voucher, signed by the old key, to the Safe, for whole tokens. Less than one whole token stays forever.
+- Not upgradeable. A new version is a new deployment.
+- **Exact payment.** Tokens move with `SafeERC20`, and every claim checks that the recipient's balance rose by exactly `amount × unit`, reverting with `ShortPayment` otherwise. A token that silently fails, takes a fee, or rebases can never mark a voucher claimed without paying it. `claim` and `claimBatch` are `nonReentrant` (OpenZeppelin `ReentrancyGuardTransient`).
+- **Event:** `Claimed(uint256 indexed id, address indexed recipient, uint256 amount, uint256 tokens)`. `amount` is whole Verse and `tokens` is base units. The watcher decodes it with the contract's own ABI (`server/chain/src/voucher.ts`).
+- **Voucher ids** are random (about 244 bits), not a counter, so nobody can guess a live id or pre-claim future ones.
 
-The signing key is a secp256k1 key in a KMS (AWS KMS and Google Cloud KMS both support it). It is never in the Nakama environment, `.env`, or the repo. The key can only sign vouchers. It cannot move funds by itself. But with no on-chain limit, a leaked key can sign vouchers for the whole float, so on chain the only protection is the float size.
+The signing key is a secp256k1 key in AWS KMS (`ECC_SECG_P256K1`). It is never in the Nakama environment, `.env`, or the repo.
+- A KMS key signs **any** digest, not just vouchers. Restrict its IAM policy to `kms:Sign` and `kms:GetPublicKey`, granted only to the chain service.
+- Use one key per chain: mainnet and Sepolia must never share a key. The deploy script enforces this.
+- With no on-chain limit, a leaked key can sign vouchers for the whole float, so on chain the only protection is the float size.
+
+**The signer's own limits.** Apart from the database, the signer keeps a daily budget and a per-voucher maximum in a state file on its own disk (`SIGNER_DAILY_MAX_VERSE`, `SIGNER_MAX_VOUCHER_VERSE`, `SIGNER_MAX_TTL_SECONDS`). If the database is compromised and floods `issued` rows, the signer still stops at its daily budget. It also halts, and stays halted across restarts, on any security alert. Set the daily budget equal to the global lock.
+
+Before signing for a cashout contract, the signer reads that contract's `signer()` on chain and refuses if it is not its own key.
 
 ### Flow
 
@@ -146,10 +156,10 @@ The signing key is a secp256k1 key in a KMS (AWS KMS and Google Cloud KMS both s
    If all pass, it debits Verse (`source = 'withdraw:eth'`), adds to both windows, and inserts `game.withdrawal` with a new voucher `id`, `recipient`, the token amount, `expiry` (30 days), and status `issued`. Everything happens in one transaction.
 3. The voucher signer service signs the voucher through the KMS and stores the signature on the row (`signed`). The signer only signs rows in `issued`, and only once.
 4. The machine shows every signed, unclaimed voucher. The player claims one or all of them in one transaction from their wallet.
-5. The watcher sees `Claimed` in a finalized block and marks the row `claimed`.
-6. **Expiry.** A voucher that was never claimed becomes `expired` only once a finalized block has a timestamp past `expiry` and no `Claimed` event exists for its `id`. Only then is the Verse credited back (`source = 'withdraw_refund'`). Because the contract rejects expired vouchers, a refund can never pay out twice. The daily windows are not given back on expiry.
+5. The watcher sees `Claimed` in a finalized block. If the voucher's id, recipient and amount all match the row, it marks the row `claimed`. Anything else raises an `unknown_claim` alert.
+6. **Expiry.** A voucher becomes due for refund only once the claims stream has processed a finalized block whose timestamp is past `expiry`. Before refunding, the watcher also reads `claimed(id)` on chain at the finalized block. Only if that is false is the Verse credited back (`source = 'withdraw_refund'`). If the chain says claimed but no event was seen, it raises an alert instead of refunding. Because the contract rejects expired vouchers, a refund can never pay out twice. The daily windows are not given back on expiry.
 
-Withdrawal states: `issued → signed → claimed`, or `signed → expired → refunded`. All changes go to an append-only `game.withdrawal_log`.
+Withdrawal states: `issued → signed → claimed`, or `issued`/`signed → refunded`. A trigger allows only forward moves and makes the voucher fields immutable. All changes go to an append-only `game.withdrawal_log`.
 
 The player needs ETH in the linked wallet for gas. The machine checks this and says so before showing the Claim button.
 
@@ -161,7 +171,7 @@ The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior
 - **Proximity.** Inside the Bar, when the player is within about 1.6 m of the cabinet's front, the hint line shows `Press E to use the exchange machine`. E is not bound today. Moving away hides the hint. This follows the same pattern as `updateHint` in `apps/hub/src/main.ts`.
 - **Open.** Pressing E releases pointer lock and opens an overlay styled as the cabinet screen. Movement keys are ignored while it is open. Esc or walking away closes it.
 - **Screens on the machine:**
-  - **Wallet**: link or replace the Ethereum wallet (MetaMask or WalletConnect), show the linked address and the 72-hour hold.
+  - **Wallet**: link or replace the Ethereum wallet (an injected wallet such as MetaMask; WalletConnect is not built yet), show the linked address and the 72-hour hold.
   - **Buy Verse**: 1 Verse = 1 `$BITCOIN`, the deposit address, the exact amount, and pending and credited deposits.
   - **Cash out**: Verse balance, today's room on the per-account lock, the global room for the current hour, the amount picker, and the vouchers waiting to be claimed with a Claim all button.
   - **History**: deposits, vouchers, claims, refunds.
@@ -169,45 +179,50 @@ The Bar interior already has two `I7-arcade` cabinets (`apps/hub/src/v2/interior
 - **Bundle.** The wallet libraries (viem/wagmi, WalletConnect) load only when the machine opens, never in the main hub bundle. `scripts/check-prod-bundle.mjs` should check this.
 - **Buying items with `$BITCOIN`.** Offered at the machine and at store checkout. "Pay with $BITCOIN" at checkout opens the same wallet and purchase-intent component the machine uses, so there is only one implementation.
 
-## Proposed tables
+## Tables
 
-All tables go through the schema migration ledger as new entries. No existing id is edited.
+Migration `0004_crypto_exchange` (`server/modules/src/exchange_schema.ts`), applied through the schema migration ledger.
 
 | Table | Purpose |
 | --- | --- |
-| `game.wallet_link` | `(user_id, chain)` PK, `address` unique per chain, `linked_at` |
-| `game.wallet_link_log` | Append-only link and unlink history |
-| `game.link_nonce` | Single-use nonces for the signing messages |
-| `game.economy_config` / `_log` | Limits, kill switches, reference price; append-only log |
-| `game.deposit` | One row per credited or unmatched transfer, unique chain key |
+| `game.chain_config` | Per chain: chain id, token, decimals, deposit and cashout addresses, switches, global lock |
+| `game.economy_config` / `_log` | Per-account lock, reference price, voucher TTL, link hold; append-only log |
+| `game.wallet_link` / `_log` | `(user_id, chain)` PK, `address` unique per chain; append-only history |
+| `game.link_nonce` | Single-use sign-in messages, written by the server |
+| `game.deposit` | One row per Transfer log, unique on `(chain, tx_hash, log_index)`; `credited`, `unmatched` or `held` |
 | `game.deposit_dust` | Token remainder per account |
-| `game.purchase_intent` | Checkout intents for buying an item with `$BITCOIN` |
-| `game.withdrawal` / `_log` | Voucher state machine |
-| `game.payout_window` | Global cash-out counter per UTC day and hour |
-| `game.chain_cursor` | Last finalized block each watcher has processed |
+| `game.purchase_intent` | `$BITCOIN` checkout intents |
+| `game.withdrawal` / `_log` | Vouchers and their state machine |
+| `game.payout_window` | Global cash-out counter per chain and UTC day |
+| `game.chain_cursor` | Last finalized block (and its time) each stream has processed |
+| `game.chain_alert` | Append-only security and operations alerts |
 
-`verse_ledger`, `deposit`, `withdrawal_log`, and both config logs get the same `reject_mutation` append-only triggers as the existing ledgers.
+## RPCs (Nakama, hub sessions only)
 
-## Proposed RPCs
-
-| RPC | Caller |
+| RPC | What it does |
 | --- | --- |
-| `wallet.nonce` | Player. Returns a signing message |
-| `wallet.link` | Player. Checks the signature and links or replaces the wallet |
-| `wallet.status` | Player. Linked wallet, hold expiry, both windows, open vouchers |
-| `store.intent` | Player. Creates a `$BITCOIN` purchase intent |
-| `wallet.withdraw` | Player. Debits Verse and issues a voucher |
-| `economy.admin` | Server key only. Limits, reference price, kill switches |
-| `chain.credit` | Server key only. The watcher reports a finalized deposit |
-| `chain.claim_update` | Server key only. The watcher reports claims and expiries |
-| `voucher.sign` | Server key only. The signer stores a voucher signature |
+| `wallet.nonce` | Returns the exact sign-in message for an address |
+| `wallet.link` | Asks the chain service who signed it, then links or replaces the wallet. The nonce is spent even if the signature is wrong |
+| `wallet.status` | Balance, linked wallet and hold, both locks' room, vouchers with signatures, deposits, intents |
+| `wallet.withdraw` | Debits Verse and issues a voucher |
+| `store.intent` | Creates a `$BITCOIN` purchase intent at the server's price |
+
+The chain service does not use RPCs. It calls `SECURITY DEFINER` functions directly, logging in with only the `hub_chain` role. That role can execute nothing else and read no tables.
 
 ## Services
 
-These are new containers in `server/docker-compose.yml`. The Nakama runtime cannot hold long-running chain listeners or sign with a KMS.
+`server/chain` (Node + viem), `docker compose --profile chain up`. The Nakama runtime cannot hold long-running chain listeners or sign with a KMS.
 
-- **chain-watcher.** Follows finalized Ethereum blocks from `game.chain_cursor` and reports deposits, `Claimed` events, and voucher expiries. Each report is idempotent on its chain key, so replaying a range is safe. It needs an RPC provider plus a fallback provider.
-- **voucher-signer.** Signs `issued` vouchers through the KMS. Only one instance runs at a time, enforced by an advisory lock. It never broadcasts transactions and holds no ETH.
+- **`POST /verify`** recovers the address that signed a sign-in message. It is for Nakama only, uses a shared key header, and is not routed through Caddy.
+- **Watcher loop**, idempotent at every step:
+  1. deposits: `Transfer` to the deposit address on the token;
+  2. `deposit_settle_pending`;
+  3. `Claimed` on every cashout contract that can still pay an open voucher;
+  4. expiries, checked on chain;
+  5. signing.
+
+  It only reads `finalized` blocks. It needs one RPC provider; `RPC_URL` should point at a provider with its own failover.
+- **Admin CLI:** `show`, `set`, `alerts`, `signer-address`, `signer-proof`.
 
 ## Smart contract team and review
 
@@ -216,8 +231,8 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 ### Ground rules
 
 - **Separate agents.** The builder and each reviewer are separate agent sessions. A reviewer gets the spec (this doc) and the code, never the builder's notes, reasoning, or claims that something is safe. Its job is to break the contract, not to confirm it.
-- **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`; no `Ownable`). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
-- **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good.
+- **A small contract.** Built from OpenZeppelin parts that have already been audited (`EIP712`, `ECDSA`, `SafeERC20`, `ReentrancyGuardTransient`; no `Ownable`). No inline assembly, no upgradeability, a pinned compiler version, and no features beyond this doc. Every line cut is a line that can't be exploited.
+- **Proof of concept for every finding.** A reviewer reports an exploit as a Foundry test that runs on a mainnet fork against the real `$BITCOIN` token and shows the loss. The fix has to make that test pass, and the test stays in the suite for good. *As built:* this environment had no Ethereum RPC, so the PoCs use mock tokens that model each behaviour. Re-running the token-behaviour PoCs on a mainnet fork is a launch step.
 - **The backend is in scope.** With no on-chain limit, a bug in the server drains the float just like a bug in the contract. Every review pass also covers `wallet.link` signature checks, `game.withdraw_verse`, the voucher signer, and the watcher.
 
 ### Builder agent
@@ -261,13 +276,14 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
 
 ## Operations
 
-- **Kill switches (server only):** separate switches for deposits and voucher issuing. They stop new vouchers. They never touch vouchers already issued.
+- **Kill switches (server only):** separate switches for deposits and voucher issuing. They stop new vouchers. They never touch vouchers already issued. With deposits switched off, incoming transfers are recorded as `held` and credited once deposits are switched back on.
 - **Alerts:**
   - the contract float falls below the open vouchers plus one day of the limit;
   - the global window is used up early;
   - the implied dollar value goes past the threshold;
   - the watcher falls behind;
-  - a `Claimed` event arrives with no matching `withdrawal` row, or claims in a day go past the global lock. Either means the signer or backend is compromised. Response: turn off voucher issuing, stop refilling the float, and deploy a new contract with a new signer. Nothing on chain stops a drain in progress, so the float size is what bounds the loss.
+  - a `Claimed` event whose id, recipient and amount don't all match a voucher row (`unknown_claim`), a claim after a refund, or `claimed(id)` true on chain with no event seen. Any of these means the signer or backend is compromised. The signer halts on its own. Response: turn off voucher issuing, stop refilling the float, and deploy a new contract with a new signer. Nothing on chain stops a drain in progress, so the float size is what bounds the loss.
+  - `rpc_chain_mismatch`, `cashout_signer_mismatch`, `signer_refused` (the signer's own limits stopped it). Alerts go to `game.chain_alert`, the service log, and `ALERT_WEBHOOK_URL` if it is set.
   - a single address appears on more than one account over time.
 - **Daily reconciliation.** Sum of deposits minus sum of claims, compared against the actual movement in the Safe and the contract.
 
@@ -279,17 +295,28 @@ Deferred to the end of the project, together with the terms and conditions. Not 
 - **Sanctions screening (recommended).** Check addresses against published sanctions lists at link time and before each voucher is issued. It needs no player identity.
 - **Age gate.** The People's Bitcoin is 18+. Decide whether the exchange machine needs the same gate.
 
-## QA cases to add to `server/test/dup/`
+## Tests
 
-- Two withdrawals with the same idempotency key, and two different keys sent at once from two tabs.
-- A withdrawal that would cross the per-account or the global lock by one Verse, including across the hourly release and at 00:00 UTC.
-- The signer crashes after storing a signature, and before storing one.
-- A deposit reported twice. A deposit inside a range the watcher replays.
-- A claim in the same block as the voucher's expiry. No refund before a finalized block past expiry.
-- A `Claimed` event for an id the database doesn't have.
-- A deposit with a fraction of a token, and the dust carried into the next one.
-- A wallet change followed by a withdrawal attempt inside the 72-hour hold.
-- Account recovery and merge with linked wallets and open vouchers.
+| Where | What |
+| --- | --- |
+| `contracts/test` | Unit, fuzz, reentrancy, token behaviour and invariant tests; shared EIP-712 and signer-proof vectors; `exploits/` holds every reviewer PoC, either fixed or pinned as accepted |
+| `server/test/exchange` | Migration 0004 against real Postgres: links, both locks under concurrency, idempotency, signing guards, claims, refunds, deposits, dust, intents, `hub_chain` privileges |
+| `server/chain/test` | Vectors against Solidity, KMS DER/low-s handling, `/verify`, signer guard, and the full watcher loop on Postgres with a fake chain |
+| `packages/hub-sdk/test` | Wallet API calls |
+
+Still to add to `server/test/dup/` (these need Nakama running): the wallet RPCs through Nakama, and account recovery and merge with linked wallets and open vouchers.
+
+## Implementation status
+
+| Piece | State |
+| --- | --- |
+| `VerseCashout` contract, deploy script, checklist | Built; reviewed by four independent AI exploit passes, fixes applied |
+| Migration 0004 and SQL functions | Built and tested on Postgres 16 |
+| Nakama wallet RPCs, SDK wallet API | Built; compiled and unit-tested, not yet run inside Nakama |
+| Chain service (verifier, watcher, signer, KMS, admin CLI) | Built; tested with a fake chain and real Postgres |
+| Bar exchange machine UI | Built in `apps/hub` |
+| Store checkout "Pay with $BITCOIN" | Intent and payment matching built; the item grant waits for the M7 store |
+| Sepolia end-to-end, mainnet-fork tests against the real token | **Not done.** This build environment could not reach any Ethereum RPC |
 
 ## Build order
 

@@ -27,6 +27,52 @@ jobs:
       - run: npm test
       - run: npm run build
 
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: foundry-rs/foundry-toolchain@v1
+      - name: Contract tests (unit, fuzz, invariant, exploit PoCs, shared vectors)
+        working-directory: contracts
+        run: |
+          forge fmt --check
+          forge test
+
+  exchange:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16.8-alpine
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 3s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      EXCHANGE_TEST_DB: postgres://postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm ci --prefix server/modules
+      - run: npm ci --prefix server/chain
+      - name: Exchange schema tests
+        run: npm run test:exchange
+      - name: Chain service typecheck and tests
+        working-directory: server/chain
+        run: |
+          npm run typecheck
+          npm test
+
   duplication:
     runs-on: ubuntu-latest
     timeout-minutes: 60
