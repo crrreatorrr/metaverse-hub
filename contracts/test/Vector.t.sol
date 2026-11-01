@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {IERC20Metadata} from "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 import {VerseCashout} from "../src/VerseCashout.sol";
 import {MockToken} from "./mocks/Tokens.sol";
+import {Deploy} from "../script/Deploy.s.sol";
 
 /// Shared EIP-712 vector. server/chain/test/voucher.test.ts must produce the same digest
 /// and signature from test/vectors/voucher.json, so Solidity and TypeScript agree on encoding.
@@ -30,5 +31,19 @@ contract VectorTest is Test {
         assertEq(digest, vm.parseJsonBytes32(json, ".digest"));
         assertEq(abi.encodePacked(r, s, vv), vm.parseJsonBytes(json, ".signature"));
         assertEq(vm.addr(key), vm.parseJsonAddress(json, ".signer"));
+    }
+
+    /// Deploy.proofDigest must match the chain service's `signer-proof` command (src/proof.ts).
+    function test_shared_signer_proof_vector() public {
+        string memory json = vm.readFile("test/vectors/signer-proof.json");
+        Deploy d = new Deploy();
+        bytes32 digest = d.proofDigest(
+            vm.parseJsonUint(json, ".chainId"),
+            vm.parseJsonAddress(json, ".token"),
+            vm.parseJsonAddress(json, ".signer")
+        );
+        assertEq(digest, vm.parseJsonBytes32(json, ".digest"));
+        (uint8 vv, bytes32 r, bytes32 s) = vm.sign(vm.parseJsonUint(json, ".signerKey"), digest);
+        assertEq(abi.encodePacked(r, s, vv), vm.parseJsonBytes(json, ".signature"));
     }
 }

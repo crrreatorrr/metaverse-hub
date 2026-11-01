@@ -61,6 +61,28 @@ services:
       retries: 24
       start_period: 25s
 
+  # Chain service: sign-in verifier for wallet.link, deposit and claim watcher, voucher
+  # signer. Not started by default (needs an Ethereum RPC): `docker compose --profile chain up`.
+  # It logs in as hub_chain_dev, which only has the hub_chain role. Create that login once:
+  #   psql -h 127.0.0.1 -U postgres -d nakama -c "CREATE ROLE hub_chain_dev LOGIN PASSWORD 'devchain' IN ROLE hub_chain"
+  # SIGNER=local is a dev key and is refused on mainnet; production uses SIGNER=aws-kms.
+  chain:
+    profiles: ["chain"]
+    build:
+      context: ./chain
+    environment:
+      DATABASE_URL: postgres://hub_chain_dev:devchain@postgres:5432/nakama
+      RPC_URL: ${CHAIN_RPC_URL:-http://host.docker.internal:8545}
+      CHAIN_SERVICE_KEY: dev-chain-service-key
+      SIGNER: local
+      SIGNER_PRIVATE_KEY: "0x0000000000000000000000000000000000000000000000000000000000000d01"
+      SIGNER_DAILY_MAX_VERSE: "5000"
+      SIGNER_MAX_VOUCHER_VERSE: "500"
+      SIGNER_STATE_FILE: /tmp/signer-state.json
+    depends_on:
+      nakama:
+        condition: service_healthy
+
   caddy:
     image: caddy:2.10.2-alpine
     depends_on:

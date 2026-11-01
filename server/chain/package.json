@@ -1,0 +1,29 @@
+{
+  "name": "@metaverse/chain-service",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Verse <-> $BITCOIN chain service: sign-in verifier, deposit and claim watcher, voucher signer, admin CLI.",
+  "scripts": {
+    "start": "tsx src/main.ts",
+    "admin": "tsx src/admin.ts",
+    "signer-address": "tsx src/admin.ts signer-address",
+    "signer-proof": "tsx src/admin.ts signer-proof",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-kms": "3.1161.0",
+    "pg": "8.23.1",
+    "tsx": "4.23.15",
+    "viem": "2.57.14"
+  },
+  "devDependencies": {
+    "@types/node": "22.19.15",
+    "@types/pg": "8.23.1",
+    "typescript": "5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
