@@ -114,7 +114,8 @@ export async function createWorld(): Promise<HubWorld> {
     preserveDrawingBuffer: true,
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  // Every pass is fill-bound, and 1.5 drew 2.25x the pixels of 1.0 on high-DPI screens.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
   camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
@@ -257,6 +258,8 @@ export async function createWorld(): Promise<HubWorld> {
     luminanceSmoothing: 0.4,
     mipmapBlur: true,
     radius: 0.7,
+    // The glow is a blur, so half resolution looks the same at a quarter of the fill cost.
+    resolutionScale: 0.5,
   });
   bloom.ignoreBackground = true;
   mountGlow((obj) => {
