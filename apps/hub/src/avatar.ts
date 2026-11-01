@@ -11,6 +11,7 @@ import {
   Mesh,
   MeshBasicMaterial,
   MeshStandardMaterial,
+  Quaternion,
   RingGeometry,
   SkinnedMesh,
   SRGBColorSpace,
@@ -18,10 +19,22 @@ import {
   Vector4,
   type AnimationAction,
   type Material,
-  type Object3D,
+  Object3D,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { AVATAR_CLIPS, AVATAR_HEIGHT, CHARACTERS, DEFAULT_CHARACTER, SOCKETS, characterHeight, type CharacterConfig, type CharacterId } from './config';
+import {
+  AVATAR_CLIPS,
+  AVATAR_HEIGHT,
+  CHARACTERS,
+  DEFAULT_CHARACTER,
+  SOCKETS,
+  STAFFS,
+  characterHeight,
+  staffScale,
+  type CharacterConfig,
+  type CharacterId,
+  type StaffId,
+} from './config';
 import type { AvatarLook } from './look';
 import { STAND_Y } from './physics';
 import { loadGLTF } from './v2/core';
@@ -60,6 +73,14 @@ export function createAvatarRig(): AvatarRig {
   let shown: CharacterId | null = null;
   let loadToken = 0;
   let model: Object3D | null = null;
+  /** Where the staff mounts on the current model. */
+  let socket: Object3D | null = null;
+  /** Staff the look asks for, the loaded prop, and the copy on the socket. */
+  let staffWanted: StaffId = 'none';
+  let staffLoaded: { id: StaffId; scene: Object3D; animations: AnimationClip[] } | null = null;
+  let staffToken = 0;
+  let staffObject: Object3D | null = null;
+  let staffMixer: AnimationMixer | null = null;
   const body = new Group();
   body.name = 'avatar-body';
   group.add(body);
@@ -84,6 +105,8 @@ export function createAvatarRig(): AvatarRig {
         if (token !== loadToken) return;
         const next = fitModel(gltf.scene, characterHeight(character));
         const nextMaterials = ownMaterials(next);
+        // Before the mixer runs, so the socket is placed against the rest pose.
+        const nextSocket = staffSocket(next, staffScale(character));
         const nextMixer = new AnimationMixer(next);
         const claimed = new WeakSet<AnimationClip>();
         const nextActions = {
@@ -91,14 +114,17 @@ export function createAvatarRig(): AvatarRig {
           walk: playClip(nextMixer, gltf.animations, 'walk', claimed),
           run: playClip(nextMixer, gltf.animations, 'run', claimed),
         };
+        unmountStaff();
         if (model) disposeModel(model, materials);
         model = next;
+        socket = nextSocket;
         materials = nextMaterials;
         mixer = nextMixer;
         actions = nextActions;
         body.add(next);
         if (look) paint(look);
         actions[gait].play();
+        mountStaff();
       })
       .catch((error: unknown) => {
         console.error(`[hub] ${character.label} avatar failed to load`, error);
@@ -121,6 +147,53 @@ export function createAvatarRig(): AvatarRig {
     mixer.update(dt);
   }
 
+  function setStaff(id: StaffId): void {
+    if (id === staffWanted) return;
+    staffWanted = id;
+    unmountStaff();
+    const staff = STAFFS.find((entry) => entry.id === id);
+    if (!staff?.asset) return;
+    if (staffLoaded?.id === id) {
+      mountStaff();
+      return;
+    }
+    const token = ++staffToken;
+    void loadGLTF(`${import.meta.env.BASE_URL}${staff.asset}`)
+      .then((gltf) => {
+        if (token !== staffToken) return;
+        staffLoaded = { id, scene: gltf.scene, animations: gltf.animations };
+        mountStaff();
+      })
+      .catch((error: unknown) => {
+        console.error(`[hub] ${staff.label} failed to load`, error);
+      });
+  }
+
+  function mountStaff(): void {
+    unmountStaff();
+    if (!socket || !staffLoaded || staffLoaded.id !== staffWanted) return;
+    if (shown && characterById(shown).ownStaff) return;
+    const prop = staffLoaded.scene.clone(true);
+    prop.traverse((obj) => {
+      const mesh = obj as Mesh;
+      if (mesh.isMesh) mesh.frustumCulled = false;
+    });
+    socket.add(prop);
+    staffObject = prop;
+    const idle = staffLoaded.animations.find((clip) => clip.name.endsWith('_idle')) ?? staffLoaded.animations[0];
+    if (idle) {
+      staffMixer = new AnimationMixer(prop);
+      staffMixer.clipAction(idle).play();
+    }
+  }
+
+  function unmountStaff(): void {
+    staffMixer?.stopAllAction();
+    staffMixer = null;
+    staffObject?.removeFromParent();
+    staffObject = null;
+  }
+
   function paint(next: AvatarLook): void {
     for (const material of materials) {
       material.color.set(next.tint);
@@ -131,6 +204,7 @@ export function createAvatarRig(): AvatarRig {
 
   function setLook(next: AvatarLook): void {
     look = next;
+    setStaff(next.staff);
     if (started) show(next.character);
     // Scale about the feet: the rig origin is the capsule top, STAND_Y above the floor.
     body.scale.setScalar(next.height);
@@ -150,9 +224,63 @@ export function createAvatarRig(): AvatarRig {
       aura.columnMat.opacity = 0.22 + pulse * 0.16;
     }
     update(dt, moving, sprint);
+    staffMixer?.update(dt);
+    if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
   }
 
   return { group, load, update: tick, setLook };
+}
+
+const holdHand = new Quaternion();
+const holdBody = new Quaternion();
+
+/** Generated sockets follow the fist but stay upright and facing the body's front. */
+function holdUpright(socket: Object3D, model: Object3D): void {
+  const hand = socket.parent;
+  if (!hand) return;
+  hand.getWorldQuaternion(holdHand);
+  model.getWorldQuaternion(holdBody);
+  socket.quaternion.copy(holdHand.invert()).multiply(holdBody);
+}
+
+const handAt = new Vector3();
+const forearmAt = new Vector3();
+const socketWorld = new Matrix4();
+const handInverse = new Matrix4();
+const socketQuat = new Quaternion();
+const socketScale = new Vector3();
+
+/**
+ * The wizard rig ships `socket_staff` under RightHand. The boss rigs share the
+ * skeleton names but not bone axes, so their socket is built the same way the
+ * wizard's was authored: at the right fist in the rest pose, staff upright
+ * (+Y) and facing the character's front (+Z).
+ */
+function staffSocket(model: Object3D, scale: number): Object3D | null {
+  const authored = model.getObjectByName('socket_staff');
+  if (authored) return authored;
+  const hand = model.getObjectByName('RightHand');
+  const forearm = hand?.parent;
+  if (!hand || !forearm) return null;
+  model.updateMatrixWorld(true);
+  hand.getWorldPosition(handAt);
+  forearm.getWorldPosition(forearmAt);
+  const reach = handAt.distanceTo(forearmAt);
+  // Fist centre: a little past the wrist, along the forearm.
+  if (reach > 1e-4) handAt.addScaledVector(forearmAt.sub(handAt).multiplyScalar(-1 / reach), reach * 0.3);
+  model.getWorldQuaternion(socketQuat);
+  // Source rigs are in metres, so one staff metre is the fit scale (as on the authored wizard socket).
+  socketScale.setScalar(model.scale.y * scale);
+  socketWorld.compose(handAt, socketQuat, socketScale);
+  handInverse.copy(hand.matrixWorld).invert();
+  const socket = new Object3D();
+  socket.name = 'socket_staff';
+  // The mocap turns each rig's wrist differently; `holdUpright` keeps this one vertical.
+  socket.userData.upright = true;
+  socketWorld.premultiply(handInverse);
+  socketWorld.decompose(socket.position, socket.quaternion, socket.scale);
+  hand.add(socket);
+  return socket;
 }
 
 /** Frees this copy's skeleton and cloned materials. Geometry and textures stay in the GLTF cache. */

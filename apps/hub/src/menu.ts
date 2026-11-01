@@ -1,5 +1,5 @@
 import type { RelicId } from '@metaverse/hub-sdk';
-import { CHARACTERS, SOCKETS, type CharacterId } from './config';
+import { CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
@@ -249,6 +249,51 @@ export function createMenu(options: MenuOptions): Menu {
     reset,
   );
 
+  // ---------- Staff (Edit avatar)
+  const staffGrid = el('ul', 'menu-grid staffs');
+  const staffButtons = new Map<StaffId, HTMLButtonElement>();
+  for (const staff of STAFFS) {
+    const item = el('li');
+    const button = el('button', 'staff-card');
+    button.type = 'button';
+    button.dataset.staff = staff.id;
+    button.style.setProperty('--accent', staff.accent);
+    const icon = el('span', 'staff-icon');
+    const art: string | null = staff.icon;
+    if (art) {
+      const img = el('img');
+      img.src = `${import.meta.env.BASE_URL}${art}`;
+      img.alt = '';
+      img.loading = 'lazy';
+      icon.append(img);
+    } else {
+      icon.textContent = '∅';
+    }
+    button.append(icon, el('span', 'staff-name', staff.label), el('span', 'staff-line', staff.line));
+    button.addEventListener('click', () => update({ ...options.look(), staff: staff.id }));
+    staffButtons.set(staff.id, button);
+    item.append(button);
+    staffGrid.append(item);
+  }
+  const staffNote = el('span', 'menu-note small');
+  const staffSection = section('Staff', staffGrid);
+  staffSection.append(staffNote);
+  editPage.insertBefore(staffSection, editPage.children[2] ?? null);
+
+  function paintStaffs(look: AvatarLook): void {
+    const character = CHARACTERS.find((entry) => entry.id === look.character);
+    const own = Boolean(character?.ownStaff);
+    for (const [id, button] of staffButtons) {
+      const on = id === look.staff;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+    staffGrid.classList.toggle('muted', own);
+    staffNote.textContent = own
+      ? `${character?.label ?? 'This character'} carries his own staff. Your pick returns on other avatars.`
+      : 'Staffs from Sproto Duel. Held in the right hand.';
+  }
+
   // ---------- Relics
   const relicsPage = bodies.get('relics') as HTMLElement;
   relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. A Relic lights its socket on the Four Lights and unlocks an aura in Edit avatar.'));
@@ -334,6 +379,7 @@ export function createMenu(options: MenuOptions): Menu {
       button.disabled = !owned;
       button.title = owned ? '' : 'Earn this Relic to unlock its aura';
     }
+    paintStaffs(look);
     paintValues();
   }
 

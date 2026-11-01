@@ -198,6 +198,8 @@ export function createChat(options: ChatOptions): Chat {
       line.textContent = parsed.text;
     }
     overhead.append(line);
+    // Hidden until the next frame places it over the head.
+    overhead.style.visibility = 'hidden';
     overhead.hidden = false;
     // RuneScape holds overhead text about five seconds; long lines get a little more.
     left = 4.5 + parsed.text.length * 0.04;

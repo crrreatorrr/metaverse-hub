@@ -928,3 +928,68 @@ canvas {
     display: none;
   }
 }
+
+/* ---------- Staff picker (Edit avatar) ---------- */
+
+.menu-grid.staffs {
+  grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  gap: 6px;
+}
+
+.menu-grid.staffs.muted {
+  opacity: 0.45;
+}
+
+.staff-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 6px 4px 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #e7f6ff;
+  text-align: center;
+  transition: border-color 120ms, background 120ms, transform 120ms;
+}
+
+.staff-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+.staff-card.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: 0 0 0 1px var(--accent) inset, 0 0 16px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+.staff-icon {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--accent) 22%, #17142c), #0e0b1d);
+  font-size: 24px;
+  color: #6f7f91;
+}
+
+.staff-icon img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.staff-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+
+.staff-line {
+  font-size: 10px;
+  color: #8ea2b8;
+}

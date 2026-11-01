@@ -1,5 +1,5 @@
 import { isRelicId, type RelicId } from '@metaverse/hub-sdk';
-import { DEFAULT_CHARACTER, isCharacterId, type CharacterId } from './config';
+import { DEFAULT_CHARACTER, DEFAULT_STAFF, isCharacterId, isStaffId, type CharacterId, type StaffId } from './config';
 
 /**
  * How the player's avatar looks. Stored on this device only; there is no
@@ -9,6 +9,8 @@ export interface AvatarLook {
   v: 1;
   /** Which body. See `CHARACTERS`. */
   character: CharacterId;
+  /** Held in the right hand. See `STAFFS`. */
+  staff: StaffId;
   preset: string;
   /** Shown in front of chat lines. Blank means the guest id. */
   name: string;
@@ -52,6 +54,7 @@ export function defaultLook(): AvatarLook {
   return {
     v: 1,
     character: DEFAULT_CHARACTER,
+    staff: DEFAULT_STAFF,
     preset: base.id,
     name: '',
     tint: base.tint,
@@ -76,6 +79,7 @@ export function parseLook(raw: unknown): AvatarLook {
   if (!raw || typeof raw !== 'object') return look;
   const value = raw as Record<string, unknown>;
   if (typeof value.character === 'string' && isCharacterId(value.character)) look.character = value.character;
+  if (typeof value.staff === 'string' && isStaffId(value.staff)) look.staff = value.staff;
   if (typeof value.preset === 'string') look.preset = value.preset;
   if (typeof value.name === 'string') look.name = cleanName(value.name).trim();
   if (typeof value.tint === 'string' && HEX.test(value.tint)) look.tint = value.tint.toLowerCase();
