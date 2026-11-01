@@ -50,7 +50,6 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
 const SCHEMA_FILE = path.join(ROOT, 'server/modules/src/schema.ts');
 const BOOTS = ['hub-boot-a', 'hub-boot-b'] as const;
-const NAKAMA_DB = 'postgres:localdb@postgres:5432/nakama';
 
 const GAME_ID_TABLES = [
   'game_session',
@@ -391,8 +390,9 @@ function runNakamaMigrate(): void {
   try {
     execFileSync('docker', [
       'compose', '-f', COMPOSE_FILE, 'run', '-T', '--rm', '--no-deps', '--pull', 'never',
-      '--entrypoint', '/nakama/nakama',
-      'nakama', 'migrate', 'up', '--database.address', NAKAMA_DB,
+      // The password comes from the service's own env (server/.env), as in the compose entrypoint.
+      '--entrypoint', '/bin/sh',
+      'nakama', '-ec', 'exec /nakama/nakama migrate up --database.address "postgres:${POSTGRES_PASSWORD}@postgres:5432/nakama"',
     ], { cwd: ROOT, encoding: 'utf8', timeout: 180_000 });
   } catch (error) {
     const err = error as { stdout?: string; stderr?: string; message?: string };

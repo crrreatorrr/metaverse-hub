@@ -39,6 +39,7 @@ import {
   ticketBalance,
   verseBalance,
   type RpcResult,
+  HTTP_KEY,
   SERVER_KEY,
 } from './harness.ts';
 
@@ -292,6 +293,7 @@ function browserClient(dropOnce: Set<string>, closes: Promise<unknown>[]): Nakam
   return createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
     serverKey: SERVER_KEY,
+    httpKey: HTTP_KEY,
     fetchImpl: async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const rpc = rpcOf(url);
