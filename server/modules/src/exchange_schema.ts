@@ -641,7 +641,8 @@ namespace HubExchangeSchema {
               signature = COALESCE(signature, '0x' || repeat('0', 130))
         WHERE id = v_w.id;
        INSERT INTO game.withdrawal_log (withdrawal_id, status, detail) VALUES (v_w.id, 'claimed', v_detail);
-       RETURN jsonb_build_object('status', 'claimed', 'alert', CASE WHEN v_w.status = 'refunded' THEN 'claim_after_refund' END);
+       RETURN jsonb_build_object('status', 'claimed', 'alert', CASE WHEN v_w.status = 'refunded' THEN 'claim_after_refund'
+                                                                     WHEN v_w.status = 'issued' THEN 'claim_before_signature_stored' END);
      END;
      $fn$`,
 

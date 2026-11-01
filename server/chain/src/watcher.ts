@@ -7,7 +7,13 @@ import type { ChainReader } from './reader.ts';
 import type { DigestSigner } from './signer.ts';
 import { signVoucher } from './voucher.ts';
 
-export const SECURITY_ALERTS = new Set(['unknown_claim', 'claim_after_refund', 'claimed_on_chain_without_event', 'cashout_signer_mismatch']);
+export const SECURITY_ALERTS = new Set([
+  'unknown_claim',
+  'claim_after_refund',
+  'claim_before_signature_stored',
+  'claimed_on_chain_without_event',
+  'cashout_signer_mismatch',
+]);
 
 export interface WatcherDeps {
   chain: 'eth';

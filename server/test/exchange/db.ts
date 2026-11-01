@@ -45,6 +45,8 @@ export async function freshDb(sql: string): Promise<TestDb> {
   await admin.end();
   const url = ADMIN_URL.replace(/\/[^/]*$/, '/' + name);
   const pool = new pg.Pool({ connectionString: url, max: 20 });
+  // Idle connections are terminated by DROP DATABASE ... WITH (FORCE) at teardown.
+  pool.on('error', () => {});
   await pool.query(sql);
   return {
     url,

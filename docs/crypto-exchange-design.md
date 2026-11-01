@@ -221,7 +221,7 @@ The chain service does not use RPCs. It calls `SECURITY DEFINER` functions direc
   4. expiries, checked on chain;
   5. signing.
 
-  It only reads `finalized` blocks. It needs one RPC provider; `RPC_URL` should point at a provider with its own failover.
+  It only reads `finalized` blocks. It needs one RPC provider; `RPC_URL` should point at a provider with its own failover. Only one instance may run per chain: on start it takes a Postgres advisory lock and exits if another instance holds it, because two signers would each keep their own daily budget.
 - **Admin CLI:** `show`, `set`, `alerts`, `signer-address`, `signer-proof`.
 
 ## Smart contract team and review
@@ -283,7 +283,7 @@ Both roles are AI agent passes. There is no budget for a paid human audit. Since
   - the implied dollar value goes past the threshold;
   - the watcher falls behind;
   - a `Claimed` event whose id, recipient and amount don't all match a voucher row (`unknown_claim`), a claim after a refund, or `claimed(id)` true on chain with no event seen. Any of these means the signer or backend is compromised. The signer halts on its own. Response: turn off voucher issuing, stop refilling the float, and deploy a new contract with a new signer. Nothing on chain stops a drain in progress, so the float size is what bounds the loss.
-  - `rpc_chain_mismatch`, `cashout_signer_mismatch`, `signer_refused` (the signer's own limits stopped it). Alerts go to `game.chain_alert`, the service log, and `ALERT_WEBHOOK_URL` if it is set.
+  - `claim_before_signature_stored` (also halts the signer), `rpc_chain_mismatch`, `cashout_signer_mismatch`, `signer_refused` (the signer's own limits stopped it). Alerts go to `game.chain_alert`, the service log, and `ALERT_WEBHOOK_URL` if it is set.
   - a single address appears on more than one account over time.
 - **Daily reconciliation.** Sum of deposits minus sum of claims, compared against the actual movement in the Safe and the contract.
 
@@ -312,8 +312,9 @@ Still to add to `server/test/dup/` (these need Nakama running): the wallet RPCs 
 | --- | --- |
 | `VerseCashout` contract, deploy script, checklist | Built. Three focused AI exploit passes, fixes, then a fresh full re-review: no critical, high or medium findings left. Every PoC is kept in `contracts/test/exploits/` |
 | Migration 0004 and SQL functions | Built and tested on Postgres 16 |
-| Nakama wallet RPCs, SDK wallet API | Built; compiled and unit-tested, not yet run inside Nakama |
-| Chain service (verifier, watcher, signer, KMS, admin CLI) | Built; tested with a fake chain and real Postgres |
+| Nakama wallet RPCs, SDK wallet API | Built; compiled and unit-tested, not yet run inside Nakama. Money RPCs require an explicit `hub` session scope (fail closed) |
+| Chain service (verifier, watcher, signer, KMS, admin CLI) | Built; tested with a fake chain and real Postgres. A database advisory lock allows only one instance per chain |
+| Backend (SQL, RPCs, chain service) | Independent AI exploit pass: no critical or high findings; its lows are fixed and its PoCs run in CI (`server/test/exchange/exploits`, `server/chain/test/exploits`) |
 | Bar exchange machine UI | Built in `apps/hub` |
 | Store checkout "Pay with $BITCOIN" | Intent and payment matching built; the item grant waits for the M7 store |
 | Sepolia end-to-end, mainnet-fork tests against the real token | **Not done.** This build environment could not reach any Ethereum RPC |

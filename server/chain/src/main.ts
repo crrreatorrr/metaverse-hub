@@ -9,6 +9,16 @@ import { Watcher } from './watcher.ts';
 
 const config = loadConfig();
 const db = ChainDb.connect(config.databaseUrl);
+
+// Exactly one chain service may run per chain. Two signers would each keep their own
+// on-disk daily budget, doubling what a compromised database could get signed. The lock is
+// held by a dedicated connection for the life of the process.
+const lockClient = await db.pool.connect();
+const locked = await lockClient.query("SELECT pg_try_advisory_lock(hashtextextended('chain-service:' || $1, 0)) AS ok", [config.chain]);
+if (!locked.rows[0]?.ok) {
+  console.error(`another chain service already holds the ${config.chain} lock; refusing to start`);
+  process.exit(1);
+}
 const reader = viemReader(config.rpcUrl);
 const chainId = await reader.chainId();
 const signer = await createSigner(config.signer, chainId);

@@ -315,6 +315,17 @@ describe('exchange schema', () => {
     assert.equal(Number(missed.n), 1);
   });
 
+  test('a claim for a voucher whose signature never reached the database raises a security alert', async () => {
+    await openCashout(50, 100_000);
+    const u = randomUUID();
+    await giveVerse(u, 5);
+    await link(u, ADDR(65), { aged: true });
+    const w = await withdraw(u, 3);
+    const r = await json('SELECT game.claim_record($1,$2,$3,$4,$5,$6,$7)', ['eth', CASHOUT, w.withdrawalId, ADDR(65), 3, TX(9), 400]);
+    assert.equal(r.status, 'claimed');
+    assert.equal(r.alert, 'claim_before_signature_stored');
+  });
+
   test('deposits: 1 Verse per whole token, dust, duplicates, unmatched, held', async () => {
     await openCashout();
     const u = randomUUID();

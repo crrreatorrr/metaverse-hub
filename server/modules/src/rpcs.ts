@@ -96,6 +96,13 @@ namespace HubRpc {
     return ctx.vars && ctx.vars.scope ? ctx.vars.scope : "";
   }
 
+  /** Fail-closed hub check for money RPCs: the session must say scope "hub" explicitly. */
+  export function requireHubScope(ctx: nkruntime.Context): string {
+    var userId = requireUser(ctx);
+    if (scopeOf(ctx) !== "hub") throw new Error("not_hub_session");
+    return userId;
+  }
+
   export function requireHub(ctx: nkruntime.Context): string {
     var userId = requireUser(ctx);
     if (scopeOf(ctx) === "game") throw new Error("not_hub_session");

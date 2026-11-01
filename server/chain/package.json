@@ -10,7 +10,7 @@
     "signer-address": "tsx src/admin.ts signer-address",
     "signer-proof": "tsx src/admin.ts signer-proof",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsx --test test/*.test.ts"
+    "test": "tsx --test test/*.test.ts test/exploits/*.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-kms": "3.1161.0",

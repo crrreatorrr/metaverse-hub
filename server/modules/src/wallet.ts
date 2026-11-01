@@ -51,7 +51,7 @@ namespace HubWallet {
   }
 
   export function nonce(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var userId = HubRpc.requireHub(ctx);
+    var userId = HubRpc.requireHubScope(ctx);
     var body = HubRpc.parse(payload);
     var chain = chainOf(body);
     var address = HubRpc.text(body, "address");
@@ -64,7 +64,7 @@ namespace HubWallet {
   }
 
   export function link(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var userId = HubRpc.requireHub(ctx);
+    var userId = HubRpc.requireHubScope(ctx);
     var body = HubRpc.parse(payload);
     var nonceValue = HubRpc.text(body, "nonce");
     var signature = HubRpc.text(body, "signature");
@@ -85,12 +85,12 @@ namespace HubWallet {
   }
 
   export function status(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
-    var userId = HubRpc.requireHub(ctx);
+    var userId = HubRpc.requireHubScope(ctx);
     return result(HubRpc.queryJson(nk, "SELECT game.wallet_status($1::uuid)::text AS result", [userId]));
   }
 
   export function withdraw(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var userId = HubRpc.requireHub(ctx);
+    var userId = HubRpc.requireHubScope(ctx);
     var body = HubRpc.parse(payload);
     var chain = chainOf(body);
     var key = HubRpc.text(body, "key");
@@ -108,7 +108,7 @@ namespace HubWallet {
   }
 
   export function intent(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var userId = HubRpc.requireHub(ctx);
+    var userId = HubRpc.requireHubScope(ctx);
     var body = HubRpc.parse(payload);
     var chain = chainOf(body);
     var itemId = HubRpc.text(body, "itemId");

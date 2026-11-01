@@ -29,7 +29,11 @@ export interface DueVoucher {
 }
 
 export class ChainDb {
-  constructor(readonly pool: pg.Pool) {}
+  constructor(readonly pool: pg.Pool) {
+    // An idle connection dropped by the server (restart, failover) must not crash the
+    // process; the next query reconnects.
+    pool.on('error', (e) => console.error(new Date().toISOString(), `database connection error ${e.message}`));
+  }
 
   static connect(url: string): ChainDb {
     return new ChainDb(new pg.Pool({ connectionString: url, max: 4 }));
