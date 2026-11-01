@@ -2072,6 +2072,12 @@ button:disabled {
   transform: translateY(2px);
 }
 
+#hud .account-signout {
+  display: flex;
+  width: calc(100% - 8px);
+  margin: 12px 4px 0;
+}
+
 #hud .account-restore {
   gap: 14px;
   padding: 4px;
