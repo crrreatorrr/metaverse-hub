@@ -954,38 +954,22 @@ async function hposExtras(): Promise<void> {
   const relic = relicFlows().find((item) => item.game === 'hpos10i');
   if (!relic) throw new Error('HPOS10I relic flow is missing');
 
-  await test('wallet', 'hpos10i exchange steps of 10, 500, non-multiple, over 500, over balance', async () => {
-    const small = await login('hpos10i');
-    await creditSession(small.gameToken, 'level_end', 40, 'fund-10');
-    const ten = await call('tickets.exchange', { tickets: 10, verse: 500, key: 'step-10' }, small.gameToken);
-    assert.equal(ten.body.error, undefined, JSON.stringify(ten.body));
-    assert.equal(ten.body.verse, 1);
-    assert.equal(ten.body.ticketsLeft, 30);
-    const odd = await call('tickets.exchange', { tickets: 25, key: 'step-25' }, small.gameToken);
-    assert.equal(odd.body.error, undefined, JSON.stringify(odd.body));
-    assert.equal(odd.body.verse, 3);
-    assert.equal(odd.body.ticketsLeft, 10);
-    assert.equal(verseBalance(small.hub.userId), 3);
-    assert.equal(mints(small.hub.userId, 'hpos10i_core'), 0);
-
-    const broke = await login('hpos10i');
-    await earn(broke.gameToken, 20, 'level_end', 'fund-broke');
-    const overBalance = await call('tickets.exchange', { tickets: 30, key: 'over-balance' }, broke.gameToken);
-    assert.equal(overBalance.body.error, 'insufficient_tickets', JSON.stringify(overBalance.body));
-    assert.equal(ticketBalance(broke.hub.userId, 'hpos10i'), 20);
-    assert.equal(verseBalance(broke.hub.userId), 0);
-    assert.equal(exchangeCount(broke.hub.userId), 0);
-
-    const funded = await fundTickets('hpos10i', 'level_end', TICKET_DAILY_CAP);
-    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, funded.gameToken);
-    assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
-    assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
-    assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
-    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, funded.gameToken);
-    assert.equal(overCap.body.error, 'verse_cap', JSON.stringify(overCap.body));
-    assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
-    assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP - 500);
-    assert.equal(mints(funded.hub.userId, 'hpos10i_core'), 0);
+  await test('wallet', 'hpos10i exchange is not allowed and debits nothing', async () => {
+    const session = await login('hpos10i');
+    await creditSession(session.gameToken, 'level_end', 40, 'fund-blocked');
+    const before = earnFootprint(session.hub.userId, 'hpos10i');
+    for (const tickets of [10, 25, 500]) {
+      const key = `blocked-${tickets}`;
+      const blocked = await call('tickets.exchange', { tickets, key }, session.gameToken);
+      assert.equal(blocked.body.error, 'exchange_not_allowed', JSON.stringify(blocked.body));
+      const replay = await call('tickets.exchange', { tickets, key }, session.gameToken);
+      assert.equal(replay.body.error, 'exchange_not_allowed', JSON.stringify(replay.body));
+    }
+    assert.deepEqual(earnFootprint(session.hub.userId, 'hpos10i'), before);
+    assert.equal(ticketBalance(session.hub.userId, 'hpos10i'), 40);
+    assert.equal(verseBalance(session.hub.userId), 0);
+    assert.equal(exchangeCount(session.hub.userId), 0);
+    assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
   await test('score', 'hpos10i_act_time replay keeps the lowest and grants nothing', async () => {
