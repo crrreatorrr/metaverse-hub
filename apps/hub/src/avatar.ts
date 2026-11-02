@@ -23,12 +23,15 @@ import {
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {
+  AVATAR_BLEND,
   AVATAR_CLIPS,
   AVATAR_HEIGHT,
   CHARACTERS,
   DEFAULT_CHARACTER,
   SOCKETS,
+  SPRINT_SPEED,
   STAFFS,
+  WALK_SPEED,
   characterHeight,
   staffScale,
   type CharacterConfig,
@@ -140,9 +143,19 @@ export function createAvatarRig(): AvatarRig {
     if (!mixer || !actions) return;
     const next: 'idle' | 'walk' | 'run' = !moving ? 'idle' : sprint ? 'run' : 'walk';
     if (next !== gait) {
-      actions[gait].fadeOut(0.18);
+      const from = actions[gait];
+      const to = actions[next];
+      const fade =
+        gait === 'idle' ? AVATAR_BLEND.idleToMove
+        : next === 'idle' ? AVATAR_BLEND.moveToIdle
+        : next === 'run' ? AVATAR_BLEND.jogToDash
+        : AVATAR_BLEND.dashToJog;
+      to.reset();
+      // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
+      if (gait !== 'idle' && next !== 'idle') to.time = (from.time / from.getClip().duration) * to.getClip().duration;
+      to.setEffectiveWeight(1).play();
+      from.crossFadeTo(to, fade, false);
       gait = next;
-      actions[gait].reset().fadeIn(0.18).play();
     }
     mixer.update(dt);
   }
@@ -402,15 +415,18 @@ function columnTexture(): CanvasTexture {
   return texture;
 }
 
-/** Resolve idle / walk / run through `AVATAR_CLIPS`. Walk's source clip is `run`. */
+/**
+ * Resolve idle / walk / run through `AVATAR_CLIPS`. The wizard carries P4's `jog` and `dash`;
+ * rigs without them (the Sproto Duel bosses) fall back to `run` at the old time scales.
+ */
 function requiredClip(
   clips: readonly AnimationClip[],
   gait: keyof typeof AVATAR_CLIPS,
   claimed: WeakSet<AnimationClip>,
 ): AnimationClip {
-  const source = AVATAR_CLIPS[gait].name;
-  const found = clips.find((clip) => clip.name === source);
-  if (!found) throw new Error(`Avatar is missing the ${source} clip (${gait})`);
+  const { name, fallback } = AVATAR_CLIPS[gait];
+  const found = clips.find((clip) => clip.name === name) ?? clips.find((clip) => clip.name === fallback);
+  if (!found) throw new Error(`Avatar is missing the ${name} clip (${gait})`);
   if (claimed.has(found)) {
     const copy = found.clone();
     copy.name = gait;
@@ -426,8 +442,12 @@ function playClip(
   gait: keyof typeof AVATAR_CLIPS,
   claimed: WeakSet<AnimationClip>,
 ): AnimationAction {
-  const action = mixer.clipAction(requiredClip(clips, gait, claimed));
-  action.timeScale = AVATAR_CLIPS[gait].timeScale;
+  const clip = requiredClip(clips, gait, claimed);
+  const action = mixer.clipAction(clip);
+  // Gait clips carry their authored ground speed; scale playback to the controller speed.
+  const authored = Number((clip.userData as { speed_mps?: number }).speed_mps);
+  const actual = gait === 'run' ? SPRINT_SPEED : gait === 'walk' ? WALK_SPEED : 0;
+  action.timeScale = authored > 0 && actual > 0 ? actual / authored : AVATAR_CLIPS[gait].timeScale;
   return action;
 }
 
