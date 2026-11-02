@@ -1,6 +1,6 @@
 import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
-import { sessionVarsFromToken, type CustomAuthResult, type NakamaClient } from './nakama';
+import { sessionVarsFromToken, userIdFromToken, type CustomAuthResult, type NakamaClient } from './nakama';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
@@ -122,19 +122,41 @@ async function listWrites(): Promise<OutboxRecord[]> {
   return withStore('readonly', (store) => requestDone<OutboxRecord[]>(store.getAll()));
 }
 
+async function putWrite(record: OutboxRecord): Promise<void> {
+  if (!useIndexedDb()) {
+    memoryWrites.set(record.key, record);
+    return;
+  }
+  await withStore('readwrite', (store) => {
+    store.put(record);
+  });
+}
+
 /** Commit the record before any RPC. An existing key is left untouched. */
 async function remember(record: OutboxRecord): Promise<OutboxRecord> {
   const existing = await readWrite(record.key);
   if (existing) return existing;
   const stored = { ...record, body: cloneBody(record.body) };
-  if (!useIndexedDb()) {
-    memoryWrites.set(stored.key, stored);
-    return stored;
-  }
-  await withStore('readwrite', (store) => {
-    store.put(stored);
-  });
+  await putWrite(stored);
   return stored;
+}
+
+function tokenUser(token: string): string | null {
+  try {
+    return userIdFromToken(token);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The token's game session is gone: closed by a newer portal, by exit, or past its
+ * lease. Nakama answers an expired JWT with HTTP 401.
+ */
+function deadSession(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  if (error.code === 'session_closed' || error.code === 'unauthorized' || error.code === 'not_game_session') return true;
+  return error.code === 'rpc_failed' && error.status === 401;
 }
 
 async function forget(key: string): Promise<void> {
@@ -228,14 +250,41 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     return response;
   }
 
+  /**
+   * A queued row keeps the token it was first sent with. When that session has since
+   * closed, the same player's live session for the same game carries it instead.
+   * The server keys idempotency by (user, key) and checks it before the session, so
+   * a row the old session already applied returns its saved response, not a second
+   * credit. Another player's or another game's row is never re-pointed.
+   */
+  async function rebind(row: OutboxRecord): Promise<OutboxRecord> {
+    if (!active || row.gameId !== active.game || row.token === active.token) return row;
+    const owner = tokenUser(row.token);
+    if (!owner || owner !== tokenUser(active.token)) return row;
+    const next = { ...row, token: active.token };
+    await putWrite(next);
+    return next;
+  }
+
   async function sendOnce(session: LiveSession, rpc: EconomyRpc, key: string, body: Record<string, unknown>): Promise<unknown> {
-    const row = await remember({ rpc, body, key, token: session.token, gameId: session.game });
+    const row = await rebind(await remember({ rpc, body, key, token: session.token, gameId: session.game }));
     return transmit(row);
   }
 
   async function drain(): Promise<void> {
     const rows = await listWrites();
-    for (const row of rows) await transmit(row);
+    for (const queued of rows) {
+      const row = await rebind(queued);
+      try {
+        await transmit(row);
+      } catch (error) {
+        // A row on a dead session that this session cannot carry stays queued for a
+        // later session of its own player and game. It must not fail this init, or
+        // one stale row keeps every later launch from reaching the hub.
+        if (row.token !== active?.token && deadSession(error)) continue;
+        throw error;
+      }
+    }
   }
 
   async function rememberAuth(game: GameId, auth: CustomAuthResult): Promise<number> {
