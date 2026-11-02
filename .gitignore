@@ -12,3 +12,7 @@ server/.env.*
 .env
 .env.*
 !.env.example
+
+# Real game web exports (npm run fetch:games)
+apps/hub/public/play/**
+!apps/hub/public/play/**/.gitkeep

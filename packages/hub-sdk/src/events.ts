@@ -2,8 +2,9 @@ import { RELIC_BY_GAME, type GameId, type RelicId } from './types';
 
 /**
  * Event ids games report through `reportEvent`.
- * `ready` is the boot handshake. `game_beaten` grants that game's relic.
- * The four `*.` ids are the production triggers from the architecture doc.
+ * `ready` is the boot handshake. `game_beaten` is accepted but grants nothing: the
+ * server has no open rule for it (migration 0008), so a client cannot claim a relic
+ * by saying it won. The four `*.` ids are the relic triggers from the architecture doc.
  */
 export const HubEvent = {
   Ready: 'ready',
@@ -28,13 +29,7 @@ export function relicForEvent(game: GameId, eventId: string, data: object): Reli
   const payload = record(data);
   const own = RELIC_BY_GAME[game];
 
-  if (eventId === HubEvent.Ready) return undefined;
-
-  if (eventId === HubEvent.GameBeaten) {
-    const requested = payload.relicId;
-    if (typeof requested === 'string' && requested !== own) return undefined;
-    return own;
-  }
+  if (eventId === HubEvent.Ready || eventId === HubEvent.GameBeaten) return undefined;
 
   if (eventId === HubEvent.Hpos10iLevelComplete && game === 'hpos10i') {
     if (payload.zone === 'z1_retro_rush_hills' && payload.act === 1) return own;

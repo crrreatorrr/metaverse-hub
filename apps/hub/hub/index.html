@@ -11,34 +11,55 @@
   <body>
     <div id="app">
       <div id="hud">
-        <div class="brand">METAVERSE HUB<span id="link-status">Four Lights</span></div>
-        <div id="verse" class="verse">Verse 0</div>
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <span class="brand-text">
+            <span class="brand-name">Metaverse Hub</span>
+            <span id="link-status" class="brand-status" role="status">Four Lights</span>
+          </span>
+        </div>
+        <div id="verse" class="verse" aria-label="Verse balance">Verse 0</div>
+        <div class="hud-actions">
+          <button id="relic-count" class="hud-btn relic-count" type="button" aria-label="Relics: open the Relics menu">
+            <span class="relic-pips" aria-hidden="true"></span>
+            <span class="relic-count-text">Relics 0/4</span>
+          </button>
+          <button id="account-toggle" class="hud-btn account-toggle" type="button" aria-controls="account" aria-expanded="false" disabled title="Account is available once the hub reaches Nakama">
+            <span class="account-avatar" aria-hidden="true"></span>
+            <span>Account</span>
+          </button>
+        </div>
+        <section id="account" class="account" aria-label="Account" hidden>
+          <header class="account-head">
+            <span class="account-title">Account</span>
+            <p id="account-id" class="account-id">Guest</p>
+          </header>
+          <div class="account-block" data-guest-only>
+            <span class="account-label">Recovery code</span>
+            <p class="fine">Shown once. Save it somewhere else. Clearing site data without this code loses this guest.</p>
+            <button id="recovery-create" class="btn btn-primary" type="button">Create recovery code</button>
+            <p id="recovery-code" class="recovery-code" hidden></p>
+          </div>
+          <div class="account-block" data-guest-only>
+            <label class="account-label" for="recovery-input">Restore on this device</label>
+            <div class="account-restore">
+              <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" />
+              <button id="recovery-restore" class="btn" type="button">Restore</button>
+            </div>
+          </div>
+          <p id="account-status" class="account-status" role="status"></p>
+          <button id="account-signout" class="btn account-signout" type="button" hidden>Sign out</button>
+        </section>
         <div id="bar-tabs" class="bar-tabs" hidden>
-          <span>Bar board</span>
+          <span class="bar-tabs-label">Bar board</span>
           <button type="button" data-tab="hpos10i">HPOS10I</button>
           <button type="button" data-tab="nobu">NOBU</button>
           <button type="button" data-tab="peoples-bitcoin">Bitcoin</button>
           <button type="button" data-tab="sproto">Sproto</button>
           <button type="button" data-tab="total" class="on">Total</button>
         </div>
-        <div id="relics" class="relic-tray"></div>
-        <button id="account-toggle" class="account-toggle" type="button">Account</button>
-        <section id="account" class="account" hidden>
-          <p id="account-id" class="account-id">Guest</p>
-          <div data-guest-only>
-            <button id="recovery-create" type="button">Create recovery code</button>
-            <p id="recovery-code" class="recovery-code" hidden></p>
-            <p class="fine">Shown once. Save it somewhere else. Clearing site data without this code loses this guest.</p>
-            <label class="restore">Restore on this device
-              <input id="recovery-input" autocomplete="off" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX" />
-            </label>
-            <button id="recovery-restore" type="button">Restore</button>
-          </div>
-          <p id="account-status" class="account-status"></p>
-          <button id="account-signout" type="button" hidden>Sign out</button>
-        </section>
         <div id="banner" class="banner" hidden>Desktop only. This plaza uses a mouse and keyboard.</div>
-        <div id="hint" class="hint">Click to look · Arrows move · WASD camera · Mouse look · Shift run · Space jump</div>
+        <div id="hint" class="hint">Click to look · Arrows move · WASD camera · Shift run · Space jump · Enter chat · Esc menu</div>
         <div id="debug" class="debug" hidden></div>
       </div>
       <div id="wipe"></div>
