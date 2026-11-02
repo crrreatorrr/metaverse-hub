@@ -48,6 +48,7 @@ namespace HubItems {
     "genesis_shard",
     "cones_tip",
     "tinubu_crown",
+    "tidebreaker_belt",
     "pet_speed_sproto",
     "pet_nobu",
     "pet_duelist_sproto",

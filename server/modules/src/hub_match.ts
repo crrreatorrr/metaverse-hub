@@ -21,7 +21,7 @@ namespace HubMatch {
   var SPAWN_Y = 1.775;
   var SPAWN_Z = 42;
 
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
   var ANIMATIONS: { [id: string]: boolean } = {
     idle: true,
     walk: true,

@@ -22,7 +22,7 @@ export const TICKET_DAILY_CAP = 1000;
 export interface RelicFlow {
   kind: 'relic';
   id: string;
-  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto';
+  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter';
   eventId: string;
   data: Record<string, unknown>;
   /** Same key, different body. Must still be a valid-looking object. */
@@ -33,7 +33,7 @@ export interface RelicFlow {
 export interface ExchangeFlow {
   kind: 'exchange';
   id: string;
-  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto';
+  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter';
   /** Funded with `tickets.earn` before the exchange. Under the daily earn cap. */
   earnAmount: number;
   earnReason: string;
@@ -45,7 +45,7 @@ export interface ExchangeFlow {
 export interface EarnFlow {
   kind: 'earn';
   id: string;
-  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto';
+  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter';
   /** What the game passes to `earnTickets`. HPOS10I sends the act's ticket count. */
   amount: number;
   reason: string;
@@ -151,6 +151,32 @@ export const M2_FLOWS: DupFlow[] = [
 
 export const M7_FLOWS: DupFlow[] = [];
 
+/**
+ * Sproto Fighter (migration 0009). Payloads from the game client:
+ * reportEvent('fighter.story_level_complete', {world, stage}, `fighter.story_level_complete:<matchId>`)
+ * earnTickets(20, 'fighter_win', `fighter:win:<matchId>`). Only World 1 grants the Belt.
+ */
+export const FIGHTER_FLOWS: DupFlow[] = [
+  {
+    kind: 'relic',
+    id: 'sproto-fighter.tidebreaker_belt',
+    game: 'sproto-fighter',
+    eventId: 'fighter.story_level_complete',
+    data: { world: 1, stage: 'yacht' },
+    mismatchData: { world: 2, stage: 'bar' },
+    relicId: 'tidebreaker_belt',
+  },
+  {
+    kind: 'exchange',
+    id: 'sproto-fighter.tickets_to_verse',
+    game: 'sproto-fighter',
+    earnAmount: 20,
+    earnReason: 'fighter_win',
+    tickets: 20,
+    verse: 2,
+  },
+];
+
 /** Not part of `FLOWS`: shop cases stay gated until `tickets.spend` lands. */
 export const M2_SHOP: ShopFlow[] = [
   {
@@ -161,7 +187,7 @@ export const M2_SHOP: ShopFlow[] = [
   },
 ];
 
-export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS];
+export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS, ...FIGHTER_FLOWS];
 
 export function repeatCount(kind: 'sequential' | 'concurrent' | 'fault' | 'kill'): number {
   const fallback = { sequential: 100, concurrent: 20, fault: 100, kill: 2 }[kind];

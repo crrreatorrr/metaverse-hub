@@ -1631,6 +1631,27 @@ namespace HubSchema {
            )`,
       ],
     },
+    {
+      // Sproto Fighter joins as the fifth game (entered from the Bar's arcade cabinet).
+      // Widens the game and relic checks, adds the Tidebreaker Belt trigger (Story World 1)
+      // and the per-win Ticket ceiling. No economy rows are touched. No open game_beaten rule.
+      id: "0009_sproto_fighter",
+      statements: [
+        "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
+        "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter'))",
+        "ALTER TABLE game.game_beaten DROP CONSTRAINT IF EXISTS game_beaten_game",
+        "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter'))",
+        "ALTER TABLE game.auth_ticket DROP CONSTRAINT IF EXISTS auth_ticket_game",
+        "ALTER TABLE game.auth_ticket ADD CONSTRAINT auth_ticket_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter'))",
+        "ALTER TABLE game.relic_claim DROP CONSTRAINT IF EXISTS relic_claim_known",
+        "ALTER TABLE game.relic_claim ADD CONSTRAINT relic_claim_known CHECK (relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt'))",
+        `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
+         VALUES
+           ('sproto-fighter', 'fighter.story_level_complete', 'tidebreaker_belt', NULL, NULL, NULL, '{"world":1}'::jsonb, NULL),
+           ('sproto-fighter', 'fighter_win', NULL, NULL, NULL, NULL, '{}'::jsonb, 20)
+         ON CONFLICT (game_id, event_type) DO NOTHING`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {

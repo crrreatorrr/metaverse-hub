@@ -29,6 +29,8 @@ namespace HubEffects {
     genesis_shard: "peoples-bitcoin",
     cones_tip: "nobu",
     tinubu_crown: "sproto",
+    // Sproto Fighter. Its items in the other games are not in the matrix yet.
+    tidebreaker_belt: "sproto-fighter",
   };
 
   // §2 effect ids and param names. Relic effects never change Tickets, flags, or boards.
