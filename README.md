@@ -33,9 +33,9 @@ npm run fetch:games   # optional: real game builds, see below
 npm run dev
 ```
 
-`npm run fetch:games` pulls each game's latest web build into `apps/hub/public/play/<slug>/` (gitignored) with `gh`, so the dev plaza opens the real game same-origin and its `#t=` ticket and `/v2` calls reach the local Nakama. A fetched build takes over that portal in dev, including HPOS10I, which otherwise opens its GitHub Pages copy. `VITE_GAME_URL_*` still wins when set. Without a fetched Sproto Duel build, its portal opens the in-repo mock. `npm run build` leaves fetched builds out of `dist`; production serves games from `play.<domain>`.
+`npm run fetch:games` puts each game's web build in `apps/hub/public/play/<slug>/` (gitignored). With `gh` signed in it uses the game's latest "Web build" CI artifact when there is one; otherwise it clones the repo (plain `git` works for public repos) and builds the Vite games with their base at `/play/<slug>/`. HPOS10I is a Godot game, so without an artifact it is skipped and its portal opens the GitHub Pages copy. Served same-origin, the dev plaza opens the real game same-origin and its `#t=` ticket and `/v2` calls reach the local Nakama. A fetched build takes over that portal in dev, including HPOS10I, which otherwise opens its GitHub Pages copy. `VITE_GAME_URL_*` still wins when set. Without a fetched Sproto Duel build, its portal opens the in-repo mock. `npm run build` leaves fetched builds out of `dist`; production serves games from `play.<domain>`. Run it before `npm run dev`, or restart the dev server afterwards, so Vite picks up the new files.
 
-The game repos are private. If `gh` cannot read them (an agent token scoped to this repo only, for example), set `GAME_REPOS_GITHUB_TOKEN` to a fine-grained token with Contents: Read on those repos.
+If a game repo is private and `gh` cannot read it (an agent token scoped to this repo only, for example), set `GAME_REPOS_GITHUB_TOKEN` to a fine-grained token with Contents: Read on those repos.
 
 Open http://127.0.0.1:5180/hub/
 

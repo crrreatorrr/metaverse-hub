@@ -12,8 +12,10 @@
  *   node scripts/fetch-game-web.mjs sproto-duel   (or: sproto)
  *   node scripts/fetch-game-web.mjs --all
  *
- * Requires `gh` with read access to the game repo (Cursor GitHub App must
- * include that private repo, or the repo must be public).
+ * With `gh` signed in, a game's latest "Web build" CI artifact is used when it has
+ * one. Otherwise the repo is cloned (gh, or plain git for a public repo) and a Vite
+ * game is built with its base at /play/<slug>/. HPOS10I is a Godot game: without an
+ * artifact its portal keeps opening the GitHub Pages copy.
  */
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -48,6 +50,7 @@ function ghEnv() {
 function run(cmd, args, opts = {}) {
   const result = spawnSync(cmd, args, {
     encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
     stdio: ['ignore', 'pipe', 'pipe'],
     env: cmd === 'gh' ? ghEnv() : process.env,
     ...opts,
@@ -68,31 +71,19 @@ function installFromDir(src, dest) {
   writeFileSync(join(dest, '.gitkeep'), '');
 }
 
-function fetchArtifact(name) {
-  const gameId = ALIASES[name] ?? name;
-  const game = GAMES[gameId];
-  if (!game) throw new Error(`Unknown game "${gameId}". Known: ${Object.keys(GAMES).join(', ')}`);
-  const dest = join(root, 'apps/hub/public/play', gameId);
-  const scratch = mkdtempSync(join(tmpdir(), `hub-game-${gameId}-`));
-
-  console.log(`Checking access to ${game.repo}…`);
+/** True when `gh` is installed and can read the repo. */
+function ghCanRead(repo) {
   try {
-    run('gh', ['api', `repos/${game.repo}`, '--jq', '.full_name']);
-  } catch (error) {
-    const hint = [
-      `Cannot read ${game.repo}.`,
-      'This Cloud Agent token is scoped to the environment repos (usually only metaverse-hub).',
-      'Unblock with one of:',
-      '1) Make the game repo Public for a few minutes and re-run,',
-      '2) Set secret GAME_REPOS_GITHUB_TOKEN (fine-grained PAT, Contents: Read) and re-run,',
-      '3) Create a multi-repo Cloud Agent environment that includes the game repos and start a new agent.',
-      game.pages ? `Public Pages fallback (cross-origin, no local /v2): ${game.pages}` : '',
-    ]
-      .filter(Boolean)
-      .join(' ');
-    throw new Error(`${hint}\n${error instanceof Error ? error.message : error}`);
+    run('gh', ['api', `repos/${repo}`, '--jq', '.full_name']);
+    return true;
+  } catch {
+    return false;
   }
+}
 
+/** Latest successful "Web build" artifact, or false when there is none. */
+function tryArtifact(game, scratch, dest) {
+  if (!game.artifact) return false;
   let runs = [];
   try {
     runs = JSON.parse(
@@ -112,39 +103,76 @@ function fetchArtifact(name) {
       ]),
     );
   } catch {
-    runs = [];
+    return false;
   }
-
-  if (Array.isArray(runs) && runs.length > 0 && game.artifact) {
-    const runId = String(runs[0].databaseId);
-    console.log(`Downloading ${game.artifact} from run ${runId} (${String(runs[0].headSha).slice(0, 7)})…`);
+  if (!Array.isArray(runs) || runs.length === 0) return false;
+  const runId = String(runs[0].databaseId);
+  console.log(`Downloading ${game.artifact} from run ${runId} (${String(runs[0].headSha).slice(0, 7)})…`);
+  try {
     run('gh', ['run', 'download', runId, '--repo', game.repo, '-D', scratch, '-n', game.artifact]);
-    const buildDir = join(scratch, game.artifact);
-    installFromDir(existsSync(buildDir) ? buildDir : scratch, dest);
-    console.log(`Installed ${gameId} at ${dest}`);
+  } catch (error) {
+    // Artifacts expire (HPOS10I keeps them 14 days). Fall through to a source build.
+    console.log(`Artifact download failed, building from source instead.\n${error instanceof Error ? error.message : error}`);
+    return false;
+  }
+  const buildDir = join(scratch, game.artifact);
+  installFromDir(existsSync(buildDir) ? buildDir : scratch, dest);
+  return true;
+}
+
+/**
+ * Clones the repo and installs a web build from it. A Vite game is built with its
+ * base at /play/<slug>/ (vite build, not the repo's `build` script, so a failing
+ * typecheck in its tests does not block playing). Otherwise a committed export.
+ */
+function buildFromSource(game, gameId, scratch, dest, useGh) {
+  const cloneDir = join(scratch, 'clone');
+  console.log(`Cloning ${game.repo}…`);
+  if (useGh) run('gh', ['repo', 'clone', game.repo, cloneDir, '--', '--depth', '1']);
+  else run('git', ['clone', '--depth', '1', `https://github.com/${game.repo}.git`, cloneDir]);
+
+  const pkgPath = join(cloneDir, 'package.json');
+  const viteConfig = ['vite.config.ts', 'vite.config.js', 'vite.config.mjs'].some((f) => existsSync(join(cloneDir, f)));
+  if (existsSync(pkgPath) && viteConfig) {
+    const base = `/play/${gameId}/`;
+    const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+    const npx = process.platform === 'win32' ? 'npx.cmd' : 'npx';
+    console.log(`Installing ${game.repo} dependencies…`);
+    run(npm, [existsSync(join(cloneDir, 'package-lock.json')) ? 'ci' : 'install', '--no-audit', '--no-fund'], { cwd: cloneDir });
+    console.log(`Building ${game.repo} with base ${base}…`);
+    run(npx, ['vite', 'build', '--base', base], { cwd: cloneDir, env: { ...process.env, VITE_BASE: base } });
+    installFromDir(join(cloneDir, 'dist'), dest);
     return;
   }
 
-  // Fallback: shallow clone and look for a committed web export.
-  console.log(`No Web build artifact. Cloning ${game.repo} for a static export…`);
-  const cloneDir = join(scratch, 'clone');
-  run('gh', ['repo', 'clone', game.repo, cloneDir, '--', '--depth', '1']);
-  for (const candidate of ['build/web', 'dist', 'web-build', 'public', 'export/web']) {
+  for (const candidate of ['build/web', 'dist', 'web-build', 'export/web']) {
     const src = join(cloneDir, candidate);
     if (existsSync(join(src, 'index.html'))) {
       installFromDir(src, dest);
-      console.log(`Installed ${gameId} from ${candidate} at ${dest}`);
       return;
     }
   }
-  if (existsSync(join(cloneDir, 'index.html'))) {
-    installFromDir(cloneDir, dest);
-    console.log(`Installed ${gameId} from repo root at ${dest}`);
-    return;
+  throw new Error(`${game.repo} has no Web build artifact and no Vite project or committed web export to install.`);
+}
+
+function fetchGame(name) {
+  const gameId = ALIASES[name] ?? name;
+  const game = GAMES[gameId];
+  if (!game) throw new Error(`Unknown game "${gameId}". Known: ${Object.keys(GAMES).join(', ')}`);
+  const dest = join(root, 'apps/hub/public/play', gameId);
+  const scratch = mkdtempSync(join(tmpdir(), `hub-game-${gameId}-`));
+  try {
+    const useGh = ghCanRead(game.repo);
+    if (!useGh) console.log(`gh cannot read ${game.repo}; using git clone.`);
+    if (useGh && tryArtifact(game, scratch, dest)) {
+      console.log(`Installed ${gameId} at ${dest}`);
+      return;
+    }
+    buildFromSource(game, gameId, scratch, dest, useGh);
+    console.log(`Installed ${gameId} at ${dest}`);
+  } finally {
+    rmSync(scratch, { recursive: true, force: true });
   }
-  throw new Error(
-    `${game.repo} has no Web build artifact named "${game.artifact}" and no index.html under build/web, dist, web-build, public, or export/web.`,
-  );
 }
 
 const args = process.argv.slice(2);
@@ -157,10 +185,13 @@ if (ids.length === 0) {
 let failed = 0;
 for (const id of ids) {
   try {
-    fetchArtifact(id);
+    fetchGame(id);
   } catch (error) {
-    failed += 1;
+    const pages = GAMES[ALIASES[id] ?? id]?.pages;
     console.error(`\n[${id}] ${error instanceof Error ? error.message : error}\n`);
+    // A game with a public Pages copy still opens from the plaza without a local build.
+    if (pages) console.error(`[${id}] Skipped: its portal opens ${pages} instead.\n`);
+    else failed += 1;
   }
 }
 process.exit(failed === 0 ? 0 : 1);
