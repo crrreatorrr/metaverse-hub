@@ -178,10 +178,10 @@ const SPROTO_OUTBOX: OutboxGame = {
   eventId: 'sproto.boss_defeated',
   data: { boss: 'tinubu', elapsed: 12 },
   relicId: 'tinubu_crown',
-  earnAmount: 40,
+  earnAmount: 20,
   exchangeTickets: 20,
   verse: 2,
-  ticketsLeft: 20,
+  ticketsLeft: 0,
 };
 
 interface LiveKit {
