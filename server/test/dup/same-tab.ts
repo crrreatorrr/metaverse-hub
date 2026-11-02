@@ -38,6 +38,8 @@ import {
   ticketBalance,
   verseBalance,
   type RpcResult,
+  HTTP_KEY,
+  SERVER_KEY,
 } from './harness.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -289,7 +291,8 @@ interface Page {
 function browserClient(dropOnce: Set<string>, closes: Promise<unknown>[]): NakamaClient {
   return createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
+    serverKey: SERVER_KEY,
+    httpKey: HTTP_KEY,
     fetchImpl: async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const rpc = rpcOf(url);
