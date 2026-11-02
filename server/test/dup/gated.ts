@@ -67,6 +67,8 @@ import {
   ticketBalance,
   verseBalance,
   type RpcResult,
+  HTTP_KEY,
+  SERVER_KEY,
 } from './harness.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -178,21 +180,10 @@ const SPROTO_OUTBOX: OutboxGame = {
   eventId: 'sproto.boss_defeated',
   data: { boss: 'tinubu', elapsed: 12 },
   relicId: 'tinubu_crown',
-  earnAmount: 40,
+  earnAmount: 20,
   exchangeTickets: 20,
   verse: 2,
-  ticketsLeft: 20,
-};
-
-const HPOS_OUTBOX: OutboxGame = {
-  game: 'hpos10i',
-  eventId: 'hpos10i.level_complete',
-  data: { zone: 'z1_retro_rush_hills', act: 1, time: 40.125 },
-  relicId: 'hpos10i_core',
-  earnAmount: 20,
-  exchangeTickets: 10,
-  verse: 1,
-  ticketsLeft: 10,
+  ticketsLeft: 0,
 };
 
 interface LiveKit {
@@ -251,7 +242,8 @@ async function makeKit(spec: OutboxGame = SPROTO_OUTBOX): Promise<LiveKit> {
   const dropOnce = new Set<string>();
   const client = createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
+    serverKey: SERVER_KEY,
+    httpKey: HTTP_KEY,
     fetchImpl: async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
       const rpc = rpcOf(String(input));
       let key = '';
@@ -392,7 +384,9 @@ async function runOutbox(runner: GateRunner): Promise<void> {
   const dbName = (sdk as { HUB_OUTBOX_DB?: string }).HUB_OUTBOX_DB;
   assert.equal(dbName, OUTBOX_DB);
   assert.equal(OUTBOX_STORE, 'writes');
-  for (const spec of [SPROTO_OUTBOX, HPOS_OUTBOX]) {
+  // HPOS10I exchange is rejected (0007), so its outbox cannot run the exchange leg.
+  // The outbox path is the same code for every game; Sproto covers it.
+  for (const spec of [SPROTO_OUTBOX]) {
     await runner.test('outbox', `${spec.game} reload_lost_response`, async () => {
       const kit = await makeKit(spec);
       await reloadLost(kit, keysFor(`${spec.game}-reload`));
@@ -474,6 +468,34 @@ function sessionCap(): number {
   return num('SELECT game.session_ticket_cap()');
 }
 
+/** Largest single earn that is still inside the reason's event_rule max_amount and the session cap. */
+/** One earn call's size: the reason's event_rule ceiling when it has one, else the whole cap. */
+function earnChunk(game: string, reason: string, cap: number): number {
+  if (!/^[a-z0-9-]+$/.test(game) || !/^[a-z0-9_]+$/.test(reason)) throw new Error(`bad earn ${game} ${reason}`);
+  const ceiling = psql(
+    `SELECT COALESCE((SELECT max_amount::text FROM game.event_rule WHERE game_id = '${game}' AND event_type = '${reason}'), '')`,
+  );
+  return ceiling ? Math.min(Number(ceiling), cap) : cap;
+}
+
+async function creditToCap(
+  token: string,
+  cap: number,
+  reason: string,
+  chunk: number,
+  prefix: string,
+  already = 0,
+): Promise<number> {
+  if (chunk <= 0 || cap % chunk !== 0) throw new Error(`session cap ${cap} is not a multiple of ${chunk} for ${reason}`);
+  const calls = cap / chunk;
+  for (let i = 0; i < calls; i += 1) {
+    const filled = await call('tickets.earn', { amount: chunk, reason, key: `${prefix}-${i}` }, token);
+    assert.equal(filled.body.error, undefined, JSON.stringify(filled.body));
+    assert.equal(filled.body.balance, already + chunk * (i + 1), JSON.stringify(filled.body));
+  }
+  return calls;
+}
+
 async function runSessionCap(runner: GateRunner): Promise<void> {
   const reason = 'waiting for function game.session_ticket_cap() and error session_ticket_cap';
   if (!sessionCapLanded()) {
@@ -488,58 +510,65 @@ async function runSessionCap(runner: GateRunner): Promise<void> {
     await runner.test('session-cap', `${item.game} over_cap_rejected_under_daily`, async () => {
       const cap = sessionCap();
       assert.ok(cap > 0 && cap < TICKET_DAILY_CAP, `session cap ${cap} must sit strictly under the daily cap ${TICKET_DAILY_CAP}`);
+      const chunk = earnChunk(item.game, item.reason, cap);
       const session = await login(item.game);
-      const filled = await call('tickets.earn', { amount: cap, reason: item.reason, key: 'cap-fill' }, session.gameToken);
-      assert.equal(filled.body.error, undefined, JSON.stringify(filled.body));
-      assert.equal(filled.body.balance, cap);
+      const calls = await creditToCap(session.gameToken, cap, item.reason, chunk, 'cap-fill');
+      assert.equal(ticketBalance(session.hub.userId, item.game), cap);
+      assert.equal(earnLedgerCount(session.hub.userId), calls);
       const over = await call('tickets.earn', { amount: 1, reason: item.reason, key: 'cap-over' }, session.gameToken);
       assert.equal(over.body.error, 'session_ticket_cap', JSON.stringify(over.body));
+      const replay = await call('tickets.earn', { amount: 1, reason: item.reason, key: 'cap-over' }, session.gameToken);
+      assert.equal(replay.body.error, 'session_ticket_cap', JSON.stringify(replay.body));
       assert.equal(ticketBalance(session.hub.userId, item.game), cap);
-      assert.equal(earnLedgerCount(session.hub.userId), 1);
+      assert.equal(earnLedgerCount(session.hub.userId), calls);
     });
     await runner.test('session-cap', `${item.game} retries_do_not_credit`, async () => {
       const cap = sessionCap();
+      const chunk = earnChunk(item.game, item.reason, cap);
       const session = await login(item.game);
-      const filled = await call('tickets.earn', { amount: cap, reason: item.reason, key: 'cap-fill' }, session.gameToken);
-      assert.equal(filled.body.error, undefined, JSON.stringify(filled.body));
-      for (let i = 0; i < 5; i += 1) {
-        const replay = await call('tickets.earn', { amount: cap, reason: item.reason, key: 'cap-fill' }, session.gameToken);
-        assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
-        assert.equal(replay.body.balance, cap);
+      const calls = await creditToCap(session.gameToken, cap, item.reason, chunk, 'cap-fill');
+      for (let pass = 0; pass < 5; pass += 1) {
+        for (let i = 0; i < calls; i += 1) {
+          const replay = await call('tickets.earn', { amount: chunk, reason: item.reason, key: `cap-fill-${i}` }, session.gameToken);
+          assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
+          assert.equal(replay.body.balance, chunk * (i + 1), JSON.stringify(replay.body));
+        }
       }
       for (let i = 0; i < 5; i += 1) {
         const over = await call('tickets.earn', { amount: 1, reason: item.reason, key: 'cap-over' }, session.gameToken);
         assert.equal(over.body.error, 'session_ticket_cap', JSON.stringify(over.body));
       }
       assert.equal(ticketBalance(session.hub.userId, item.game), cap);
-      assert.equal(earnLedgerCount(session.hub.userId), 1);
+      assert.equal(earnLedgerCount(session.hub.userId), calls);
     });
     await runner.test('session-cap', `${item.game} concurrent_cannot_exceed`, async () => {
       const cap = sessionCap();
+      const chunk = earnChunk(item.game, item.reason, cap);
       const session = await login(item.game);
       const width = 20;
       const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-        call('tickets.earn', { amount: cap, reason: item.reason, key: `cap-race-${index}` }, session.gameToken)
+        call('tickets.earn', { amount: chunk, reason: item.reason, key: `cap-race-${index}` }, session.gameToken)
       )));
-      assert.equal(ticketBalance(session.hub.userId, item.game), cap);
-      assert.equal(earnLedgerCount(session.hub.userId) >= 1, true);
       const winners = results.filter((row) => !row.body.error);
       const losers = results.filter((row) => row.body.error === 'session_ticket_cap');
-      assert.ok(winners.length >= 1, JSON.stringify(results.map((row) => row.body)));
-      assert.equal(winners.length + losers.length, width, JSON.stringify(results.map((row) => row.body)));
-      await call('tickets.earn', { amount: cap, reason: item.reason, key: 'cap-race-0' }, session.gameToken);
+      assert.equal(winners.length, cap / chunk, JSON.stringify(results.map((row) => row.body)));
+      assert.equal(losers.length, width - winners.length, JSON.stringify(results.map((row) => row.body)));
       assert.equal(ticketBalance(session.hub.userId, item.game), cap);
+      assert.equal(earnLedgerCount(session.hub.userId), cap / chunk);
+      await call('tickets.earn', { amount: chunk, reason: item.reason, key: 'cap-race-0' }, session.gameToken);
+      assert.equal(ticketBalance(session.hub.userId, item.game), cap);
+      assert.equal(earnLedgerCount(session.hub.userId), cap / chunk);
     });
     await runner.test('session-cap', `${item.game} second_session_same_day`, async () => {
       const cap = sessionCap();
       assert.ok(cap * 2 <= TICKET_DAILY_CAP, `2 * session cap (${cap}) must fit under the daily cap so a second session is still under the daily limit`);
+      const chunk = earnChunk(item.game, item.reason, cap);
       const session = await login(item.game);
-      const first = await call('tickets.earn', { amount: cap, reason: item.reason, key: 'day-a' }, session.gameToken);
-      assert.equal(first.body.error, undefined, JSON.stringify(first.body));
+      const first = await creditToCap(session.gameToken, cap, item.reason, chunk, 'day-a');
       const next = await openGame(session.hub.token, item.game);
-      const second = await call('tickets.earn', { amount: cap, reason: item.reason, key: 'day-b' }, next.gameToken);
-      assert.equal(second.body.error, undefined, JSON.stringify(second.body));
+      const second = await creditToCap(next.gameToken, cap, item.reason, chunk, 'day-b', cap);
       assert.equal(ticketBalance(session.hub.userId, item.game), cap * 2);
+      assert.equal(earnLedgerCount(session.hub.userId), first + second);
     });
   }
 }

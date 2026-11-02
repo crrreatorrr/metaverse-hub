@@ -4,7 +4,7 @@
  * returns to `/hub/#from=<id>`.
  *
  * Fixtures stay inside the event_rule limits: sproto `win` / `duel_win` is 20,
- * hpos10i `level_end` is at most 200, the session cap is 200, and a UTC day is
+ * hpos10i `level_end` is at most 20, the session cap is 200, and a UTC day is
  * 1000 Tickets and 50 Verse. Every accepted earn is credited in full.
  * `audit.sql` runs from the suite wrapper after each case.
  */
@@ -31,7 +31,6 @@ import {
   guest,
   mints,
   num,
-  customAuthLanded,
   outboxSend,
   psql,
   redeemPortalTicket,
@@ -39,12 +38,16 @@ import {
   ticketBalance,
   verseBalance,
   type RpcResult,
+  HTTP_KEY,
+  SERVER_KEY,
 } from './harness.ts';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const SESSION_CAP = 200;
 const SPROTO_WIN = 20;
-const HPOS_LEVEL_END = 200;
+/** 0007 caps hpos10i level_end at 20 per call, so a session fills in 10 earns. */
+const HPOS_LEVEL_END = 20;
+const HPOS_EARNS_PER_SESSION = 200 / HPOS_LEVEL_END;
 const TERMINAL = new Set(['ticket_used', 'ticket_expired', 'ticket_invalid', 'ticket_game', 'unauthenticated', 'auth_failed']);
 
 /** Same parser as `apps/hub/src/travel.ts`. Kept here so the suite does not load the hub bundle. */
@@ -111,9 +114,10 @@ function assertLimits(): void {
   assert.equal(TICKET_DAILY_CAP, 1000);
   assert.equal(VERSE_DAILY_CAP, 50);
   assert.ok(SPROTO_WIN <= 20);
-  assert.ok(HPOS_LEVEL_END <= 200);
+  assert.ok(HPOS_LEVEL_END <= 20);
   assert.equal(SESSION_CAP % SPROTO_WIN, 0);
-  assert.equal(HPOS_LEVEL_END, SESSION_CAP);
+  assert.equal(SESSION_CAP % HPOS_LEVEL_END, 0);
+  assert.equal(HPOS_LEVEL_END * HPOS_EARNS_PER_SESSION, SESSION_CAP);
   assert.equal(num('SELECT game.session_ticket_cap()'), SESSION_CAP);
 }
 
@@ -187,9 +191,6 @@ async function enter(hubToken: string, game: Game): Promise<{ ticket: string; se
 }
 
 async function redeem(ticket: string, game: Game): Promise<RpcResult> {
-  if (!customAuthLanded()) {
-    return call('session.redeem', { ticket, gameId: game });
-  }
   const result = await redeemPortalTicket(ticket, game);
   if (result.token) {
     const part = result.token.split('.')[1] ?? '';
@@ -290,7 +291,8 @@ interface Page {
 function browserClient(dropOnce: Set<string>, closes: Promise<unknown>[]): NakamaClient {
   return createNakamaClient({
     serverUrl: 'http://127.0.0.1:7350',
-    serverKey: 'defaultkey',
+    serverKey: SERVER_KEY,
+    httpKey: HTTP_KEY,
     fetchImpl: async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
       const rpc = rpcOf(url);
@@ -546,21 +548,23 @@ async function reenter(test: TestFn): Promise<void> {
         const replay = await call('tickets.earn', {
           amount: HPOS_LEVEL_END,
           reason: 'level_end',
-          key: 'visit-1',
+          key: 'visit-1-0',
         }, token);
         assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
-        assert.equal(ticketLedger(capped.userId, 'hpos10i'), HPOS_LEVEL_END);
-        assert.equal(positiveEarns(capped.userId, 'hpos10i'), 1);
+        assert.equal(ticketLedger(capped.userId, 'hpos10i'), SESSION_CAP);
+        assert.equal(positiveEarns(capped.userId, 'hpos10i'), HPOS_EARNS_PER_SESSION);
       }
-      const got = await call('tickets.earn', {
-        amount: HPOS_LEVEL_END,
-        reason: 'level_end',
-        key: `visit-${visit}`,
-      }, token);
-      assert.equal(got.body.error, undefined, JSON.stringify(got.body));
-      assert.equal(got.body.capped, false, `partial level_end on visit ${visit}: ${JSON.stringify(got.body)}`);
-      expected += HPOS_LEVEL_END;
-      assert.equal(got.body.balance, expected, JSON.stringify(got.body));
+      for (let step = 0; step < HPOS_EARNS_PER_SESSION; step += 1) {
+        const got = await call('tickets.earn', {
+          amount: HPOS_LEVEL_END,
+          reason: 'level_end',
+          key: `visit-${visit}-${step}`,
+        }, token);
+        assert.equal(got.body.error, undefined, JSON.stringify(got.body));
+        assert.equal(got.body.capped, false, `partial level_end on visit ${visit}: ${JSON.stringify(got.body)}`);
+        expected += HPOS_LEVEL_END;
+        assert.equal(got.body.balance, expected, JSON.stringify(got.body));
+      }
       if (visit === 2) {
         const over = await call('tickets.earn', {
           amount: SPROTO_WIN,
@@ -587,7 +591,7 @@ async function reenter(test: TestFn): Promise<void> {
       extra.body.error || extra.body.capped === true,
       `sixth session credited a full level_end: ${JSON.stringify(extra.body)}`,
     );
-    assert.equal(positiveEarns(capped.userId, 'hpos10i'), 5);
+    assert.equal(positiveEarns(capped.userId, 'hpos10i'), 5 * HPOS_EARNS_PER_SESSION);
     assert.equal(earnSessions(capped.userId, 'hpos10i'), 5);
     assertCredit(capped.userId, 'hpos10i', TICKET_DAILY_CAP);
     assert.equal(mints(capped.userId, 'hpos10i_core'), 0);

@@ -1,0 +1,234 @@
+{
+  "npc_sprotel_bitcoin.glb": {
+    "kb": 1271,
+    "tris": 20072,
+    "joints": [
+      "Hips",
+      "Spine02",
+      "Spine01",
+      "Spine",
+      "neck",
+      "Head",
+      "jaw",
+      "hat_1",
+      "hat_tip",
+      "LeftShoulder",
+      "LeftArm",
+      "LeftForeArm",
+      "LeftHand",
+      "LeftUpLeg",
+      "LeftLeg",
+      "LeftFoot",
+      "LeftToeBase",
+      "RightShoulder",
+      "RightArm",
+      "RightForeArm",
+      "RightHand",
+      "RightUpLeg",
+      "RightLeg",
+      "RightFoot",
+      "RightToeBase"
+    ],
+    "clips": [
+      "idle",
+      "greet",
+      "talk",
+      "wipe_glass"
+    ],
+    "textures": [
+      "Color_sprotel 2048x2048",
+      "ORM_sprotel 1024x1024",
+      "NormalGL_sprotel 1024x1024"
+    ],
+    "extensions": [
+      "EXT_meshopt_compression"
+    ],
+    "markers": [
+      "barman_spot",
+      "interact_trigger",
+      "look_target_eyes",
+      "nameplate",
+      "hand_R_socket"
+    ],
+    "extras": {
+      "npc_id": "sprotel_bitcoin",
+      "version": 4,
+      "final": true,
+      "hat": "v1 Tripo hat (textured), scaled with the body",
+      "scale_vs_v1": 1.08,
+      "display_name": "Sprotel Bitcoin",
+      "role": "barman / Verse store NPC",
+      "contract": "hub-npc-v1",
+      "units": "metres",
+      "forward": "+Z",
+      "up": "+Y",
+      "origin": "ground between the feet",
+      "height_m": 2.365,
+      "anchor": "barman_spot",
+      "collision": {
+        "shape": "capsule",
+        "radius": 0.486,
+        "height": 2.365,
+        "center": [
+          0,
+          1.1825,
+          0
+        ],
+        "note": "total height incl. hemispheres; cylinder part = height - 2r"
+      },
+      "interact": {
+        "trigger": "interact_trigger",
+        "shape": "sphere",
+        "radius": 2.5,
+        "center": [
+          0,
+          1.188,
+          0
+        ],
+        "action": "open_verse_store",
+        "prompt": "Talk to Sprotel"
+      },
+      "lookAt": {
+        "bones": [
+          "neck",
+          "Head"
+        ],
+        "weights": [
+          0.35,
+          0.65
+        ],
+        "forwardAxis": "+Z",
+        "yawLimitDeg": 70,
+        "pitchUpDeg": 20,
+        "pitchDownDeg": 30,
+        "eyes": "look_target_eyes",
+        "note": "apply after the mixer each frame, additive on top of the clip"
+      },
+      "jaw": {
+        "bone": "jaw",
+        "axis": "+X",
+        "openDeg": 16,
+        "note": "talk clip drives it; Tech may also drive it from audio amplitude"
+      },
+      "secondary": {
+        "bones": [
+          "hat_1",
+          "hat_tip"
+        ],
+        "note": "pompom sway is keyed in every clip; optional spring on top"
+      },
+      "skeleton": {
+        "joints": 25,
+        "humanoid": [
+          "Hips",
+          "Spine02",
+          "Spine01",
+          "Spine",
+          "neck",
+          "Head",
+          "LeftShoulder",
+          "LeftArm",
+          "LeftForeArm",
+          "LeftHand",
+          "LeftUpLeg",
+          "LeftLeg",
+          "LeftFoot",
+          "LeftToeBase",
+          "RightShoulder",
+          "RightArm",
+          "RightForeArm",
+          "RightHand",
+          "RightUpLeg",
+          "RightLeg",
+          "RightFoot",
+          "RightToeBase"
+        ],
+        "extra": [
+          "jaw",
+          "hat_1",
+          "hat_tip"
+        ],
+        "naming": "hub avatar (wizard_player) bone names; rest rotations are identity (world-aligned), so retarget hub clips with SkeletonUtils.retargetClip rather than copying tracks"
+      },
+      "clips": {
+        "idle": {
+          "dur": 4,
+          "loop": true,
+          "note": "breathing, weight sway, glance left then right"
+        },
+        "greet": {
+          "dur": 2,
+          "loop": false,
+          "note": "one-shot: right-hand wave + nod, returns to the idle start pose"
+        },
+        "talk": {
+          "dur": 3,
+          "loop": true,
+          "note": "loop: jaw syllables + hand gestures"
+        },
+        "wipe_glass": {
+          "dur": 4,
+          "loop": true,
+          "note": "loop: polishes a glass held in the left hand (glass prop shown only in this clip)"
+        }
+      },
+      "lod": 0,
+      "lods": {
+        "lod0": "npc_sprotel_bitcoin.glb",
+        "lod1": "npc_sprotel_bitcoin-lod1.glb",
+        "switch_m": 12
+      }
+    }
+  },
+  "npc_sprotel_bitcoin-lod1.glb": {
+    "kb": 344,
+    "tris": 6038,
+    "joints": [
+      "Hips",
+      "Spine02",
+      "Spine01",
+      "Spine",
+      "neck",
+      "Head",
+      "jaw",
+      "hat_1",
+      "hat_tip",
+      "LeftShoulder",
+      "LeftArm",
+      "LeftForeArm",
+      "LeftHand",
+      "LeftUpLeg",
+      "LeftLeg",
+      "LeftFoot",
+      "LeftToeBase",
+      "RightShoulder",
+      "RightArm",
+      "RightForeArm",
+      "RightHand",
+      "RightUpLeg",
+      "RightLeg",
+      "RightFoot",
+      "RightToeBase"
+    ],
+    "clips": [
+      "idle",
+      "greet",
+      "talk",
+      "wipe_glass"
+    ],
+    "textures": [
+      "Color_sprotel 512x512",
+      "ORM_sprotel 256x256"
+    ],
+    "extensions": [
+      "EXT_meshopt_compression"
+    ],
+    "markers": [
+      "barman_spot",
+      "interact_trigger",
+      "look_target_eyes",
+      "nameplate",
+      "hand_R_socket"
+    ]
+  }
+}
