@@ -23,6 +23,7 @@ import {
   Vector3,
 } from 'three';
 import { WORLD_ROOT, animated, bakeInstanceColors, glow, instanced, neonMat, part } from './core';
+import { loadNeonSign } from './neon-sign';
 import { SIGN_FONT } from './signs';
 
 const Y = -Math.PI / 2;
@@ -30,6 +31,10 @@ export const INTERIOR_ORIGIN = new Vector3(0, -300, 0);
 const W = 20;
 const D = 13;
 const H = 5.2;
+/** Neon sign: 15% up-scale; bottom edge stays on the back-bar shelf; wall plane = shelf front. */
+const NEON_SIGN_SCALE = 1.15;
+const NEON_SIGN_BOTTOM = 1.2;
+const NEON_SIGN_Z = -D / 2 + 0.655; // 6 mm proud of the top-shelf plank front (-5.851) so bolts/wall glow never z-fight it
 
 const tex = (draw: (ctx: CanvasRenderingContext2D, w: number, h: number) => void, w: number, h: number): CanvasTexture => {
   const canvas = document.createElement('canvas');
@@ -310,12 +315,9 @@ export async function buildInterior(parent: Object3D): Promise<InteriorBuild> {
   const bulbs = new InstancedMesh(new SphereGeometry(0.16, 10, 8), neonMat('#ffcf7a', 6), lampT.length);
   lampT.forEach((lamp, i) => bulbs.setMatrixAt(i, new Matrix4().makeTranslation(lamp.p[0], lamp.p[1] + 0.28, lamp.p[2])));
   g.add(glow(bulbs));
-  const neon = await loader.loadAsync(`${WORLD_ROOT}tex/neon-sign.jpg`);
-  neon.colorSpace = SRGBColorSpace;
-  const sign = new Mesh(new PlaneGeometry(1.5, 1.95), new MeshBasicMaterial({ map: neon, toneMapped: false }));
-  sign.position.set(-4.5, 1.95, -D / 2 + 0.75);
-  sign.name = 'club-neon-sign';
-  g.add(glow(sign));
+  const sign = await loadNeonSign(NEON_SIGN_SCALE);
+  sign.position.set(-4.5, NEON_SIGN_BOTTOM - sign.userData.collider.min.y, NEON_SIGN_Z);
+  g.add(sign);
   const strip = new Mesh(new BoxGeometry(10, 0.05, 0.05), neonMat('#3de8ff', 3));
   strip.position.set(-4, 1.08, -0.95);
   g.add(glow(strip));
