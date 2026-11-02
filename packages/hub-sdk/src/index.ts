@@ -20,6 +20,7 @@ export type {
   GameId,
   HubSdk,
   InitResult,
+  RedeemedSession,
   RelicId,
   SellResult,
   SpendResult,

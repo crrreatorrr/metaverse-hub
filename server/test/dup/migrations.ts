@@ -62,6 +62,13 @@ const GAME_ID_TABLES = [
   'event_rule',
 ] as const;
 
+/**
+ * Tables with a game_id that 0003 does not merge: created after 0003 with a CHECK
+ * that already excludes 'pb', so they can never hold a pb row.
+ * auth_ticket: 0006_hashed_portal_tickets.
+ */
+const POST_PB_TABLES = ['auth_ticket'] as const;
+
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
 interface Fixture {
@@ -182,6 +189,7 @@ function assertCatalogCoversSeed(): void {
   );
   const expected = [
     ...GAME_ID_TABLES.map((table) => `${table}.game_id`),
+    ...POST_PB_TABLES.map((table) => `${table}.game_id`),
     'earn_window.bucket',
   ].sort();
   assert.deepEqual([...found].sort(), expected, `game_id/bucket columns changed:\n${found.join('\n')}`);
