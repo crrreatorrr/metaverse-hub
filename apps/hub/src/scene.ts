@@ -40,7 +40,7 @@ import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
 import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
-import { buildInterior, type InteriorBuild } from './v2/interior';
+import { buildClubInterior, type ClubInteriorBuild } from './v2/club-interior';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
 import { loadSignFont } from './v2/signs';
 
@@ -147,7 +147,8 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   } catch (error) {
     console.warn('[hub] environment map skipped', error);
   }
-  scene.add(new HemisphereLight('#c9b6ff', '#3a1a40', 1.3));
+  const hemi = new HemisphereLight('#c9b6ff', '#3a1a40', 1.3);
+  scene.add(hemi);
   const sun = new DirectionalLight('#ffd9b8', 2.6);
   sun.position.set(-120, 160, 140);
   scene.add(sun);
@@ -275,7 +276,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
 
   const collider = buildPlazaCollider();
   const tmp = new Vector3();
-  let interior: InteriorBuild | null = null;
+  let interior: ClubInteriorBuild | null = null;
   let interiorTask: Promise<void> | null = null;
   let inside = false;
   let doorLatch = false;
@@ -299,7 +300,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
 
   function ensureInterior(): void {
     if (interiorTask) return;
-    interiorTask = buildInterior(scene).then((built) => {
+    interiorTask = buildClubInterior(scene).then((built) => {
       interior = built;
       storeAnchor = built.storeAnchor;
       applyBoard();
@@ -308,6 +309,32 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
       interiorTask = null;
       console.error(error);
     });
+  }
+
+  // Club interior mood: warm dim hemisphere, sun off, room-captured environment. Restored on exit.
+  const plazaMood = {
+    environment: scene.environment, environmentIntensity: scene.environmentIntensity,
+    sky: hemi.color.clone(), ground: hemi.groundColor.clone(), intensity: hemi.intensity, sun: sun.visible,
+  };
+  function setClubMood(on: boolean): void {
+    const mood = interior?.mood;
+    if (on && mood) {
+      plazaMood.environment = scene.environment;
+      plazaMood.environmentIntensity = scene.environmentIntensity;
+      if (mood.environment) scene.environment = mood.environment;
+      scene.environmentIntensity = mood.environmentIntensity;
+      hemi.color.set(mood.hemi.sky);
+      hemi.groundColor.set(mood.hemi.ground);
+      hemi.intensity = mood.hemi.intensity;
+      sun.visible = mood.sun;
+    } else {
+      scene.environment = plazaMood.environment;
+      scene.environmentIntensity = plazaMood.environmentIntensity;
+      hemi.color.copy(plazaMood.sky);
+      hemi.groundColor.copy(plazaMood.ground);
+      hemi.intensity = plazaMood.intensity;
+      sun.visible = plazaMood.sun;
+    }
   }
 
   function placeBuilding(group: Group, slot: SlotState): void {
@@ -385,7 +412,9 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
           inside = true;
           outdoor.visible = false;
           interior.group.visible = true;
-          warp = { x: -6, y: STAND_Y - 300, z: 4.2, yaw: 0 };
+          setClubMood(true);
+          const s = interior.spawn;
+          warp = { x: s.x, y: STAND_Y + s.y, z: s.z, yaw: s.yaw };
         }
       } else {
         doorLatch = false;
@@ -393,13 +422,17 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
       }
     }
     if (inside && interior) {
-      const distance = horiz(interior.exit, player.x, player.y, player.z);
+      const distance = Math.min(
+        horiz(interior.exit, player.x, player.y, player.z),
+        horiz(interior.entry, player.x, player.y, player.z),
+      );
       if (distance < 1.8 && !exitLatch) {
         exitLatch = true;
         doorLatch = false;
         inside = false;
         outdoor.visible = true;
         interior.group.visible = false;
+        setClubMood(false);
         interior.exit.getWorldPosition(tmp);
         const flat = tmp.clone();
         flat.y = 0;
