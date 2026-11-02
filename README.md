@@ -26,6 +26,7 @@ The four games live in their own repos. Game ids are used in code and in `#from=
 Requires Node 22+.
 
 ```bash
+sh server/scripts/dev-env.sh   # once: writes server/.env with local keys
 docker compose -f server/docker-compose.yml up --build
 npm ci
 npm run fetch:games   # optional: real game builds, see below
@@ -36,7 +37,9 @@ npm run dev
 
 The game repos are private. If `gh` cannot read them (an agent token scoped to this repo only, for example), set `GAME_REPOS_GITHUB_TOKEN` to a fine-grained token with Contents: Read on those repos.
 
-Open http://127.0.0.1:5173/hub/
+Open http://127.0.0.1:5180/hub/
+
+The hub uses port 5180 rather than Vite's default 5173, so it can run next to a game's own dev server. Set `HUB_PORT` to use another port.
 
 The hub opens on a sign-up / log-in page: username, password, and a backup email (not verified yet). The plaza downloads and builds behind it. If you finish before the plaza is ready, a spinning V token and a block progress bar hold until it is. **Continue as guest** keeps the old device-only guest for that tab. A signed-in account is remembered on this browser; **Account → Sign out** returns to the page. Details are in [server/README.md](server/README.md#accounts).
 
@@ -53,7 +56,7 @@ Sproto Duel's in-repo page is a mock arena: defeat Tinubu, then return. It stand
 Coming back from a game, open the hub with the game id in the hash. The avatar stands in front of that portal, facing it:
 
 ```
-http://127.0.0.1:5173/hub/#from=sproto
+http://127.0.0.1:5180/hub/#from=sproto
 ```
 
 `#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, or `sproto`.

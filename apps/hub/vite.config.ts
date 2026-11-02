@@ -3,6 +3,13 @@ import { resolve } from 'node:path';
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
 
 const nakama = 'http://127.0.0.1:7350';
+
+/**
+ * Dev server port. 5180, not Vite's default 5173, so the hub does not collide
+ * with a game's own `vite` dev server running on the same machine.
+ * `HUB_PORT` overrides it.
+ */
+const hubPort = Number(process.env.HUB_PORT) || 5180;
 const proxy = {
   '/v2': { target: nakama, changeOrigin: true },
   '/ws': { target: nakama, ws: true, changeOrigin: true },
@@ -103,7 +110,7 @@ function dropFetchedBuilds(): Plugin {
     },
     server: {
       host: '127.0.0.1',
-      port: 5173,
+      port: hubPort,
       strictPort: true,
       proxy,
     },

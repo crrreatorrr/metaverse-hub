@@ -27,7 +27,7 @@ The hub opens on a sign-up / log-in page. Accounts use Nakama's email auth with 
 docker compose up --build
 ```
 
-From the repo root, `npm run dev` proxies `/v2` to port 7350. Open http://127.0.0.1:5173/hub/ and walk into the Castle. The mock arena is http://127.0.0.1:5173/play/sproto/.
+From the repo root, `npm run dev` proxies `/v2` to port 7350. Open http://127.0.0.1:5180/hub/ and walk into the Castle. The mock arena is http://127.0.0.1:5180/play/sproto/.
 
 Duplication tests, against this compose stack:
 
