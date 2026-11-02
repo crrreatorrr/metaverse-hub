@@ -37,10 +37,10 @@ The hub opens on a sign-up / log-in page: username, password, and a backup email
 
 The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
-Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a signed ticket in the fragment:
+Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a one-time ticket in the fragment:
 
 ```
-/play/sproto/#t=<payload>.<hmac>
+/play/sproto/#t=<ticket>
 ```
 
 Sproto Duel's page in this repo is a mock arena: defeat Tinubu, then return. The other three URLs are still placeholders for the real games. Change them in `apps/hub/src/config.ts`.
@@ -84,8 +84,9 @@ A round neon plaza, about 60 m across, built from primitives and emissive materi
 `@metaverse/hub-sdk` is the surface the games call. Outside a redeemed ticket every method no-ops, so a game still runs on its own. Install and the Three.js wiring are in [packages/hub-sdk/README.md](packages/hub-sdk/README.md).
 
 ```ts
-init(gameId)                          // reads #t=, strips it, returns the mock profile
-reportEvent(eventId, data, key)       // ready, game_beaten, or the four relic triggers
+redeemTicket({ game })                // reads #t=, strips it, custom-auth session + refresh token
+init(gameId)                          // same exchange when a ticket is still in the hash; otherwise the saved session
+reportEvent(eventId, data, key)       // ready, or the four relic triggers
 earnTickets(amount, reason, key)
 exchange(tickets, key)                // 10 Tickets = 1 Verse, 50 Verse per game per day
 submitScore(boardId, value, meta?)    // ignored unless the ticket was ranked
@@ -97,7 +98,7 @@ exit(reason?)                         // goes to /hub/#from=<game>
 | Event | Grants |
 | --- | --- |
 | `ready` | nothing |
-| `game_beaten` | that game's relic, once |
+| `game_beaten` | nothing. A client cannot claim a Relic by saying it won |
 | `hpos10i.level_complete` with zone `z1_retro_rush_hills` and act `1` | `hpos10i_core` |
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |

@@ -184,17 +184,6 @@ const SPROTO_OUTBOX: OutboxGame = {
   ticketsLeft: 0,
 };
 
-const HPOS_OUTBOX: OutboxGame = {
-  game: 'hpos10i',
-  eventId: 'hpos10i.level_complete',
-  data: { zone: 'z1_retro_rush_hills', act: 1, time: 40.125 },
-  relicId: 'hpos10i_core',
-  earnAmount: 20,
-  exchangeTickets: 10,
-  verse: 1,
-  ticketsLeft: 10,
-};
-
 interface LiveKit {
   sdk: HubSdk;
   session: KeyValue;
@@ -392,7 +381,9 @@ async function runOutbox(runner: GateRunner): Promise<void> {
   const dbName = (sdk as { HUB_OUTBOX_DB?: string }).HUB_OUTBOX_DB;
   assert.equal(dbName, OUTBOX_DB);
   assert.equal(OUTBOX_STORE, 'writes');
-  for (const spec of [SPROTO_OUTBOX, HPOS_OUTBOX]) {
+  // HPOS10I exchange is rejected (0007), so its outbox cannot run the exchange leg.
+  // The outbox path is the same code for every game; Sproto covers it.
+  for (const spec of [SPROTO_OUTBOX]) {
     await runner.test('outbox', `${spec.game} reload_lost_response`, async () => {
       const kit = await makeKit(spec);
       await reloadLost(kit, keysFor(`${spec.game}-reload`));

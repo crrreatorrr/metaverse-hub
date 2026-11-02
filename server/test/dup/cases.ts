@@ -113,15 +113,8 @@ export const M2_FLOWS: DupFlow[] = [
     mismatchData: { zone: 'z1_retro_rush_hills', act: 2, time: 40.125 },
     relicId: 'hpos10i_core',
   },
-  {
-    kind: 'exchange',
-    id: 'hpos10i.tickets_to_verse',
-    game: 'hpos10i',
-    earnAmount: 20,
-    earnReason: 'level_end',
-    tickets: 10,
-    verse: 1,
-  },
+  // No hpos10i exchange row: 0007 rejects HPOS10I exchange with exchange_not_allowed
+  // (suite.ts hposExtras covers that). Its Tickets stay in the game.
   {
     kind: 'earn',
     id: 'hpos10i.level_end',
