@@ -62,6 +62,13 @@ const GAME_ID_TABLES = [
   'event_rule',
 ] as const;
 
+/**
+ * Tables with a game_id that 0003 does not merge: created after 0003 with a CHECK
+ * that already excludes 'pb', so they can never hold a pb row.
+ * auth_ticket: 0006_hashed_portal_tickets.
+ */
+const POST_PB_TABLES = ['auth_ticket'] as const;
+
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
 interface Fixture {
@@ -85,6 +92,44 @@ function lines(sql: string, database?: string): string[] {
 function ident(name: string): string {
   if (!/^[a-z_]+$/.test(name)) throw new Error(`bad sql name ${name}`);
   return name;
+}
+
+/** Migration ids in schema.ts order. Tests use this instead of a fixed list, so a new migration does not break them. */
+export function migrationIds(): string[] {
+  const source = ts.createSourceFile(
+    SCHEMA_FILE,
+    readFileSync(SCHEMA_FILE, 'utf8'),
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const ids: string[] = [];
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node)
+      && ts.isIdentifier(node.name)
+      && node.name.text === 'MIGRATIONS'
+      && node.initializer
+      && ts.isArrayLiteralExpression(node.initializer)
+    ) {
+      for (const element of node.initializer.elements) {
+        if (!ts.isObjectLiteralExpression(element)) continue;
+        for (const prop of element.properties) {
+          if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+          if (prop.name.text === 'id' && ts.isStringLiteral(prop.initializer)) ids.push(prop.initializer.text);
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(source);
+  if (ids.length === 0) throw new Error('no migrations found in schema.ts');
+  return ids;
+}
+
+function latestMigration(): string {
+  const ids = migrationIds();
+  return ids[ids.length - 1] as string;
 }
 
 export function fileChecksum(migrationId: string): string {
@@ -182,6 +227,7 @@ function assertCatalogCoversSeed(): void {
   );
   const expected = [
     ...GAME_ID_TABLES.map((table) => `${table}.game_id`),
+    ...POST_PB_TABLES.map((table) => `${table}.game_id`),
     'earn_window.bucket',
   ].sort();
   assert.deepEqual([...found].sort(), expected, `game_id/bucket columns changed:\n${found.join('\n')}`);
@@ -322,6 +368,17 @@ async function doPrepare(): Promise<Fixture> {
     collisionLedger: 0,
   };
   compose(['stop', 'nakama'], 180_000);
+  // The fixture is a database from before 0003. 0002 inserts these open game_beaten
+  // rules; a later migration (0008) removes them, so put them back the way 0002 left them.
+  psql(
+    `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match)
+     VALUES
+       ('hpos10i', 'game_beaten', 'hpos10i_core', NULL, NULL, NULL, '{}'::jsonb),
+       ('peoples-bitcoin', 'game_beaten', 'genesis_shard', NULL, NULL, NULL, '{}'::jsonb),
+       ('nobu', 'game_beaten', 'cones_tip', NULL, NULL, NULL, '{}'::jsonb),
+       ('sproto', 'game_beaten', 'tinubu_crown', NULL, NULL, NULL, '{}'::jsonb)
+     ON CONFLICT (game_id, event_type) DO NOTHING`,
+  );
   assertCatalogCoversSeed();
   seed(fix);
   assertBothGameIds(fix);
@@ -333,6 +390,11 @@ async function doPrepare(): Promise<Fixture> {
      ) SELECT count(*) FROM deleted`,
   );
   assert.equal(removed, 1, '0003 was not recorded, so this boot would not be a replay of that migration');
+  // Every later migration replays too. Left recorded, any of them would make 0003 an
+  // out-of-order migration and the ledger would refuse the boot.
+  for (const id of migrationIds().slice(migrationIds().indexOf('0003_merge_pb_into_peoples_bitcoin') + 1)) {
+    psql(`DELETE FROM game.schema_migrations WHERE id = '${id}'`);
+  }
   await bootAndReady();
   return fix;
 }
@@ -568,22 +630,24 @@ async function raceHubBoots(): Promise<void> {
     }
   }
   const counts = psql(`SELECT id || '=' || count(*)::text FROM game.schema_migrations GROUP BY id ORDER BY id`);
-  const expected = [
-    '0001_schema_migrations=1',
-    '0002_baseline=1',
-    '0003_merge_pb_into_peoples_bitcoin=1',
-  ].join('\n');
+  const expected = migrationIds().map((id) => `${id}=1`).join('\n');
   if (counts !== expected) {
     throw new Error(
       `applied migrations:\n${counts}\nexpected:\n${expected}\n--- hub-boot-a ---\n${dockerLogs('hub-boot-a')}\n--- hub-boot-b ---\n${dockerLogs('hub-boot-b')}`,
     );
   }
-  assert.equal(num('SELECT count(*) FROM game.schema_migrations'), 3);
+  assert.equal(num('SELECT count(*) FROM game.schema_migrations'), migrationIds().length);
   assert.equal(num('SELECT count(*) FROM game.tickets_ledger'), 0);
   assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
   assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
   assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-  assert.equal(num('SELECT count(*) FROM game.event_rule'), 8);
+  // The four Relic triggers from 0002. Ticket rules from later migrations are not counted.
+  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 4);
+  // 0002's open game_beaten rules, until 0008 drops them.
+  assert.equal(
+    num(`SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten'`),
+    migrationIds().includes('0008_drop_open_game_beaten_rules') ? 0 : 4,
+  );
   assert.equal(
     psql(`SELECT checksum FROM game.schema_migrations WHERE id = '0002_baseline'`),
     fileChecksum('0002_baseline'),
@@ -659,10 +723,14 @@ export async function runMigrations(test: DupTest): Promise<void> {
       `SELECT lifetime FROM game.verse_earned WHERE user_id = '${fix.collision}' AND game_id = 'peoples-bitcoin'`,
     ), 2);
     assert.equal(num(`SELECT count(*) FROM game.verse_earned WHERE user_id = '${fix.collision}'`), 1);
+    // 0003 keeps the canonical row over pb's; 0008, when present, then drops the open rule.
     assert.equal(psql(
       `SELECT COALESCE(tickets::text, 'null') || ' ' || relic_id
        FROM game.event_rule WHERE game_id = 'peoples-bitcoin' AND event_type = 'game_beaten'`,
-    ), 'null genesis_shard');
+    ), migrationIds().includes('0008_drop_open_game_beaten_rules') ? '' : 'null genesis_shard');
+    assert.equal(num(
+      `SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten' AND relic_id = 'from-pb'`,
+    ), 0, 'pb game_beaten rule was merged instead of dropped');
     assert.equal(psql(
       `SELECT tickets::text || ' ' || relic_id
        FROM game.event_rule WHERE game_id = 'peoples-bitcoin' AND event_type = 'pb.legacy_only'`,
@@ -733,7 +801,7 @@ export async function runMigrations(test: DupTest): Promise<void> {
 
   await test('migration', 'unapplied migration below the highest recorded one refuses to boot', async () => {
     const lower = '0002_baseline';
-    const higher = '0003_merge_pb_into_peoples_bitcoin';
+    const higher = latestMigration();
     let failure: unknown = null;
     let saved: LedgerRow | null = null;
     try {
@@ -775,23 +843,22 @@ export async function runMigrations(test: DupTest): Promise<void> {
   });
 
   await test('migration', 'in-order unapplied migration still applies', async () => {
-    const next = '0003_merge_pb_into_peoples_bitcoin';
+    const next = latestMigration();
     let failure: unknown = null;
     try {
       compose(['stop', 'nakama'], 180_000);
       const before = ledgerById();
-      const first = before.get('0001_schema_migrations');
-      const second = before.get('0002_baseline');
-      if (!first || !second || !before.has(next)) throw new Error(`ledger not ready\n${migrationSnapshot()}`);
+      if (before.size !== migrationIds().length || !before.has(next)) throw new Error(`ledger not ready\n${migrationSnapshot()}`);
       const economy = economySnapshot();
       deleteLedgerRow(next);
       await bootAndReady();
       const after = ledgerById();
-      assert.deepEqual(after.get('0001_schema_migrations'), first, '0001 changed while 0003 applied');
-      assert.deepEqual(after.get('0002_baseline'), second, '0002 changed while 0003 applied');
-      assert.equal(after.get(next)?.checksum, fileChecksum(next), '0003 checksum');
-      assert.equal(after.size, 3);
-      assert.equal(economySnapshot(), economy, 'balances or ledger counts changed when 0003 applied in order');
+      for (const [id, row] of before) {
+        if (id !== next) assert.deepEqual(after.get(id), row, `${id} changed while ${next} applied`);
+      }
+      assert.equal(after.get(next)?.checksum, fileChecksum(next), `${next} checksum`);
+      assert.equal(after.size, migrationIds().length);
+      assert.equal(economySnapshot(), economy, `balances or ledger counts changed when ${next} applied in order`);
     } catch (error) {
       failure = error;
     } finally {

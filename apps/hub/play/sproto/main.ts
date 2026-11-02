@@ -29,6 +29,7 @@ let tickets = 0;
 
 const sdk = installHubSdk(createHubSdk({
   serverUrl: '',
+  serverKey: __NAKAMA_SERVER_KEY__,
   hubUrl: '/hub/',
 }));
 
