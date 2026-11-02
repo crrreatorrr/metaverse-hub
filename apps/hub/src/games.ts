@@ -18,7 +18,12 @@ export interface GameUrlEntry {
   id: GameId;
   /** Path segment under `/play/` and on `play.<domain>`. */
   slug: string;
-  env: 'VITE_GAME_URL_HPOS10I' | 'VITE_GAME_URL_NOBU' | 'VITE_GAME_URL_PEOPLES_BITCOIN' | 'VITE_GAME_URL_SPROTO_DUEL';
+  env:
+    | 'VITE_GAME_URL_HPOS10I'
+    | 'VITE_GAME_URL_NOBU'
+    | 'VITE_GAME_URL_PEOPLES_BITCOIN'
+    | 'VITE_GAME_URL_SPROTO_DUEL'
+    | 'VITE_GAME_URL_SPROTO_FIGHTER';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -47,6 +52,12 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'sproto',
     slug: 'sproto-duel',
     env: 'VITE_GAME_URL_SPROTO_DUEL',
+  },
+  {
+    // Entered from the Bar's arcade cabinet, not a plaza ring. Id and slug are the same.
+    id: 'sproto-fighter',
+    slug: 'sproto-fighter',
+    env: 'VITE_GAME_URL_SPROTO_FIGHTER',
   },
 ];
 

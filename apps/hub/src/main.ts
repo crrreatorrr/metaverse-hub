@@ -2,6 +2,7 @@ import {
   HubSdkError,
   createNakamaClient,
   getOrCreateDeviceId,
+  type GameId,
   type ProfileResult,
   type PortalEnterResult,
   type RecoveryCodeResult,
@@ -14,13 +15,14 @@ import '@fontsource/press-start-2p/latin-400.css';
 import '@fontsource/vt323/latin-400.css';
 import { createChat } from './chat';
 import {
+  ARCADE_GAME,
   AVATAR_SCALE,
   CAMERA_ARM,
   CAMERA_LOOK_DROP,
   CHARACTERS,
   PORTAL_DISTANCE,
+  ALL_RELICS,
   PORTALS,
-  SOCKETS,
   SPRINT_SPEED,
   WALK_SPEED,
   characterHeight,
@@ -33,6 +35,7 @@ import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { gate } from './login';
 import { createWorld } from './scene';
 import './style.css';
+import { ARCADE_PROMPT } from './v2/arcade-layout';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 
 const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
@@ -74,8 +77,11 @@ hint.textContent = `Click to look  ·  ${CONTROLS_HINT}`;
 app.prepend(world.renderer.domElement);
 
 const player = createPlayerController(world.collider.bvh);
-const initial = spawnFor(parseReturnGame(window.location.hash));
+const returnGame = parseReturnGame(window.location.hash);
+const initial = spawnFor(returnGame);
 player.spawn(initial.x, STAND_Y, initial.z, initial.yaw);
+// Back from Sproto Fighter: stand at the Bar's arcade cabinet once the room loads.
+if (returnGame === ARCADE_GAME.id) world.returnToArcade();
 // M6 pets: profile.get / loadout.set_hub are not wired yet (docs/m6-server-prep.md), so the equipped pet
 // comes from ?pet=<catalog id> for previews until the profile hook lands.
 const petParam = new URLSearchParams(window.location.search).get('pet');
@@ -195,6 +201,7 @@ window.addEventListener('keydown', (event) => {
   keys.add(event.code);
   if (event.code === 'Space') jumpQueued = true;
   if (event.code === 'KeyE' && !event.repeat && world.zone() === 'store') world.verseStoreUi.requestOpen();
+  if (event.code === 'KeyE' && !event.repeat && world.zone() === 'arcade') playArcade();
 });
 window.addEventListener('keyup', (event) => {
   keys.delete(event.code);
@@ -431,6 +438,8 @@ function updateHint(): void {
       ? `${look}Walk into the door to enter the bar`
       : zone === 'exit'
         ? `${look}Walk through the exit to return to the plaza`
+      : zone === 'arcade'
+        ? pageFor(ARCADE_GAME.id) ? `${look}${ARCADE_PROMPT}` : `${look}${ARCADE_GAME.label} · Coming soon`
       : zone === 'store'
         ? world.verseStoreUi.open ? `${look}Sprotel Bitcoin · Verse store` : `${look}Press E · ${world.verseStoreUi.prompt}`
         : closed
@@ -474,7 +483,15 @@ function considerPortal(dt: number): void {
 
 const ENTER_FADE_MS = 700;
 
-async function travel(portal: (typeof PORTALS)[number], page: string): Promise<void> {
+/** E at the Bar's arcade cabinet. Same ticket flow as a ring. */
+function playArcade(): void {
+  if (traveling || menu.open) return;
+  const page = pageFor(ARCADE_GAME.id);
+  if (!page) return;
+  void travel(ARCADE_GAME, page);
+}
+
+async function travel(portal: { id: GameId; label: string; color: string }, page: string): Promise<void> {
   traveling = true;
   if (chat.open) chat.hide();
   releasePointer();
@@ -505,7 +522,7 @@ async function travel(portal: (typeof PORTALS)[number], page: string): Promise<v
   }
 }
 
-function pageFor(id: (typeof PORTALS)[number]['id']): string | null {
+function pageFor(id: GameId): string | null {
   return gameUrl(id, gameUrls);
 }
 
@@ -526,6 +543,7 @@ const gameUrls: GameUrlContext = {
     nobu: import.meta.env.VITE_GAME_URL_NOBU,
     'peoples-bitcoin': import.meta.env.VITE_GAME_URL_PEOPLES_BITCOIN,
     sproto: import.meta.env.VITE_GAME_URL_SPROTO_DUEL,
+    'sproto-fighter': import.meta.env.VITE_GAME_URL_SPROTO_FIGHTER,
   },
 };
 
@@ -534,7 +552,7 @@ const relicCount = document.querySelector<HTMLButtonElement>('#relic-count');
 const relicPips = new Map<string, HTMLElement>();
 if (relicCount) {
   const pips = relicCount.querySelector('.relic-pips');
-  for (const socket of SOCKETS) {
+  for (const socket of ALL_RELICS) {
     const pip = document.createElement('span');
     pip.className = 'relic-pip';
     pip.style.setProperty('--relic', socket.color);

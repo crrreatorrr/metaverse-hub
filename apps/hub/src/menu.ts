@@ -1,5 +1,5 @@
 import type { RelicId } from '@metaverse/hub-sdk';
-import { CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
+import { ALL_RELICS, CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
@@ -24,11 +24,19 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 }
 
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
-const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string }> = {
-  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '' },
-  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto' },
+/** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
+const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Halloween 2008' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: '$Bitcoin Obama' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Big Swole' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Bongraker' },
+  tidebreaker_belt: {
+    game: 'Sproto Fighter (Bar arcade)',
+    how: 'Win Story World 1, Tidebreaker Marina.',
+    pet: '',
+    fighter: '',
+    unlock: 'Lights the Belt plinth in the Bar',
+  },
 };
 
 interface PetInfo {
@@ -312,10 +320,10 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Relics
   const relicsPage = bodies.get('relics') as HTMLElement;
-  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. A Relic lights its socket on the Four Lights and unlocks an aura in Edit avatar.'));
+  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. The four Four Lights Relics light their sockets, unlock an aura in Edit avatar, and each unlocks a Sproto Fighter character. Own all four for Sproto Duo.'));
   const relicGrid = el('ul', 'menu-grid relics');
   const relicCards = new Map<string, HTMLElement>();
-  for (const socket of SOCKETS) {
+  for (const socket of ALL_RELICS) {
     const info = RELIC_INFO[socket.id];
     const card = el('li', 'relic-card');
     card.style.setProperty('--relic', socket.color);
@@ -325,7 +333,7 @@ export function createMenu(options: MenuOptions): Menu {
       el('strong', '', socket.relic),
       el('span', 'relic-game', info.game),
       el('span', 'relic-how', info.how),
-      el('span', 'relic-unlock', `Unlocks: ${socket.relic} aura${info.pet ? ` · ${info.pet}` : ''}`),
+      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.relic} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
     );
     const state = el('span', 'relic-badge', 'Locked');
     card.append(gem, text, state);
@@ -401,7 +409,7 @@ export function createMenu(options: MenuOptions): Menu {
 
   function paintItems(): void {
     verseLine.textContent = `Verse ${verse.toLocaleString('en-US')}`;
-    relicCount.textContent = `${SOCKETS.filter((socket) => relics.has(socket.id)).length} of 4 Relics`;
+    relicCount.textContent = `${ALL_RELICS.filter((socket) => relics.has(socket.id)).length} of ${ALL_RELICS.length} Relics`;
     petGrid.replaceChildren();
     const all = SOCKETS.every((socket) => relics.has(socket.id));
     const owned = (pet: PetInfo) =>

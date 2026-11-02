@@ -27,6 +27,12 @@ export const PORTALS: readonly PortalConfig[] = [
   { id: 'sproto', label: 'Sproto Duel', place: 'The Castle', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
 ];
 
+/**
+ * Sproto Fighter has no ring on the plaza. It is the arcade cabinet inside the Bar: stand at the
+ * machine and press E. Same portal ticket flow as the rings (`portal.enter`, then `#t=`).
+ */
+export const ARCADE_GAME = { id: 'sproto-fighter', label: 'Sproto Fighter', place: 'The Bar arcade', color: '#ff3d6e' } as const;
+
 export const PLAZA_RADIUS = 110;
 export const PORTAL_DISTANCE = 96;
 export const PORTAL_STANDOFF = 7.5;
@@ -143,3 +149,9 @@ export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angl
   { id: 'cones_tip', relic: "Cone's Tip", color: '#3ec6ff', angle: (-3 * Math.PI) / 4 },
   { id: 'tinubu_crown', relic: "Tinubu's Crown", color: '#8d6bff', angle: -Math.PI / 4 },
 ];
+
+/** Sproto Fighter's Relic. Not a Four Lights socket: it lights a plinth by the Bar's arcade cabinet. */
+export const ARCADE_RELIC: { id: RelicId; relic: string; color: string } = { id: 'tidebreaker_belt', relic: 'Tidebreaker Belt', color: '#66d7e8' };
+
+/** Every Relic, for the Relics menu and the HUD count: the four sockets, then the Belt. */
+export const ALL_RELICS: readonly { id: RelicId; relic: string; color: string }[] = [...SOCKETS, ARCADE_RELIC];
