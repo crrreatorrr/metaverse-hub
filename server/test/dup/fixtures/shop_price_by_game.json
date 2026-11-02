@@ -1,0 +1,697 @@
+{
+  "peoples-bitcoin": [
+    {
+      "item_id": "item_coom",
+      "pack_size": 100,
+      "price": 7,
+      "sell_price": 2,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "item_hopium_soda",
+      "pack_size": 1,
+      "price": 4,
+      "sell_price": 0,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "item_moonward_hat",
+      "pack_size": 1,
+      "price": 65,
+      "sell_price": 7,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "item_moonward_robe",
+      "pack_size": 1,
+      "price": 88,
+      "sell_price": 13,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "item_tp_soundbite",
+      "pack_size": 1,
+      "price": 9,
+      "sell_price": 0,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "staff_apprentice",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 1,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "staff_hopium",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 11,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "staff_moonward",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 50,
+      "shop_id": "shop_staffwright"
+    },
+    {
+      "item_id": "contract_grunt",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 10,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "contract_heavy",
+      "pack_size": 1,
+      "price": 205,
+      "sell_price": 74,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "contract_medic",
+      "pack_size": 1,
+      "price": 49,
+      "sell_price": 4,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "contract_recruit",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "contract_sniper",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 26,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_ballot_blaster",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_campaign_pistol",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_confetti_shotgun",
+      "pack_size": 1,
+      "price": 65,
+      "sell_price": 29,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_diamond_minigun",
+      "pack_size": 1,
+      "price": 471,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_flippening_railgun",
+      "pack_size": 1,
+      "price": 1236,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_golden_veto",
+      "pack_size": 1,
+      "price": 792,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_gremlin_blaster",
+      "pack_size": 1,
+      "price": 295,
+      "sell_price": 132,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_hash_cannon",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_press_pass_smg",
+      "pack_size": 1,
+      "price": 115,
+      "sell_price": 51,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "gun_treasury_rifle",
+      "pack_size": 1,
+      "price": 182,
+      "sell_price": 81,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_aviators",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 35,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_black_book",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_briefcase_bludgeon",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_business_cards",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_campaign_hat",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_campaign_jacket",
+      "pack_size": 1,
+      "price": 49,
+      "sell_price": 22,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_campaign_loafers",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 17,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_campaign_slacks",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 17,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_charm_tea",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_circuit_board",
+      "pack_size": 1,
+      "price": 65,
+      "sell_price": 6,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_combat_boots",
+      "pack_size": 1,
+      "price": 107,
+      "sell_price": 48,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_concrete_bag",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 1,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_diamond_boots",
+      "pack_size": 1,
+      "price": 324,
+      "sell_price": 145,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_diamond_gauntlets",
+      "pack_size": 1,
+      "price": 324,
+      "sell_price": 145,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_diamond_greaves",
+      "pack_size": 1,
+      "price": 324,
+      "sell_price": 145,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_diamond_helm",
+      "pack_size": 1,
+      "price": 279,
+      "sell_price": 125,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_diamond_plate",
+      "pack_size": 1,
+      "price": 387,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_donor_list",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_filibuster_mace",
+      "pack_size": 1,
+      "price": 387,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_flak_helmet",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 10,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_flak_pants",
+      "pack_size": 1,
+      "price": 88,
+      "sell_price": 39,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_flak_vest",
+      "pack_size": 1,
+      "price": 107,
+      "sell_price": 20,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_focus_soda",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gala_tailcoat",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gala_top_hat",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gala_trousers",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gavel_of_order",
+      "pack_size": 1,
+      "price": 574,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gavel_pendant",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_gold_cards",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 9,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_grip_gloves",
+      "pack_size": 1,
+      "price": 49,
+      "sell_price": 22,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_hard_hat",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_hi_vis_vest",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_hopium_soda",
+      "pack_size": 1,
+      "price": 4,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_iron_gavel",
+      "pack_size": 1,
+      "price": 88,
+      "sell_price": 39,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_kevlar_fedora",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 42,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_kevlar_suit",
+      "pack_size": 1,
+      "price": 226,
+      "sell_price": 90,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_kevlar_trousers",
+      "pack_size": 1,
+      "price": 182,
+      "sell_price": 58,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_miners_espresso",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_networking_mints",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_oak_gavel",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_patent_shoes",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_pick_quantum",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 37,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_pick_rusty",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_pick_steel",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 35,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_platinum_cards",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 37,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_power_fedora",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_power_loafers",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_power_suit",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 37,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_power_trousers",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_press_blazer",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_press_headset",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 23,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_press_lanyard",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 35,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_press_slacks",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_press_sneakers",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_protein_shake",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_rolodex",
+      "pack_size": 1,
+      "price": 78,
+      "sell_price": 35,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_rounds",
+      "pack_size": 100,
+      "price": 3,
+      "sell_price": 1,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_smooth_lozenge",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_steel_beam",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_steel_toe_boots",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_thick_skin_tonic",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_ticker_amulet",
+      "pack_size": 1,
+      "price": 387,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_ticket_bunker",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_ticket_treasury",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_ticket_trenches",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 11,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_toolkit_basic",
+      "pack_size": 1,
+      "price": 39,
+      "sell_price": 17,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_toolkit_elite",
+      "pack_size": 1,
+      "price": 245,
+      "sell_price": 110,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_toolkit_master",
+      "pack_size": 1,
+      "price": 490,
+      "sell_price": 150,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_toolkit_pro",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_tp_mic_drop",
+      "pack_size": 1,
+      "price": 25,
+      "sell_price": 2,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_tp_soundbite",
+      "pack_size": 1,
+      "price": 9,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_tp_zinger",
+      "pack_size": 1,
+      "price": 15,
+      "sell_price": 0,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_trigger_gloves",
+      "pack_size": 1,
+      "price": 155,
+      "sell_price": 69,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_veto_hammer",
+      "pack_size": 1,
+      "price": 205,
+      "sell_price": 92,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_victory_smoothie",
+      "pack_size": 1,
+      "price": 65,
+      "sell_price": 6,
+      "shop_id": "shop_terminal"
+    },
+    {
+      "item_id": "item_work_trousers",
+      "pack_size": 1,
+      "price": 123,
+      "sell_price": 55,
+      "shop_id": "shop_terminal"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-import { HubSdkError, LOCAL_NAKAMA, createNakamaClient, getOrCreateDeviceId, userIdFromToken } from '@metaverse/hub-sdk';
+import { HubSdkError, createNakamaClient, getOrCreateDeviceId, userIdFromToken } from '@metaverse/hub-sdk';
 
 /**
  * Username and password accounts on Nakama's email auth. The username logs in; the
@@ -50,7 +50,7 @@ export class AuthError extends Error {
 const OFFLINE = "Can't reach the hub server. Try again, or continue as a guest.";
 
 function basicAuth(): string {
-  return `Basic ${btoa(`${LOCAL_NAKAMA.serverKey}:`)}`;
+  return `Basic ${btoa(`${__NAKAMA_SERVER_KEY__}:`)}`;
 }
 
 function readStored(): Stored | null {
@@ -138,7 +138,7 @@ export async function logIn(rawUsername: string, password: string): Promise<Sign
 export async function signUp(rawUsername: string, password: string, rawEmail: string): Promise<SignedIn> {
   const username = normalizeUsername(rawUsername);
   const email = rawEmail.trim().toLowerCase();
-  const client = createNakamaClient({ serverUrl: '', serverKey: LOCAL_NAKAMA.serverKey, httpKey: LOCAL_NAKAMA.httpKey });
+  const client = createNakamaClient({ serverUrl: '', serverKey: __NAKAMA_SERVER_KEY__ });
 
   let guestToken: string;
   try {
