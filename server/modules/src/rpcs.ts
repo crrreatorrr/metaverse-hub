@@ -40,6 +40,8 @@ namespace HubRpc {
       "session_ticket_cap",
       "daily_ticket_cap",
       "amount_over_rule",
+      "unknown_reason",
+      "exchange_not_allowed",
       "unauthorized",
       "not_game_session",
       "not_hub_session",
@@ -104,6 +106,7 @@ namespace HubRpc {
     var dailyLeft = result.dailyCapLeft;
     if (typeof dailyLeft === "number" && isFinite(dailyLeft)) body.dailyCapLeft = dailyLeft;
     else if (typeof dailyLeft === "string" && dailyLeft !== "" && isFinite(Number(dailyLeft))) body.dailyCapLeft = Number(dailyLeft);
+    if (typeof result.relic_granted === "boolean") body.relic_granted = result.relic_granted;
     return JSON.stringify(body);
   }
 
@@ -484,7 +487,7 @@ namespace HubRpc {
       "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text, $8::bigint)::text AS result",
       [session.userId, session.sid, session.game, eventId, JSON.stringify(data), key, reqHash, seq],
     );
-    if (result.error) return fail(String(result.error), String(result.error));
+    if (result.error) return failBody(result);
     HubFault.apply(ctx, nk, session.userId, "grant.after_commit");
     if (typeof result.granted === "string") {
       try {
@@ -546,7 +549,7 @@ namespace HubRpc {
     if (typeof body.amount !== "number" || !isFinite(body.amount) || body.amount <= 0) {
       return fail("bad_amount", "Ticket amount must be positive");
     }
-    if (!reason) return fail("bad_reason", "A reason is required");
+    if (!reason || reason.length > 64) return fail("bad_reason", "Reason must be 1 to 64 characters");
     var amount = Math.floor(body.amount);
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
@@ -563,6 +566,7 @@ namespace HubRpc {
   export function ticketsExchange(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "tickets.exchange");
     var session = requireGame(ctx);
+    if (session.game === "hpos10i") return fail("exchange_not_allowed", "Exchange is not available for this game");
     var body = parse(payload);
     var key = text(body, "key");
     var raw = typeof body.tickets === "number" ? body.tickets : body.amount;
