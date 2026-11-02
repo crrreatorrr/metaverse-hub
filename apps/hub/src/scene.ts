@@ -45,6 +45,7 @@ import { SPROTEL_PROMPT } from './v2/sprotel-npc';
 import { barBillboard } from './v2/billboard';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
 import { loadSignFont } from './v2/signs';
+import { createPetFollower } from './v2/pets';
 
 export interface Warp {
   x: number;
@@ -87,6 +88,8 @@ export interface HubWorld {
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
   setLook: (look: AvatarLook) => void;
+  /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
+  setPet: (id: string | null) => Promise<void>;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
@@ -255,6 +258,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   bob.add(avatar);
   rig.add(bob);
   scene.add(rig);
+  const pets = createPetFollower(scene);
 
   const shadowMat = new MeshBasicMaterial({
     map: radialShadow(),
@@ -401,6 +405,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     elapsed += dt;
     for (const fn of animated) fn(elapsed, dt);
     avatarRig.update(dt, moving, sprint);
+    pets.update(dt, rig.position, STAND_Y, sprint);
     const player = rig.position;
     for (const slot of slots) {
       const guess = slot.group?.position ?? tmp.set(Math.sin(slot.a) * 160, 0, -Math.cos(slot.a) * 160);
@@ -527,6 +532,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     sockets,
     get sceneDraws() { return sceneDraws; },
     setLook: avatarRig.setLook,
+    setPet: (id) => pets.setPet(id),
     setRelics(ids) {
       const owned = new Set(ids);
       pedestal.rings.forEach((ring, index) => {
