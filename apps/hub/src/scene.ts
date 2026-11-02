@@ -32,9 +32,15 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
+import { isRelicId, type RelicId } from '@metaverse/hub-sdk';
 import { createAvatarRig } from './avatar';
 import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
+import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './m3/barLeaderboard';
+import { addHallOfChampions } from './m3/hallOfChampions';
+import { addLivingPortals } from './m3/livingPortals';
+import { addOrbitGems } from './m3/orbitGems';
+import { RELIC_GEMS, type OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
@@ -313,6 +319,44 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   let storeOpen = false;
   const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
+  const devPreview = import.meta.env.DEV;
+  const living = addLivingPortals(outdoor, { placeholder: devPreview });
+  const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
+  outdoor.add(hall.door);
+  let localRelics: RelicId[] = [];
+  let devAvatars: OrbitAvatar[] = [];
+  let hallOpen = false;
+  const gems = addOrbitGems(scene, {
+    avatars: [{ id: 'local', anchor: rig, relics: localRelics }],
+  });
+  let boardProvider = createEmptyLeaderboardProvider();
+  if (devPreview) {
+    const stubs = await import('./m3/stub');
+    devAvatars = stubs.createStubOrbitAvatars();
+    living.setPresence(stubs.STUB_PORTAL_PRESENCE);
+    hall.setChampions(stubs.STUB_CHAMPIONS);
+    hallOpen = true;
+    hall.setOpen(true);
+    boardProvider = stubs.createStubLeaderboardProvider();
+  }
+  const bar = addBarLeaderboardScreen(scene, {
+    provider: boardProvider,
+    placeholder: devPreview,
+    onNewNumberOne(event) {
+      if (!devPreview || !event.gameId) return;
+      living.pushFinisher({
+        gameId: event.gameId,
+        name: event.row.name,
+        line: `New #1 · ${event.title}`,
+      });
+    },
+  });
+  bar.root.visible = false;
+
+  function syncGems(): void {
+    gems.setAvatars([{ id: 'local', anchor: rig, relics: localRelics }, ...devAvatars]);
+  }
+  syncGems();
 
   function applyBoard(): void {
     const draw = interior?.leaderboard.userData.draw as ((rows: readonly (readonly [string, string])[]) => void) | undefined;
@@ -323,6 +367,10 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     if (interiorTask) return;
     interiorTask = buildClubInterior(scene).then((built) => {
       interior = built;
+      if (devPreview) {
+        const previous = built.group.getObjectByName('leaderboard-wall-screen');
+        if (previous) previous.visible = false;
+      }
       storeAnchor = built.storeAnchor;
       applyBoard();
       for (const listener of storeListeners) listener(built.storeAnchor);
@@ -479,6 +527,12 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         if (distance < 4) zone = 'exit';
       }
     }
+    gems.update(elapsed);
+    living.update(elapsed, camera);
+    hall.room.visible = hallOpen && !inside;
+    hall.update(elapsed);
+    bar.root.visible = devPreview && inside;
+    bar.update(elapsed);
   }
 
   function render(): void {
@@ -535,6 +589,12 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     setPet: (id) => pets.setPet(id),
     setRelics(ids) {
       const owned = new Set(ids);
+      localRelics = ids.filter(isRelicId);
+      syncGems();
+      if (!devPreview) {
+        hallOpen = localRelics.length === RELIC_GEMS.length;
+        hall.setOpen(hallOpen);
+      }
       pedestal.rings.forEach((ring, index) => {
         const on = owned.has(SOCKETS[index]?.id ?? '');
         const material = ring.material as MeshStandardMaterial;
