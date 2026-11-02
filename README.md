@@ -12,14 +12,14 @@ packages/hub-sdk/    Client the games import. Real Nakama path, plus the in-memo
 server/              Nakama + Postgres + Caddy. TypeScript runtime for tickets and Relics.
 ```
 
-Game ids used in code, in `#from=`, and in the default portal paths:
+The four games live in their own repos. Game ids are used in code and in `#from=`; slugs are the page paths (`/play/<slug>/` in dev, `https://play.<domain>/<slug>/` in production, see `apps/hub/src/games.ts`):
 
-| Portal | Id | Default page |
-| --- | --- | --- |
-| HPOS10I | `hpos10i` | `/play/hpos10i/` |
-| NOBU: Saviour Dog | `nobu` | `/play/nobu/` |
-| The People's Bitcoin (18+) | `peoples-bitcoin` | `/play/peoples-bitcoin/` |
-| Sproto Duel | `sproto` | `/play/sproto/` |
+| Portal | Id | Slug | Repo |
+| --- | --- | --- | --- |
+| HPOS10I | `hpos10i` | `hpos10i` | [crrreatorrr/HPOS10I](https://github.com/crrreatorrr/HPOS10I) |
+| NOBU: Saviour Dog | `nobu` | `nobu` | [crrreatorrr/nobu](https://github.com/crrreatorrr/nobu) |
+| The People's Bitcoin (18+) | `peoples-bitcoin` | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) |
+| Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
 
 ## Run the plaza
 
@@ -28,8 +28,13 @@ Requires Node 22+.
 ```bash
 docker compose -f server/docker-compose.yml up --build
 npm ci
+npm run fetch:games   # optional: real game builds, see below
 npm run dev
 ```
+
+`npm run fetch:games` pulls each game's latest web build into `apps/hub/public/play/<slug>/` (gitignored) with `gh`, so the dev plaza opens the real game same-origin and its `#t=` ticket and `/v2` calls reach the local Nakama. A fetched build takes over that portal in dev, including HPOS10I, which otherwise opens its GitHub Pages copy. `VITE_GAME_URL_*` still wins when set. Without a fetched Sproto Duel build, its portal opens the in-repo mock. `npm run build` leaves fetched builds out of `dist`; production serves games from `play.<domain>`.
+
+The game repos are private. If `gh` cannot read them (an agent token scoped to this repo only, for example), set `GAME_REPOS_GITHUB_TOKEN` to a fine-grained token with Contents: Read on those repos.
 
 Open http://127.0.0.1:5173/hub/
 
@@ -43,7 +48,7 @@ Walk into a portal ring. The hub plays a short wipe and navigates to that game's
 /play/sproto/#t=<ticket>
 ```
 
-Sproto Duel's page in this repo is a mock arena: defeat Tinubu, then return. The other three URLs are still placeholders for the real games. Change them in `apps/hub/src/config.ts`.
+Sproto Duel's in-repo page is a mock arena: defeat Tinubu, then return. It stands in until a real Sproto Duel build is fetched. Portal pages are resolved in `apps/hub/src/games.ts`.
 
 Coming back from a game, open the hub with the game id in the hash. The avatar stands in front of that portal, facing it:
 
@@ -56,6 +61,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 ## Scripts
 
 ```bash
+npm run fetch:games # real game web builds into apps/hub/public/play/<slug>/ (or fetch:<slug>)
 npm run dev         # plaza and the Sproto mock, proxied to Nakama
 npm run typecheck
 npm run lint
