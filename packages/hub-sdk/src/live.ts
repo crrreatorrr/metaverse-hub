@@ -8,17 +8,21 @@ import {
   canonicalGameId,
   isBoardId,
   isRelicId,
+  type ExchangeResult,
   type GameId,
   type HubSdk,
   type InitResult,
   type RelicId,
+  type SellResult,
+  type SpendResult,
+  type TicketBalanceResult,
 } from './types';
 
 /** IndexedDB database for earn, event, and exchange writes that have not been acked. */
 export const HUB_OUTBOX_DB = 'hub-outbox';
 const OUTBOX_STORE = 'writes';
 
-type EconomyRpc = 'session.event' | 'tickets.earn' | 'tickets.exchange';
+type EconomyRpc = 'session.event' | 'tickets.earn' | 'tickets.exchange' | 'tickets.spend' | 'tickets.sell';
 
 interface OutboxRecord {
   rpc: EconomyRpc;
@@ -53,6 +57,10 @@ function flatEffects(value: unknown): Record<string, number | boolean | string> 
 function asRelics(value: unknown): RelicId[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
+}
+
+function clockMs(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
 
 function cloneBody(body: Record<string, unknown>): Record<string, unknown> {
@@ -180,17 +188,18 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     active = session;
   }
 
-  function profileOf(session: LiveSession): InitResult {
+  function profileOf(session: LiveSession, serverTime: number): InitResult {
     return {
       playerId: session.playerId,
       ranked: session.ranked,
       relics: [...session.relics],
       effects: { ...session.effects },
       ticketsCapLeft: session.ticketsCapLeft,
+      serverTime,
     };
   }
 
-  function standalone(): InitResult {
+  function standalone(serverTime: number): InitResult {
     active = null;
     return {
       playerId: getOrCreateDeviceId(resolved.local),
@@ -198,6 +207,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       relics: [],
       effects: {},
       ticketsCapLeft: 0,
+      serverTime,
     };
   }
 
@@ -232,12 +242,14 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       const game = canonicalGameId(gameId);
       if (!game) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
       const token = readTicketParam(resolved.readHash());
+      let serverTime = 0;
       if (token) {
         const body = await client.rpc<RedeemResult>('session.redeem', { ticket: token, gameId: game }, { httpKey: true });
         if (!body.token || !body.playerId || !body.sid) {
           throw new HubSdkError('ticket_invalid', 'Redeem did not return a session');
         }
         resolved.writeHash(stripTicketParam(resolved.readHash()));
+        serverTime = clockMs(body.serverTime);
         writeCached({
           game,
           playerId: body.playerId,
@@ -254,14 +266,16 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           active = null;
         } else {
           try {
-            const profile = await client.rpc<{ playerId?: string; relics?: unknown; ticketsCapLeft?: number }>(
-              'profile.get',
-              {},
-              { token: cached.token },
-            );
+            const profile = await client.rpc<{
+              playerId?: string;
+              relics?: unknown;
+              ticketsCapLeft?: number;
+              serverTime?: number;
+            }>('profile.get', {}, { token: cached.token });
             cached.relics = asRelics(profile.relics);
             if (profile.playerId) cached.playerId = profile.playerId;
             if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
+            serverTime = clockMs(profile.serverTime);
             writeCached(cached);
           } catch {
             active = cached;
@@ -269,7 +283,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         }
       }
       await drain();
-      return active ? profileOf(active) : standalone();
+      return active ? profileOf(active, serverTime) : standalone(serverTime);
     },
 
     async reportEvent(eventId, data, key) {
@@ -306,13 +320,51 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!Number.isFinite(tickets) || tickets <= 0) {
         throw new HubSdkError('bad_amount', 'Exchange amount must be positive');
       }
-      if (!active) return { verse: 0, ticketsLeft: 0, receiptId: 'noop', verseCapLeft: 0 };
-      return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<{
-        verse: number;
-        ticketsLeft: number;
-        receiptId: string;
-        verseCapLeft?: number;
-      }>;
+      if (!active) return { verse: 0, ticketsLeft: 0, balance: 0, receiptId: 'noop', verseCapLeft: 0 };
+      return sendOnce(active, 'tickets.exchange', key, { tickets: Math.floor(tickets) }) as Promise<ExchangeResult>;
+    },
+
+    async spendTickets(shopId, itemId, packs, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!shopId || !itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      const packsOut = Math.floor(packs);
+      if (!active) return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, spent: 0, balance: 0 };
+      return sendOnce(active, 'tickets.spend', key, {
+        game: active.game,
+        shop_id: shopId,
+        item_id: itemId,
+        packs: packsOut,
+      }) as Promise<SpendResult>;
+    },
+
+    async sellItem(shopId, itemId, packs, key) {
+      if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
+      if (!shopId || !itemId) throw new HubSdkError('unknown_item', 'Unknown item');
+      if (!Number.isFinite(packs) || packs <= 0 || Math.floor(packs) !== packs) {
+        throw new HubSdkError('bad_amount', 'Quantity must be a positive integer');
+      }
+      const packsOut = Math.floor(packs);
+      if (!active) return { shop_id: shopId, item_id: itemId, packs: packsOut, units: packsOut, credited: 0, balance: 0 };
+      return sendOnce(active, 'tickets.sell', key, {
+        game: active.game,
+        shop_id: shopId,
+        item_id: itemId,
+        packs: packsOut,
+      }) as Promise<SellResult>;
+    },
+
+    async getTicketBalance() {
+      if (!active) return { balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 };
+      const body = await client.rpc<TicketBalanceResult>('tickets.balance', { game: active.game }, { token: active.token });
+      return {
+        balance: typeof body.balance === 'number' ? body.balance : 0,
+        sessionCapLeft: typeof body.sessionCapLeft === 'number' ? body.sessionCapLeft : 0,
+        dailyCapLeft: typeof body.dailyCapLeft === 'number' ? body.dailyCapLeft : 0,
+        serverTime: clockMs(body.serverTime),
+      };
     },
 
     exit(reason) {

@@ -861,6 +861,408 @@ namespace HubSchema {
     "ALTER TABLE game.game_beaten ADD CONSTRAINT game_beaten_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'))",
       ],
     },
+    // 0004 is reserved. Shop catalog, ledger kind, nobu level_end cap, and the
+    // stricter whole-credit session path. No pb game_id row rewrite.
+    {
+      id: "0005_pb_shop_tickets",
+      statements: [
+    "ALTER TABLE game.tickets_ledger ADD COLUMN IF NOT EXISTS kind text",
+    "ALTER TABLE game.tickets_ledger DROP CONSTRAINT IF EXISTS tickets_ledger_kind",
+    "ALTER TABLE game.tickets_ledger ADD CONSTRAINT tickets_ledger_kind CHECK (kind IS NULL OR kind IN ('earn', 'exchange', 'spend', 'shop_sell'))",
+
+    `DO $$ BEGIN
+       IF to_regclass('game.shop_price') IS NOT NULL AND NOT EXISTS (
+         SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'game' AND table_name = 'shop_price' AND column_name = 'shop_id'
+       ) THEN
+         DROP TABLE game.shop_price;
+       END IF;
+     END $$`,
+
+    `CREATE TABLE IF NOT EXISTS game.shop_price (
+      game text NOT NULL,
+      shop_id text NOT NULL,
+      item_id text NOT NULL,
+      pack_size integer NOT NULL DEFAULT 1,
+      price integer NOT NULL,
+      sell_price integer NOT NULL,
+      PRIMARY KEY (game, shop_id, item_id),
+      CONSTRAINT shop_price_pack CHECK (pack_size >= 1),
+      CONSTRAINT shop_price_positive CHECK (price >= 1),
+      CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)
+    )`,
+
+    // Prices come from the CSVs. Prune then upsert. A later rebalance is a new migration.
+    HubShop.pruneSql(),
+    HubShop.seedSql(),
+
+    "ALTER TABLE game.shop_price DROP CONSTRAINT IF EXISTS shop_price_sell",
+    "ALTER TABLE game.shop_price ADD CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)",
+
+    "ALTER TABLE game.event_rule ADD COLUMN IF NOT EXISTS max_amount bigint",
+    "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_max_amount",
+    "ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_max_amount CHECK (max_amount IS NULL OR max_amount > 0)",
+    `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount)
+     VALUES ('nobu', 'level_end', NULL, NULL, NULL, NULL, '{}'::jsonb, 110)
+     ON CONFLICT (game_id, event_type) DO UPDATE SET max_amount = EXCLUDED.max_amount`,
+
+    `CREATE OR REPLACE FUNCTION game.take_ticket_credit(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_amount bigint, p_reason text, p_kind text, p_whole boolean
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_cap bigint;
+       v_session_earned bigint;
+       v_session_room bigint;
+       v_day date;
+       v_used bigint;
+       v_room bigint;
+       v_applied bigint;
+       v_balance bigint;
+       v_event uuid;
+     BEGIN
+       v_cap := game.session_ticket_cap();
+       -- Credits that are not refunds. Earns and shop sales both count. One path for every game.
+       SELECT COALESCE(SUM(delta), 0) INTO v_session_earned
+       FROM game.tickets_ledger
+       WHERE user_id = p_user_id AND game_id = p_game_id AND ref_id = p_session_id AND delta > 0
+         AND COALESCE(kind, '') <> 'refund'
+         AND reason <> 'refund';
+       v_session_room := v_cap - v_session_earned;
+       IF v_session_room < 0 THEN v_session_room := 0; END IF;
+       IF v_session_earned + p_amount > v_cap THEN
+         RETURN jsonb_build_object('error', 'session_ticket_cap', 'sessionCapLeft', v_session_room, 'capLeft', v_session_room);
+       END IF;
+       v_day := (now() AT TIME ZONE 'utc')::date;
+       SELECT amount INTO v_used FROM game.earn_window
+       WHERE user_id = p_user_id AND bucket = 'tickets:' || p_game_id AND day = v_day;
+       IF NOT FOUND THEN v_used := 0; END IF;
+       v_room := 1000 - v_used;
+       IF v_room < 0 THEN v_room := 0; END IF;
+       IF p_amount > v_room THEN
+         RETURN jsonb_build_object('error', 'daily_ticket_cap', 'dailyCapLeft', v_room, 'capLeft', v_room);
+       END IF;
+       v_applied := p_amount;
+       SELECT balance INTO v_balance FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
+       IF NOT FOUND THEN v_balance := 0; END IF;
+       IF v_applied > 0 THEN
+         v_event := gen_random_uuid();
+         INSERT INTO game.tickets_balance (user_id, game_id, balance)
+         VALUES (p_user_id, p_game_id, v_applied)
+         ON CONFLICT (user_id, game_id) DO UPDATE
+           SET balance = game.tickets_balance.balance + EXCLUDED.balance
+         RETURNING balance INTO v_balance;
+         INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+         VALUES (v_event, p_user_id, p_game_id, v_applied, v_balance, p_reason, p_session_id, p_kind);
+         INSERT INTO game.earn_window (user_id, bucket, day, amount)
+         VALUES (p_user_id, 'tickets:' || p_game_id, v_day, v_applied)
+         ON CONFLICT (user_id, bucket, day) DO UPDATE
+           SET amount = game.earn_window.amount + EXCLUDED.amount;
+       END IF;
+       RETURN jsonb_build_object('balance', v_balance, 'applied', v_applied);
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.earn_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_amount bigint, p_reason text, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_credit jsonb;
+       v_applied bigint;
+       v_balance bigint;
+       v_max bigint;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT max_amount INTO v_max FROM game.event_rule
+       WHERE game_id = p_game_id AND event_type = p_reason AND max_amount IS NOT NULL
+       LIMIT 1;
+       IF FOUND AND p_amount > v_max THEN
+         RETURN jsonb_build_object('error', 'amount_over_rule');
+       END IF;
+       v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, p_amount, p_reason, 'earn', false);
+       IF v_credit ? 'error' THEN
+         RETURN v_credit;
+       END IF;
+       v_balance := (v_credit->>'balance')::bigint;
+       v_applied := (v_credit->>'applied')::bigint;
+       v_response := jsonb_build_object('balance', v_balance, 'capped', v_applied < p_amount);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.earn', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.exchange_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text,
+       p_tickets bigint, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_day date;
+       v_used bigint;
+       v_room bigint;
+       v_verse bigint;
+       v_debit bigint;
+       v_tickets bigint;
+       v_wallet bigint;
+       v_event uuid;
+       v_receipt uuid;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       v_verse := p_tickets / 10;
+       IF v_verse <= 0 THEN
+         RETURN jsonb_build_object('error', 'below_rate');
+       END IF;
+       v_day := (now() AT TIME ZONE 'utc')::date;
+       SELECT amount INTO v_used FROM game.earn_window
+       WHERE user_id = p_user_id AND bucket = 'verse:' || p_game_id AND day = v_day;
+       IF NOT FOUND THEN v_used := 0; END IF;
+       v_room := 50 - v_used;
+       IF v_room <= 0 THEN
+         RETURN jsonb_build_object('error', 'verse_cap');
+       END IF;
+       IF v_verse > v_room THEN v_verse := v_room; END IF;
+       v_debit := v_verse * 10;
+       -- Same wallet row lock as earn, spend, and sell. The economy advisory lock is taken above.
+       SELECT balance INTO v_tickets FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id FOR UPDATE;
+       IF NOT FOUND OR v_tickets < v_debit THEN
+         RETURN jsonb_build_object('error', 'insufficient_tickets');
+       END IF;
+       UPDATE game.tickets_balance SET balance = balance - v_debit
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       RETURNING balance INTO v_tickets;
+       INSERT INTO game.verse_wallet (user_id, balance) VALUES (p_user_id, v_verse)
+       ON CONFLICT (user_id) DO UPDATE
+         SET balance = game.verse_wallet.balance + EXCLUDED.balance
+       RETURNING balance INTO v_wallet;
+       v_event := gen_random_uuid();
+       v_receipt := gen_random_uuid();
+       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+       VALUES (v_event, p_user_id, p_game_id, -v_debit, v_tickets, 'exchange', v_receipt, 'exchange');
+       INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
+       VALUES (gen_random_uuid(), p_user_id, v_verse, v_wallet, p_game_id, v_receipt);
+       INSERT INTO game.exchange_tx (receipt_id, user_id, game_id, tickets, verse, rate, idem_key)
+       VALUES (v_receipt, p_user_id, p_game_id, v_debit, v_verse, '10:1', p_idem_key);
+       INSERT INTO game.verse_earned (user_id, game_id, lifetime)
+       VALUES (p_user_id, p_game_id, v_verse)
+       ON CONFLICT (user_id, game_id) DO UPDATE
+         SET lifetime = game.verse_earned.lifetime + EXCLUDED.lifetime;
+       INSERT INTO game.earn_window (user_id, bucket, day, amount)
+       VALUES (p_user_id, 'verse:' || p_game_id, v_day, v_verse)
+       ON CONFLICT (user_id, bucket, day) DO UPDATE
+         SET amount = game.earn_window.amount + EXCLUDED.amount;
+       v_response := jsonb_build_object('verse', v_wallet, 'ticketsLeft', v_tickets, 'balance', v_tickets, 'receiptId', v_receipt, 'verseCapLeft', v_room - v_verse);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.exchange', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+
+    "DROP FUNCTION IF EXISTS game.spend_tickets(uuid, uuid, text, text, bigint, text, text)",
+    "DROP FUNCTION IF EXISTS game.sell_tickets(uuid, uuid, text, text, bigint, text, text)",
+
+    `CREATE OR REPLACE FUNCTION game.spend_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text, p_shop_id text,
+       p_item_id text, p_packs bigint, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_price integer;
+       v_sell integer;
+       v_pack integer;
+       v_cost bigint;
+       v_balance bigint;
+       v_units bigint;
+       v_event uuid;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT price, sell_price, pack_size INTO v_price, v_sell, v_pack
+       FROM game.shop_price
+       WHERE game = p_game_id AND shop_id = p_shop_id AND item_id = p_item_id;
+       IF NOT FOUND THEN
+         RETURN jsonb_build_object('error', 'unknown_item');
+       END IF;
+       IF p_packs > (9223372036854775807::bigint / v_price::bigint) THEN
+         RETURN jsonb_build_object('error', 'bad_amount');
+       END IF;
+       v_cost := v_price::bigint * p_packs;
+       v_units := v_pack::bigint * p_packs;
+       SELECT balance INTO v_balance FROM game.tickets_balance
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       FOR UPDATE;
+       IF NOT FOUND THEN v_balance := 0; END IF;
+       IF v_balance < v_cost THEN
+         RETURN jsonb_build_object('error', 'insufficient_tickets');
+       END IF;
+       UPDATE game.tickets_balance SET balance = balance - v_cost
+       WHERE user_id = p_user_id AND game_id = p_game_id
+       RETURNING balance INTO v_balance;
+       IF NOT FOUND THEN
+         INSERT INTO game.tickets_balance (user_id, game_id, balance)
+         VALUES (p_user_id, p_game_id, 0)
+         RETURNING balance INTO v_balance;
+       END IF;
+       v_event := gen_random_uuid();
+       INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+       VALUES (v_event, p_user_id, p_game_id, -v_cost, v_balance, 'spend', p_session_id, 'spend');
+       v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'spent', v_cost, 'balance', v_balance);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.spend', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+
+    `CREATE OR REPLACE FUNCTION game.sell_tickets(
+       p_user_id uuid, p_session_id uuid, p_game_id text, p_shop_id text,
+       p_item_id text, p_packs bigint, p_idem_key text, p_req_hash text
+     ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+     DECLARE
+       v_response jsonb;
+       v_hash bytea;
+       v_existing_hash bytea;
+       v_price integer;
+       v_sell integer;
+       v_pack integer;
+       v_amount bigint;
+       v_units bigint;
+       v_taken jsonb;
+       v_balance bigint;
+     BEGIN
+       PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+       v_hash := decode(p_req_hash, 'hex');
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF FOUND THEN
+         IF v_existing_hash <> v_hash THEN
+           RETURN jsonb_build_object('error', 'idempotency_mismatch');
+         END IF;
+         RETURN v_response;
+       END IF;
+       IF NOT EXISTS (
+         SELECT 1 FROM game.game_session
+         WHERE session_id = p_session_id AND user_id = p_user_id AND game_id = p_game_id
+           AND state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL
+       ) THEN
+         RETURN jsonb_build_object('error', 'session_closed');
+       END IF;
+       SELECT price, sell_price, pack_size INTO v_price, v_sell, v_pack
+       FROM game.shop_price
+       WHERE game = p_game_id AND shop_id = p_shop_id AND item_id = p_item_id;
+       IF NOT FOUND THEN
+         RETURN jsonb_build_object('error', 'unknown_item');
+       END IF;
+       IF v_sell > 0 AND p_packs > (9223372036854775807::bigint / v_sell::bigint) THEN
+         RETURN jsonb_build_object('error', 'bad_amount');
+       END IF;
+       v_amount := v_sell::bigint * p_packs;
+       v_units := v_pack::bigint * p_packs;
+       IF v_amount <= 0 THEN
+         RETURN jsonb_build_object('error', 'zero_value');
+       END IF;
+       v_taken := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_amount, 'shop_sell', 'shop_sell', true);
+       IF v_taken ? 'error' THEN
+         RETURN v_taken;
+       END IF;
+       v_balance := (v_taken->>'balance')::bigint;
+       v_response := jsonb_build_object('shop_id', p_shop_id, 'item_id', p_item_id, 'packs', p_packs, 'units', v_units, 'credited', v_amount, 'balance', v_balance);
+       INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+       VALUES (p_user_id, p_idem_key, 'tickets.sell', v_hash, v_response);
+       RETURN v_response;
+     EXCEPTION WHEN unique_violation THEN
+       SELECT response, req_hash INTO v_response, v_existing_hash
+       FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+       IF NOT FOUND THEN RAISE; END IF;
+       IF v_existing_hash <> v_hash THEN
+         RETURN jsonb_build_object('error', 'idempotency_mismatch');
+       END IF;
+       RETURN v_response;
+     END;
+     $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
