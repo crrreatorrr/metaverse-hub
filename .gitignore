@@ -6,3 +6,13 @@ dist/
 *.tsbuildinfo
 server/modules/build/
 *.tgz
+server/.env
+server/.env.*
+!server/.env.example
+.env
+.env.*
+!.env.example
+
+# Real game web exports (npm run fetch:games)
+apps/hub/public/play/**
+!apps/hub/public/play/**/.gitkeep

@@ -33,13 +33,16 @@ import {
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { createAvatarRig } from './avatar';
+import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
 import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
-import { buildInterior, type InteriorBuild } from './v2/interior';
+import { buildClubInterior, type ClubInteriorBuild } from './v2/club-interior';
+import { SPROTEL_PROMPT } from './v2/sprotel-npc';
+import { barBillboard } from './v2/billboard';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
 import { loadSignFont } from './v2/signs';
 import { createPetFollower } from './v2/pets';
@@ -51,13 +54,23 @@ export interface Warp {
   yaw: number;
 }
 
-export type PlazaZone = 'door' | 'exit' | 'loading' | null;
+export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | null;
 
 export interface VerseStoreUi {
   /** Empty node `store_ui_anchor`. Null until the player enters the Bar. */
   readonly anchor: Object3D | null;
   /** The hub has no Verse store panel yet. Listeners run once the anchor exists. */
   whenReady(listener: (anchor: Object3D) => void): void;
+  /** True while the Verse store is open (Sprotel talks while it is). */
+  readonly open: boolean;
+  /** Prompt shown inside Sprotel's interact trigger (meta.interact.prompt). */
+  readonly prompt: string;
+  /** Player pressed interact inside Sprotel's trigger (zone 'store'). Opens the store and notifies listeners. */
+  requestOpen(): void;
+  /** Listeners for an open request; the store panel subscribes here once it exists. */
+  onOpenRequest(listener: () => void): void;
+  /** The store panel reports open/closed. Leaving the trigger also closes it. */
+  setOpen(open: boolean): void;
 }
 
 export interface HubWorld {
@@ -74,6 +87,7 @@ export interface HubWorld {
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
+  setLook: (look: AvatarLook) => void;
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
@@ -107,7 +121,7 @@ interface SlotState {
 const NEAR = 120;
 const FAR = 400;
 
-export async function createWorld(): Promise<HubWorld> {
+export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const scene = new Scene();
   scene.fog = new Fog('#5a1f62', 260, 820);
   const camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.08, 4000);
@@ -117,7 +131,8 @@ export async function createWorld(): Promise<HubWorld> {
     preserveDrawingBuffer: true,
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  // Every pass is fill-bound, and 1.5 drew 2.25x the pixels of 1.0 on high-DPI screens.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
   camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
@@ -147,7 +162,8 @@ export async function createWorld(): Promise<HubWorld> {
   } catch (error) {
     console.warn('[hub] environment map skipped', error);
   }
-  scene.add(new HemisphereLight('#c9b6ff', '#3a1a40', 1.3));
+  const hemi = new HemisphereLight('#c9b6ff', '#3a1a40', 1.3);
+  scene.add(hemi);
   const sun = new DirectionalLight('#ffd9b8', 2.6);
   sun.position.set(-120, 160, 140);
   scene.add(sun);
@@ -202,12 +218,13 @@ export async function createWorld(): Promise<HubWorld> {
     });
   }
 
-  const [statue, portals, lamps, benches, palms] = await Promise.all([
+  const [statue, portals, lamps, benches, palms, billboard] = await Promise.all([
     part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
     Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
     instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
     instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
     instanced('B5-palm', palmT, { h: 20 }),
+    barBillboard(),
   ]);
   statue.position.y = pedestal.top;
   statue.name = 'sproto-statue';
@@ -224,6 +241,7 @@ export async function createWorld(): Promise<HubWorld> {
   outdoor.add(lamps);
   outdoor.add(benches);
   outdoor.add(palms);
+  outdoor.add(billboard);
   const lampGlow = new InstancedMesh(new SphereGeometry(0.45, 10, 8), neonMat('#7fe9ff', 5), lampT.length);
   lampGlow.name = 'lamp-glow';
   lampT.forEach((lamp, i) => lampGlow.setMatrixAt(i, new Matrix4().makeTranslation(lamp.p[0], 7.1, lamp.p[2])));
@@ -236,6 +254,7 @@ export async function createWorld(): Promise<HubWorld> {
   const bob = new Group();
   const avatarRig = createAvatarRig();
   const avatar = avatarRig.group;
+  if (initialLook) avatarRig.setLook(initialLook);
   bob.add(avatar);
   rig.add(bob);
   scene.add(rig);
@@ -261,6 +280,8 @@ export async function createWorld(): Promise<HubWorld> {
     luminanceSmoothing: 0.4,
     mipmapBlur: true,
     radius: 0.7,
+    // The glow is a blur, so half resolution looks the same at a quarter of the fill cost.
+    resolutionScale: 0.5,
   });
   bloom.ignoreBackground = true;
   mountGlow((obj) => {
@@ -273,7 +294,7 @@ export async function createWorld(): Promise<HubWorld> {
 
   const collider = buildPlazaCollider();
   const tmp = new Vector3();
-  let interior: InteriorBuild | null = null;
+  let interior: ClubInteriorBuild | null = null;
   let interiorTask: Promise<void> | null = null;
   let inside = false;
   let doorLatch = false;
@@ -282,12 +303,15 @@ export async function createWorld(): Promise<HubWorld> {
   let warp: Warp | null = null;
   let elapsed = 0;
   let statueNear = false;
+  let billboardNear = false;
   let buildingCount = 0;
   let drawsMarked = false;
   let sceneDraws = 0;
   let boardRows: readonly (readonly [string, string])[] = [];
   const storeListeners: ((anchor: Object3D) => void)[] = [];
   let storeAnchor: Object3D | null = null;
+  let storeOpen = false;
+  const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
 
   function applyBoard(): void {
@@ -297,7 +321,7 @@ export async function createWorld(): Promise<HubWorld> {
 
   function ensureInterior(): void {
     if (interiorTask) return;
-    interiorTask = buildInterior(scene).then((built) => {
+    interiorTask = buildClubInterior(scene).then((built) => {
       interior = built;
       storeAnchor = built.storeAnchor;
       applyBoard();
@@ -306,6 +330,32 @@ export async function createWorld(): Promise<HubWorld> {
       interiorTask = null;
       console.error(error);
     });
+  }
+
+  // Club interior mood: warm dim hemisphere, sun off, room-captured environment. Restored on exit.
+  const plazaMood = {
+    environment: scene.environment, environmentIntensity: scene.environmentIntensity,
+    sky: hemi.color.clone(), ground: hemi.groundColor.clone(), intensity: hemi.intensity, sun: sun.visible,
+  };
+  function setClubMood(on: boolean): void {
+    const mood = interior?.mood;
+    if (on && mood) {
+      plazaMood.environment = scene.environment;
+      plazaMood.environmentIntensity = scene.environmentIntensity;
+      if (mood.environment) scene.environment = mood.environment;
+      scene.environmentIntensity = mood.environmentIntensity;
+      hemi.color.set(mood.hemi.sky);
+      hemi.groundColor.set(mood.hemi.ground);
+      hemi.intensity = mood.hemi.intensity;
+      sun.visible = mood.sun;
+    } else {
+      scene.environment = plazaMood.environment;
+      scene.environmentIntensity = plazaMood.environmentIntensity;
+      hemi.color.copy(plazaMood.sky);
+      hemi.groundColor.copy(plazaMood.ground);
+      hemi.intensity = plazaMood.intensity;
+      sun.visible = plazaMood.sun;
+    }
   }
 
   function placeBuilding(group: Group, slot: SlotState): void {
@@ -370,6 +420,10 @@ export async function createWorld(): Promise<HubWorld> {
       statueNear = true;
       void upgradeToLod0(statue);
     }
+    if (!billboardNear && player.distanceTo(billboard.position) < NEAR) {
+      billboardNear = true;
+      void upgradeToLod0(billboard);
+    }
     zone = null;
     const door = slots.find((slot) => slot.key === 'club')?.door;
     if (!inside && door) {
@@ -384,7 +438,9 @@ export async function createWorld(): Promise<HubWorld> {
           inside = true;
           outdoor.visible = false;
           interior.group.visible = true;
-          warp = { x: -6, y: STAND_Y - 300, z: 4.2, yaw: 0 };
+          setClubMood(true);
+          const s = interior.spawn;
+          warp = { x: s.x, y: STAND_Y + s.y, z: s.z, yaw: s.yaw };
         }
       } else {
         doorLatch = false;
@@ -392,13 +448,24 @@ export async function createWorld(): Promise<HubWorld> {
       }
     }
     if (inside && interior) {
-      const distance = horiz(interior.exit, player.x, player.y, player.z);
+      const sprotel = interior.sprotel;
+      if (sprotel) {
+        sprotel.update(dt, player, storeOpen);
+        if (sprotel.playerNear) zone = 'store';
+        else storeOpen = false;
+      }
+      const distance = Math.min(
+        horiz(interior.exit, player.x, player.y, player.z),
+        horiz(interior.entry, player.x, player.y, player.z),
+      );
       if (distance < 1.8 && !exitLatch) {
         exitLatch = true;
         doorLatch = false;
         inside = false;
         outdoor.visible = true;
         interior.group.visible = false;
+        setClubMood(false);
+        storeOpen = false;
         interior.exit.getWorldPosition(tmp);
         const flat = tmp.clone();
         flat.y = 0;
@@ -464,6 +531,7 @@ export async function createWorld(): Promise<HubWorld> {
     labels: [],
     sockets,
     get sceneDraws() { return sceneDraws; },
+    setLook: avatarRig.setLook,
     setPet: (id) => pets.setPet(id),
     setRelics(ids) {
       const owned = new Set(ids);
@@ -488,6 +556,15 @@ export async function createWorld(): Promise<HubWorld> {
         if (storeAnchor) listener(storeAnchor);
         else storeListeners.push(listener);
       },
+      get open() { return storeOpen; },
+      get prompt() { return interior?.sprotel?.prompt ?? SPROTEL_PROMPT; },
+      requestOpen() {
+        if (zone !== 'store' || storeOpen) return;
+        storeOpen = true;
+        for (const listener of openListeners) listener();
+      },
+      onOpenRequest(listener) { openListeners.push(listener); },
+      setOpen(open) { storeOpen = open && zone === 'store'; },
     },
     inInterior: () => inside,
     zone: () => zone,

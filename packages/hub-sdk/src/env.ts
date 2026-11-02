@@ -11,7 +11,6 @@ export interface HubSdkEnv {
    */
   serverUrl?: string;
   serverKey?: string;
-  httpKey?: string;
   /** Injected Nakama client. When set, the SDK uses the live path. */
   client?: NakamaClient;
   /** Keep the in-memory mock even if a server URL or client is set. */
