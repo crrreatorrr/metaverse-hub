@@ -728,7 +728,8 @@ async function creditSession(token: string, reason: string, amount: number, labe
  * Each earn is LEGAL_EARN and has its own idempotency key. Returns the last open session.
  */
 async function fundTickets(game: ExchangeFlow['game'], reason: string, total: number): Promise<GameLogin> {
-  if (reason !== 'win' && reason !== 'level_end') throw new Error(`reason ${reason} is not a fixture earn`);
+  // Every fixture earn reason has a 20-Ticket ceiling: sproto `win`, hpos10i/nobu `level_end`, Sproto Fighter `fighter_win` (0009).
+  if (reason !== 'win' && reason !== 'level_end' && reason !== 'fighter_win') throw new Error(`reason ${reason} is not a fixture earn`);
   if (total % LEGAL_EARN !== 0 || total <= 0 || total > TICKET_DAILY_CAP) {
     throw new Error(`fund total ${total} is not a legal daily amount`);
   }
