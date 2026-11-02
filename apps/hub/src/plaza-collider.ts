@@ -3,6 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Collider } from './collider';
 import { CLUB_COLLIDERS } from './v2/club-interior-colliders';
+import { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './v2/billboard';
 
 function positionsOnly(source: BufferGeometry): BufferGeometry {
   const geo = source.index ? source.toNonIndexed() : source.clone();
@@ -55,6 +56,16 @@ export function buildPlazaCollider(): Collider {
       box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2],
       (box.min[0] + box.max[0]) / 2, floorY + (box.min[1] + box.max[1]) / 2, (box.min[2] + box.max[2]) / 2,
     );
+  }
+
+  for (const box of BAR_BILLBOARD_BOXES) {
+    const geo = new BoxGeometry(box.sx, box.sy, box.sz);
+    geo.rotateX(box.rotX);
+    geo.translate(box.x, box.y, box.z);
+    geo.scale(BAR_BILLBOARD.scale, BAR_BILLBOARD.scale, BAR_BILLBOARD.scale);
+    geo.rotateY(BAR_BILLBOARD.yaw);
+    geo.translate(BAR_BILLBOARD.x, 0, BAR_BILLBOARD.z);
+    parts.push(positionsOnly(geo));
   }
 
   const segments = 18;
