@@ -41,7 +41,6 @@ import {
   num,
   openGame,
   outboxSend,
-  customAuthLanded,
   redeemPortalTicket,
   psql,
   relicClaims,
@@ -81,6 +80,9 @@ function testBudget(name: string): number {
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
   if (name.includes('sweep')) return 180_000;
+  if (name.includes('daily cap') || name.includes('verse cap') || name.includes('exchange steps') || name.includes('cross the session cap')) {
+    return 180_000;
+  }
   return 60_000;
 }
 
@@ -357,13 +359,8 @@ async function races(): Promise<void> {
         const tokens: string[] = [];
         for (const entered of [first, second]) {
           if (!entered.body.ticket) continue;
-          const redeemed = customAuthLanded()
-            ? await redeemPortalTicket(entered.body.ticket, flow.game)
-            : await call('session.redeem', { ticket: entered.body.ticket, gameId: flow.game });
-          const token = customAuthLanded()
-            ? (redeemed as { token?: string }).token
-            : (redeemed as RpcResult).body.token;
-          if (token) tokens.push(token);
+          const redeemed = await redeemPortalTicket(entered.body.ticket, flow.game);
+          if (redeemed.token) tokens.push(redeemed.token);
         }
         assert.ok(tokens.length >= 1, JSON.stringify([first.body, second.body]));
         await Promise.all(tokens.map((token, index) => (
@@ -415,25 +412,14 @@ async function races(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: 'sproto', ranked: false }, who.token);
     assert.ok(opened.body.ticket);
-    if (customAuthLanded()) {
-      const [a, b] = await Promise.all([
-        redeemPortalTicket(opened.body.ticket, 'sproto'),
-        redeemPortalTicket(opened.body.ticket, 'sproto'),
-      ]);
-      const wins = [a, b].filter((item) => item.token && item.status < 400);
-      const used = [a, b].filter((item) => !item.token);
-      assert.equal(wins.length, 1, JSON.stringify([a, b]));
-      assert.equal(used.length, 1);
-    } else {
-      const [a, b] = await Promise.all([
-        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
-        call('session.redeem', { ticket: opened.body.ticket, gameId: 'sproto' }),
-      ]);
-      const wins = [a, b].filter((item) => item.body.token && !item.body.error);
-      const used = [a, b].filter((item) => item.body.error === 'ticket_used');
-      assert.equal(wins.length, 1, JSON.stringify([a.body, b.body]));
-      assert.equal(used.length, 1);
-    }
+    const [a, b] = await Promise.all([
+      redeemPortalTicket(opened.body.ticket, 'sproto'),
+      redeemPortalTicket(opened.body.ticket, 'sproto'),
+    ]);
+    const wins = [a, b].filter((item) => item.token && item.status < 400);
+    const used = [a, b].filter((item) => !item.token);
+    assert.equal(wins.length, 1, JSON.stringify([a, b]));
+    assert.equal(used.length, 1);
     assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
     assert.equal(ticketBalance(who.userId, 'sproto'), 0);
   });
@@ -466,16 +452,6 @@ async function forged(): Promise<void> {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket && opened.body.sessionId);
-    if (!customAuthLanded()) {
-      psql(
-        `UPDATE game.game_session SET ticket_exp = now() - interval '2 seconds' WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
-      );
-      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
-      assert.equal(redeemed.body.error, 'ticket_expired');
-      assert.equal(relicClaims(who.userId, relic.relicId), 0);
-      assert.equal(mints(who.userId, relic.relicId), 0);
-      return;
-    }
     const ttl = num(
       `SELECT EXTRACT(EPOCH FROM (expires_at - now()))::int FROM game.auth_ticket WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
     );
@@ -522,46 +498,37 @@ async function forged(): Promise<void> {
     assert.equal(snapshotEconomy(victim.hub.userId, relic.game), before);
   });
 
-  if (!customAuthLanded()) {
-    pending('forged', 'http-key session.redeem is rejected', 'waiting for registerBeforeAuthenticateCustom (#25)');
-  } else {
-  await test('forged', 'http-key session.redeem is rejected', async () => {
+  await test('forged', 'http-key write does not burn a portal ticket', async () => {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket && opened.body.sessionId);
     const usersBefore = num('SELECT count(*) FROM users');
-    const http = await call('session.redeem', { ticket: opened.body.ticket, gameId: relic.game });
+    const http = await call('tickets.earn', { amount: 20, reason: 'win', key: 'http-earn' });
     assert.equal(http.body.token, undefined, JSON.stringify(http.body));
-    assert.ok(http.status >= 400 || http.body.error === 'unauthorized', JSON.stringify(http.body));
+    assert.equal(http.body.balance, undefined, JSON.stringify(http.body));
+    assert.ok(http.status >= 400 || Boolean(http.body.error), JSON.stringify(http.body));
     assert.equal(num('SELECT count(*) FROM users'), usersBefore);
     assert.equal(ticketBalance(who.userId, relic.game), 0);
     assert.equal(mints(who.userId, relic.relicId), 0);
     const burned = psql(
       `SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.body.sessionId)}'`,
     );
-    assert.equal(burned, 'f', 'HTTP-key session.redeem burned the ticket');
+    assert.equal(burned, 'f', 'HTTP-key write burned the ticket');
     const redeemed = await redeemPortalTicket(opened.body.ticket, relic.game);
-    assert.ok(redeemed.token, redeemed.body);
+    assert.ok(redeemed.token && redeemed.status < 400, redeemed.body);
+    const replay = await redeemPortalTicket(opened.body.ticket, relic.game);
+    assert.equal(Boolean(replay.token) && replay.status < 400, false, replay.body);
     assert.equal(num('SELECT count(*) FROM users'), usersBefore);
     assert.equal(ticketBalance(who.userId, relic.game), 0);
+    assert.equal(mints(who.userId, relic.relicId), 0);
     assert.equal(num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(who.userId)}' AND ticket_redeemed_at IS NOT NULL`), 1);
   });
-  }
 
   await test('forged', `${relic.id} another game's ticket is rejected`, async () => {
     const who = await guest();
     const opened = await call('portal.enter', { game: relic.game, ranked: false }, who.token);
     assert.ok(opened.body.ticket);
     const other = relic.game === 'hpos10i' ? 'sproto' : 'hpos10i';
-    if (!customAuthLanded()) {
-      const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: other });
-      assert.equal(redeemed.body.error, 'ticket_game');
-      const forged = `${opened.body.ticket.slice(0, -4)}abcd`;
-      const badSig = await call('session.redeem', { ticket: forged, gameId: relic.game });
-      assert.equal(badSig.body.error, 'ticket_invalid');
-      assert.equal(mints(who.userId, relic.relicId), 0);
-      return;
-    }
     const redeemed = await redeemPortalTicket(opened.body.ticket, other);
     assert.equal(redeemed.token, undefined, redeemed.body);
     assert.equal(redeemed.status >= 400, true, redeemed.body);
@@ -686,26 +653,152 @@ async function forged(): Promise<void> {
   });
 }
 
+/** One accepted earn. hpos10i level_end and sproto fixtures are both at most this. */
+const LEGAL_EARN = 20;
+const SESSION_CAP = 200;
+
+type CapBody = RpcBody & {
+  sessionCapLeft?: number;
+  dailyCapLeft?: number;
+  capLeft?: number;
+};
+
+interface EarnFootprint {
+  balance: number;
+  ledger: number;
+  windowAmount: number;
+  earnKeys: number;
+}
+
+function fixtureSlug(value: string): string {
+  if (!/^[a-z0-9_.:-]+$/.test(value)) throw new Error(`refusing to interpolate "${value}"`);
+  return value;
+}
+
+function earnFootprint(userId: string, game: string): EarnFootprint {
+  const id = sqlId(userId);
+  const gameId = fixtureSlug(game);
+  return {
+    balance: ticketBalance(userId, game),
+    ledger: earnLedgerCount(userId),
+    windowAmount: num(
+      `SELECT COALESCE((SELECT amount FROM game.earn_window WHERE user_id = '${id}' AND bucket = 'tickets:${gameId}' AND day = (now() AT TIME ZONE 'utc')::date), 0)`,
+    ),
+    earnKeys: num(`SELECT count(*) FROM game.idempotency WHERE user_id = '${id}' AND rpc = 'tickets.earn'`),
+  };
+}
+
+function assertEarnKeyAbsent(userId: string, key: string): void {
+  const safe = fixtureSlug(key);
+  assert.equal(
+    num(`SELECT count(*) FROM game.idempotency WHERE user_id = '${sqlId(userId)}' AND key = '${safe}'`),
+    0,
+    `rejected earn stored key ${key}`,
+  );
+}
+
+async function earnLegal(token: string, reason: string, amount: number, key: string): Promise<RpcResult> {
+  if (amount <= 0 || amount > LEGAL_EARN) {
+    throw new Error(`earn ${amount} is outside the fixture max ${LEGAL_EARN}`);
+  }
+  const result = await earn(token, amount, reason, key);
+  assert.equal(result.body.capped, false, JSON.stringify(result.body));
+  return result;
+}
+
+/** Fill one open session with legal earns. `amount` is a multiple of LEGAL_EARN and at most the session cap. */
+async function creditSession(token: string, reason: string, amount: number, label: string): Promise<void> {
+  if (amount <= 0 || amount > SESSION_CAP || amount % LEGAL_EARN !== 0) {
+    throw new Error(`session fill ${amount} is not ${LEGAL_EARN} Tickets under the session cap`);
+  }
+  const steps = amount / LEGAL_EARN;
+  for (let step = 0; step < steps; step += 1) {
+    await earnLegal(token, reason, LEGAL_EARN, `${fixtureSlug(label)}-${step}`);
+  }
+}
+
+/**
+ * Fund `total` Tickets at 200 per session. Five sessions reach the daily cap.
+ * Each earn is LEGAL_EARN and has its own idempotency key. Returns the last open session.
+ */
+async function fundTickets(game: ExchangeFlow['game'], reason: string, total: number): Promise<GameLogin> {
+  if (reason !== 'win' && reason !== 'level_end') throw new Error(`reason ${reason} is not a fixture earn`);
+  if (total % LEGAL_EARN !== 0 || total <= 0 || total > TICKET_DAILY_CAP) {
+    throw new Error(`fund total ${total} is not a legal daily amount`);
+  }
+  let current = await login(game);
+  let left = total;
+  let sessionIndex = 0;
+  while (left > 0) {
+    if (sessionIndex > 0) current = await openGame(current.hub.token, game);
+    const take = Math.min(SESSION_CAP, left);
+    await creditSession(current.gameToken, reason, take, `fund-${game}-s${sessionIndex}`);
+    left -= take;
+    sessionIndex += 1;
+  }
+  assert.equal(sessionIndex, Math.ceil(total / SESSION_CAP));
+  assert.equal(ticketBalance(current.hub.userId, game), total);
+  assert.equal(
+    num(`SELECT COALESCE((SELECT amount FROM game.earn_window WHERE user_id = '${sqlId(current.hub.userId)}' AND bucket = 'tickets:${fixtureSlug(game)}' AND day = (now() AT TIME ZONE 'utc')::date), 0)`),
+    total,
+  );
+  assert.equal(
+    num(`SELECT count(*) FROM game.game_session WHERE user_id = '${sqlId(current.hub.userId)}' AND game_id = '${fixtureSlug(game)}'`),
+    sessionIndex,
+  );
+  return current;
+}
+
 async function wallet(): Promise<void> {
   for (const exchange of exchangeFlows()) {
   await test('wallet', `${exchange.id} concurrent earns cannot pass the daily cap`, async () => {
-    const session = await login(exchange.game);
+    const slot = LEGAL_EARN;
+    const funded = await fundTickets(exchange.game, exchange.earnReason, TICKET_DAILY_CAP - slot);
+    const session = await openGame(funded.hub.token, exchange.game);
+    const before = earnFootprint(session.hub.userId, exchange.game);
+    const remainingSlots = (TICKET_DAILY_CAP - before.balance) / slot;
+    assert.equal(remainingSlots, 1);
+    assert.equal(before.windowAmount, TICKET_DAILY_CAP - slot);
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.earn', { amount: TICKET_DAILY_CAP, reason: 'grind', key: `cap-${index}` }, session.gameToken)
+      call('tickets.earn', { amount: slot, reason: exchange.earnReason, key: `cap-${index}` }, session.gameToken)
     )));
-    for (const result of results) {
-      assert.equal(result.body.error, undefined, JSON.stringify(result.body));
-      assert.equal(result.body.balance, TICKET_DAILY_CAP);
+    const wins = results.filter((item) => !item.body.error);
+    const capped = results.filter((item) => item.body.error === 'daily_ticket_cap');
+    assert.equal(wins.length, remainingSlots, JSON.stringify(results.map((item) => item.body)));
+    assert.equal(capped.length, width - remainingSlots, JSON.stringify(results.map((item) => item.body)));
+    for (const win of wins) {
+      assert.equal(win.body.balance, TICKET_DAILY_CAP, JSON.stringify(win.body));
+      assert.equal(win.body.capped, false, JSON.stringify(win.body));
     }
-    assert.equal(results.filter((item) => item.body.capped === false).length, 1);
+    for (const loser of capped) {
+      const body = loser.body as CapBody;
+      assert.equal(body.balance, undefined, JSON.stringify(body));
+      assert.equal(body.capped, undefined, JSON.stringify(body));
+      assert.equal(body.dailyCapLeft, 0, JSON.stringify(body));
+      assert.equal(body.capLeft, 0, JSON.stringify(body));
+    }
+    const after = earnFootprint(session.hub.userId, exchange.game);
+    assert.equal(after.balance, TICKET_DAILY_CAP);
+    assert.equal(after.ledger, before.ledger + remainingSlots);
+    assert.equal(after.windowAmount, TICKET_DAILY_CAP);
+    assert.equal(after.earnKeys, before.earnKeys + remainingSlots);
+    results.forEach((result, index) => {
+      if (result.body.error) assertEarnKeyAbsent(session.hub.userId, `cap-${index}`);
+    });
+    const winIndex = results.findIndex((item) => !item.body.error);
+    const replay = await call(
+      'tickets.earn',
+      { amount: slot, reason: exchange.earnReason, key: `cap-${winIndex}` },
+      session.gameToken,
+    );
+    assert.equal(canonical(replay.body), canonical(results[winIndex]?.body));
+    assert.equal(earnFootprint(session.hub.userId, exchange.game).ledger, after.ledger);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
-    assert.equal(earnLedgerCount(session.hub.userId), 1);
   });
 
   await test('wallet', `${exchange.id} concurrent exchanges cannot pass the verse cap`, async () => {
-    const session = await login(exchange.game);
-    await earn(session.gameToken, TICKET_DAILY_CAP, 'grind', 'fund-verse-cap');
+    const session = await fundTickets(exchange.game, exchange.earnReason, TICKET_DAILY_CAP);
     const width = Math.max(repeatCount('concurrent'), VERSE_DAILY_CAP / TICKETS_PER_VERSE + 1);
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
       call('tickets.exchange', { tickets: 100, key: `vcap-${index}` }, session.gameToken)
@@ -720,36 +813,47 @@ async function wallet(): Promise<void> {
 
   await test('wallet', `${exchange.id} concurrent spends cannot go negative`, async () => {
     const session = await login(exchange.game);
-    await earn(session.gameToken, 30, exchange.earnReason, 'fund-neg');
+    // 20 is under every exchange flow's per-earn ceiling (win and level_end are 20).
+    const purse = 20;
+    await earn(session.gameToken, purse, exchange.earnReason, 'fund-neg');
     const width = repeatCount('concurrent');
     const results = await Promise.all(Array.from({ length: width }, (_, index) => (
-      call('tickets.exchange', { tickets: 30, key: `neg-${index}` }, session.gameToken)
+      call('tickets.exchange', { tickets: purse, key: `neg-${index}` }, session.gameToken)
     )));
     const wins = results.filter((item) => !item.body.error);
     assert.equal(wins.length, 1, JSON.stringify(results.map((item) => item.body)));
-    assert.equal(wins[0]?.body.verse, 3);
+    assert.equal(wins[0]?.body.verse, purse / TICKETS_PER_VERSE);
     assert.equal(ticketBalance(session.hub.userId, exchange.game), 0);
-    assert.equal(verseBalance(session.hub.userId), 3);
+    assert.equal(verseBalance(session.hub.userId), purse / TICKETS_PER_VERSE);
     assert.ok(ticketBalance(session.hub.userId, exchange.game) >= 0);
     assert.ok(verseBalance(session.hub.userId) >= 0);
   });
 
   await test('wallet', `${exchange.id} daily cap survives a new session and a client clock`, async () => {
-    const session = await login(exchange.game);
-    await earn(session.gameToken, TICKET_DAILY_CAP, 'grind', 'fill-day');
+    const session = await fundTickets(exchange.game, exchange.earnReason, TICKET_DAILY_CAP);
     const next = await openGame(session.hub.token, exchange.game);
+    const before = earnFootprint(session.hub.userId, exchange.game);
     const again = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'after-session',
       now: 0,
       timestamp: '1999-01-01T00:00:00Z',
       day: '1999-01-01',
     }, next.gameToken);
-    assert.equal(again.body.error, undefined, JSON.stringify(again.body));
-    assert.equal(again.body.capped, true);
-    assert.equal(again.body.balance, TICKET_DAILY_CAP);
+    const body = again.body as CapBody;
+    assert.equal(body.error, 'daily_ticket_cap', JSON.stringify(body));
+    assert.equal(body.balance, undefined, JSON.stringify(body));
+    assert.equal(body.capped, undefined, JSON.stringify(body));
+    assert.equal(body.dailyCapLeft, 0, JSON.stringify(body));
+    assert.equal(body.capLeft, 0, JSON.stringify(body));
+    assert.deepEqual(earnFootprint(session.hub.userId, exchange.game), before);
+    assertEarnKeyAbsent(session.hub.userId, 'after-session');
     assert.equal(ticketBalance(session.hub.userId, exchange.game), TICKET_DAILY_CAP);
+    assert.equal(
+      num(`SELECT count(*) FROM game.earn_window WHERE user_id = '${sqlId(session.hub.userId)}' AND day = '1999-01-01'`),
+      0,
+    );
     const bucket = psql(
       `SELECT day::text FROM game.earn_window WHERE user_id = '${sqlId(session.hub.userId)}' AND bucket = 'tickets:${exchange.game}'`,
     );
@@ -760,7 +864,7 @@ async function wallet(): Promise<void> {
     const session = await login(exchange.game);
     const stamped = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'stamped',
       now: 0,
       timestamp: '1999-01-01T00:00:00Z',
@@ -776,7 +880,7 @@ async function wallet(): Promise<void> {
     );
     const today = await call('tickets.earn', {
       amount: 10,
-      reason: 'win',
+      reason: exchange.earnReason,
       key: 'server-today',
       day: '1999-01-01',
     }, session.gameToken);
@@ -790,9 +894,37 @@ async function wallet(): Promise<void> {
   });
   }
 
+  await test('wallet', 'a single earn that would cross the session cap gets session_ticket_cap', async () => {
+    const probes = [
+      { game: 'sproto' as const, reason: 'win' },
+      { game: 'hpos10i' as const, reason: 'level_end' },
+    ];
+    for (const probe of probes) {
+      const session = await login(probe.game);
+      await creditSession(session.gameToken, probe.reason, 180, `cross-${probe.game}`);
+      await earnLegal(session.gameToken, probe.reason, 10, `cross-${probe.game}-room`);
+      const before = earnFootprint(session.hub.userId, probe.game);
+      assert.equal(before.balance, 190);
+      const over = await call('tickets.earn', {
+        amount: LEGAL_EARN,
+        reason: probe.reason,
+        key: `cross-${probe.game}-over`,
+      }, session.gameToken);
+      const body = over.body as CapBody;
+      assert.equal(body.error, 'session_ticket_cap', `${probe.game} ${JSON.stringify(body)}`);
+      assert.equal(body.balance, undefined, JSON.stringify(body));
+      assert.equal(body.capped, undefined, JSON.stringify(body));
+      assert.equal(body.sessionCapLeft, 10, JSON.stringify(body));
+      assert.equal(body.capLeft, 10, JSON.stringify(body));
+      assert.deepEqual(earnFootprint(session.hub.userId, probe.game), before);
+      assertEarnKeyAbsent(session.hub.userId, `cross-${probe.game}-over`);
+      assert.equal(ticketBalance(session.hub.userId, probe.game), 190);
+    }
+  });
+
   await test('wallet', 'caps use server time only', async () => {
     const schema = readFileSync(path.join(ROOT, 'server/modules/src/schema.ts'), 'utf8');
-    for (const name of ['game.earn_tickets', 'game.exchange_tickets', 'game.redeem_ticket', 'game.apply_event']) {
+    for (const name of ['game.earn_tickets', 'game.exchange_tickets', 'game.apply_event']) {
       const body = functionBody(schema, name);
       assert.match(body, /now\(\)/, name);
       assert.doesNotMatch(body, /p_now|p_timestamp|p_day|client_time|p_data\s*->>\s*'(now|timestamp|day|time)'/, name);
@@ -824,39 +956,22 @@ async function hposExtras(): Promise<void> {
   const relic = relicFlows().find((item) => item.game === 'hpos10i');
   if (!relic) throw new Error('HPOS10I relic flow is missing');
 
-  await test('wallet', 'hpos10i exchange steps of 10, 500, non-multiple, over 500, over balance', async () => {
-    const small = await login('hpos10i');
-    await earn(small.gameToken, 40, 'level_end', 'fund-10');
-    const ten = await call('tickets.exchange', { tickets: 10, verse: 500, key: 'step-10' }, small.gameToken);
-    assert.equal(ten.body.error, undefined, JSON.stringify(ten.body));
-    assert.equal(ten.body.verse, 1);
-    assert.equal(ten.body.ticketsLeft, 30);
-    const odd = await call('tickets.exchange', { tickets: 25, key: 'step-25' }, small.gameToken);
-    assert.equal(odd.body.error, undefined, JSON.stringify(odd.body));
-    assert.equal(odd.body.verse, 3);
-    assert.equal(odd.body.ticketsLeft, 10);
-    assert.equal(verseBalance(small.hub.userId), 3);
-    assert.equal(mints(small.hub.userId, 'hpos10i_core'), 0);
-
-    const broke = await login('hpos10i');
-    await earn(broke.gameToken, 20, 'level_end', 'fund-broke');
-    const overBalance = await call('tickets.exchange', { tickets: 30, key: 'over-balance' }, broke.gameToken);
-    assert.equal(overBalance.body.error, 'insufficient_tickets', JSON.stringify(overBalance.body));
-    assert.equal(ticketBalance(broke.hub.userId, 'hpos10i'), 20);
-    assert.equal(verseBalance(broke.hub.userId), 0);
-    assert.equal(exchangeCount(broke.hub.userId), 0);
-
-    const funded = await login('hpos10i');
-    await earn(funded.gameToken, TICKET_DAILY_CAP, 'level_end', 'fund-500');
-    const fiveHundred = await call('tickets.exchange', { tickets: 500, key: 'step-500' }, funded.gameToken);
-    assert.equal(fiveHundred.body.error, undefined, JSON.stringify(fiveHundred.body));
-    assert.equal(fiveHundred.body.verse, VERSE_DAILY_CAP);
-    assert.equal(fiveHundred.body.ticketsLeft, TICKET_DAILY_CAP - 500);
-    const overCap = await call('tickets.exchange', { tickets: 510, key: 'step-510' }, funded.gameToken);
-    assert.equal(overCap.body.error, 'verse_cap', JSON.stringify(overCap.body));
-    assert.equal(verseBalance(funded.hub.userId), VERSE_DAILY_CAP);
-    assert.equal(ticketBalance(funded.hub.userId, 'hpos10i'), TICKET_DAILY_CAP - 500);
-    assert.equal(mints(funded.hub.userId, 'hpos10i_core'), 0);
+  await test('wallet', 'hpos10i exchange is not allowed and debits nothing', async () => {
+    const session = await login('hpos10i');
+    await creditSession(session.gameToken, 'level_end', 40, 'fund-blocked');
+    const before = earnFootprint(session.hub.userId, 'hpos10i');
+    for (const tickets of [10, 25, 500]) {
+      const key = `blocked-${tickets}`;
+      const blocked = await call('tickets.exchange', { tickets, key }, session.gameToken);
+      assert.equal(blocked.body.error, 'exchange_not_allowed', JSON.stringify(blocked.body));
+      const replay = await call('tickets.exchange', { tickets, key }, session.gameToken);
+      assert.equal(replay.body.error, 'exchange_not_allowed', JSON.stringify(replay.body));
+    }
+    assert.deepEqual(earnFootprint(session.hub.userId, 'hpos10i'), before);
+    assert.equal(ticketBalance(session.hub.userId, 'hpos10i'), 40);
+    assert.equal(verseBalance(session.hub.userId), 0);
+    assert.equal(exchangeCount(session.hub.userId), 0);
+    assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
   await test('score', 'hpos10i_act_time replay keeps the lowest and grants nothing', async () => {
@@ -1194,7 +1309,7 @@ export async function main(): Promise<void> {
     }
     if (selected('gated')) await runGated({ test, pending });
     if (selected('same-tab')) await runSameTab(test);
-    if (selected('redeem-fix')) await runRedeemFix(test, pending);
+    if (selected('redeem-fix')) await runRedeemFix(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
   } finally {
