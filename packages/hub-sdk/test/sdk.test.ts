@@ -140,15 +140,18 @@ async function main(): Promise<void> {
     await h.sdk.init('sproto');
     const first = await h.sdk.reportEvent(HubEvent.Ready, {}, 'ready-1');
     assert.deepEqual(first, {});
-    const grant = await h.sdk.reportEvent(HubEvent.GameBeaten, {}, 'beat-1');
+    const claimed = await h.sdk.reportEvent(HubEvent.GameBeaten, {}, 'beat-1');
+    assert.deepEqual(claimed, {}, 'game_beaten grants nothing');
+    assert.equal(h.local.getItem('hub:relics'), null);
+    const grant = await h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 12 }, 'tinubu');
     assert.deepEqual(grant, { granted: 'tinubu_crown' });
-    const replay = await h.sdk.reportEvent(HubEvent.GameBeaten, {}, 'beat-1');
+    const replay = await h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 12 }, 'tinubu');
     assert.deepEqual(replay, { granted: 'tinubu_crown' });
-    const second = await h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 12 }, 'tinubu');
+    const second = await h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 9 }, 'tinubu-2');
     assert.deepEqual(second, {});
     assert.deepEqual(JSON.parse(h.local.getItem('hub:relics') ?? '[]'), ['tinubu_crown']);
     await assert.rejects(
-      () => h.sdk.reportEvent(HubEvent.GameBeaten, { relicId: 'other' }, 'beat-1'),
+      () => h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 99 }, 'tinubu'),
       (error: unknown) => error instanceof HubSdkError && error.code === 'idempotency_mismatch',
     );
   }

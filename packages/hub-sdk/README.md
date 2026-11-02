@@ -134,7 +134,7 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
 | Event | Grants |
 | --- | --- |
 | `ready` | nothing |
-| `game_beaten` | that game's relic, once |
+| `game_beaten` | nothing. A client cannot claim a Relic by saying it won |
 | `hpos10i.level_complete` with zone `z1_retro_rush_hills` and act `1` | `hpos10i_core` |
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |

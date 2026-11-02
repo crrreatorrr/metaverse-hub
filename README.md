@@ -86,7 +86,7 @@ A round neon plaza, about 60 m across, built from primitives and emissive materi
 ```ts
 redeemTicket({ game })                // reads #t=, strips it, custom-auth session + refresh token
 init(gameId)                          // same exchange when a ticket is still in the hash; otherwise the saved session
-reportEvent(eventId, data, key)       // ready, game_beaten, or the four relic triggers
+reportEvent(eventId, data, key)       // ready, or the four relic triggers
 earnTickets(amount, reason, key)
 exchange(tickets, key)                // 10 Tickets = 1 Verse, 50 Verse per game per day
 submitScore(boardId, value, meta?)    // ignored unless the ticket was ranked
@@ -98,7 +98,7 @@ exit(reason?)                         // goes to /hub/#from=<game>
 | Event | Grants |
 | --- | --- |
 | `ready` | nothing |
-| `game_beaten` | that game's relic, once |
+| `game_beaten` | nothing. A client cannot claim a Relic by saying it won |
 | `hpos10i.level_complete` with zone `z1_retro_rush_hills` and act `1` | `hpos10i_core` |
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
