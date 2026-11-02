@@ -1,5 +1,5 @@
 import {
-  AdditiveBlending, AnimationMixer, Box3, EquirectangularReflectionMapping, Group, LOD, Mesh, MeshBasicMaterial, Object3D, SRGBColorSpace,
+  AdditiveBlending, Box3, EquirectangularReflectionMapping, Group, LOD, Mesh, MeshBasicMaterial, Object3D, SRGBColorSpace,
   TextureLoader, Vector3, type Material, type MeshStandardMaterial, type Texture,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
@@ -7,6 +7,7 @@ import { WORLD_ROOT, animated, glow, loadGLTF } from './core';
 import { INTERIOR_ORIGIN, makeLeaderboardTexture, type InteriorBuild } from './interior';
 import { loadNeonSign } from './neon-sign';
 import { CLUB_COLLIDERS, CLUB_MARKERS } from './club-interior-colliders';
+import { createSprotelController, type SprotelClip, type SprotelController } from './sprotel-npc';
 
 /**
  * HPOS10I Club interior (club-interior.glb + -lod1). One open room, 20 x 14 x 5.2 m.
@@ -58,6 +59,8 @@ export interface ClubInteriorBuild extends InteriorBuild {
   mood: ClubMood;
   /** Sprotel barman root (null when `npc: false` or the GLB failed to load). */
   npc: Object3D | null;
+  /** Sprotel's store trigger / greet / talk / head-aim controller (null with no NPC). Tick it while inside. */
+  sprotel: SprotelController | null;
 }
 
 export interface ClubMount {
@@ -66,7 +69,7 @@ export interface ClubMount {
   /** Keep the box that closes the outside landing (true for the standalone y = -300 mount). */
   standalone?: boolean;
   /** Spawn Sprotel on barman_spot (default true). Pass a clip name to override the default `wipe_glass`. */
-  npc?: boolean | { clip?: 'idle' | 'greet' | 'talk' | 'wipe_glass' };
+  npc?: boolean | { clip?: SprotelClip };
 }
 
 function prepare(root: Object3D, lit: MeshStandardMaterial[], env: Texture | null): void {
@@ -192,6 +195,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   // Sprotel behind the bar on barman_spot, facing the stools. Skinned: clone with SkeletonUtils so the
   // cached GLTF scene stays reusable. His capsule-ish box is already in CLUB_COLLIDERS (`sprotel_npc`, npc: true).
   let npc: Object3D | null = null;
+  let sprotel: SprotelController | null = null;
   if (npcGltf) {
     npc = SkeletonUtils.clone(npcGltf.scene);
     npc.name = 'sprotel_npc';
@@ -204,15 +208,11 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
       if ((obj as Mesh).isMesh) obj.frustumCulled = false; // skinned bounds don't follow the clip
     });
     g.add(npc);
-    const clipName = (typeof wantNpc === 'object' && wantNpc.clip) || 'wipe_glass';
-    const clip = npcGltf.animations.find((a) => a.name === clipName) ?? npcGltf.animations.find((a) => a.name === 'idle');
-    if (clip) {
-      const mixer = new AnimationMixer(npc);
-      mixer.clipAction(clip).play();
-      npc.userData.mixer = mixer;
-      npc.userData.clips = npcGltf.animations;
-      animated.push((_t, dt) => { if (g.visible) mixer.update(dt); });
-    }
+    // Resting clip when nobody is near (default wipe_glass). Clips are native to his skeleton: played directly.
+    const restClip: SprotelClip = (typeof wantNpc === 'object' && wantNpc.clip) || 'wipe_glass';
+    sprotel = createSprotelController(npc, npcGltf.animations, restClip);
+    npc.userData.mixer = sprotel.mixer;
+    npc.userData.clips = npcGltf.animations;
   }
 
   const colliderBoxes = CLUB_COLLIDERS.filter((c) => (standalone || !c.standalone) && (npc !== null || !c.npc)).map((c) => clubBoxToWorld(c.min, c.max, at, yaw));
@@ -238,7 +238,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   parent.add(g);
   return {
     group: g, exit: markers.exit_door, exitDoor: markers.exit_door, entry: markers.door_front,
-    leaderboard, storeAnchor, spawn, markers, colliderBoxes, npc,
+    leaderboard, storeAnchor, spawn, markers, colliderBoxes, npc, sprotel,
     mood: {
       environment: env, environmentIntensity: 1.0,
       hemi: { sky: '#ffd2a8', ground: '#2a1810', intensity: 2.4 },
