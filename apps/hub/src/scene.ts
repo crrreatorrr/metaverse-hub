@@ -33,6 +33,7 @@ import {
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { createAvatarRig } from './avatar';
+import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
@@ -84,6 +85,7 @@ export interface HubWorld {
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
+  setLook: (look: AvatarLook) => void;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
@@ -115,7 +117,7 @@ interface SlotState {
 const NEAR = 120;
 const FAR = 400;
 
-export async function createWorld(): Promise<HubWorld> {
+export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const scene = new Scene();
   scene.fog = new Fog('#5a1f62', 260, 820);
   const camera = new PerspectiveCamera(CAMERA_FOV, 1, 0.08, 4000);
@@ -125,7 +127,8 @@ export async function createWorld(): Promise<HubWorld> {
     preserveDrawingBuffer: true,
     stencil: false,
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  // Every pass is fill-bound, and 1.5 drew 2.25x the pixels of 1.0 on high-DPI screens.
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.25));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = NoToneMapping;
   camera.aspect = window.innerWidth / Math.max(window.innerHeight, 1);
@@ -245,6 +248,7 @@ export async function createWorld(): Promise<HubWorld> {
   const bob = new Group();
   const avatarRig = createAvatarRig();
   const avatar = avatarRig.group;
+  if (initialLook) avatarRig.setLook(initialLook);
   bob.add(avatar);
   rig.add(bob);
   scene.add(rig);
@@ -269,6 +273,8 @@ export async function createWorld(): Promise<HubWorld> {
     luminanceSmoothing: 0.4,
     mipmapBlur: true,
     radius: 0.7,
+    // The glow is a blur, so half resolution looks the same at a quarter of the fill cost.
+    resolutionScale: 0.5,
   });
   bloom.ignoreBackground = true;
   mountGlow((obj) => {
@@ -512,6 +518,7 @@ export async function createWorld(): Promise<HubWorld> {
     labels: [],
     sockets,
     get sceneDraws() { return sceneDraws; },
+    setLook: avatarRig.setLook,
     setRelics(ids) {
       const owned = new Set(ids);
       pedestal.rings.forEach((ring, index) => {

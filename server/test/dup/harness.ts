@@ -5,10 +5,60 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
+const ENV_FILE = path.join(ROOT, 'server/.env');
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
-const SERVER_KEY = 'defaultkey';
-const HTTP_KEY = 'localhttpkey';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// Compose reads server/.env from the compose-file directory and lets the
+// shell environment win. Copy only the two keys this process sends.
+function loadComposeProjectEnv(): void {
+  let text: string;
+  try {
+    text = readFileSync(ENV_FILE, 'utf8');
+  } catch (error) {
+    if (isEnoent(error)) return;
+    throw error;
+  }
+  const wanted = new Set(['NAKAMA_SERVER_KEY', 'NAKAMA_HTTP_KEY']);
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.replace(/^\uFEFF/, '').trim();
+    if (!line || line.startsWith('#')) continue;
+    const body = line.startsWith('export ') ? line.slice('export '.length).trim() : line;
+    const eq = body.indexOf('=');
+    if (eq <= 0) continue;
+    const key = body.slice(0, eq).trim();
+    if (!wanted.has(key) || process.env[key] !== undefined) continue;
+    process.env[key] = envValue(body.slice(eq + 1));
+  }
+}
+
+function envValue(raw: string): string {
+  const trimmed = raw.trim();
+  const quote = trimmed[0];
+  if ((quote === '"' || quote === "'") && trimmed.length >= 2 && trimmed.endsWith(quote)) {
+    return trimmed.slice(1, -1);
+  }
+  const comment = trimmed.search(/\s+#/);
+  return (comment === -1 ? trimmed : trimmed.slice(0, comment)).trim();
+}
+
+function isEnoent(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT';
+}
+
+function requireHttpKey(): string {
+  const value = process.env.NAKAMA_HTTP_KEY;
+  if (value === undefined || value === '') {
+    throw new Error('NAKAMA_HTTP_KEY not set; run server/scripts/dev-env.sh');
+  }
+  return value;
+}
+
+loadComposeProjectEnv();
+/** From server/.env when present. CI writes a random one (dev-env.sh --random-server-key). */
+export const SERVER_KEY = process.env.NAKAMA_SERVER_KEY ?? 'defaultkey';
+/** From server/.env. Server-to-server only; test clients that still redeem with it pass it explicitly. */
+export const HTTP_KEY = requireHttpKey();
 
 export interface RpcBody {
   error?: string;
@@ -73,20 +123,21 @@ function composeArgs(args: string[]): string[] {
   return ['compose', '-f', COMPOSE_FILE, ...args];
 }
 
-export function compose(args: string[]): string {
+export function compose(args: string[], timeoutMs = 180_000): string {
   return execFileSync('docker', composeArgs(args), {
     cwd: ROOT,
     encoding: 'utf8',
-    timeout: 180_000,
+    timeout: timeoutMs,
   });
 }
 
-export function psql(sql: string): string {
+export function psql(sql: string, database = 'nakama'): string {
+  if (!/^[a-z_]+$/.test(database)) throw new Error(`bad database name ${database}`);
   return execFileSync(
     'docker',
     composeArgs([
       'exec', '-T', 'postgres',
-      'psql', '-U', 'postgres', '-d', 'nakama',
+      'psql', '-U', 'postgres', '-d', database,
       '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A',
       '-c', sql,
     ]),
@@ -309,12 +360,6 @@ export interface CustomAuthResult {
   body: string;
 }
 
-/** True once #25 registers the custom-auth before-hook. #22 still redeems with session.redeem. */
-export function customAuthLanded(): boolean {
-  const source = readFileSync(path.join(ROOT, 'server/modules/src/main.ts'), 'utf8');
-  return source.includes('registerBeforeAuthenticateCustom');
-}
-
 /**
  * Game handoff. Nakama maps this route with `body: "account"`, so the JSON
  * body is `{ id, vars }` and `create` stays on the query string.
@@ -351,20 +396,12 @@ export async function openGame(hubToken: string, game: string): Promise<GameLogi
   if (opened.body.error || !opened.body.ticket || !opened.body.sessionId) {
     throw new Error(`portal.enter ${opened.status} ${JSON.stringify(opened.body)}`);
   }
-  if (customAuthLanded()) {
-    const redeemed = await redeemPortalTicket(opened.body.ticket, game);
-    if (!redeemed.token) {
-      throw new Error(`redeem ${redeemed.status} ${redeemed.body}`);
-    }
-    const userId = userIdFrom(hubToken);
-    return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
-  }
-  const redeemed = await call('session.redeem', { ticket: opened.body.ticket, gameId: game });
-  if (redeemed.body.error || !redeemed.body.token) {
-    throw new Error(`session.redeem ${redeemed.status} ${JSON.stringify(redeemed.body)}`);
+  const redeemed = await redeemPortalTicket(opened.body.ticket, game);
+  if (!redeemed.token) {
+    throw new Error(`redeem ${redeemed.status} ${redeemed.body}`);
   }
   const userId = userIdFrom(hubToken);
-  return { hub: { token: hubToken, userId }, gameToken: redeemed.body.token, sessionId: opened.body.sessionId };
+  return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
 }
 
 export async function login(game: string): Promise<GameLogin> {

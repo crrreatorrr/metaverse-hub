@@ -14,6 +14,7 @@ declare namespace nkruntime {
 
   interface Account {
     user?: { userId?: string; username?: string };
+    email?: string;
     devices?: { id?: string }[];
     customId?: string;
   }
@@ -32,10 +33,6 @@ declare namespace nkruntime {
     sqlExec(query: string, args: unknown[]): { rowsAffected: number };
     uuidv4(): string;
     sha256Hash(input: string): string;
-    hmacSha256Hash(input: string, key: string): ArrayBuffer;
-    base64UrlEncode(input: string | ArrayBuffer, padding?: boolean): string;
-    base64UrlDecode(input: string, padding?: boolean): ArrayBuffer;
-    binaryToString(data: ArrayBuffer): string;
     authenticateTokenGenerate(
       userId: string,
       username: string,
@@ -43,6 +40,17 @@ declare namespace nkruntime {
       vars: { [key: string]: string },
     ): { token: string; exp: number };
     accountGetId(userId: string): Account;
+    accountUpdateId(
+      userId: string,
+      username: string | null,
+      displayName: string | null,
+      timezone: string | null,
+      location: string | null,
+      langTag: string | null,
+      avatarUrl: string | null,
+      metadata: { [key: string]: unknown } | null,
+    ): void;
+    linkEmail(userId: string, email: string, password: string): void;
     linkCustom(userId: string, customId: string): void;
     linkDevice(userId: string, deviceId: string): void;
     unlinkDevice(userId: string, deviceId: string): void;
@@ -51,8 +59,23 @@ declare namespace nkruntime {
 
   interface Initializer {
     registerRpc(id: string, fn: RpcFunction): void;
+    registerBeforeAuthenticate(fn: BeforeHook): void;
+    registerBeforeAuthenticateApple(fn: BeforeHook): void;
+    registerBeforeAuthenticateCustom(fn: BeforeHook): void;
     registerBeforeAuthenticateDevice(fn: BeforeHook): void;
+    registerBeforeAuthenticateEmail(fn: BeforeHook): void;
+    registerBeforeAuthenticateFacebook(fn: BeforeHook): void;
+    registerBeforeAuthenticateFacebookInstantGame(fn: BeforeHook): void;
+    registerBeforeAuthenticateGameCenter(fn: BeforeHook): void;
+    registerBeforeAuthenticateGoogle(fn: BeforeHook): void;
+    registerBeforeAuthenticateSteam(fn: BeforeHook): void;
     registerBeforeSessionRefresh(fn: BeforeHook): void;
+    registerBeforeLinkCustom(fn: BeforeHook): void;
+    registerBeforeLink(fn: BeforeHook): void;
+    registerBeforeLinkDevice(fn: BeforeHook): void;
+    registerBeforeUnlinkCustom(fn: BeforeHook): void;
+    registerBeforeUnlink(fn: BeforeHook): void;
+    registerBeforeUnlinkDevice(fn: BeforeHook): void;
   }
 
   type RpcFunction = (ctx: Context, logger: Logger, nk: Nakama, payload: string) => string;
