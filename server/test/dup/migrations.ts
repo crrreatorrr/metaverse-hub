@@ -665,8 +665,8 @@ async function raceHubBoots(): Promise<void> {
   assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
   assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
   assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-  // The four Relic triggers from 0002. Ticket rules from later migrations are not counted.
-  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 4);
+  // The four Relic triggers from 0002 plus the Tidebreaker Belt from 0009. Ticket rules are not counted.
+  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 5);
   // 0002's open game_beaten rules, until 0008 drops them.
   assert.equal(
     num(`SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten'`),
