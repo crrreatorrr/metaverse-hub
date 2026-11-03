@@ -1,0 +1,8 @@
+[Unit]
+Description=Dump Nakama Postgres
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=@DEPLOY_ROOT@/scripts/backup-postgres.sh

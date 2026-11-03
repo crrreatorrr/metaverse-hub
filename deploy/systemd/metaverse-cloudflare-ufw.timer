@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly refresh of Cloudflare UFW ranges
+
+[Timer]
+OnCalendar=Sun *-*-* 04:10:00 UTC
+Persistent=true
+RandomizedDelaySec=30min
+
+[Install]
+WantedBy=timers.target
