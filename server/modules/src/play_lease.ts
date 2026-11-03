@@ -4,10 +4,10 @@
 // session.claim runs after the ticket swap. The newest call wins: Postgres
 // mints a new lease_id, and the previous holder's socket gets session_superseded.
 // session.heartbeat is the 15 second refresh. The 45 second TTL is enforced
-// only with Postgres now(), in migration 0001.
+// only with Postgres now(), in the play_lease migration.
 
 namespace HubLease {
-  /** Keep equal to the intervals in server/modules/migrations/0001_play_lease.sql. */
+  /** Keep equal to the intervals in server/modules/migrations/play_lease.sql. */
   export var HEARTBEAT_SECONDS = 15;
   export var TTL_SECONDS = 45;
   export var SESSION_SUPERSEDED_CODE = 1001;

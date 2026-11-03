@@ -1,7 +1,7 @@
--- Migration 0001. No numbered migration exists yet: Nakama boot applies
--- server/modules/src/schema.ts from InitModule, and `nakama migrate up` does
--- not read this directory. Apply this file only in the follow-up described
--- in docs/m11-single-active-tab.md, after hub #12 and #13 have merged.
+-- Unnumbered: wiring adds these statements as one new entry in the migration
+-- ledger (MIGRATIONS in server/modules/src/schema.ts), with the next free id.
+-- Nakama boot applies that ledger from InitModule, and `nakama migrate up`
+-- does not read this directory. Wiring steps: docs/m11-single-active-tab.md.
 --
 -- One active tab per profile. The newest session.claim replaces lease_id.
 -- Clients heartbeat about every 15 seconds. A lease older than 45 seconds

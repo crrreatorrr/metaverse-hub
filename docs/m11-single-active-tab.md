@@ -2,13 +2,13 @@
 
 Server pieces for one active tab per profile. Nothing here is registered or applied. Hub #12 and #13 edit `schema.ts`, `rpcs.ts`, `main.ts`, `tsconfig.json`, and the SDK, so this branch only adds files. Wire the pieces on main after those PRs merge. QA covers this in M12. This change adds no tests.
 
-The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). Postgres time is `now()` inside the migration. There is no Go plugin and no numbered migration on main, so this file is migration `0001`.
+The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). Postgres time is `now()` inside the migration. There is no Go plugin. The SQL file is unnumbered: wiring gives it the next free id in the migration ledger (`MIGRATIONS` in `server/modules/src/schema.ts`).
 
 ## Files
 
 | File | Role |
 | --- | --- |
-| `server/modules/migrations/0001_play_lease.sql` | `game.play_lease` plus `game.claim_play_lease`, `game.heartbeat_play_lease`, and `game.require_lease` |
+| `server/modules/migrations/play_lease.sql` | `game.play_lease` plus `game.claim_play_lease`, `game.heartbeat_play_lease`, and `game.require_lease` |
 | `server/modules/src/play_lease.ts` | `HubLease.claim`, `HubLease.heartbeat`, and `HubLease.RequireLease` |
 | `docs/m11-single-active-tab.md` | This wiring list |
 
@@ -40,9 +40,9 @@ The winning tab ignores a notification whose `leaseId` is the lease it just stor
 
 Do this on a branch from main after those PRs are in. Hub #16 also edits `schema.ts`. Base the wiring on the main that contains the schema you are actually shipping. Leave #12, #13, #14, and #15 rebase-free.
 
-### 1. Apply migration 0001
+### 1. Add the play_lease ledger entry
 
-Append each statement from `server/modules/migrations/0001_play_lease.sql` as its own string at the end of `STATEMENTS` in `server/modules/src/schema.ts` (the `HubSchema.apply` loop). Keep `CREATE TABLE IF NOT EXISTS` and `CREATE OR REPLACE FUNCTION` so every Nakama boot can run them again.
+Add one new entry at the end of `MIGRATIONS` in `server/modules/src/schema.ts`, with the next free id (`0009_play_lease` while `0008_drop_open_game_beaten_rules` is the last entry; `0004` stays unused). Put each statement from `server/modules/migrations/play_lease.sql` in its `statements` array as its own string. Never edit an entry that has already shipped. Keep `CREATE TABLE IF NOT EXISTS` and `CREATE OR REPLACE FUNCTION` so every Nakama boot can run them again.
 
 Statements, in order:
 
