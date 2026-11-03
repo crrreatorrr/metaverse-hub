@@ -157,6 +157,22 @@ async function main(): Promise<void> {
   }
 
   {
+    // Sproto Fighter: the Tidebreaker Belt is Story World 1 only, and only for this game.
+    const h = harness('sproto-fighter');
+    h.setHash(`#t=${await ticket('sproto-fighter')}`);
+    await h.sdk.init('sproto-fighter');
+    const wrongWorld = await h.sdk.reportEvent(HubEvent.FighterStoryLevelComplete, { world: 2, stage: 'bar' }, 'fighter-w2');
+    assert.deepEqual(wrongWorld, {}, 'World 2 grants nothing');
+    const otherGame = await h.sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu' }, 'fighter-tinubu');
+    assert.deepEqual(otherGame, {}, "another game's trigger grants nothing here");
+    const belt = await h.sdk.reportEvent(HubEvent.FighterStoryLevelComplete, { world: 1, stage: 'yacht' }, 'fighter-w1');
+    assert.deepEqual(belt, { granted: 'tidebreaker_belt' });
+    const again = await h.sdk.reportEvent(HubEvent.FighterStoryLevelComplete, { world: 1, stage: 'yacht' }, 'fighter-w1-b');
+    assert.deepEqual(again, {}, 'earn-once');
+    assert.deepEqual(JSON.parse(h.local.getItem('hub:relics') ?? '[]'), ['tidebreaker_belt']);
+  }
+
+  {
     const h = harness('hpos10i');
     h.setHash(`#t=${await ticket('hpos10i')}`);
     await h.sdk.init('hpos10i');

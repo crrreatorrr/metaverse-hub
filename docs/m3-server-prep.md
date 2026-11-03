@@ -115,6 +115,10 @@ One id per slot. Equipping a neck item replaces the other neck item. Equipping a
 | `pb_summon_speed` | peoples-bitcoin | summon | `hpos10i_core` |
 | `pb_summon_nobu` | peoples-bitcoin | summon | `cones_tip` |
 | `pb_summon_duelist` | peoples-bitcoin | summon | `tinubu_crown` |
+| `duel_staff_fighters_might` | sproto | staff | `tidebreaker_belt` |
+| `nobu_champions_crown` | nobu | head | `tidebreaker_belt` |
+| `pb_summon_champion_sproto` | peoples-bitcoin | summon | `tidebreaker_belt` |
+| `hpos_skin_tidebreaker` | hpos10i | skin | `tidebreaker_belt` |
 
 HPOS skin and cape ids, and the People's Bitcoin summon ids, are this server catalog. The NOBU and Duel ids match the equip spec.
 

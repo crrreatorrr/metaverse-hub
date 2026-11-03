@@ -32,7 +32,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { isRelicId, type RelicId } from '@metaverse/hub-sdk';
+import { FOUR_LIGHTS_RELIC_IDS, isRelicId, type RelicId } from '@metaverse/hub-sdk';
 import { createAvatarRig } from './avatar';
 import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
@@ -40,13 +40,16 @@ import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './m3/ba
 import { addHallOfChampions } from './m3/hallOfChampions';
 import { addLivingPortals } from './m3/livingPortals';
 import { addOrbitGems } from './m3/orbitGems';
-import { RELIC_GEMS, type OrbitAvatar } from './m3/types';
+import type { OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
 import { animated, glow, initLoaders, instanced, mountGlow, neonMat, part, upgradeToLod0 } from './v2/core';
 import { castle, club, greenHill, kennel, whiteHouse } from './v2/buildings';
 import { buildClubInterior, type ClubInteriorBuild } from './v2/club-interior';
+import { buildArcade, type ArcadeBuild } from './v2/arcade';
+import { ARCADE_RETURN, atArcade } from './v2/arcade-layout';
+import { INTERIOR_ORIGIN } from './v2/interior';
 import { SPROTEL_PROMPT } from './v2/sprotel-npc';
 import { barBillboard } from './v2/billboard';
 import { buildFloor, buildPedestal, buildPortal } from './v2/plaza';
@@ -60,7 +63,8 @@ export interface Warp {
   yaw: number;
 }
 
-export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | null;
+/** `arcade`: at the Bar's arcade cabinet, where E opens Sproto Fighter. */
+export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | 'arcade' | null;
 
 export interface VerseStoreUi {
   /** Empty node `store_ui_anchor`. Null until the player enters the Bar. */
@@ -93,6 +97,8 @@ export interface HubWorld {
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
+  /** Relics the player switched off in the Relics menu: their gems stop orbiting the avatar. */
+  setHiddenRelics: (ids: readonly string[]) => void;
   setLook: (look: AvatarLook) => void;
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
@@ -100,6 +106,11 @@ export interface HubWorld {
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
   zone: () => PlazaZone;
+  /**
+   * Put the player inside the Bar at the arcade cabinet once the room has loaded
+   * (return from Sproto Fighter, `#from=sproto-fighter`). Delivered through `consumeWarp`.
+   */
+  returnToArcade: () => void;
   update: (dt: number, moving: boolean, sprint: boolean) => void;
   consumeWarp: () => Warp | null;
   render: () => void;
@@ -317,6 +328,9 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const storeListeners: ((anchor: Object3D) => void)[] = [];
   let storeAnchor: Object3D | null = null;
   let storeOpen = false;
+  let arcade: ArcadeBuild | null = null;
+  let beltOwned = false;
+  let arcadeReturn = false;
   const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
   const devPreview = import.meta.env.DEV;
@@ -324,6 +338,8 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
   outdoor.add(hall.door);
   let localRelics: RelicId[] = [];
+  let ownedRelics: RelicId[] = [];
+  let hiddenRelics = new Set<string>();
   let devAvatars: OrbitAvatar[] = [];
   let hallOpen = false;
   const gems = addOrbitGems(scene, {
@@ -372,6 +388,9 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         if (previous) previous.visible = false;
       }
       storeAnchor = built.storeAnchor;
+      arcade = buildArcade();
+      arcade.setBeltOwned(beltOwned);
+      built.group.add(arcade.group);
       applyBoard();
       for (const listener of storeListeners) listener(built.storeAnchor);
     }).catch((error: unknown) => {
@@ -443,6 +462,15 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     });
   }
 
+  function enterInterior(room: ClubInteriorBuild, at: Warp): void {
+    exitLatch = false;
+    inside = true;
+    outdoor.visible = false;
+    room.group.visible = true;
+    setClubMood(true);
+    warp = at;
+  }
+
   function horiz(obj: Object3D, x: number, y: number, z: number): number {
     obj.getWorldPosition(tmp);
     if (Math.abs(tmp.y - y) > 8) return Infinity;
@@ -473,6 +501,16 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
       void upgradeToLod0(billboard);
     }
     zone = null;
+    if (arcadeReturn && !inside) {
+      if (!interior) {
+        ensureInterior();
+        zone = 'loading';
+      } else {
+        arcadeReturn = false;
+        const o = INTERIOR_ORIGIN;
+        enterInterior(interior, { x: o.x + ARCADE_RETURN.x, y: o.y + STAND_Y, z: o.z + ARCADE_RETURN.z, yaw: ARCADE_RETURN.yaw });
+      }
+    }
     const door = slots.find((slot) => slot.key === 'club')?.door;
     if (!inside && door) {
       const distance = horiz(door, player.x, player.y, player.z);
@@ -482,13 +520,8 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
           zone = 'loading';
         } else if (!doorLatch) {
           doorLatch = true;
-          exitLatch = false;
-          inside = true;
-          outdoor.visible = false;
-          interior.group.visible = true;
-          setClubMood(true);
           const s = interior.spawn;
-          warp = { x: s.x, y: STAND_Y + s.y, z: s.z, yaw: s.yaw };
+          enterInterior(interior, { x: s.x, y: STAND_Y + s.y, z: s.z, yaw: s.yaw });
         }
       } else {
         doorLatch = false;
@@ -526,6 +559,8 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         exitLatch = false;
         if (distance < 4) zone = 'exit';
       }
+      // The cabinet is near the EXIT door; standing at it shows the arcade prompt instead.
+      if (inside && zone !== 'store' && atArcade(player.x - INTERIOR_ORIGIN.x, player.z - INTERIOR_ORIGIN.z)) zone = 'arcade';
     }
     gems.update(elapsed);
     living.update(elapsed, camera);
@@ -589,10 +624,15 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     setPet: (id) => pets.setPet(id),
     setRelics(ids) {
       const owned = new Set(ids);
-      localRelics = ids.filter(isRelicId);
+      // Every owned Relic orbits the avatar unless switched off. The Hall of Champions still opens
+      // on the four Four Lights Relics only (the server's Four Lights rule).
+      ownedRelics = ids.filter(isRelicId);
+      localRelics = ownedRelics.filter((id) => !hiddenRelics.has(id));
+      beltOwned = owned.has('tidebreaker_belt');
+      arcade?.setBeltOwned(beltOwned);
       syncGems();
       if (!devPreview) {
-        hallOpen = localRelics.length === RELIC_GEMS.length;
+        hallOpen = FOUR_LIGHTS_RELIC_IDS.every((id) => owned.has(id));
         hall.setOpen(hallOpen);
       }
       pedestal.rings.forEach((ring, index) => {
@@ -603,6 +643,11 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         const socket = sockets[index];
         if (socket) socket.on = on;
       });
+    },
+    setHiddenRelics(ids) {
+      hiddenRelics = new Set(ids);
+      localRelics = ownedRelics.filter((id) => !hiddenRelics.has(id));
+      syncGems();
     },
     setBoard(title, rows, sample) {
       void title;
@@ -628,6 +673,9 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     },
     inInterior: () => inside,
     zone: () => zone,
+    returnToArcade() {
+      arcadeReturn = true;
+    },
     update,
     consumeWarp() {
       const pending = warp;

@@ -145,7 +145,7 @@ write_placeholder /srv/hub/releases/placeholder/hub/index.html "$hub_placeholder
 if [ ! -L /srv/hub/current ]; then
   ln -s releases/placeholder /srv/hub/current
 fi
-for id in hpos10i nobu peoples-bitcoin sproto-duel; do
+for id in hpos10i nobu peoples-bitcoin sproto-duel sproto-fighter; do
   write_placeholder "/srv/play/${id}/releases/placeholder/index.html" "$game_placeholder"
   if [ ! -L "/srv/play/${id}/current" ]; then
     ln -s releases/placeholder "/srv/play/${id}/current"

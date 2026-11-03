@@ -10,8 +10,8 @@ export type { GameId, RelicId };
  */
 export const RELIC_GEMS: readonly {
   id: RelicId;
-  gem: 'gem_hpos' | 'gem_pb' | 'gem_nobu' | 'gem_duel';
-  socket: 'socket_orbit' | 'socket_back' | 'socket_shoulder_R' | 'socket_head';
+  gem: 'gem_hpos' | 'gem_pb' | 'gem_nobu' | 'gem_duel' | 'gem_fighter';
+  socket: 'socket_orbit' | 'socket_back' | 'socket_shoulder_R' | 'socket_head' | 'socket_waist';
   color: string;
   radius: number;
   height: number;
@@ -22,6 +22,8 @@ export const RELIC_GEMS: readonly {
   { id: 'genesis_shard', gem: 'gem_pb', socket: 'socket_back', color: '#f5b942', radius: 0.9, height: -0.15, speed: 0.7, phase: 1.6 },
   { id: 'cones_tip', gem: 'gem_nobu', socket: 'socket_shoulder_R', color: '#3ec6ff', radius: 0.58, height: 0.22, speed: 1.25, phase: 3.2 },
   { id: 'tinubu_crown', gem: 'gem_duel', socket: 'socket_head', color: '#8d6bff', radius: 0.42, height: 0.48, speed: 1.05, phase: 4.7 },
+  // Tidebreaker Belt (Sproto Fighter): a wide, slow loop at belt height.
+  { id: 'tidebreaker_belt', gem: 'gem_fighter', socket: 'socket_waist', color: '#66d7e8', radius: 0.82, height: -0.42, speed: 0.8, phase: 2.4 },
 ];
 
 export interface OrbitAvatar {

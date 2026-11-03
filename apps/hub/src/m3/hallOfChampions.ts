@@ -59,6 +59,11 @@ export interface HallOfChampions {
  * above the plinths are one instanced octahedron. The roster and the door
  * plaque are canvases. The arch, seal, and open-door beam are primitives.
  */
+/** Relic gems spread evenly across the room (9 m), however many Relics there are. */
+function gemX(index: number): number {
+  return RELIC_GEMS.length > 1 ? -4.5 + (index * 9) / (RELIC_GEMS.length - 1) : 0;
+}
+
 export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions = {}): HallOfChampions {
   const room = new Group();
   room.name = 'm3-hall-room';
@@ -87,7 +92,7 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
   RELIC_GEMS.forEach((spec, index) => {
     tint.set(spec.color);
     gems.setColorAt(index, tint);
-    dummy.position.set(-4.5 + index * 3, 1.55, 0.4);
+    dummy.position.set(gemX(index), 1.55, 0.4);
     dummy.scale.setScalar(1);
     dummy.rotation.set(0, spec.phase, 0);
     dummy.updateMatrix();
@@ -235,7 +240,7 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
   function update(now: number): void {
     if (disposed || !room.visible) return;
     RELIC_GEMS.forEach((spec, index) => {
-      dummy.position.set(-4.5 + index * 3, 1.55, 0.4);
+      dummy.position.set(gemX(index), 1.55, 0.4);
       dummy.rotation.set(now * 0.8, now * 0.6 + spec.phase, 0);
       dummy.scale.setScalar(1);
       dummy.updateMatrix();

@@ -29,6 +29,8 @@ namespace HubEffects {
     genesis_shard: "peoples-bitcoin",
     cones_tip: "nobu",
     tinubu_crown: "sproto",
+    // Sproto Fighter. One item in each of the four other games.
+    tidebreaker_belt: "sproto-fighter",
   };
 
   // §2 effect ids and param names. Relic effects never change Tickets, flags, or boards.
@@ -203,13 +205,58 @@ namespace HubEffects {
         },
       ],
     },
+    // Tidebreaker Belt (Sproto Fighter). Numbers match each game's own config.
+    {
+      id: "duel_staff_fighters_might",
+      game: "sproto",
+      slot: "staff",
+      relic: "tidebreaker_belt",
+      parts: [
+        { key: "staff", value: "duel_staff_fighters_might", kind: "cosmetic" },
+        { key: "bolt_color", value: 0xffd21f, kind: "cosmetic" },
+        // Fist Bolt: double damage, 1.85x the time between bolts (about 1.08x the starter's DPS).
+        { key: "bolt_damage_mult", value: 2, kind: "gameplay" },
+        { key: "bolt_interval_mult", value: 1.85, kind: "gameplay" },
+      ],
+    },
+    {
+      id: "nobu_champions_crown",
+      game: "nobu",
+      slot: "head",
+      relic: "tidebreaker_belt",
+      parts: [
+        { key: "hat", value: "nobu_champions_crown", kind: "cosmetic" },
+        { key: "extra_air_jumps", kind: "gameplay", value: { count: 1 } },
+        { key: "bite_radius_mult", value: 1.4, kind: "gameplay" },
+      ],
+    },
+    {
+      id: "pb_summon_champion_sproto",
+      game: "peoples-bitcoin",
+      slot: "summon",
+      relic: "tidebreaker_belt",
+      parts: [
+        { key: "summon", value: "pb_summon_champion_sproto", kind: "cosmetic" },
+        { key: "summon_rock_throw", kind: "gameplay", value: { range_tiles: 4, damage: 3, every_ticks: 5 } },
+      ],
+    },
+    {
+      id: "hpos_skin_tidebreaker",
+      game: "hpos10i",
+      slot: "body",
+      relic: "tidebreaker_belt",
+      parts: [
+        { key: "skin", value: "hpos_skin_tidebreaker", kind: "cosmetic" },
+        { key: "spindash_charge", kind: "gameplay", value: { charge_per_press: 3 } },
+      ],
+    },
   ];
 
   function assertMatrix(): void {
     var seen: { [id: string]: boolean } = {};
     var relics = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
     var count: { [relic: string]: number } = {};
-    if (MATRIX.length !== 12) throw new Error("matrix_count");
+    if (MATRIX.length !== 16) throw new Error("matrix_count");
     for (var i = 0; i < MATRIX.length; i++) {
       var row = MATRIX[i];
       if (seen[row.id]) throw new Error("duplicate_item");
@@ -223,6 +270,8 @@ namespace HubEffects {
     for (var r = 0; r < relics.length; r++) {
       if (count[relics[r]] !== 3) throw new Error("matrix_count");
     }
+    // The Belt's game is not one of the four, so it has an item in all four.
+    if (count.tidebreaker_belt !== 4) throw new Error("matrix_count");
   }
   assertMatrix();
 

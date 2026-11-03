@@ -1,6 +1,6 @@
 # Metaverse Hub
 
-A Ready Player One style plaza that links four web games. Milestone **M1** connects the plaza to Nakama: guest device accounts, portal tickets, and the first earn-once Relic.
+A Ready Player One style plaza that links five web games: four through portal rings, and Sproto Fighter through the arcade cabinet in the Bar. Milestone **M1** connects the plaza to Nakama: guest device accounts, portal tickets, and the first earn-once Relic.
 
 The product shape comes from the design doc. Technical ids (games, relics, boards, ticket fragment, SDK methods) follow the architecture. Where this milestone is smaller than the architecture's M0, that is intentional: there is no live guest session yet.
 
@@ -12,7 +12,7 @@ packages/hub-sdk/    Client the games import. Real Nakama path, plus the in-memo
 server/              Nakama + Postgres + Caddy. TypeScript runtime for tickets and Relics.
 ```
 
-The four games live in their own repos. Game ids are used in code and in `#from=`; slugs are the page paths (`/play/<slug>/` in dev, `https://play.<domain>/<slug>/` in production, see `apps/hub/src/games.ts`):
+The games live in their own repos. Game ids are used in code and in `#from=`; slugs are the page paths (`/play/<slug>/` in dev, `https://play.<domain>/<slug>/` in production, see `apps/hub/src/games.ts`):
 
 | Portal | Id | Slug | Repo |
 | --- | --- | --- | --- |
@@ -20,6 +20,7 @@ The four games live in their own repos. Game ids are used in code and in `#from=
 | NOBU: Saviour Dog | `nobu` | `nobu` | [crrreatorrr/nobu](https://github.com/crrreatorrr/nobu) |
 | The People's Bitcoin (18+) | `peoples-bitcoin` | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) |
 | Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
+| Sproto Fighter (Bar arcade cabinet) | `sproto-fighter` | `sproto-fighter` | [crrreatorrr/Sproto-Fighter](https://github.com/crrreatorrr/Sproto-Fighter) |
 
 ## Run the plaza
 
@@ -56,7 +57,9 @@ Coming back from a game, open the hub with the game id in the hash. The avatar s
 http://127.0.0.1:5173/hub/#from=sproto
 ```
 
-`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, or `sproto`.
+`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, or `sproto-fighter`. `#from=sproto-fighter` loads the Bar and puts the avatar at the arcade cabinet.
+
+**Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It also has the fifth socket on the monument and orbits your avatar like the other Relics, but it does not count toward the Hall of Champions or the Four Lights Sproto pet, which still need the original four. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
 
 ## Scripts
 
@@ -78,9 +81,9 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the 
 
 A round neon plaza, about 60 m across, built from primitives and emissive materials. No downloaded art.
 
-- **The Four Lights** at the center: four empty relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown) and a sealed Hall of Champions portal. Nothing lights up until a relic exists.
+- **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
 - **Four gates** on the ring, each in a labelled placeholder building: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). Blockouts only; the portal ring and the return spawn are unchanged.
-- **A Bar** northeast of the monument, with a walk-in interior and no portal. The scoreboard is a screen on the inside wall: HPOS10I, NOBU, People's Bitcoin, Sproto Duel, and Total. Each tab ranks lifetime Verse earned. Sample rows stand in until someone has earned Verse in that game.
+- **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard is a screen on the inside wall: HPOS10I, NOBU, People's Bitcoin, Sproto Duel, and Total. Each tab ranks lifetime Verse earned. Sample rows stand in until someone has earned Verse in that game.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.
 
 `npm run dev` shows a small draw-call and fps counter. That overlay and `window.__hub` exist only in dev. Production builds constant-fold them out; `npm run build` fails if `__hub`, `__nobu`, or `__duel` remain in the bundle. The scene stays under the 100 draw-call budget by merging static meshes and skipping shadow maps and postprocessing. The download is the Three.js bundle plus this scene; textures are painted on canvases at startup.
@@ -109,6 +112,7 @@ exit(reason?)                         // goes to /hub/#from=<game>
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
+| `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
 
 Same idempotency key and same body returns the stored response. A reused key with a different body throws. Unranked sessions drop scores. God mode is the game's job: it still reports the relic and simply does not call `submitScore`.
 

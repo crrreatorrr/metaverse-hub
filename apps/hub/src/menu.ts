@@ -1,5 +1,5 @@
 import type { RelicId } from '@metaverse/hub-sdk';
-import { CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
+import { ALL_RELICS, CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
@@ -24,11 +24,19 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 }
 
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
-const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string }> = {
-  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '' },
-  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto' },
+/** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
+const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Sun God' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Pissing Sproto' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto' },
+  tidebreaker_belt: {
+    game: 'Sproto Fighter (Bar arcade)',
+    how: 'Win Story World 1, Tidebreaker Marina.',
+    pet: '',
+    fighter: '',
+    unlock: "Tidebreaker Belt aura · Fighter's Might (Sproto Duel) · Champion's Crown (NOBU) · Champion Sproto (People's Bitcoin) · Tidebreaker skin (HPOS10I)",
+  },
 };
 
 interface PetInfo {
@@ -65,6 +73,10 @@ export interface MenuOptions {
   onClose: () => void;
   /** Drag on the empty side of the menu to turn the preview. Radians. */
   onSpin: (delta: number) => void;
+  /** Relics switched off (their gems do not orbit the avatar). */
+  hiddenRelics: () => readonly string[];
+  /** Store and apply a new switched-off list. */
+  setHiddenRelics: (ids: readonly string[]) => void;
 }
 
 export interface Menu {
@@ -312,10 +324,10 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Relics
   const relicsPage = bodies.get('relics') as HTMLElement;
-  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. A Relic lights its socket on the Four Lights and unlocks an aura in Edit avatar.'));
+  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. It lights its socket on the monument, orbits you as a gem and unlocks an aura in Edit avatar. The four Four Lights Relics each unlock a Sproto Fighter character, and all four unlock Error 333. Switch a Relic off to stop its gem orbiting you; you keep it either way.'));
   const relicGrid = el('ul', 'menu-grid relics');
   const relicCards = new Map<string, HTMLElement>();
-  for (const socket of SOCKETS) {
+  for (const socket of ALL_RELICS) {
     const info = RELIC_INFO[socket.id];
     const card = el('li', 'relic-card');
     card.style.setProperty('--relic', socket.color);
@@ -325,10 +337,22 @@ export function createMenu(options: MenuOptions): Menu {
       el('strong', '', socket.relic),
       el('span', 'relic-game', info.game),
       el('span', 'relic-how', info.how),
-      el('span', 'relic-unlock', `Unlocks: ${socket.relic} aura${info.pet ? ` · ${info.pet}` : ''}`),
+      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.relic} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
     );
     const state = el('span', 'relic-badge', 'Locked');
-    card.append(gem, text, state);
+    const toggle = el('button', 'relic-toggle');
+    toggle.type = 'button';
+    toggle.hidden = true;
+    toggle.addEventListener('click', () => {
+      const hidden = new Set(options.hiddenRelics());
+      if (hidden.has(socket.id)) hidden.delete(socket.id);
+      else hidden.add(socket.id);
+      options.setHiddenRelics([...hidden]);
+      paintRelics();
+    });
+    const side = el('div', 'relic-side');
+    side.append(state, toggle);
+    card.append(gem, text, side);
     relicCards.set(socket.id, card);
     relicGrid.append(card);
   }
@@ -401,7 +425,7 @@ export function createMenu(options: MenuOptions): Menu {
 
   function paintItems(): void {
     verseLine.textContent = `Verse ${verse.toLocaleString('en-US')}`;
-    relicCount.textContent = `${SOCKETS.filter((socket) => relics.has(socket.id)).length} of 4 Relics`;
+    relicCount.textContent = `${ALL_RELICS.filter((socket) => relics.has(socket.id)).length} of ${ALL_RELICS.length} Relics`;
     petGrid.replaceChildren();
     const all = SOCKETS.every((socket) => relics.has(socket.id));
     const owned = (pet: PetInfo) =>
@@ -422,11 +446,22 @@ export function createMenu(options: MenuOptions): Menu {
   }
 
   function paintRelics(): void {
+    const hidden = new Set(options.hiddenRelics());
     for (const [id, card] of relicCards) {
       const on = relics.has(id);
       card.classList.toggle('owned', on);
       const badge = card.querySelector('.relic-badge');
       if (badge) badge.textContent = on ? 'Owned' : 'Locked';
+      // Only an owned Relic has a gem to switch off.
+      const toggle = card.querySelector<HTMLButtonElement>('.relic-toggle');
+      if (toggle) {
+        const shown = on && !hidden.has(id);
+        toggle.hidden = !on;
+        toggle.textContent = shown ? 'Orbit: on' : 'Orbit: off';
+        toggle.setAttribute('aria-pressed', String(shown));
+        toggle.setAttribute('aria-label', `${shown ? 'Hide' : 'Show'} the ${card.querySelector('strong')?.textContent ?? 'Relic'} gem around you`);
+        card.classList.toggle('relic-hidden', on && !shown);
+      }
     }
   }
 

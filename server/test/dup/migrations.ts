@@ -356,6 +356,25 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
+const LATER_GAMES = "('sproto-fighter')";
+const PARKED_TABLES = ['game_session', 'game_beaten'] as const;
+
+function parkLaterGames(): void {
+  psql('CREATE SCHEMA IF NOT EXISTS dup_park');
+  for (const table of PARKED_TABLES) {
+    psql(`DROP TABLE IF EXISTS dup_park.${table}`);
+    psql(`CREATE TABLE dup_park.${table} AS SELECT * FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
+    psql(`DELETE FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
+  }
+}
+
+function restoreLaterGames(): void {
+  for (const table of PARKED_TABLES) {
+    psql(`INSERT INTO game.${table} SELECT * FROM dup_park.${table}`);
+  }
+  psql('DROP SCHEMA dup_park CASCADE');
+}
+
 async function doPrepare(): Promise<Fixture> {
   const fix: Fixture = {
     collision: uuid(),
@@ -394,7 +413,12 @@ async function doPrepare(): Promise<Fixture> {
   for (const id of migrationIds().slice(migrationIds().indexOf('0003_merge_pb_into_peoples_bitcoin') + 1)) {
     psql(`DELETE FROM game.schema_migrations WHERE id = '${id}'`);
   }
+  // Earlier suite cases made rows for games added after 0003 (0009: sproto-fighter). A database
+  // from before 0003 has none, and the 0003 replay re-adds its four-game checks, so those rows
+  // wait outside the game schema during the boot. 0009 widens the checks again; then they return.
+  parkLaterGames();
   await bootAndReady();
+  restoreLaterGames();
   return fix;
 }
 
@@ -641,8 +665,8 @@ async function raceHubBoots(): Promise<void> {
   assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
   assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
   assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-  // The four Relic triggers from 0002. Ticket rules from later migrations are not counted.
-  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 4);
+  // The four Relic triggers from 0002 plus the Tidebreaker Belt from 0009. Ticket rules are not counted.
+  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 5);
   // 0002's open game_beaten rules, until 0008 drops them.
   assert.equal(
     num(`SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten'`),

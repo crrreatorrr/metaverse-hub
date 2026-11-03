@@ -129,7 +129,7 @@ getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapL
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`.
 
 | Event | Grants |
 | --- | --- |
@@ -139,6 +139,7 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`.
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
+| `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
 
 God-mode flags inside `data` do not block a grant. The hub lights Tinubu's Crown from the server profile when the player returns.
 
