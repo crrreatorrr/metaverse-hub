@@ -59,7 +59,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 `#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, or `sproto-fighter`. `#from=sproto-fighter` loads the Bar and puts the avatar at the arcade cabinet.
 
-**Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It is a Relic, but not one of the Four Lights sockets, so it does not count toward the Hall of Champions or the Four Lights Sproto pet.
+**Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It is a Relic, but not one of the Four Lights sockets, so it does not count toward the Hall of Champions or the Four Lights Sproto pet. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
 
 ## Scripts
 

@@ -35,7 +35,7 @@ const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; figh
     how: 'Win Story World 1, Tidebreaker Marina.',
     pet: '',
     fighter: '',
-    unlock: 'Lights the Belt plinth in the Bar',
+    unlock: "Fighter's Might (Sproto Duel) · Champion's Crown (NOBU) · Champion Sproto (People's Bitcoin) · Tidebreaker skin (HPOS10I)",
   },
 };
 

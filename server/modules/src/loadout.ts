@@ -16,6 +16,7 @@ namespace HubLoadout {
     genesis_shard: "peoples-bitcoin",
     cones_tip: "nobu",
     tinubu_crown: "sproto",
+    tidebreaker_belt: "sproto-fighter",
   };
   var SLOTS: { [game: string]: string[] } = {
     hpos10i: ["skin", "cape"],
@@ -32,7 +33,7 @@ namespace HubLoadout {
     relic: string;
   }
 
-  // 12 matrix rows, plus the Sproto staff that every duel has. A Relic never
+  // 16 matrix rows (3 per Four Lights Relic, 4 for the Belt), plus the Sproto staff every duel has. A Relic never
   // produces an item in the game that awarded it.
   var ITEMS: ItemDef[] = [
     { id: "nobu_wizard_hat", game: "nobu", slot: "head", relic: "tinubu_crown" },
@@ -48,6 +49,12 @@ namespace HubLoadout {
     { id: "pb_summon_speed", game: "peoples-bitcoin", slot: "summon", relic: "hpos10i_core" },
     { id: "pb_summon_nobu", game: "peoples-bitcoin", slot: "summon", relic: "cones_tip" },
     { id: "pb_summon_duelist", game: "peoples-bitcoin", slot: "summon", relic: "tinubu_crown" },
+    // Tidebreaker Belt (Sproto Fighter): one item in each of the four games. Sproto Fighter has no
+    // loadout slots; its Relic fighters are unlocked in the game from the init relics.
+    { id: "duel_staff_fighters_might", game: "sproto", slot: "staff", relic: "tidebreaker_belt" },
+    { id: "nobu_champions_crown", game: "nobu", slot: "head", relic: "tidebreaker_belt" },
+    { id: "pb_summon_champion_sproto", game: "peoples-bitcoin", slot: "summon", relic: "tidebreaker_belt" },
+    { id: "hpos_skin_tidebreaker", game: "hpos10i", slot: "skin", relic: "tidebreaker_belt" },
   ];
 
   interface Caller {
@@ -82,11 +89,12 @@ namespace HubLoadout {
         relicCount[item.relic] = (relicCount[item.relic] || 0) + 1;
       }
     }
-    if (starters !== 1 || ITEMS.length !== 13) throw new Error("matrix_count");
+    if (starters !== 1 || ITEMS.length !== 17) throw new Error("matrix_count");
     var relics = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
     for (var r = 0; r < relics.length; r++) {
       if (relicCount[relics[r]] !== 3) throw new Error("matrix_count");
     }
+    if (relicCount.tidebreaker_belt !== 4) throw new Error("matrix_count");
   }
   assertCatalog();
 
