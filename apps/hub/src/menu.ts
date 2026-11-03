@@ -26,10 +26,10 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
 /** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
 const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
-  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Halloween 2008' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: '$Bitcoin Obama' },
-  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Big Swole' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Bongraker' },
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Sun God' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Pissing Sproto' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto' },
   tidebreaker_belt: {
     game: 'Sproto Fighter (Bar arcade)',
     how: 'Win Story World 1, Tidebreaker Marina.',
@@ -324,7 +324,7 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Relics
   const relicsPage = bodies.get('relics') as HTMLElement;
-  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. It lights its socket on the monument, orbits you as a gem and unlocks an aura in Edit avatar. Switch a Relic off to stop its gem orbiting you; you keep it either way.'));
+  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. It lights its socket on the monument, orbits you as a gem and unlocks an aura in Edit avatar. The four Four Lights Relics each unlock a Sproto Fighter character, and all four unlock Error 333. Switch a Relic off to stop its gem orbiting you; you keep it either way.'));
   const relicGrid = el('ul', 'menu-grid relics');
   const relicCards = new Map<string, HTMLElement>();
   for (const socket of ALL_RELICS) {
