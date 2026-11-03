@@ -8,7 +8,9 @@
     "noUnusedLocals": true,
     "noUnusedParameters": false,
     "forceConsistentCasingInFileNames": true,
-    "lib": ["ES2015"],
+    "lib": [
+      "ES2015"
+    ],
     "types": [],
     "skipLibCheck": true,
     "sourceMap": false,
@@ -16,11 +18,14 @@
   },
   "files": [
     "src/nakama.d.ts",
+    "src/sproto_nakama.d.ts",
+    "src/sproto_sim.d.ts",
     "src/shop_seed.ts",
     "src/schema.ts",
     "src/effects.ts",
     "src/fault.ts",
     "src/rpcs.ts",
+    "src/sproto_duel.ts",
     "src/main.ts"
   ]
 }

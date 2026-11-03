@@ -1652,6 +1652,178 @@ namespace HubSchema {
          ON CONFLICT (game_id, event_type) DO NOTHING`,
       ],
     },
+    {
+      // Sproto Fighter online duels: a fixed stake per player held in escrow by
+      // the sproto_duel match, paid to the verified winner or refunded. Wagers
+      // move existing Tickets between players; they never mint Tickets, so they
+      // do not touch earn_window or the session earn cap.
+      id: "0010_sproto_fighter_wagers",
+      statements: [
+        "ALTER TABLE game.tickets_ledger DROP CONSTRAINT IF EXISTS tickets_ledger_kind",
+        "ALTER TABLE game.tickets_ledger ADD CONSTRAINT tickets_ledger_kind CHECK (kind IS NULL OR kind IN ('earn', 'exchange', 'spend', 'shop_sell', 'duel_stake', 'duel_payout', 'duel_refund'))",
+        `CREATE TABLE IF NOT EXISTS game.sproto_wager (
+          wager_id uuid PRIMARY KEY,
+          match_id text NOT NULL UNIQUE,
+          stake bigint NOT NULL CHECK (stake > 0),
+          player_a uuid NOT NULL,
+          player_b uuid NOT NULL,
+          status text NOT NULL,
+          winner uuid,
+          reason text,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz,
+          CONSTRAINT sproto_wager_players CHECK (player_a <> player_b),
+          CONSTRAINT sproto_wager_status CHECK (status IN ('held', 'settled', 'refunded')),
+          CONSTRAINT sproto_wager_winner CHECK (winner IS NULL OR winner = player_a OR winner = player_b)
+        )`,
+        "CREATE INDEX IF NOT EXISTS sproto_wager_open ON game.sproto_wager (created_at) WHERE status = 'held'",
+        "CREATE INDEX IF NOT EXISTS sproto_wager_a ON game.sproto_wager (player_a, created_at)",
+        "CREATE INDEX IF NOT EXISTS sproto_wager_b ON game.sproto_wager (player_b, created_at)",
+
+        // Move Tickets for one user inside an already-locked transaction.
+        // Returns the new balance, or NULL when a debit would go negative.
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_move(
+           p_user_id uuid, p_delta bigint, p_kind text, p_wager_id uuid
+         ) RETURNS bigint LANGUAGE plpgsql AS $fn$
+         DECLARE v_balance bigint;
+         BEGIN
+           SELECT balance INTO v_balance FROM game.tickets_balance
+           WHERE user_id = p_user_id AND game_id = 'sproto-fighter' FOR UPDATE;
+           IF NOT FOUND THEN v_balance := 0; END IF;
+           IF v_balance + p_delta < 0 THEN RETURN NULL; END IF;
+           INSERT INTO game.tickets_balance (user_id, game_id, balance)
+           VALUES (p_user_id, 'sproto-fighter', v_balance + p_delta)
+           ON CONFLICT (user_id, game_id) DO UPDATE SET balance = EXCLUDED.balance
+           RETURNING balance INTO v_balance;
+           INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+           VALUES (gen_random_uuid(), p_user_id, 'sproto-fighter', p_delta, v_balance, p_kind, p_wager_id, p_kind);
+           RETURN v_balance;
+         END;
+         $fn$`,
+
+        // Lock both players' economies in a fixed order, so two holds can't deadlock.
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_lock(p_a uuid, p_b uuid) RETURNS void LANGUAGE plpgsql AS $fn$
+         BEGIN
+           PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || LEAST(p_a::text, p_b::text), 0));
+           PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || GREATEST(p_a::text, p_b::text), 0));
+         END;
+         $fn$`,
+
+        // Take the stake from both players. Idempotent by match id. Abuse limits:
+        // p_min_cpu_wins verified CPU wins before a first wager, p_pair_limit
+        // wagers per pair per UTC day, p_daily_cap net Tickets won per UTC day.
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_hold(
+           p_match_id text, p_a uuid, p_b uuid, p_stake bigint,
+           p_min_cpu_wins int, p_pair_limit int, p_daily_cap bigint
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_existing game.sproto_wager%ROWTYPE;
+           v_wager uuid;
+           v_day timestamptz;
+           v_user uuid;
+           v_count bigint;
+           v_net bigint;
+           v_a bigint;
+           v_b bigint;
+         BEGIN
+           IF p_a = p_b THEN RETURN jsonb_build_object('error', 'same_player'); END IF;
+           PERFORM game.sproto_wager_lock(p_a, p_b);
+           SELECT * INTO v_existing FROM game.sproto_wager WHERE match_id = p_match_id;
+           IF FOUND THEN
+             RETURN jsonb_build_object('wagerId', v_existing.wager_id, 'status', v_existing.status, 'stake', v_existing.stake);
+           END IF;
+           v_day := date_trunc('day', now() AT TIME ZONE 'utc') AT TIME ZONE 'utc';
+           FOREACH v_user IN ARRAY ARRAY[p_a, p_b] LOOP
+             SELECT count(*) INTO v_count FROM game.tickets_ledger
+             WHERE user_id = v_user AND game_id = 'sproto-fighter' AND reason = 'fighter_win';
+             IF v_count < p_min_cpu_wins THEN
+               RETURN jsonb_build_object('error', 'not_eligible', 'user', v_user, 'needed', p_min_cpu_wins - v_count);
+             END IF;
+             SELECT COALESCE(SUM(delta), 0) INTO v_net FROM game.tickets_ledger
+             WHERE user_id = v_user AND game_id = 'sproto-fighter' AND created_at >= v_day
+               AND kind IN ('duel_stake', 'duel_payout', 'duel_refund');
+             IF v_net >= p_daily_cap THEN
+               RETURN jsonb_build_object('error', 'daily_wager_cap', 'user', v_user);
+             END IF;
+           END LOOP;
+           SELECT count(*) INTO v_count FROM game.sproto_wager
+           WHERE created_at >= v_day AND ((player_a = p_a AND player_b = p_b) OR (player_a = p_b AND player_b = p_a));
+           IF v_count >= p_pair_limit THEN
+             RETURN jsonb_build_object('error', 'pair_limit');
+           END IF;
+           v_wager := gen_random_uuid();
+           v_a := game.sproto_wager_move(p_a, -p_stake, 'duel_stake', v_wager);
+           IF v_a IS NULL THEN RETURN jsonb_build_object('error', 'insufficient_tickets', 'user', p_a); END IF;
+           v_b := game.sproto_wager_move(p_b, -p_stake, 'duel_stake', v_wager);
+           IF v_b IS NULL THEN
+             -- Undo player A's debit in this same transaction by raising; caller sees the error.
+             RAISE EXCEPTION 'sproto_wager_insufficient_b';
+           END IF;
+           INSERT INTO game.sproto_wager (wager_id, match_id, stake, player_a, player_b, status)
+           VALUES (v_wager, p_match_id, p_stake, p_a, p_b, 'held');
+           RETURN jsonb_build_object('wagerId', v_wager, 'status', 'held', 'stake', p_stake,
+             'balances', jsonb_build_object(p_a::text, v_a, p_b::text, v_b));
+         EXCEPTION WHEN raise_exception THEN
+           IF SQLERRM = 'sproto_wager_insufficient_b' THEN
+             RETURN jsonb_build_object('error', 'insufficient_tickets', 'user', p_b);
+           END IF;
+           RAISE;
+         END;
+         $fn$`,
+
+        // Pay the pot to the winner. Idempotent; a closed wager is never paid twice.
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_settle(p_match_id text, p_winner uuid, p_reason text)
+         RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE w game.sproto_wager%ROWTYPE; v_balance bigint;
+         BEGIN
+           SELECT * INTO w FROM game.sproto_wager WHERE match_id = p_match_id;
+           IF NOT FOUND THEN RETURN jsonb_build_object('error', 'no_wager'); END IF;
+           PERFORM game.sproto_wager_lock(w.player_a, w.player_b);
+           SELECT * INTO w FROM game.sproto_wager WHERE match_id = p_match_id FOR UPDATE;
+           IF w.status <> 'held' THEN
+             RETURN jsonb_build_object('status', w.status, 'winner', w.winner, 'reason', w.reason, 'repeat', true);
+           END IF;
+           IF p_winner <> w.player_a AND p_winner <> w.player_b THEN RETURN jsonb_build_object('error', 'not_a_player'); END IF;
+           v_balance := game.sproto_wager_move(p_winner, w.stake * 2, 'duel_payout', w.wager_id);
+           UPDATE game.sproto_wager SET status = 'settled', winner = p_winner, reason = p_reason, closed_at = now()
+           WHERE wager_id = w.wager_id;
+           RETURN jsonb_build_object('status', 'settled', 'winner', p_winner, 'payout', w.stake * 2, 'balance', v_balance, 'reason', p_reason);
+         END;
+         $fn$`,
+
+        // Return each stake. Idempotent.
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_refund(p_match_id text, p_reason text)
+         RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE w game.sproto_wager%ROWTYPE;
+         BEGIN
+           SELECT * INTO w FROM game.sproto_wager WHERE match_id = p_match_id;
+           IF NOT FOUND THEN RETURN jsonb_build_object('status', 'none'); END IF;
+           PERFORM game.sproto_wager_lock(w.player_a, w.player_b);
+           SELECT * INTO w FROM game.sproto_wager WHERE match_id = p_match_id FOR UPDATE;
+           IF w.status <> 'held' THEN
+             RETURN jsonb_build_object('status', w.status, 'winner', w.winner, 'reason', w.reason, 'repeat', true);
+           END IF;
+           PERFORM game.sproto_wager_move(w.player_a, w.stake, 'duel_refund', w.wager_id);
+           PERFORM game.sproto_wager_move(w.player_b, w.stake, 'duel_refund', w.wager_id);
+           UPDATE game.sproto_wager SET status = 'refunded', reason = p_reason, closed_at = now()
+           WHERE wager_id = w.wager_id;
+           RETURN jsonb_build_object('status', 'refunded', 'reason', p_reason);
+         END;
+         $fn$`,
+
+        // Refund every wager still held after p_age (a crashed or abandoned match).
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_expire(p_age interval) RETURNS integer LANGUAGE plpgsql AS $fn$
+         DECLARE m text; n integer := 0;
+         BEGIN
+           FOR m IN SELECT match_id FROM game.sproto_wager WHERE status = 'held' AND created_at < now() - p_age LOOP
+             PERFORM game.sproto_wager_refund(m, 'expired');
+             n := n + 1;
+           END LOOP;
+           RETURN n;
+         END;
+         $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {

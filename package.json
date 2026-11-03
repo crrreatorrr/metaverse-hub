@@ -9,7 +9,7 @@
   ],
   "scripts": {
     "dev": "npm run build -w @metaverse/hub-sdk && npm run dev -w @metaverse/hub",
-    "build": "npm run build -w @metaverse/hub-sdk && node server/modules/embed-shop.mjs && tsc -p server/modules/tsconfig.json && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
+    "build": "npm run build -w @metaverse/hub-sdk && node server/modules/embed-shop.mjs && tsc -p server/modules/tsconfig.json && node server/modules/append-vendor.mjs && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
     "typecheck": "npm run typecheck -w @metaverse/hub-sdk && npm run build -w @metaverse/hub-sdk && node server/modules/embed-shop.mjs && tsc -p server/modules/tsconfig.json && npm run typecheck -w @metaverse/hub && tsc -p scripts/tsconfig.json --noEmit",
     "lint": "eslint .",
     "test": "tsx packages/hub-sdk/test/sdk.test.ts && tsx scripts/sim-capsule.ts",
