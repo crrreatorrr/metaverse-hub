@@ -32,7 +32,7 @@ import {
   WebGLRenderer,
 } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
-import { FOUR_LIGHTS_RELIC_IDS, type RelicId } from '@metaverse/hub-sdk';
+import { FOUR_LIGHTS_RELIC_IDS, isRelicId, type RelicId } from '@metaverse/hub-sdk';
 import { createAvatarRig } from './avatar';
 import type { AvatarLook } from './look';
 import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
@@ -40,7 +40,7 @@ import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './m3/ba
 import { addHallOfChampions } from './m3/hallOfChampions';
 import { addLivingPortals } from './m3/livingPortals';
 import { addOrbitGems } from './m3/orbitGems';
-import { RELIC_GEMS, type OrbitAvatar } from './m3/types';
+import type { OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
@@ -97,6 +97,8 @@ export interface HubWorld {
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
   setRelics: (ids: readonly string[]) => void;
+  /** Relics the player switched off in the Relics menu: their gems stop orbiting the avatar. */
+  setHiddenRelics: (ids: readonly string[]) => void;
   setLook: (look: AvatarLook) => void;
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
@@ -336,6 +338,8 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
   outdoor.add(hall.door);
   let localRelics: RelicId[] = [];
+  let ownedRelics: RelicId[] = [];
+  let hiddenRelics = new Set<string>();
   let devAvatars: OrbitAvatar[] = [];
   let hallOpen = false;
   const gems = addOrbitGems(scene, {
@@ -620,14 +624,15 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     setPet: (id) => pets.setPet(id),
     setRelics(ids) {
       const owned = new Set(ids);
-      // Orbit gems and the Hall of Champions follow the Four Lights only. The Tidebreaker Belt
-      // (Sproto Fighter) lights its own plinth in the Bar instead.
-      localRelics = ids.filter((id): id is RelicId => (FOUR_LIGHTS_RELIC_IDS as readonly string[]).includes(id));
+      // Every owned Relic orbits the avatar unless switched off. The Hall of Champions still opens
+      // on the four Four Lights Relics only (the server's Four Lights rule).
+      ownedRelics = ids.filter(isRelicId);
+      localRelics = ownedRelics.filter((id) => !hiddenRelics.has(id));
       beltOwned = owned.has('tidebreaker_belt');
       arcade?.setBeltOwned(beltOwned);
       syncGems();
       if (!devPreview) {
-        hallOpen = localRelics.length === RELIC_GEMS.length;
+        hallOpen = FOUR_LIGHTS_RELIC_IDS.every((id) => owned.has(id));
         hall.setOpen(hallOpen);
       }
       pedestal.rings.forEach((ring, index) => {
@@ -638,6 +643,11 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         const socket = sockets[index];
         if (socket) socket.on = on;
       });
+    },
+    setHiddenRelics(ids) {
+      hiddenRelics = new Set(ids);
+      localRelics = ownedRelics.filter((id) => !hiddenRelics.has(id));
+      syncGems();
     },
     setBoard(title, rows, sample) {
       void title;

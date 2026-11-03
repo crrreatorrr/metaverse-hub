@@ -142,16 +142,21 @@ export const AVATAR_CLIPS = {
 /** Crossfade times (s). The clips bake their own bounce, so the old procedural bob is off. */
 export const AVATAR_BLEND = { idleToMove: 0.15, moveToIdle: 0.2, jogToDash: 0.22, dashToJog: 0.28 } as const;
 
-/** Sockets on the Four Lights, same order as the diagonal orbit (NE, SE, SW, NW). */
+/**
+ * Sockets on the monument, one per Relic, in ring order. The first four are the Four Lights
+ * (Hall of Champions and the Four Lights Sproto still need exactly those); the Tidebreaker Belt
+ * (Sproto Fighter) is the fifth.
+ */
 export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
   { id: 'hpos10i_core', relic: 'HPOS10I Core', color: '#ff2ea6', angle: Math.PI / 4 },
   { id: 'genesis_shard', relic: 'Genesis Block Shard', color: '#f5b942', angle: (3 * Math.PI) / 4 },
   { id: 'cones_tip', relic: "Cone's Tip", color: '#3ec6ff', angle: (-3 * Math.PI) / 4 },
   { id: 'tinubu_crown', relic: "Tinubu's Crown", color: '#8d6bff', angle: -Math.PI / 4 },
+  { id: 'tidebreaker_belt', relic: 'Tidebreaker Belt', color: '#66d7e8', angle: 0 },
 ];
 
-/** Sproto Fighter's Relic. Not a Four Lights socket: it lights a plinth by the Bar's arcade cabinet. */
-export const ARCADE_RELIC: { id: RelicId; relic: string; color: string } = { id: 'tidebreaker_belt', relic: 'Tidebreaker Belt', color: '#66d7e8' };
+/** Sproto Fighter's Relic. It has a monument socket and also lights the plinth by the Bar's arcade cabinet. */
+export const ARCADE_RELIC = SOCKETS[4];
 
-/** Every Relic, for the Relics menu and the HUD count: the four sockets, then the Belt. */
-export const ALL_RELICS: readonly { id: RelicId; relic: string; color: string }[] = [...SOCKETS, ARCADE_RELIC];
+/** Every Relic, for the Relics menu and the HUD count. */
+export const ALL_RELICS: readonly { id: RelicId; relic: string; color: string }[] = SOCKETS;

@@ -129,7 +129,31 @@ const chat = createChat({
 chat.system('Welcome to the plaza. Press Enter to chat.');
 chat.system('Only you can see chat until multiplayer goes live.');
 
+// Relics switched off in the Relics menu: their gems stop orbiting the avatar. Per browser.
+const HIDDEN_RELICS_KEY = 'hub:relics:hidden';
+let hiddenRelics: string[] = loadHiddenRelics();
+world.setHiddenRelics(hiddenRelics);
+
+function loadHiddenRelics(): string[] {
+  try {
+    const parsed: unknown = JSON.parse(localStorage.getItem(HIDDEN_RELICS_KEY) ?? '[]');
+    return Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 const menu = createMenu({
+  hiddenRelics: () => hiddenRelics,
+  setHiddenRelics(ids) {
+    hiddenRelics = [...ids];
+    world.setHiddenRelics(hiddenRelics);
+    try {
+      localStorage.setItem(HIDDEN_RELICS_KEY, JSON.stringify(hiddenRelics));
+    } catch {
+      // Storage may be off (private window). The switch still applies for this visit.
+    }
+  },
   look: () => look,
   setLook(next) {
     look = next;

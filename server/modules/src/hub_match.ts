@@ -31,12 +31,13 @@ namespace HubMatch {
     dance: true,
     cheer: true,
   };
-  var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
+  var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt"];
   var RELIC_OK: { [id: string]: boolean } = {
     hpos10i_core: true,
     genesis_shard: true,
     cones_tip: true,
     tinubu_crown: true,
+    tidebreaker_belt: true,
   };
 
   interface Presence {
@@ -127,7 +128,7 @@ namespace HubMatch {
   }
 
   function lookupRelics(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): string[] {
-    var sql = "SELECT COALESCE(json_agg(relic_id), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown')";
+    var sql = "SELECT COALESCE(json_agg(relic_id), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt')";
     assertSelectOnly(sql);
     try {
       var rows = nk.sqlQuery(sql, [userId]);

@@ -59,7 +59,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 `#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, or `sproto-fighter`. `#from=sproto-fighter` loads the Bar and puts the avatar at the arcade cabinet.
 
-**Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It is a Relic, but not one of the Four Lights sockets, so it does not count toward the Hall of Champions or the Four Lights Sproto pet. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
+**Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It also has the fifth socket on the monument and orbits your avatar like the other Relics, but it does not count toward the Hall of Champions or the Four Lights Sproto pet, which still need the original four. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
 
 ## Scripts
 
@@ -81,7 +81,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the 
 
 A round neon plaza, about 60 m across, built from primitives and emissive materials. No downloaded art.
 
-- **The Four Lights** at the center: four empty relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown) and a sealed Hall of Champions portal. Nothing lights up until a relic exists.
+- **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
 - **Four gates** on the ring, each in a labelled placeholder building: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). Blockouts only; the portal ring and the return spawn are unchanged.
 - **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard is a screen on the inside wall: HPOS10I, NOBU, People's Bitcoin, Sproto Duel, and Total. Each tab ranks lifetime Verse earned. Sample rows stand in until someone has earned Verse in that game.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.

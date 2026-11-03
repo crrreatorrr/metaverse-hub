@@ -1697,6 +1697,36 @@ button:disabled {
   color: var(--ink);
 }
 
+.relic-side {
+  flex: none;
+  align-self: flex-start;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.relic-toggle {
+  padding: 5px 7px 4px;
+  font: 7px var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--relic);
+  border: 0;
+  box-shadow: 0 0 0 2px var(--ink);
+  cursor: pointer;
+}
+
+.relic-toggle[aria-pressed="false"] {
+  color: #8ea2d8;
+  background: var(--navy);
+}
+
+.relic-card.relic-hidden .relic-gem {
+  animation: none;
+  opacity: 0.5;
+}
+
 /* ----- Footer and the 3D stage */
 
 .menu-foot {
