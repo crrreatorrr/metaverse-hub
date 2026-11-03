@@ -69,6 +69,37 @@ function rpcAccountClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: n
   return guard(HubRpc.accountClaim, ctx, logger, nk, payload);
 }
 
+function rpcSprotoDevReplay(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(SprotoDuel.rpcReplay, ctx, logger, nk, payload);
+}
+
+type DuelState = SprotoDuel.DuelState;
+// Nakama resolves match handlers by top-level function name, so each callback is a named wrapper.
+function sprotoDuelInit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, params: { [key: string]: unknown }) {
+  return SprotoDuel.handler.matchInit(ctx, logger, nk, params);
+}
+function sprotoDuelJoinAttempt(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, presence: nkruntime.Presence, metadata: { [key: string]: unknown }) {
+  return SprotoDuel.handler.matchJoinAttempt(ctx, logger, nk, dispatcher, tick, state, presence, metadata);
+}
+function sprotoDuelJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, presences: nkruntime.Presence[]) {
+  return SprotoDuel.handler.matchJoin(ctx, logger, nk, dispatcher, tick, state, presences);
+}
+function sprotoDuelLeave(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, presences: nkruntime.Presence[]) {
+  return SprotoDuel.handler.matchLeave(ctx, logger, nk, dispatcher, tick, state, presences);
+}
+function sprotoDuelLoop(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, messages: nkruntime.MatchMessage[]) {
+  return SprotoDuel.handler.matchLoop(ctx, logger, nk, dispatcher, tick, state, messages);
+}
+function sprotoDuelTerminate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, graceSeconds: number) {
+  return SprotoDuel.handler.matchTerminate(ctx, logger, nk, dispatcher, tick, state, graceSeconds);
+}
+function sprotoDuelSignal(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, data: string) {
+  return SprotoDuel.handler.matchSignal(ctx, logger, nk, dispatcher, tick, state, data);
+}
+function sprotoDuelMatched(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
+  return SprotoDuel.onMatched(ctx, logger, nk, matches);
+}
+
 function beforeCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   return HubRpc.beforeAuthenticateCustom(ctx, logger, nk, data);
 }
@@ -115,6 +146,17 @@ function InitModule(
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
   initializer.registerRpc("account.claim", rpcAccountClaim);
+  initializer.registerRpc("sproto.dev_replay", rpcSprotoDevReplay);
+  initializer.registerMatch("sproto_duel", {
+    matchInit: sprotoDuelInit,
+    matchJoinAttempt: sprotoDuelJoinAttempt,
+    matchJoin: sprotoDuelJoin,
+    matchLeave: sprotoDuelLeave,
+    matchLoop: sprotoDuelLoop,
+    matchTerminate: sprotoDuelTerminate,
+    matchSignal: sprotoDuelSignal,
+  });
+  initializer.registerMatchmakerMatched(sprotoDuelMatched);
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
   initializer.registerBeforeAuthenticateDevice(beforeHub);
   // Email auth is on in Nakama with no extra provider config. Same hub scope as device.

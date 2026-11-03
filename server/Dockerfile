@@ -2,7 +2,8 @@ FROM node:22-alpine AS build
 WORKDIR /src
 COPY modules/package.json modules/package-lock.json ./
 RUN npm ci
-COPY modules/tsconfig.json modules/embed-shop.mjs ./
+COPY modules/tsconfig.json modules/embed-shop.mjs modules/append-vendor.mjs ./
+COPY modules/vendor ./vendor
 COPY data/pb_shop_prices.csv ./data/pb_shop_prices.csv
 COPY modules/src ./src
 RUN npm run build

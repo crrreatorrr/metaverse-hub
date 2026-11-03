@@ -3,7 +3,7 @@
   "private": true,
   "version": "0.1.0",
   "scripts": {
-    "build": "node embed-shop.mjs && tsc -p tsconfig.json"
+    "build": "node embed-shop.mjs && tsc -p tsconfig.json && node append-vendor.mjs"
   },
   "devDependencies": {
     "typescript": "5.9.3"
