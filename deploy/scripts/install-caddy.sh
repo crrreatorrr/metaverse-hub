@@ -26,7 +26,7 @@ chmod 600 /etc/caddy/certs/origin.key
 umask 022
 {
   printf 'DOMAIN=%s\n' "$domain"
-  for key in GAME_COOP_HPOS10I GAME_COOP_NOBU GAME_COOP_PEOPLES_BITCOIN GAME_COOP_SPROTO_DUEL; do
+  for key in GAME_COOP_HPOS10I GAME_COOP_NOBU GAME_COOP_PEOPLES_BITCOIN GAME_COOP_SPROTO_DUEL GAME_COOP_SPROTO_FIGHTER; do
     val="$(read_env "$file" "$key")"
     if [ -z "$val" ]; then
       val=0
