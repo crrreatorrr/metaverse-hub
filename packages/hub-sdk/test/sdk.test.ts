@@ -271,6 +271,7 @@ async function main(): Promise<void> {
   }
 
   await liveSdk();
+  await staleOutbox();
   await nakamaClientWire();
   console.log('hub-sdk tests ok');
 }
@@ -374,6 +375,104 @@ async function liveSdk(): Promise<void> {
   assert.equal(hash, '');
   assert.equal(custom.at(-1)?.id, 't:spent');
   assert.equal(custom.at(-1)?.create, false);
+}
+
+/**
+ * A queued write keeps the token it was first sent with. When that session is closed,
+ * the same player's next session for the same game sends it, and a row nobody here
+ * can carry never fails init.
+ */
+async function staleOutbox(): Promise<void> {
+  const tickets: Record<string, { user: string; sid: string }> = {
+    a: { user: 'user-1', sid: 'sid-a' },
+    b: { user: 'user-1', sid: 'sid-b' },
+    c: { user: 'user-2', sid: 'sid-c' },
+    d: { user: 'user-1', sid: 'sid-d' },
+  };
+  const tokenOf = (name: string) => fakeJwt(tickets[name]!.user, { sid: tickets[name]!.sid, ranked: '0', scope: 'game', game: 'nobu' });
+  const closed = new Set<string>();
+  let down = false;
+  const sent: { key: string; token?: string }[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-1' };
+    },
+    async authenticateCustom(id) {
+      const name = id.slice(2);
+      return { token: tokenOf(name), refreshToken: `refresh-${name}`, userId: tickets[name]!.user };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string }): Promise<T> {
+      if (id === 'profile.get') return { relics: [], ticketsCapLeft: 0 } as T;
+      if (opts?.token && closed.has(opts.token)) throw new HubSdkError('session_closed', 'Session is closed');
+      if (id === 'session.event') {
+        const key = (body as { key: string }).key;
+        sent.push({ key, token: opts?.token });
+        if (down) throw new HubSdkError('rpc_failed', 'bad gateway', 502);
+        return { granted: 'cones_tip' } as T;
+      }
+      throw new Error(`unexpected rpc ${id}`);
+    },
+  };
+  let hash = '';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const isCode = (code: string) => (error: unknown) => {
+    assert.ok(error instanceof HubSdkError);
+    assert.equal(error.code, code);
+    return true;
+  };
+
+  // Session a is closed by another portal before the Cone win reaches the hub.
+  hash = '#t=a';
+  const first = open();
+  await first.init('nobu');
+  closed.add(tokenOf('a'));
+  await assert.rejects(() => first.reportEvent(HubEvent.NobuBossDefeated, { boss: 'cone' }, 'cone-1'), isCode('session_closed'));
+
+  // The next launch of the same player resolves and sends it on the new session.
+  hash = '#t=b';
+  const second = await open().init('nobu');
+  assert.deepEqual(second.relics, ['cones_tip']);
+  assert.deepEqual(sent.filter((call) => call.key === 'cone-1').map((call) => call.token), [tokenOf('b')]);
+
+  // Another player's dead row is never sent on this player's session, and does not fail init.
+  hash = '#t=c';
+  const other = open();
+  await other.init('nobu');
+  closed.add(tokenOf('c'));
+  await assert.rejects(() => other.reportEvent(HubEvent.NobuBossDefeated, { boss: 'cone' }, 'cone-2'), isCode('session_closed'));
+  hash = '#t=b';
+  await open().init('nobu');
+  assert.equal(sent.some((call) => call.key === 'cone-2' && call.token !== tokenOf('c')), false);
+
+  // A standalone launch with that dead row still in the outbox runs standalone.
+  hash = '';
+  session.removeItem('hub:nobu:session');
+  const alone = await open().init('nobu');
+  assert.equal(alone.ranked, false);
+
+  // Other failures still reject init, as before.
+  hash = '#t=b';
+  const live = open();
+  await live.init('nobu');
+  down = true;
+  await assert.rejects(() => live.reportEvent(HubEvent.NobuBossDefeated, { boss: 'cone' }, 'cone-3'), isCode('rpc_failed'));
+  closed.add(tokenOf('b'));
+  hash = '#t=d';
+  await assert.rejects(() => open().init('nobu'), isCode('rpc_failed'));
+  down = false;
+  await open().init('nobu');
+  assert.equal(sent.filter((call) => call.key === 'cone-3').at(-1)?.token, tokenOf('d'));
 }
 
 async function nakamaClientWire(): Promise<void> {
