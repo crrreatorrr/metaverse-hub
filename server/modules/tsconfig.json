@@ -35,6 +35,8 @@
     "src/hub_match.ts",
     "src/hub_rpcs.ts",
     "src/sproto_duel.ts",
+    "src/item_grant.ts",
+    "src/pets.ts",
     "src/main.ts"
   ],
   // Game files (Contract C3): emitted after `files`, alphabetically, so they can

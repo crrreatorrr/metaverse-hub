@@ -1,8 +1,12 @@
 # M6 server prep
 
-Sproto pets: cosmetic item grants, the hub pet slot, and the `profile.get` pets helper. The pet RPCs and the item grant are not registered. No migration file is added, and no `schema_migrations` id is reserved. QA owns tests. This change adds none.
+Sproto pets: cosmetic item grants, the hub pet slot, and the `profile.get` pets helper.
 
-The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin. `profile.get`, the item-grant paste, and `server/modules/src/schema.ts` stay as they are on main. This branch does not add `game.lock_open_session` and does not replace `game.apply_event`.
+> **Status: wired.** Ledger entry `0030_m6_item_grants` in `server/modules/src/schema.ts` creates `game.item_owned` and `game.item_rule`, widens `item_ledger_op`, seeds the seven `item_rule` rows below, and replaces `game.apply_event` with 0007's definition plus the grant statement, pasted before the idempotency insert. Every successful `session.event` response now carries `granted_items` (`[]` when nothing is granted), and a replay of the same key returns the stored list. `item_grant.ts` and `pets.ts` are in the bundle, `profile.get` returns `pets`, and `loadout.set_hub` is registered. The three item audit queries are in `server/test/dup/audit.sql`, and `server/test/dup/pets.ts` (`DUP_ONLY=pets npm run test:dup`) and `server/test/unit/item_grant.test.ts` cover the grant. Still not wired: `game.lock_open_session` (the grant keeps the inline session predicate), the backfill migration, and the server-internal Baby Sproto / Four Lights grants. The hub client does not yet show or equip pets.
+>
+> The id is 0030 because the runner refuses an unapplied id below the highest recorded one, and the reserved ranges (Contract C4) run to 0029. 0030 is the first id above them. Once 0030 is recorded, an unapplied id below it is refused, so a later Sproto Arcade migration in 0026–0029 has to be renumbered above 0030 (PB 0013–0019 and Sproto 0021–0024 were already below the recorded 0025). The rest of this page is the original prep text. Where it says "this branch does not", read it as the state before 0030.
+
+The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin.
 
 ## Files
 
@@ -12,7 +16,7 @@ The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src
 | `server/modules/src/pets.ts` | `profilePets`, `loadout.set_hub`, `derivedOwned`, backfill statement (not executed) |
 | `docs/m6-server-prep.md` | This wiring list |
 
-Neither pet module is in the `files` array of `server/modules/tsconfig.json`, so `tsc` does not concatenate them into `server/modules/build/index.js`. `InitModule` does not register `loadout.set_hub` and does not run a grant or the backfill. Loading the pet modules, once they are compiled in, only checks the in-memory catalog. It does not open a session or write a row.
+Both pet modules are in the `files` array of `server/modules/tsconfig.json`, just before `main.ts`. `InitModule` registers `loadout.set_hub`. It does not run `HubItems.grantFromEvent` (the live grant is the statement inside `game.apply_event`) or the backfill. Loading the pet modules only checks the in-memory catalog. It does not open a session or write a row.
 
 ## Grant rule
 
@@ -41,7 +45,7 @@ An empty `item_rule.match` (`{}`) does not grant. Every seeded match below is a 
 
 ## Item rules that grant
 
-Seeded when the ledger entry is applied. Not applied in this branch.
+Seeded by `0030_m6_item_grants`.
 
 | pet_id | game_id | event_type | match |
 | --- | --- | --- | --- |
@@ -132,7 +136,7 @@ Live grants for Baby Sproto and Four Lights are separate from this migration. Th
 
 ## Statement to paste into `game.apply_event`
 
-Declare `v_items json` next to the other variables. After the relic block updates `v_response`, and before the idempotency insert, run the statement `HubItems.grantFromEvent` runs. With the constants spliced in, that statement is:
+Declare `v_items json` next to the other variables. After the relic block updates `v_response`, and before the idempotency insert, run the statement `HubItems.grantFromEvent` runs. `0030_m6_item_grants` does exactly this. Its excluded list also names `tidebreaker_belt` and `breakwater_coin`, the two Relics added after this page was written, matching `EXCLUDED` in `item_grant.ts`. With the constants spliced in, the statement as first written is:
 
 ```sql
 WITH sess AS (
@@ -203,6 +207,8 @@ After that function is applied, switch the grant statement's `sess` CTE from the
 
 ## Schema to number later
 
+Numbered as `0030_m6_item_grants`. The tables use `CREATE TABLE IF NOT EXISTS` and the constraint drop uses `IF EXISTS`, so the entry replays cleanly in the duplication suite's migration replay. Otherwise the statements are the ones below. Original text:
+
 No migration file is in this branch. #24 (not on main) records `0001_schema_migrations`, `0002_baseline`, and `0003_merge_pb_into_peoples_bitcoin`. Its notes reserve later ids for #12 and #13. #17 and #28 also need free ids. This branch does not pick or reserve one.
 
 When this is wired, put the statements below in one new ledger entry. The id is the next free id in `game.schema_migrations` at that time. Do not edit `0002_baseline` or any id already stored. A changed checksum fails startup. Do not append these statements to the `HubSchema` list on today's main if the ledger is what boots the database.
@@ -253,7 +259,7 @@ M7's pre-debit reject calls `HubPets.derivedOwned(nk, userId, itemId)`. That is 
 
 ## Audit
 
-Add these to the duplication audit when the tables exist. Each query must return 0 rows. This branch does not edit `server/test/dup/audit.sql`.
+These are in `server/test/dup/audit.sql` (kinds `item_owned_without_ledger`, `duplicate_item_grant`, `derived_item_owned`), run only when `game.item_owned` exists. Each query must return 0 rows. The third query there also lists `tidebreaker_belt` and `breakwater_coin`.
 
 ```sql
 SELECT o.user_id, o.item_id
@@ -282,6 +288,8 @@ WHERE item_id IN ('pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto',
 The third query is the derived-pet rule: those ids are not `item_owned` rows. `item_ledger` rows for `grant_relic` stay on the relic path and are not part of the `grant_item` count.
 
 ## Wiring after the ledger is on main
+
+Steps 1 to 4 are done, except that the item statement was pasted into a full `CREATE OR REPLACE game.apply_event` in 0030 with its inline session predicate, without waiting for `lock_open_session`. That helper and step 5 are still open.
 
 Do this on a branch from the main that contains #24. Leave #12, #13, #25, #28, and #29 rebase-free.
 

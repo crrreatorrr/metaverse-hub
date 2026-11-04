@@ -1,36 +1,11 @@
-// M6 hub pets. Not registered and not in tsconfig.json `files`, so the
-// Nakama bundle does not include this file. Wiring is docs/m6-server-prep.md.
+// M6 hub pets. Compiled into the Nakama bundle (tsconfig.json `files`). main.ts
+// registers setHub as loadout.set_hub, and profile.get adds profilePets. Wiring
+// is docs/m6-server-prep.md. Storage types come from nakama.d.ts.
 //
 // profilePets builds the pets object for profile.get. setHub is the
 // loadout.set_hub RPC. Both call ownedSet. The backfill statement is the
 // text of a future ledger migration and is not executed. Equipping writes
 // no ledger row and does not credit Tickets, Verse, Relics, or items.
-
-declare namespace nkruntime {
-  interface StorageReadRequest {
-    collection: string;
-    key: string;
-    userId: string;
-  }
-
-  interface StorageObject {
-    collection: string;
-    key: string;
-    userId: string;
-    value: { [key: string]: unknown };
-    version: string;
-    permissionRead: number;
-    permissionWrite: number;
-  }
-
-  interface Nakama {
-    storageRead(keys: StorageReadRequest[]): StorageObject[];
-  }
-
-  interface StorageWrite {
-    version?: string;
-  }
-}
 
 namespace HubPets {
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

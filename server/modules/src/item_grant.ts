@@ -1,5 +1,8 @@
-// M6 item grants. Not registered and not in tsconfig.json `files`, so the
-// Nakama bundle does not include this file. Wiring is docs/m6-server-prep.md.
+// M6 item grants. Compiled into the Nakama bundle (tsconfig.json `files`) so the
+// catalog checks run at load. The live grant is the same statement pasted into
+// game.apply_event by migration 0030_m6_item_grants (schema.ts); grantFromEvent is
+// not registered and session.event does not call it. Wiring is docs/m6-server-prep.md.
+// Keep CANONICAL, RULES and EXCLUDED in step with that migration.
 //
 // A pet or any other cosmetic item is granted only by session.event plus a
 // matching game.item_rule row. The grant is one statement: insert item_owned,
@@ -31,7 +34,7 @@ namespace HubItems {
     { event: "pb.quest_complete", game: "peoples-bitcoin" },
   ];
 
-  // Seeded later. The Pup is quest_hatchery, not a client item_obtained claim.
+  // Seeded by 0030_m6_item_grants. The Pup is quest_hatchery, not a client item_obtained claim.
   var RULES: ItemRule[] = [
     { game: "hpos10i", event: "hpos10i.level_complete", item: "pet_honk_sproto", match: "{\"zone\":\"z1_retro_rush_hills\",\"act\":2}" },
     { game: "hpos10i", event: "hpos10i.level_complete", item: "pet_spiral_sproto", match: "{\"zone\":\"z2_wizard_academy\",\"act\":2}" },

@@ -33,6 +33,10 @@ function rpcSavePut(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   return guard(HubRpc.savePut, ctx, logger, nk, payload);
 }
 
+function rpcLoadoutSetHub(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubPets.setHub, ctx, logger, nk, payload);
+}
+
 function rpcSessionClose(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.sessionClose, ctx, logger, nk, payload);
 }
@@ -213,6 +217,7 @@ function InitModule(
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
   initializer.registerRpc("account.claim", rpcAccountClaim);
+  initializer.registerRpc("loadout.set_hub", rpcLoadoutSetHub);
   initializer.registerRpc("sproto.dev_replay", rpcSprotoDevReplay);
   initializer.registerMatch("sproto_duel", {
     matchInit: sprotoDuelInit,
