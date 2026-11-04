@@ -68,7 +68,9 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.ok(add({ scope: 'hub' }, 'sproto-fighter'));
   assert.throws(() => add({ scope: 'hub' }, 'sproto'), /wrong_scope/);
   assert.throws(() => add({ scope: 'game', game: 'nobu', sid: SID }, 'sproto-fighter'), /wrong_game/);
-  assert.throws(() => add({ scope: 'game', game: 'sproto', sid: SID }, 'sproto'), /wrong_scope/, 'no sproto matchmaker registered in the hub tree yet');
+  // Game-scope sproto matchmaking is allowed once games/sproto_arena.ts registers its matchmaker.
+  if ((mod.global.HubGames as { list(): string[] }).list().includes('sproto')) assert.ok(add({ scope: 'game', game: 'sproto', sid: SID }, 'sproto'));
+  else assert.throws(() => add({ scope: 'game', game: 'sproto', sid: SID }, 'sproto'), /wrong_scope/, 'no sproto matchmaker registered in the hub tree yet');
   assert.throws(() => add(null, ''), /bad_game/);
   assert.throws(() => mod.rtBefore('MatchCreate', { userId: USER_A, vars: { scope: 'hub' } }, { matchCreate: {} }), /match_create_disabled/);
 }
@@ -77,17 +79,19 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
 {
   const HubSchema = mod.global.HubSchema as { register(m: unknown): void; all(): { id: string }[] };
   const ids = plain(HubSchema.all().map((m) => m.id));
-  assert.deepEqual(ids.slice(-2), ['0011_ranked_scores', '0012_chat_moderation']);
+  // The hub's own range ends at 0012; game files may register higher ids (Contract C4).
+  assert.deepEqual(ids.filter((id) => Number(id.split('_')[0]) <= 12).slice(-2), ['0011_ranked_scores', '0012_chat_moderation']);
   const nums = ids.map((id) => Number(id.split('_')[0]));
   assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
   const fresh = loadModule({ noInit: true });
   const S = fresh.global.HubSchema as typeof HubSchema;
-  S.register({ id: '0020_test_late', statements: ['SELECT 1'] });
-  S.register({ id: '0013_test_early', statements: ['SELECT 2'] });
+  // Test ids outside every reserved range (hub 0011-0012, PB 0013-0019, sproto 0020-0024).
+  S.register({ id: '0090_test_late', statements: ['SELECT 1'] });
+  S.register({ id: '0089_test_early', statements: ['SELECT 2'] });
   const order = S.all().map((m) => m.id);
-  assert.ok(order.indexOf('0013_test_early') < order.indexOf('0020_test_late'));
-  assert.ok(order.indexOf('0012_chat_moderation') < order.indexOf('0013_test_early'));
-  S.register({ id: '0013_test_clash', statements: ['SELECT 3'] });
+  assert.ok(order.indexOf('0089_test_early') < order.indexOf('0090_test_late'));
+  assert.ok(order.indexOf('0012_chat_moderation') < order.indexOf('0089_test_early'));
+  S.register({ id: '0089_test_clash', statements: ['SELECT 3'] });
   assert.throws(() => S.all(), /duplicate schema migration number/);
   assert.throws(() => S.register({ id: 'nonumber', statements: ['SELECT 1'] }), /numeric|number/);
   // InitModule applies the sorted list as one locked statement.
