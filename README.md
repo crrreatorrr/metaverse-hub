@@ -1,8 +1,8 @@
 # Metaverse Hub
 
-A Ready Player One style plaza that links five web games: four through portal rings, and Sproto Fighter through the arcade cabinet in the Bar. Milestone **M1** connects the plaza to Nakama: guest device accounts, portal tickets, and the first earn-once Relic.
+A Ready Player One style plaza that links five web games: four through portal rings, and Sproto Fighter through the arcade cabinet in the Bar. The plaza is multiplayer: up to 100 players per world (shard), with more worlds opening on demand, live chat, and public NOBU time-trial boards in the Bar. The same Nakama server hosts the games' online pieces (Sproto Fighter and Sproto Duel 1v1, People's Bitcoin's 100-player worlds); see [docs/realtime.md](docs/realtime.md).
 
-The product shape comes from the design doc. Technical ids (games, relics, boards, ticket fragment, SDK methods) follow the architecture. Where this milestone is smaller than the architecture's M0, that is intentional: there is no live guest session yet.
+The product shape comes from the design doc. Technical ids (games, relics, boards, ticket fragment, SDK methods) follow the architecture.
 
 ## Layout
 
@@ -68,14 +68,22 @@ npm run fetch:games # real game web builds into apps/hub/public/play/<slug>/ (or
 npm run dev         # plaza and the Sproto mock, proxied to Nakama
 npm run typecheck
 npm run lint
-npm test            # hub-sdk behavior and the capsule collider
+npm test            # hub-sdk (incl. realtime client + mock), capsule collider, hub net layer, Nakama module unit tests
 npm run test:dup    # relic duplication tests against docker compose Nakama
+npm run test:rt     # realtime (plaza, chat, matchmaker scope, NOBU boards) against docker compose Nakama
+npm run vendor:sdk -- <game-repo>   # build and vendor @metaverse/hub-sdk into a game repo
 npm run build       # sdk, Nakama module, plaza, then a check that the bundle has no debug globals
 npm run pack:sdk    # tarball a game repo can npm install
 npm run preview     # serves the production build
 ```
 
-CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the duplication tests against Nakama and Postgres.
+CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the duplication and realtime tests against Nakama and Postgres.
+
+## Multiplayer
+
+- **Plaza:** after sign-in the hub calls `hub.join`, which places the player on the least-full open world (soft cap 90 of 100; a new world opens when all are full). Positions travel at 10 Hz as compact deltas, filtered by zone (plaza vs Bar). The 6 nearest players within 30 m get full animated avatars, name tags and orbit gems; everyone else is one instanced impostor draw. A dropped socket reconnects and rejoins the same slot within 20 s. The status line shows `World N · n/100`. A portal trip returns you to the same world.
+- **Chat:** Enter opens the box. Lines go through the world's channel (`hub.<world>`), so everyone in that world sees them, with 30 lines of history on join. The server normalises text (1–120 characters), checks colour/effect prefixes, masks profanity, rejects slurs, rate-limits (burst 5, then 1 per 1.5 s; guests 1 per 3 s) and refuses repeats within 30 s. `/ignore name` and `/unignore name` hide a player in this browser; `/report name` files a report for moderators (`game.chat_report`). Mutes are rows in `game.chat_mute`.
+- **Dev profiling:** `http://127.0.0.1:5173/hub/?bots=100` fills the plaza with 100 client-side fake players (dev builds only); the dev overlay shows draws, fps and near+far remote counts.
 
 ## What you see
 
@@ -83,7 +91,7 @@ A round neon plaza, about 60 m across, built from primitives and emissive materi
 
 - **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
 - **Four gates** on the ring, each in a labelled placeholder building: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). Blockouts only; the portal ring and the return spawn are unchanged.
-- **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard is a screen on the inside wall: HPOS10I, NOBU, People's Bitcoin, Sproto Duel, and Total. Each tab ranks lifetime Verse earned. Sample rows stand in until someone has earned Verse in that game.
+- **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard screen on the inside wall cycles the public boards: HPOS10I act time, NOBU time trials (one page per level, `m:ss.cc`), People's Bitcoin XP, Sproto Duel wins, and lifetime Verse per game and in total.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.
 
 `npm run dev` shows a small draw-call and fps counter. That overlay and `window.__hub` exist only in dev. Production builds constant-fold them out; `npm run build` fails if `__hub`, `__nobu`, or `__duel` remain in the bundle. The scene stays under the 100 draw-call budget by merging static meshes and skipping shadow maps and postprocessing. The download is the Three.js bundle plus this scene; textures are painted on canvases at startup.
@@ -98,8 +106,10 @@ init(gameId)                          // same exchange when a ticket is still in
 reportEvent(eventId, data, key)       // ready, or the four relic triggers
 earnTickets(amount, reason, key)
 exchange(tickets, key)                // 10 Tickets = 1 Verse, 50 Verse per game per day
-submitScore(boardId, value, meta?)    // ignored unless the ticket was ranked
+submitScore(boardId, value, meta?)    // the server decides; returns { accepted, posted?, value?, order?, reason? }
+getLeaderboard?(boardId, { variant }) // leaderboard.top
 exit(reason?)                         // goes to /hub/#from=<game>
+realtimeFromSdk(sdk)                  // realtime client on the game session (matches, matchmaker, chat), null standalone
 ```
 
 `reportEvent` understands:
@@ -114,7 +124,7 @@ exit(reason?)                         // goes to /hub/#from=<game>
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
 | `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
 
-Same idempotency key and same body returns the stored response. A reused key with a different body throws. Unranked sessions drop scores. God mode is the game's job: it still reports the relic and simply does not call `submitScore`.
+Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.5.0; see its README for the realtime API and the mock server for game tests.
 
 `installHubSdk()` sets `window.hubSdk` for HPOS10I's JavaScriptBridge. The plaza does not install it.
 

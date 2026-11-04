@@ -1,7 +1,10 @@
 declare namespace nkruntime {
   interface Context {
     userId?: string;
-    vars?: { [key: string]: string };
+    username?: string;
+    sessionId?: string;
+    /** Session vars (scope, game, sid, ranked). Null for sessions without vars; always guard. */
+    vars?: { [key: string]: string } | null;
     env: { [key: string]: string };
   }
 
@@ -23,10 +26,90 @@ declare namespace nkruntime {
     collection: string;
     key: string;
     userId: string;
-    value: { [key: string]: string | number | boolean };
+    value: { [key: string]: unknown };
+    /** OCC: "" or omitted = no check, "*" = only if absent, otherwise the version read. */
+    version?: string;
     permissionRead: number;
     permissionWrite: number;
   }
+
+  interface StorageReadRequest {
+    collection: string;
+    key: string;
+    userId: string;
+  }
+
+  interface StorageObject {
+    collection: string;
+    key: string;
+    userId: string;
+    value: { [key: string]: unknown };
+    version: string;
+    permissionRead: number;
+    permissionWrite: number;
+    createTime: number;
+    updateTime: number;
+  }
+
+  interface StorageWriteAck {
+    collection: string;
+    key: string;
+    userId: string;
+    version: string;
+  }
+
+  interface StorageDeleteRequest {
+    collection: string;
+    key: string;
+    userId: string;
+    version?: string;
+  }
+
+  /** One row of nk.matchList / nk.matchGet. `size` is live; the label can lag. */
+  interface Match {
+    matchId: string;
+    authoritative: boolean;
+    label: string;
+    size: number;
+    tickRate: number;
+    handlerName: string;
+  }
+
+  interface User {
+    userId: string;
+    username: string;
+    displayName?: string;
+    avatarUrl?: string;
+    metadata?: { [key: string]: unknown };
+    online?: boolean;
+  }
+
+  interface FriendList {
+    friends?: { user: User; state: number; updateTime?: number }[];
+    cursor?: string;
+  }
+
+  /** Realtime envelope seen by RT before-hooks (camelCase keys, e.g. channelJoin, matchmakerAdd). */
+  interface Envelope {
+    cid?: string;
+    channelJoin?: { target?: string; type?: number; persistence?: boolean; hidden?: boolean };
+    channelMessageSend?: { channelId?: string; content?: string };
+    channelMessageUpdate?: { channelId?: string; messageId?: string; content?: string };
+    channelMessageRemove?: { channelId?: string; messageId?: string };
+    matchmakerAdd?: {
+      minCount?: number;
+      maxCount?: number;
+      query?: string;
+      countMultiple?: number;
+      stringProperties?: { [key: string]: string };
+      numericProperties?: { [key: string]: number };
+    };
+    matchCreate?: { name?: string };
+    matchJoin?: { matchId?: string; token?: string; metadata?: { [key: string]: string } };
+    [key: string]: unknown;
+  }
+
+  type RtBeforeHook = (ctx: Context, logger: Logger, nk: Nakama, envelope: Envelope) => Envelope | void;
 
   interface Nakama {
     sqlQuery(query: string, args: unknown[]): { [key: string]: unknown }[];
@@ -54,11 +137,27 @@ declare namespace nkruntime {
     linkCustom(userId: string, customId: string): void;
     linkDevice(userId: string, deviceId: string): void;
     unlinkDevice(userId: string, deviceId: string): void;
-    storageWrite(objects: StorageWrite[]): void;
+    storageWrite(objects: StorageWrite[]): StorageWriteAck[];
+    storageRead(keys: StorageReadRequest[]): StorageObject[];
+    storageDelete(objects: StorageDeleteRequest[]): void;
+    matchList(limit: number, authoritative?: boolean | null, label?: string | null, minSize?: number | null, maxSize?: number | null, query?: string | null): Match[];
+    matchGet(id: string): Match | null;
+    matchSignal(id: string, data: string): string;
+    usersGetId(userIds: string[], facebookIds?: string[] | null): User[];
+    usersGetUsername(usernames: string[]): User[];
+    /** Values must be string, number or boolean; objects throw (store JSON strings). TTL in seconds, 0 = none. */
+    localcacheGet(key: string): string | number | boolean | null | undefined;
+    localcachePut(key: string, value: string | number | boolean, ttl?: number): void;
+    localcacheDelete(key: string): void;
+    stringToBinary(str: string): ArrayBuffer;
+    notificationSend(userId: string, subject: string, content: { [key: string]: unknown }, code: number, senderId?: string | null, persistent?: boolean): void;
+    friendsList(userId: string, limit?: number, state?: number | null, cursor?: string): FriendList;
   }
 
   interface Initializer {
     registerRpc(id: string, fn: RpcFunction): void;
+    /** id: "ChannelJoin", "ChannelMessageSend", "ChannelMessageUpdate", "ChannelMessageRemove", "MatchmakerAdd", "MatchCreate", … */
+    registerRtBefore(id: string, fn: RtBeforeHook): void;
     registerBeforeAuthenticate(fn: BeforeHook): void;
     registerBeforeAuthenticateApple(fn: BeforeHook): void;
     registerBeforeAuthenticateCustom(fn: BeforeHook): void;

@@ -36,7 +36,10 @@ export interface OrbitAvatar {
 /** Bar wall screen, in cycle order. Verse boards are per game id plus the wallet total. */
 export const HUB_BOARD_IDS = [
   'hpos10i_act_time',
-  'nobu_trial_time',
+  // NOBU time trials: one server board (nobu_trial_time), one page per level (variant), values in integer ms.
+  'nobu_trial_time:1',
+  'nobu_trial_time:2',
+  'nobu_trial_time:3',
   'pb_total_xp',
   'sproto_wins',
   'verse_by_game_hpos10i',
@@ -50,7 +53,9 @@ export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
 
 export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'desc'; unit: string }> = {
   hpos10i_act_time: { title: 'HPOS10I', order: 'asc', unit: 'best act time' },
-  nobu_trial_time: { title: 'NOBU', order: 'asc', unit: 'best trial time' },
+  'nobu_trial_time:1': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:3': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
   pb_total_xp: { title: "PEOPLE'S BITCOIN", order: 'desc', unit: 'total XP' },
   sproto_wins: { title: 'SPROTO DUEL', order: 'desc', unit: 'wins' },
   verse_by_game_hpos10i: { title: 'HPOS10I VERSE', order: 'desc', unit: 'lifetime Verse' },
@@ -64,7 +69,7 @@ export interface LeaderboardRow {
   rank: number;
   playerId: string;
   name: string;
-  /** Seconds for time boards. Points, wins, or Verse for the rest. */
+  /** Seconds for HPOS10I, integer ms for NOBU trials. Points, wins, or Verse for the rest. */
   score: number;
 }
 
@@ -95,7 +100,9 @@ export function gameForBoard(boardId: HubBoardId): GameId | null {
     case 'hpos10i_act_time':
     case 'verse_by_game_hpos10i':
       return 'hpos10i';
-    case 'nobu_trial_time':
+    case 'nobu_trial_time:1':
+    case 'nobu_trial_time:2':
+    case 'nobu_trial_time:3':
     case 'verse_by_game_nobu':
       return 'nobu';
     case 'pb_total_xp':
@@ -113,8 +120,25 @@ export function gameForBoard(boardId: HubBoardId): GameId | null {
   }
 }
 
+/** Server board and variant behind a screen id (`nobu_trial_time:2` → board nobu_trial_time, variant "2"). */
+export function serverBoard(boardId: HubBoardId): { board: string; variant?: string } | null {
+  if (boardId.startsWith('verse_')) return null;
+  const at = boardId.indexOf(':');
+  return at < 0 ? { board: boardId } : { board: boardId.slice(0, at), variant: boardId.slice(at + 1) };
+}
+
+/** Integer ms → m:ss.cc, the same format as NOBU's fmtTime. */
+export function formatTrialMs(ms: number): string {
+  const safe = Number.isFinite(ms) ? Math.max(0, Math.round(ms)) : 0;
+  const minutes = Math.floor(safe / 60000);
+  const seconds = Math.floor((safe % 60000) / 1000);
+  const hundredths = Math.floor((safe % 1000) / 10);
+  return `${minutes}:${String(seconds).padStart(2, '0')}.${String(hundredths).padStart(2, '0')}`;
+}
+
 export function formatBoardScore(boardId: HubBoardId, score: number): string {
-  if (boardId === 'hpos10i_act_time' || boardId === 'nobu_trial_time') {
+  if (boardId.startsWith('nobu_trial_time')) return formatTrialMs(score);
+  if (boardId === 'hpos10i_act_time') {
     const safe = Number.isFinite(score) ? Math.max(0, score) : 0;
     const minutes = Math.floor(safe / 60);
     const seconds = safe - minutes * 60;

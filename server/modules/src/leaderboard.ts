@@ -1,15 +1,15 @@
-// M3 leaderboards. Not registered and not in tsconfig.json `files`, so the
-// Nakama bundle does not include this. Wiring is docs/m3-server-prep.md.
+// Public leaderboards (score.submit → submit, leaderboard.top → top).
 //
-// Scores land in game.ranked_score. Time and win boards for hpos10i, nobu,
-// and sproto accept a write only when game.game_session.ranked is true.
-// That flag is the session row, never the client. peoples-bitcoin is exempt.
-// God-mode posts write no row. The meta board is recomputed from the four
-// game boards. Nothing here credits Tickets, Verse, Relics, or items.
+// Scores land in game.ranked_score, keyed (user, board, variant). The time and
+// win boards for hpos10i and sproto accept a write only when
+// game.game_session.ranked is true (the session row, never the client). NOBU
+// time trials are gear-free and always eligible (Contract C13): one board,
+// variant = level ("1".."3"), integer milliseconds within the floors below.
+// peoples-bitcoin is exempt. sproto_wins and meta are server boards: only
+// recordWin and the meta rollup write them. God-mode posts write no row.
+// Nothing here credits Tickets, Verse, Relics, or items.
 
 namespace HubBoards {
-  /** 15 Hz times five minutes. The hub match calls onHubTick. */
-  export var META_EVERY_TICKS = 4500;
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
@@ -26,6 +26,13 @@ namespace HubBoards {
     pb_total_xp: "desc",
     sproto_wins: "incr",
   };
+
+  /** Integer ms floors per NOBU level (same numbers as NOBU's src/config/trials.js) and the ceiling. */
+  export var NOBU_FLOOR_MS: { [level: string]: number } = { "1": 15000, "2": 15000, "3": 12000 };
+  export var NOBU_CEIL_MS = 1800000;
+  export var SUBMIT_EVERY_MS = 5000;
+  /** Boards a client may not post to. */
+  var SERVER_BOARDS: { [id: string]: boolean } = { meta: true, sproto_wins: true };
 
   interface Session {
     userId: string;
@@ -117,21 +124,21 @@ namespace HubBoards {
     + " ), gate AS (SELECT CASE"
     + " WHEN NOT EXISTS (SELECT 1 FROM sess) THEN 'session_closed'"
     + " WHEN NOT COALESCE((SELECT ranked FROM sess), false)"
-    + " AND (SELECT game_id FROM sess) IN ('hpos10i', 'nobu', 'sproto') THEN 'unranked'"
+    + " AND (SELECT game_id FROM sess) IN ('hpos10i', 'sproto') THEN 'unranked'"
     + " WHEN $3::boolean THEN 'god_mode'"
     + " WHEN (SELECT game_id FROM sess) IS DISTINCT FROM $4::text THEN 'bad_board'"
     + " ELSE NULL END AS reason),"
-    + " prev AS (SELECT value FROM game.ranked_score WHERE user_id = $2::uuid AND board_id = $5::text),"
+    + " prev AS (SELECT value FROM game.ranked_score WHERE user_id = $2::uuid AND board_id = $5::text AND variant = $9::text),"
     + " incoming AS (SELECT CASE"
     + " WHEN $6::text = 'asc' THEN LEAST(COALESCE((SELECT value FROM prev), $7::bigint), $7::bigint)"
     + " WHEN $6::text = 'incr' THEN COALESCE((SELECT value FROM prev), 0) + $7::bigint"
     + " ELSE GREATEST(COALESCE((SELECT value FROM prev), $7::bigint), $7::bigint) END AS value),"
     + " written AS ("
-    + " INSERT INTO game.ranked_score (user_id, board_id, value, meta, session_id, updated_at)"
-    + " SELECT $2::uuid, $5::text, (SELECT value FROM incoming), $8::jsonb, $1::uuid, now()"
+    + " INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)"
+    + " SELECT $2::uuid, $5::text, $9::text, (SELECT value FROM incoming), $8::jsonb, $1::uuid, now()"
     + " FROM gate WHERE reason IS NULL AND NOT ($6::text = 'incr' AND $7::bigint <= 0)"
     + " AND (NOT EXISTS (SELECT 1 FROM prev) OR (SELECT value FROM incoming) IS DISTINCT FROM (SELECT value FROM prev) OR $6::text = 'incr')"
-    + " ON CONFLICT (user_id, board_id) DO UPDATE SET value = EXCLUDED.value, meta = EXCLUDED.meta, session_id = EXCLUDED.session_id, updated_at = now()"
+    + " ON CONFLICT (user_id, board_id, variant) DO UPDATE SET value = EXCLUDED.value, meta = EXCLUDED.meta, session_id = EXCLUDED.session_id, updated_at = now()"
     + " WHERE game.ranked_score.value IS DISTINCT FROM EXCLUDED.value OR $6::text = 'incr'"
     + " RETURNING value)"
     + " SELECT jsonb_build_object("
@@ -143,29 +150,34 @@ namespace HubBoards {
   var TOP_SQL = "WITH ranked AS ("
     + " SELECT s.user_id, COALESCE(u.username, '') AS name, s.value,"
     + " rank() OVER (ORDER BY CASE WHEN $2::text = 'asc' THEN s.value END ASC, CASE WHEN $2::text <> 'asc' THEN s.value END DESC) AS rnk"
-    + " FROM game.ranked_score s LEFT JOIN users u ON u.id = s.user_id WHERE s.board_id = $1::text"
+    + " FROM game.ranked_score s LEFT JOIN users u ON u.id = s.user_id WHERE s.board_id = $1::text AND s.variant = $4::text"
     + " ) SELECT jsonb_build_object("
-    + " 'boardId', $1::text, 'order', $2::text,"
+    + " 'boardId', $1::text, 'variant', $4::text, 'order', $2::text,"
     + " 'rows', COALESCE((SELECT jsonb_agg(jsonb_build_object('userId', user_id, 'name', name, 'value', value, 'rank', rnk) ORDER BY rnk, user_id)"
-    + " FROM (SELECT user_id, name, value, rnk FROM ranked ORDER BY rnk, user_id LIMIT 10) top_rows), '[]'::jsonb),"
+    + " FROM (SELECT user_id, name, value, rnk FROM ranked ORDER BY rnk, user_id LIMIT $5::int) top_rows), '[]'::jsonb),"
     + " 'me', (SELECT jsonb_build_object('userId', user_id, 'name', name, 'value', value, 'rank', rnk) FROM ranked WHERE user_id = $3::uuid)"
     + " )::text AS result";
 
+  // meta = sum over boards of round(1000 * (N - rank + 1) / N); a board with
+  // variants (NOBU levels) contributes the average of its per-level scores.
   var META_SQL = "WITH scored AS ("
-    + " SELECT user_id, board_id, value,"
-    + " rank() OVER (PARTITION BY board_id ORDER BY"
+    + " SELECT user_id, board_id, variant, value,"
+    + " rank() OVER (PARTITION BY board_id, variant ORDER BY"
     + " CASE WHEN board_id IN ('hpos10i_act_time', 'nobu_trial_time') THEN value END ASC,"
     + " CASE WHEN board_id IN ('pb_total_xp', 'sproto_wins') THEN value END DESC) AS rnk,"
-    + " count(*) OVER (PARTITION BY board_id) AS n"
+    + " count(*) OVER (PARTITION BY board_id, variant) AS n"
     + " FROM game.ranked_score"
     + " WHERE board_id IN ('hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins')"
+    + " ), per_variant AS ("
+    + " SELECT user_id, board_id, round((1000::numeric * (n - rnk + 1)) / NULLIF(n, 0)) AS score FROM scored"
+    + " ), per_board AS ("
+    + " SELECT user_id, board_id, avg(score) AS score FROM per_variant GROUP BY user_id, board_id"
     + " ), contrib AS ("
-    + " SELECT user_id, SUM(round((1000::numeric * (n - rnk + 1)) / NULLIF(n, 0)))::bigint AS meta_value"
-    + " FROM scored GROUP BY user_id"
+    + " SELECT user_id, round(SUM(score))::bigint AS meta_value FROM per_board GROUP BY user_id"
     + " ), upserted AS ("
-    + " INSERT INTO game.ranked_score (user_id, board_id, value, meta, session_id, updated_at)"
-    + " SELECT user_id, 'meta', meta_value, '{}'::jsonb, NULL, now() FROM contrib WHERE meta_value IS NOT NULL"
-    + " ON CONFLICT (user_id, board_id) DO UPDATE SET value = EXCLUDED.value, meta = '{}'::jsonb, session_id = NULL, updated_at = now()"
+    + " INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)"
+    + " SELECT user_id, 'meta', '', meta_value, '{}'::jsonb, NULL, now() FROM contrib WHERE meta_value IS NOT NULL"
+    + " ON CONFLICT (user_id, board_id, variant) DO UPDATE SET value = EXCLUDED.value, meta = '{}'::jsonb, session_id = NULL, updated_at = now()"
     + " WHERE game.ranked_score.value IS DISTINCT FROM EXCLUDED.value"
     + " RETURNING user_id)"
     + " SELECT jsonb_build_object('players', (SELECT count(*) FROM contrib), 'updated', (SELECT count(*) FROM upserted))::text AS result";
@@ -177,12 +189,17 @@ namespace HubBoards {
     + " ) RETURNING m.user_id)"
     + " SELECT jsonb_build_object('removed', (SELECT count(*) FROM removed))::text AS result";
 
+  function variantFor(boardId: string, meta: { [key: string]: unknown }): string | null {
+    if (boardId !== "nobu_trial_time") return "";
+    var level = meta.level;
+    var key = typeof level === "number" && isFinite(level) ? String(level) : typeof level === "string" ? level : "";
+    return NOBU_FLOOR_MS[key] !== undefined ? key : null;
+  }
+
   /**
-   * Replacement for score.submit. For hpos10i, nobu, and sproto, a write is
-   * accepted only when game.game_session.ranked is true. A ranked field on
-   * the payload is ignored. peoples-bitcoin may post pb_total_xp from an
-   * unranked session. godMode on the body or on meta posts nothing. meta is
-   * not a client board. Operators match the live score.submit modes.
+   * score.submit. The server decides eligibility: {accepted:false, reason} for
+   * server_board / unranked / god_mode, an {error} for bad input. NOBU posts
+   * integer ms per level and counts from unranked sessions.
    */
   export function submit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
@@ -196,7 +213,7 @@ namespace HubBoards {
     }
     var boardId = text(body, "boardId");
     if (!boardId && text(body, "board_id")) boardId = text(body, "board_id");
-    if (boardId === "meta") return JSON.stringify({ accepted: false, reason: "server_board" });
+    if (SERVER_BOARDS[boardId]) return JSON.stringify({ accepted: false, reason: "server_board" });
     var mode = BOARD_MODE[boardId];
     if (!mode) return fail("bad_board");
     if (typeof body.value !== "number" || !isFinite(body.value) || body.value < 0) return fail("bad_score");
@@ -204,9 +221,27 @@ namespace HubBoards {
     if (meta === undefined || meta === null) meta = {};
     if (!isObject(meta)) return fail("bad_json");
     var metaObj = meta as { [key: string]: unknown };
+    var metaText = JSON.stringify(storedMeta(metaObj));
+    if (metaText.length > 512) return fail("bad_json");
+    var variant = variantFor(boardId, metaObj);
+    if (variant === null) return fail("bad_variant");
+    var score: number;
+    if (boardId === "nobu_trial_time") {
+      if (Math.floor(body.value) !== body.value) return fail("bad_score");
+      score = body.value;
+      if (score < NOBU_FLOOR_MS[variant] || score > NOBU_CEIL_MS) {
+        logger.warn("implausible nobu time " + String(score) + " level " + variant + " user " + session.userId);
+        return fail("implausible_score");
+      }
+    } else {
+      score = Math.round(body.value);
+    }
     var god = body.godMode === true || body.god_mode === true || metaObj.godMode === true || metaObj.god === true || metaObj.god_mode === true;
-    var score = Math.round(body.value);
-    if (score < 0) return fail("bad_score");
+    var rateKey = "score:" + session.userId + ":" + boardId + ":" + variant;
+    var last = Number(nk.localcacheGet(rateKey) || 0);
+    var now = Date.now();
+    if (last && now - last < SUBMIT_EVERY_MS) return fail("rate_limited");
+    nk.localcachePut(rateKey, now, Math.ceil(SUBMIT_EVERY_MS / 1000));
     var row = queryJson(nk, SUBMIT_SQL, [
       session.sid,
       session.userId,
@@ -215,7 +250,8 @@ namespace HubBoards {
       boardId,
       mode,
       score,
-      JSON.stringify(storedMeta(metaObj)),
+      metaText,
+      variant,
     ]);
     var reason = typeof row.reason === "string" ? row.reason : "";
     if (reason === "unranked" || reason === "god_mode") {
@@ -224,7 +260,7 @@ namespace HubBoards {
     }
     if (reason) return fail(reason);
     var posted = row.posted === true || row.posted === "true";
-    if (posted) logger.info("score posted " + boardId + " user " + session.userId);
+    if (posted) logger.info("score posted " + boardId + (variant ? ":" + variant : "") + " user " + session.userId);
     return JSON.stringify({
       accepted: true,
       posted: posted,
@@ -233,7 +269,7 @@ namespace HubBoards {
     });
   }
 
-  /** Top 10 plus the caller's rank. Any authenticated session can read. */
+  /** Top rows (default 10, max 50) plus the caller's own row. Any signed-in session (hub or game) can read. */
   export function top(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
     var body: { [key: string]: unknown };
@@ -245,8 +281,16 @@ namespace HubBoards {
     var boardId = text(body, "boardId");
     if (!boardId && text(body, "board_id")) boardId = text(body, "board_id");
     if (boardId !== "meta" && !BOARD_MODE[boardId]) return fail("bad_board");
+    var variant = "";
+    if (boardId === "nobu_trial_time") {
+      variant = variantFor(boardId, { level: body.variant }) || "";
+      if (!variant) return fail("bad_variant");
+    }
+    var limit = asInt(body.limit, 10);
+    if (limit < 1) limit = 1;
+    if (limit > 50) limit = 50;
     var order = boardId === "meta" || BOARD_MODE[boardId] !== "asc" ? "desc" : "asc";
-    return JSON.stringify(queryJson(nk, TOP_SQL, [boardId, order, ctx.userId]));
+    return JSON.stringify(queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]));
   }
 
   /**
@@ -261,8 +305,43 @@ namespace HubBoards {
     return { players: asInt(wrote.players, 0), updated: asInt(wrote.updated, 0), removed: asInt(dropped.removed, 0) };
   }
 
-  export function onHubTick(nk: nkruntime.Nakama, logger: nkruntime.Logger, tick: number): void {
-    if (tick < META_EVERY_TICKS || tick % META_EVERY_TICKS !== 0) return;
+  var WIN_SQL = "WITH ins AS ("
+    + " INSERT INTO game.win_record (match_id, user_id, board_id) VALUES ($1::text, $2::uuid, $3::text)"
+    + " ON CONFLICT (match_id, user_id) DO NOTHING RETURNING user_id),"
+    + " up AS ("
+    + " INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)"
+    + " SELECT user_id, $3::text, '', 1, '{}'::jsonb, NULL, now() FROM ins"
+    + " ON CONFLICT (user_id, board_id, variant) DO UPDATE SET value = game.ranked_score.value + 1, updated_at = now()"
+    + " RETURNING value)"
+    + " SELECT jsonb_build_object('recorded', EXISTS (SELECT 1 FROM ins), 'value', (SELECT value FROM up))::text AS result";
+
+  /**
+   * Server-only +1 on an incr board (sproto_wins). Idempotent on matchId through
+   * game.win_record. Returns false when this (match, user) was already recorded.
+   */
+  export function recordWin(nk: nkruntime.Nakama, userId: string, boardId: string, matchId: string): boolean {
+    if (!UUID.test(userId || "")) throw new Error("unauthorized");
+    if (BOARD_MODE[boardId] !== "incr") throw new Error("bad_board");
+    if (!matchId || matchId.length > 128) throw new Error("bad_match");
+    var row = queryJson(nk, WIN_SQL, [matchId, userId, boardId]);
+    return row.recorded === true || row.recorded === "true";
+  }
+
+  export var META_EVERY_MS = 5 * 60 * 1000;
+
+  /**
+   * Time-based meta rollup, called from every hub shard's loop. The node-wide
+   * localcache stamp makes one shard run it per window; the SQL itself is safe to repeat.
+   */
+  export function maybeRecomputeMeta(nk: nkruntime.Nakama, logger: nkruntime.Logger, nowMs: number): boolean {
+    var last = Number(nk.localcacheGet("hub:meta:last") || 0);
+    if (!last) {
+      nk.localcachePut("hub:meta:last", nowMs, 0);
+      return false;
+    }
+    if (nowMs - last < META_EVERY_MS) return false;
+    nk.localcachePut("hub:meta:last", nowMs, 0);
     recomputeMeta(nk, logger);
+    return true;
   }
 }

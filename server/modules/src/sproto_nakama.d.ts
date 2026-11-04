@@ -1,4 +1,4 @@
-// Nakama runtime APIs used by the Sproto Fighter duel match (sproto_duel.ts).
+// Nakama match runtime APIs (authoritative matches: sproto_duel.ts, hub_match.ts, games/*.ts).
 // Merges into the nkruntime declarations in nakama.d.ts.
 declare namespace nkruntime {
   interface Context {
@@ -20,7 +20,9 @@ declare namespace nkruntime {
   }
 
   interface MatchDispatcher {
-    broadcastMessage(opCode: number, data: string | null, presences: Presence[] | null, sender: Presence | null, reliable: boolean): void;
+    broadcastMessage(opCode: number, data: string | ArrayBuffer | null, presences?: Presence[] | null, sender?: Presence | null, reliable?: boolean): void;
+    broadcastMessageDeferred?(opCode: number, data: string | ArrayBuffer | null, presences?: Presence[] | null, sender?: Presence | null, reliable?: boolean): void;
+    matchKick(presences: Presence[]): void;
     matchLabelUpdate(label: string): void;
   }
 

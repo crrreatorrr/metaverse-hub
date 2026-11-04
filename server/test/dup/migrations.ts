@@ -30,7 +30,7 @@
 import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
@@ -123,7 +123,18 @@ export function migrationIds(): string[] {
   };
   visit(source);
   if (ids.length === 0) throw new Error('no migrations found in schema.ts');
-  return ids;
+  // Game files register theirs with HubSchema.register (Contract C4); the runner sorts by number.
+  const gamesDir = path.join(path.dirname(SCHEMA_FILE), 'games');
+  if (existsSync(gamesDir)) {
+    for (const name of readdirSync(gamesDir).filter((n) => n.endsWith('.ts')).sort()) {
+      const text = readFileSync(path.join(gamesDir, name), 'utf8');
+      for (const m of text.matchAll(/HubSchema\.register\(\s*\{\s*id:\s*["'`]([0-9]+_[a-z0-9_]+)["'`]/g)) ids.push(m[1] as string);
+    }
+  }
+  return ids
+    .map((id, index) => ({ id, index, n: Number(id.split('_')[0]) }))
+    .sort((a, b) => a.n - b.n || a.index - b.index)
+    .map((row) => row.id);
 }
 
 function latestMigration(): string {

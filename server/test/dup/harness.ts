@@ -391,8 +391,8 @@ export async function redeemPortalTicket(ticket: string, game: string): Promise<
   return authenticateCustom(`t:${ticket}`, game);
 }
 
-export async function openGame(hubToken: string, game: string): Promise<GameLogin> {
-  const opened = await call('portal.enter', { game, ranked: false }, hubToken);
+export async function openGame(hubToken: string, game: string, ranked = false): Promise<GameLogin> {
+  const opened = await call('portal.enter', { game, ranked }, hubToken);
   if (opened.body.error || !opened.body.ticket || !opened.body.sessionId) {
     throw new Error(`portal.enter ${opened.status} ${JSON.stringify(opened.body)}`);
   }
@@ -404,9 +404,9 @@ export async function openGame(hubToken: string, game: string): Promise<GameLogi
   return { hub: { token: hubToken, userId }, gameToken: redeemed.token, sessionId: opened.body.sessionId };
 }
 
-export async function login(game: string): Promise<GameLogin> {
+export async function login(game: string, ranked = false): Promise<GameLogin> {
   const who = await guest();
-  return openGame(who.token, game);
+  return openGame(who.token, game, ranked);
 }
 
 export async function waitReady(): Promise<void> {

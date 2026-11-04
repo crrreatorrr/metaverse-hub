@@ -47,6 +47,7 @@ import {
   psql,
   relicClaims,
   serverDay,
+  sleep,
   snapshotEconomy,
   sqlId,
   ticketBalance,
@@ -953,10 +954,13 @@ async function wallet(): Promise<void> {
 
 function scoreMeta(userId: string): { act?: number; zone?: string } {
   const raw = psql(
-    `SELECT meta::text FROM game.score_best WHERE user_id = '${sqlId(userId)}' AND board_id = 'hpos10i_act_time'`,
+    `SELECT meta::text FROM game.ranked_score WHERE user_id = '${sqlId(userId)}' AND board_id = 'hpos10i_act_time' AND variant = ''`,
   );
   return JSON.parse(raw) as { act?: number; zone?: string };
 }
+
+/** score.submit allows one post per (user, board, variant) every 5 s. */
+const SCORE_GAP_MS = 5_200;
 
 async function hposExtras(): Promise<void> {
   const zone = 'z1_retro_rush_hills';
@@ -981,25 +985,35 @@ async function hposExtras(): Promise<void> {
     assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
-  await test('score', 'hpos10i_act_time replay keeps the lowest and grants nothing', async () => {
+  await test('score', 'hpos10i_act_time from an unranked session posts nothing', async () => {
     const session = await login('hpos10i');
+    const skipped = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 1 } }, session.gameToken);
+    assert.deepEqual(skipped.body, { accepted: false, reason: 'unranked' });
+    assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}'`), 0);
+  });
+
+  await test('score', 'hpos10i_act_time ranked replay keeps the lowest and grants nothing', async () => {
+    const session = await login('hpos10i', true);
     const meta = { zone, act: 1 };
     const first = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40.125, meta }, session.gameToken);
     assert.equal(first.body.error, undefined, JSON.stringify(first.body));
     assert.equal(first.body.accepted, true);
     assert.equal(first.body.value, 40);
+    const tooSoon = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30, meta }, session.gameToken);
+    assert.equal(tooSoon.body.error, 'rate_limited', JSON.stringify(tooSoon.body));
+    await sleep(SCORE_GAP_MS);
     const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta: { zone, act: 2 } }, session.gameToken);
     assert.equal(worse.body.error, undefined, JSON.stringify(worse.body));
     assert.equal(worse.body.value, 40);
+    assert.equal(worse.body.posted, false);
     assert.deepEqual(scoreMeta(session.hub.userId), { act: 1, zone });
+    await sleep(SCORE_GAP_MS);
     const better = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30.2, meta }, session.gameToken);
     assert.equal(better.body.value, 30);
-    assert.deepEqual(scoreMeta(session.hub.userId), { act: 1, zone });
-    const replay = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30.2, meta }, session.gameToken);
-    assert.equal(replay.body.value, 30);
+    assert.equal(better.body.posted, true);
     assert.deepEqual(scoreMeta(session.hub.userId), { act: 1, zone });
     assert.equal(
-      num(`SELECT value FROM game.score_best WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'hpos10i_act_time'`),
+      num(`SELECT value FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'hpos10i_act_time'`),
       30,
     );
     assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
@@ -1009,7 +1023,7 @@ async function hposExtras(): Promise<void> {
     const why = grantFailure(relic, granted.body);
     if (why) throw new Error(why);
     assert.equal(
-      num(`SELECT value FROM game.score_best WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'hpos10i_act_time'`),
+      num(`SELECT value FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'hpos10i_act_time'`),
       30,
     );
   });
@@ -1113,27 +1127,47 @@ async function pbExchange(): Promise<void> {
 
 /** NOBU payloads from the stated client contract (PR #1, e4b5446). The repo was not readable from this environment. */
 async function nobuRows(): Promise<void> {
-  await test('score', 'nobu_trial_time replay keeps the lowest and grants nothing', async () => {
+  await test('score', 'nobu_trial_time is per level, integer ms, unranked, and grants nothing', async () => {
     const session = await login('nobu');
-    const meta = { level: 1 };
-    const first = await call('score.submit', { boardId: 'nobu_trial_time', value: 40.125, meta }, session.gameToken);
+    const first = await call('score.submit', { boardId: 'nobu_trial_time', value: 40125, meta: { level: 1 } }, session.gameToken);
     assert.equal(first.body.error, undefined, JSON.stringify(first.body));
-    assert.equal(first.body.accepted, true);
-    assert.equal(first.body.value, 40);
-    const worse = await call('score.submit', { boardId: 'nobu_trial_time', value: 55.5, meta: { level: 2 } }, session.gameToken);
-    assert.equal(worse.body.value, 40);
-    assert.equal(scoreMetaFor(session.hub.userId, 'nobu_trial_time').level, 1);
-    const better = await call('score.submit', { boardId: 'nobu_trial_time', value: 30.2, meta }, session.gameToken);
-    assert.equal(better.body.value, 30);
-    const replay = await call('score.submit', { boardId: 'nobu_trial_time', value: 30.2, meta }, session.gameToken);
-    assert.equal(replay.body.value, 30);
+    assert.deepEqual(first.body, { accepted: true, posted: true, value: 40125, order: 'asc' });
+    const level2 = await call('score.submit', { boardId: 'nobu_trial_time', value: 55500, meta: { level: 2 } }, session.gameToken);
+    assert.equal(level2.body.value, 55500, 'level 2 is its own variant');
+    for (const [value, meta, code] of [
+      [40.5, { level: 3 }, 'bad_score'],
+      [20000, { level: 9 }, 'bad_variant'],
+      [9000, { level: 3 }, 'implausible_score'],
+    ] as const) {
+      const bad = await call('score.submit', { boardId: 'nobu_trial_time', value, meta }, session.gameToken);
+      assert.equal(bad.body.error, code, JSON.stringify(bad.body));
+    }
+    await sleep(SCORE_GAP_MS);
+    const worse = await call('score.submit', { boardId: 'nobu_trial_time', value: 50000, meta: { level: 1 } }, session.gameToken);
+    assert.equal(worse.body.value, 40125);
+    await sleep(SCORE_GAP_MS);
+    const better = await call('score.submit', { boardId: 'nobu_trial_time', value: 30200, meta: { level: 1, deaths: 2 } }, session.gameToken);
+    assert.equal(better.body.value, 30200);
+    assert.equal(scoreMetaFor(session.hub.userId, 'nobu_trial_time', '1').deaths, 2);
+    await sleep(SCORE_GAP_MS);
+    const god = await call('score.submit', { boardId: 'nobu_trial_time', value: 20000, meta: { level: 1, godMode: true } }, session.gameToken);
+    assert.deepEqual(god.body, { accepted: false, reason: 'god_mode' });
     assert.equal(
-      num(`SELECT value FROM game.score_best WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'nobu_trial_time'`),
-      30,
+      num(`SELECT value FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'nobu_trial_time' AND variant = '1'`),
+      30200,
     );
+    const top = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant: '1' }, session.hub.token);
+    assert.equal(top.body.order, 'asc');
+    assert.equal((top.body.me as { value?: number } | null)?.value, 30200);
     assert.equal(mints(session.hub.userId, 'cones_tip'), 0);
     assert.equal(ticketBalance(session.hub.userId, 'nobu'), 0);
     assert.equal(verseBalance(session.hub.userId), 0);
+  });
+
+  await test('score', 'sproto_wins is a server board', async () => {
+    const session = await login('sproto', true);
+    const posted = await call('score.submit', { boardId: 'sproto_wins', value: 1, meta: {} }, session.gameToken);
+    assert.deepEqual(posted.body, { accepted: false, reason: 'server_board' });
   });
 
   await test('wallet', 'exchange response has ticketsLeft and not ticketsDebited', async () => {
@@ -1153,12 +1187,12 @@ async function nobuRows(): Promise<void> {
   });
 }
 
-function scoreMetaFor(userId: string, boardId: string): { level?: number; zone?: string; act?: number } {
-  if (!/^[a-z0-9_]+$/.test(boardId)) throw new Error(`bad board ${boardId}`);
+function scoreMetaFor(userId: string, boardId: string, variant = ''): { level?: number; zone?: string; act?: number; deaths?: number } {
+  if (!/^[a-z0-9_]+$/.test(boardId) || !/^[0-9]*$/.test(variant)) throw new Error(`bad board ${boardId}`);
   const raw = psql(
-    `SELECT meta::text FROM game.score_best WHERE user_id = '${sqlId(userId)}' AND board_id = '${boardId}'`,
+    `SELECT meta::text FROM game.ranked_score WHERE user_id = '${sqlId(userId)}' AND board_id = '${boardId}' AND variant = '${variant}'`,
   );
-  return JSON.parse(raw) as { level?: number; zone?: string; act?: number };
+  return JSON.parse(raw) as { level?: number; zone?: string; act?: number; deaths?: number };
 }
 
 function functionBody(source: string, name: string): string {

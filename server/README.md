@@ -46,3 +46,32 @@ Three groups in `server/test/dup/gated.ts` stay pending until the matching code 
 - Seq rejects: table `game.event_rule`.
 - Per-session Ticket cap: SQL function `game.session_ticket_cap()`.
 - Mock daily buckets: `serverNow` on `HubSdkEnv`, read by the mock in `createHubSdk.ts`.
+
+## Realtime
+
+The module also runs the plaza and the games' online pieces. The full guide, including how a game adds its match, RPCs and migrations, is [docs/realtime.md](../docs/realtime.md).
+
+| Piece | Where |
+| --- | --- |
+| Plaza match `hub` (100 per shard, 10 Hz, zone deltas, 20 s rejoin grace); shard 1 starts at boot | `modules/src/hub_match.ts` |
+| `hub.join` (least-full placement, 6/min), `chat.report` (10/h) | `modules/src/hub_rpcs.ts`, `shards.ts` |
+| Chat guard on `ChannelJoin` / `ChannelMessageSend` (rooms `hub.<shard>`, validation, mute, filter, rate limit); edits and removals rejected | `modules/src/chat_guard.ts`, `chat_words.ts` |
+| Single matchmaker hook routing by `properties.game`; `MatchmakerAdd` scope check; client `MatchCreate` rejected | `modules/src/rt_hooks.ts`, `hub_games.ts` |
+| Public boards: `score.submit` → `HubBoards.submit`, `leaderboard.top` (NOBU per level in ms, from unranked sessions) | `modules/src/leaderboard.ts` |
+| Ticket calls for match handlers (`srv_*` reasons; `tickets.earn` rejects them from clients) | `modules/src/server_economy.ts` |
+| Game files (Sproto Duel `sproto_arena`, PB `pb_world`), compiled through tsconfig `include` | `modules/src/games/*.ts` |
+
+Migrations `0011_ranked_scores` (`game.ranked_score`, `game.win_record`) and `0012_chat_moderation` (`game.chat_mute`, `game.chat_report`) are the hub's. Game files register theirs with `HubSchema.register` in their reserved ranges (PB 0013–0019, Sproto 0020–0024). The runner refuses an unapplied id below the highest recorded one, so deploy in id order.
+
+Moderation is SQL for now:
+
+```sql
+-- mute a user for a day
+INSERT INTO game.chat_mute (user_id, until, reason) VALUES ('<uuid>', now() + interval '1 day', 'spam');
+-- newest reports
+SELECT created_at, reporter, target, channel_id, text, reason FROM game.chat_report ORDER BY created_at DESC LIMIT 50;
+```
+
+Tests: `npm test` builds the module and runs `server/test/unit/*.test.ts` and `server/test/games/*.test.ts` in `node:vm` against a fake `nk` (no Docker). Against this compose stack, `npm run test:rt` drives real sockets (plaza, chat, matchmaker scope, NOBU boards) next to `npm run test:dup`.
+
+Runtime knobs in `deploy/nakama/config.yml` (and the dev compose flags): `runtime.js_max_count 64`, `socket.max_message_size_bytes 8192`, `socket.outgoing_queue_size 256`, `match.input_queue_size 256`, `match.call_queue_size 256`.

@@ -2,9 +2,9 @@
 
 Orbit gems, living portals, the Hall of Champions, and the bar wall screen are created in `createWorld`. `scene.ts` ticks them from `HubWorld.update`.
 
-Stub names, counts, and champion rows load only when `import.meta.env.DEV` is true. That branch is stripped from the production build, and `./m3/stub` is not on the prod import graph. Production renders the empty state: the local avatar's real Relics (from `setRelics`), portals at 0 players, an empty Hall roster, and no bar screen. Nothing here calls Nakama or adds a schema.
+Stub names, counts, and champion rows load only when `import.meta.env.DEV` is true. That branch is stripped from the production build, and `./m3/stub` is not on the prod import graph. Production renders the empty state: the local avatar's real Relics (from `setRelics`), portals at 0 players, an empty Hall roster, and the live bar screen (below).
 
-The bar screen stays on `createStubLeaderboardProvider()` in dev until leaderboards land. It is hidden in production so the existing verse board stays. While the dev screen is up, `leaderboard-wall-screen` is hidden so the two canvases do not stack. Dev copy is watermarked `DEV PLACEHOLDER`.
+The bar screen uses `createStubLeaderboardProvider()` in dev (watermarked `DEV PLACEHOLDER`). In production it shows live boards from `createLiveLeaderboardProvider` (`src/leaderboards.ts`): `leaderboard.top` for HPOS10I, the three NOBU time-trial levels (`nobu_trial_time:1..3`, integer ms shown as `m:ss.cc`), PB XP and Sproto Duel wins, plus the Verse pages from `verse.board`. Whenever that screen is up, `leaderboard-wall-screen` and its HTML tabs are hidden so the two canvases do not stack.
 
 Walking into the Hall is not wired. The door sits on the pedestal, and `main.ts` (open PR #25) clamps the camera and the floor to the plaza or the bar. A warp to `HALL_SPAWN` needs that file.
 

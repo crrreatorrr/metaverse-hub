@@ -33,6 +33,8 @@ export interface NakamaClient {
    */
   authenticateCustom?(id: string, create?: boolean, vars?: Record<string, string>): Promise<CustomAuthResult>;
   rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T>;
+  /** POST /v2/account/session/refresh with the server key. Optional so older doubles still typecheck. */
+  sessionRefresh?(refreshToken: string): Promise<{ token: string; refreshToken: string }>;
 }
 
 export interface NakamaClientOptions {
@@ -109,6 +111,18 @@ export function sessionVarsFromToken(token: string): Record<string, string> {
   }
 }
 
+/** JWT `exp` in epoch ms, or 0 when the token has none. */
+export function tokenExpiryMs(token: string): number {
+  const part = token.split('.')[1];
+  if (!part) return 0;
+  try {
+    const json = JSON.parse(new TextDecoder().decode(base64UrlToBytes(part))) as { exp?: unknown };
+    return typeof json.exp === 'number' && Number.isFinite(json.exp) ? json.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
 export function userIdFromToken(token: string): string {
   const part = token.split('.')[1];
   if (!part) throw new HubSdkError('bad_token', 'Session token is missing a payload');
@@ -163,6 +177,11 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
       const auth = await postAuth(`/v2/account/authenticate/custom?${params}`, body);
       if (!auth.refreshToken) throw new HubSdkError('auth_failed', 'Auth did not return a refresh token');
       return auth;
+    },
+
+    async sessionRefresh(refreshToken) {
+      const auth = await postAuth('/v2/account/session/refresh', { token: refreshToken });
+      return { token: auth.token, refreshToken: auth.refreshToken || refreshToken };
     },
 
     async rpc<T>(id: string, body: object, opts?: NakamaRpcOptions): Promise<T> {
