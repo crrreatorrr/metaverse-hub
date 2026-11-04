@@ -189,6 +189,9 @@ function InitModule(
   // initializer.registerMatch(...) / initializer.registerRpc(...) lines (plus PB's
   // boot-time world creation). Each argument is a top-level named function.
   // >>> game: sproto (Sproto Duel) registrations
+  initializer.registerMatch("sproto_arena", { matchInit: sprotoArenaInit, matchJoinAttempt: sprotoArenaJoinAttempt, matchJoin: sprotoArenaJoin, matchLeave: sprotoArenaLeave, matchLoop: sprotoArenaLoop, matchTerminate: sprotoArenaTerminate, matchSignal: sprotoArenaSignal });
+  initializer.registerRpc("sproto.room_create", rpcSprotoRoomCreate);
+  initializer.registerRpc("sproto.room_join", rpcSprotoRoomJoin);
   // <<< game: sproto
   // ----
   // >>> game: peoples-bitcoin registrations
