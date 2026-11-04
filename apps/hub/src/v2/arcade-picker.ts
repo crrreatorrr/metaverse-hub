@@ -143,6 +143,8 @@ export function createArcadePicker(
     hide,
     handleKey(event) {
       if (!state.open) return false;
+      // Browser shortcuts (reload, dev tools, F-keys) pass through untouched.
+      if (event.ctrlKey || event.metaKey || event.altKey || /^F\d{1,2}$/.test(event.code)) return false;
       if (event.repeat) return true;
       const next = pickerKey(state, event.code, shown.length);
       event.preventDefault();
