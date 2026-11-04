@@ -11,7 +11,7 @@ import { CLUB_MARKERS } from './club-interior-colliders';
  */
 const SPOT = CLUB_MARKERS.arcade_spot.pos;
 
-/** Where the player stands to play. In front of the cabinet screen, clear of the EXIT trigger. */
+/** Where the player stands to play, in front of the cabinet screen. The back-wall EXIT door beside it is scenery. */
 export const ARCADE_WALKUP = { x: SPOT[0] + 0.25, z: SPOT[2] - 1.25 } as const;
 /** Horizontal metres from the walk-up spot that still count as "at the machine". */
 export const ARCADE_RADIUS = 1.15;

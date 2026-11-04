@@ -41,6 +41,7 @@ import { addHallOfChampions } from './m3/hallOfChampions';
 import { addLivingPortals } from './m3/livingPortals';
 import { addOrbitGems } from './m3/orbitGems';
 import type { LeaderboardProvider, OrbitAvatar } from './m3/types';
+import { spawnFor } from './layout';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
@@ -64,6 +65,9 @@ export interface Warp {
 }
 
 /** `arcade`: at the Bar's arcade cabinet, where E opens Sproto Fighter. */
+/** Metres in front of the Bar's street door where leaving puts the player (the door trigger is 2.6 m). */
+const CLUB_EXIT_STEP = 4;
+
 export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | 'arcade' | null;
 
 export interface VerseStoreUi {
@@ -477,6 +481,25 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     });
   }
 
+  /**
+   * Out through the entrance: on the plaza just in front of the Bar's street door, facing the
+   * monument, past the door trigger (2.6 m) so the player is not pulled straight back in.
+   */
+  function outsideClubDoor(): Warp {
+    const door = slots.find((slot) => slot.key === 'club')?.door;
+    if (door) {
+      door.getWorldPosition(tmp);
+      const toCenter = new Vector3(-tmp.x, 0, -tmp.z);
+      if (toCenter.lengthSq() < 1) toCenter.set(0, 0, 1);
+      toCenter.normalize();
+      const x = tmp.x + toCenter.x * CLUB_EXIT_STEP;
+      const z = tmp.z + toCenter.z * CLUB_EXIT_STEP;
+      return { x, y: STAND_Y, z, yaw: Math.atan2(toCenter.x, -toCenter.z) };
+    }
+    const south = spawnFor(null);
+    return { x: south.x, y: STAND_Y, z: south.z, yaw: south.yaw };
+  }
+
   function enterInterior(room: ClubInteriorBuild, at: Warp): void {
     exitLatch = false;
     inside = true;
@@ -550,10 +573,9 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         if (sprotel.playerNear) zone = 'store';
         else storeOpen = false;
       }
-      const distance = Math.min(
-        horiz(interior.exit, player.x, player.y, player.z),
-        horiz(interior.entry, player.x, player.y, player.z),
-      );
+      // The entrance is the Bar's only way out. The back-wall EXIT door is scenery: it sits beside
+      // the arcade cabinet, and treating it as an exit threw players out while they walked up to play.
+      const distance = horiz(interior.entry, player.x, player.y, player.z);
       if (distance < 1.8 && !exitLatch) {
         exitLatch = true;
         doorLatch = false;
@@ -562,20 +584,14 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
         interior.group.visible = false;
         setClubMood(false);
         storeOpen = false;
-        interior.exit.getWorldPosition(tmp);
-        const flat = tmp.clone();
-        flat.y = 0;
-        if (flat.lengthSq() < 1) flat.set(0, 0, 1);
-        flat.normalize();
-        const x = tmp.x - flat.x * 6;
-        const z = tmp.z - flat.z * 6;
-        warp = { x, y: STAND_Y, z, yaw: Math.atan2(-x, z) };
+        warp = outsideClubDoor();
       } else if (distance >= 1.8) {
         exitLatch = false;
         if (distance < 4) zone = 'exit';
       }
-      // The cabinet is near the EXIT door; standing at it shows the arcade prompt instead.
-      if (inside && zone !== 'store' && atArcade(player.x - INTERIOR_ORIGIN.x, player.z - INTERIOR_ORIGIN.z)) zone = 'arcade';
+      // The cabinet's walk-up spot is about 2 m from Sprotel at the bar. Inside that small circle the
+      // cabinet wins, so E plays the arcade instead of opening the store.
+      if (inside && atArcade(player.x - INTERIOR_ORIGIN.x, player.z - INTERIOR_ORIGIN.z)) zone = 'arcade';
     }
     gems.update(elapsed);
     living.update(elapsed, camera);
