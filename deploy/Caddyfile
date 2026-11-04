@@ -147,12 +147,14 @@ play.{$DOMAIN} {
 	redir /peoples-bitcoin /peoples-bitcoin/ 308
 	redir /sproto-duel /sproto-duel/ 308
 	redir /sproto-fighter /sproto-fighter/ 308
+	redir /sproto-arcade /sproto-arcade/ 308
 
 	import game hpos10i {$GAME_COOP_HPOS10I:0} hpos10i
 	import game nobu {$GAME_COOP_NOBU:0} nobu
 	import game peoples-bitcoin {$GAME_COOP_PEOPLES_BITCOIN:0} peoples_bitcoin
 	import game sproto-duel {$GAME_COOP_SPROTO_DUEL:0} sproto_duel
 	import game sproto-fighter {$GAME_COOP_SPROTO_FIGHTER:0} sproto_fighter
+	import game sproto-arcade {$GAME_COOP_SPROTO_ARCADE:0} sproto_arcade
 
 	handle {
 		respond "play host" 404

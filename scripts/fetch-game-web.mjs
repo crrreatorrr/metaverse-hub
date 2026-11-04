@@ -11,6 +11,7 @@
  *   node scripts/fetch-game-web.mjs peoples-bitcoin
  *   node scripts/fetch-game-web.mjs sproto-duel   (or: sproto)
  *   node scripts/fetch-game-web.mjs sproto-fighter (the Bar's arcade cabinet)
+ *   node scripts/fetch-game-web.mjs sproto-arcade  (the cabinet's second game)
  *   node scripts/fetch-game-web.mjs --all
  *
  * Requires `gh` with read access to the game repo (Cursor GitHub App must
@@ -35,6 +36,7 @@ const GAMES = {
   'peoples-bitcoin': { repo: 'crrreatorrr/peoples-bitcoin', artifact: 'web-build' },
   'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
   'sproto-fighter': { repo: 'crrreatorrr/Sproto-Fighter', artifact: 'web-build' },
+  'sproto-arcade': { repo: 'crrreatorrr/Sproto-Arcade', artifact: 'web-build' },
 };
 
 /** Nakama game ids that differ from their slug. */

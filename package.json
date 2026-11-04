@@ -24,6 +24,7 @@
     "fetch:peoples-bitcoin": "node scripts/fetch-game-web.mjs peoples-bitcoin",
     "fetch:sproto-duel": "node scripts/fetch-game-web.mjs sproto-duel",
     "fetch:sproto-fighter": "node scripts/fetch-game-web.mjs sproto-fighter",
+    "fetch:sproto-arcade": "node scripts/fetch-game-web.mjs sproto-arcade",
     "preview": "npm run preview -w @metaverse/hub"
   },
   "devDependencies": {
