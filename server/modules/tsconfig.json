@@ -32,6 +32,8 @@
     "src/chat_words.ts",
     "src/chat_guard.ts",
     "src/rt_hooks.ts",
+    "src/hub_match.ts",
+    "src/hub_rpcs.ts",
     "src/sproto_duel.ts",
     "src/main.ts"
   ],

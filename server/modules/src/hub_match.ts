@@ -1,84 +1,83 @@
-// M3 authoritative hub match. Not registered and not in tsconfig.json `files`,
-// so the Nakama bundle does not include it. Wiring is docs/m3-server-prep.md.
+// Authoritative plaza match: up to 100 players per shard at 10 Hz.
 //
-// One instance, 10 players, 15 Hz. Presence is position, rotation, animation,
-// name, owned Relics for orbit gems, and current game. This handler never
-// credits Tickets, Verse, Relics, or items. Its only SQL is a relic read.
-// The five-minute meta rollup is HubBoards.onHubTick, which writes ranked
-// scores only.
-
+// Presence only: position (cm), yaw (0..255), animation index, name, owned
+// Relics (orbit gems), cosmetic profile and the game a player is heading to.
+// This handler never credits Tickets, Verse, Relics or items. Its only SQL is a
+// batched relic read. Chat runs on Nakama channels (hub.<shard>), not here.
+//
+// Wire (JSON text; opcodes are this match's own):
+//   1 POSE     c→s  [xCm, yCm, zCm, yaw8, anim]          ≤ 64 bytes, latest per tick wins
+//   2 SNAPSHOT s→c  {t, you, shard, roster:[Entry], p:[[slot,x,y,z,yaw,anim]]}   joiner / rejoin
+//   3 DELTA    s→c  {t, p:[[slot,x,y,z,yaw,anim]]}         changed slots in the recipient's zone
+//   4 ROSTER   s→c  {add?:[Entry], del?:[slot], upd?:[Entry]}
+//   5 PROFILE  c→s  {character, staff, pet}                1 per 2 s → roster upd
+//   6 EMOTE    c→s→zone {e} / {s, e}                       1 per s
+//   7 TRAVEL   c→s  {game}                                  others see "→ NOBU" before the player leaves
+// Entry = {s, u, n, c, st, pt, r, g, away}
 namespace HubMatch {
-  export var TICK_RATE = 15;
-  /** Architecture's later cap is 100. This module's cap is the 10-player test. */
-  export var MAX_PLAYERS = 10;
+  export var MODULE = "hub";
+  export var TICK_RATE = 10;
+  export var MAX_PLAYERS = 100;
+  /** Placement stops sending new players above this; the rest is room for friends and reconnects. */
+  export var SOFT_CAP = 90;
+  export var REJOIN_GRACE_TICKS = 20 * 10;
+  export var EMPTY_CLOSE_TICKS = 120 * 10;
+  export var RELIC_REFRESH_TICKS = 100;
+  export var PROFILE_EVERY_TICKS = 20;
+  export var EMOTE_EVERY_TICKS = 10;
+  /** Consecutive rejected poses before the server accepts a snap (lag spike, respawn). */
+  export var SNAP_AFTER_REJECTS = 10;
+
   export var OP_POSE = 1;
   export var OP_SNAPSHOT = 2;
-  /** Walk 7.8 m/s and sprint 1.8x, from the hub controller, with three ticks of slack. */
-  var MAX_H_STEP = (7.8 * 1.8 * 3) / 15;
-  var MAX_V_STEP = 3;
-  var RELIC_REFRESH_TICKS = 75;
-  var SPAWN_X = 0;
-  var SPAWN_Y = 1.775;
-  var SPAWN_Z = 42;
+  export var OP_DELTA = 3;
+  export var OP_ROSTER = 4;
+  export var OP_PROFILE = 5;
+  export var OP_EMOTE = 6;
+  export var OP_TRAVEL = 7;
+
+  export var ANIMS = ["idle", "walk", "run", "jump", "wave", "dance", "cheer"];
+  export var EMOTES: { [e: string]: boolean } = { wave: true, dance: true, cheer: true };
+  /** Walk 7.8 m/s and sprint 1.8x, from the hub controller, with three ticks of slack (cm per tick). */
+  export var MAX_H_STEP_CM = Math.ceil((7.8 * 1.8 * 3 * 100) / 10);
+  export var MAX_V_STEP_CM = 300;
+  export var SPAWN = [0, 178, 4200];
 
   var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
-  var ANIMATIONS: { [id: string]: boolean } = {
-    idle: true,
-    walk: true,
-    run: true,
-    jump: true,
-    wave: true,
-    dance: true,
-    cheer: true,
-  };
   var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt"];
-  var RELIC_OK: { [id: string]: boolean } = {
-    hpos10i_core: true,
-    genesis_shard: true,
-    cones_tip: true,
-    tinubu_crown: true,
-    tidebreaker_belt: true,
-  };
+  var ID = /^[a-z0-9_-]{1,32}$/;
 
-  interface Presence {
+  export interface Player {
+    slot: number;
     userId: string;
-    sessionId: string;
-    username: string;
-    node: string;
-  }
-
-  interface MatchMessage {
-    sender: Presence | null;
-    opCode: number;
-    data: string | ArrayBuffer | null;
-  }
-
-  interface MatchDispatcher {
-    broadcastMessage(opCode: number, data: string, presences: Presence[] | null, sender: Presence | null, reliable: boolean): void;
-    matchKick(presences: Presence[]): void;
-    matchLabelUpdate(label: string): void;
-  }
-
-  interface Player {
-    userId: string;
-    sessionId: string;
+    presence: nkruntime.Presence;
     name: string;
     x: number;
     y: number;
     z: number;
-    rx: number;
-    ry: number;
-    rz: number;
-    rw: number;
-    animation: string;
+    yaw: number;
+    anim: number;
     relics: string[];
     game: string;
+    character: string;
+    staff: string;
+    pet: string;
+    away: boolean;
+    awayTick: number;
     placed: boolean;
+    dirty: boolean;
+    rejects: number;
+    lastProfileTick: number;
+    lastEmoteTick: number;
   }
 
-  interface HubState {
-    players: { [userId: string]: Player };
-    count: number;
+  export interface State {
+    shard: number;
+    slots: (Player | null)[];
+    byUser: { [userId: string]: number };
+    present: number;
+    emptyTicks: number;
+    label: string;
   }
 
   function errorText(value: unknown): string {
@@ -87,134 +86,37 @@ namespace HubMatch {
     return String(value);
   }
 
-  function isObject(value: unknown): boolean {
-    return !!value && typeof value === "object" && Object.prototype.toString.call(value) !== "[object Array]";
-  }
-
-  /** The match handler's own SQL is a single SELECT. */
-  function assertSelectOnly(sql: string): void {
-    var lower = sql.replace(/^\s+/, "").toLowerCase();
-    if (lower.indexOf("select") !== 0) throw new Error("hub_match_write");
-    if (lower.indexOf("insert") >= 0 || lower.indexOf("update") >= 0 || lower.indexOf("delete") >= 0) {
-      throw new Error("hub_match_write");
-    }
-  }
-
-  function sanitizeName(raw: string): string {
+  export function sanitizeName(raw: string): string {
     var out = "";
     for (var i = 0; i < raw.length && out.length < 24; i++) {
       var code = raw.charCodeAt(i);
-      var ok = (code >= 48 && code <= 57)
-        || (code >= 65 && code <= 90)
-        || (code >= 97 && code <= 122)
-        || code === 32
-        || code === 95
-        || code === 45
-        || code === 46;
+      var ok = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 32 || code === 95 || code === 45 || code === 46;
       if (ok) out += raw.charAt(i);
     }
     return out || "player";
   }
 
-  function lookupName(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, fallback: string): string {
-    try {
-      var account = nk.accountGetId(userId);
-      var username = account && account.user && account.user.username ? account.user.username : "";
-      if (username) return sanitizeName(username);
-    } catch (e) {
-      logger.warn("hub account unread " + errorText(e));
-    }
-    return sanitizeName(fallback);
-  }
-
-  function lookupRelics(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): string[] {
-    var sql = "SELECT COALESCE(json_agg(relic_id), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt')";
-    assertSelectOnly(sql);
-    try {
-      var rows = nk.sqlQuery(sql, [userId]);
-      var raw = rows && rows.length ? rows[0].result : "[]";
-      var parsed: unknown = raw;
-      if (typeof raw === "string") parsed = JSON.parse(raw);
-      var have: { [id: string]: boolean } = {};
-      if (parsed && Object.prototype.toString.call(parsed) === "[object Array]") {
-        var list = parsed as unknown[];
-        for (var i = 0; i < list.length; i++) if (typeof list[i] === "string" && RELIC_OK[list[i] as string]) have[list[i] as string] = true;
-      }
-      var out: string[] = [];
-      for (var j = 0; j < RELIC_ORDER.length; j++) if (have[RELIC_ORDER[j]]) out.push(RELIC_ORDER[j]);
-      return out;
-    } catch (e) {
-      logger.warn("hub relic read failed " + errorText(e));
-      return [];
-    }
-  }
-
-  function recount(state: HubState): void {
-    state.count = Object.keys(state.players).length;
-  }
-
-  function labelOf(state: HubState): string {
-    return JSON.stringify({ name: "hub", players: state.count, max: MAX_PLAYERS });
-  }
-
-  function snapshot(tick: number, state: HubState): string {
-    var ids = Object.keys(state.players).sort();
-    var players: { [key: string]: unknown }[] = [];
-    for (var i = 0; i < ids.length; i++) {
-      var player = state.players[ids[i]];
-      players.push({
-        userId: player.userId,
-        name: player.name,
-        position: { x: player.x, y: player.y, z: player.z },
-        rotation: { x: player.rx, y: player.ry, z: player.rz, w: player.rw },
-        animation: player.animation,
-        relics: player.relics,
-        game: player.game,
-      });
-    }
-    return JSON.stringify({ tick: tick, players: players });
-  }
-
-  function broadcast(dispatcher: MatchDispatcher, tick: number, state: HubState): void {
-    dispatcher.broadcastMessage(OP_SNAPSHOT, snapshot(tick, state), null, null, false);
-  }
-
-  function finite(value: unknown): number | null {
-    return typeof value === "number" && isFinite(value) ? value : null;
-  }
-
-  function readVec3(value: unknown): { x: number; y: number; z: number } | null {
-    if (!isObject(value)) return null;
-    var body = value as { [key: string]: unknown };
-    var x = finite(body.x);
-    var y = finite(body.y);
-    var z = finite(body.z);
-    if (x === null || y === null || z === null) return null;
-    return { x: x, y: y, z: z };
-  }
-
-  function readQuat(value: unknown): { x: number; y: number; z: number; w: number } | null {
-    if (!isObject(value)) return null;
-    var body = value as { [key: string]: unknown };
-    var x = finite(body.x);
-    var y = finite(body.y);
-    var z = finite(body.z);
-    var w = finite(body.w);
-    if (x === null || y === null || z === null || w === null) return null;
-    var lengthSq = x * x + y * y + z * z + w * w;
-    if (lengthSq < 0.25 || lengthSq > 2.25) return null;
-    return { x: x, y: y, z: z, w: w };
+  /** plaza above y -50 m, the club interior below -250 m (its root is at -300 m). */
+  export function zoneOf(yCm: number): string {
+    if (yCm > -5000) return "plaza";
+    if (yCm < -25000) return "bar";
+    return "void";
   }
 
   function inBounds(x: number, y: number, z: number): boolean {
-    return x >= -140 && x <= 140 && z >= -140 && z <= 140 && y >= -4 && y <= 40;
+    if (x < -14000 || x > 14000 || z < -14000 || z > 14000) return false;
+    return (y >= -400 && y <= 4000) || (y >= -32000 && y <= -26000);
   }
 
-  function messageText(nk: nkruntime.Nakama, data: string | ArrayBuffer | null): string {
+  function isInt(v: unknown): boolean {
+    return typeof v === "number" && isFinite(v) && Math.floor(v) === v;
+  }
+
+  function messageText(nk: nkruntime.Nakama, data: string | ArrayBuffer | null | undefined): string {
     if (typeof data === "string") return data;
-    if (data && typeof data.byteLength === "number") {
+    if (data && typeof (data as ArrayBuffer).byteLength === "number") {
       try {
-        return nk.binaryToString(data);
+        return nk.binaryToString(data as ArrayBuffer);
       } catch (_e) {
         return "";
       }
@@ -222,193 +124,423 @@ namespace HubMatch {
     return "";
   }
 
-  function applyPose(player: Player, raw: string): void {
-    if (!raw || raw.length > 2048) return;
-    var data: unknown;
+  function parseJson(raw: string, max: number): unknown {
+    if (!raw || raw.length > max) return null;
     try {
-      data = JSON.parse(raw);
+      return JSON.parse(raw);
     } catch (_e) {
-      return;
+      return null;
     }
-    if (!isObject(data)) return;
-    var body = data as { [key: string]: unknown };
-    var position = readVec3(body.position);
-    if (!position || !inBounds(position.x, position.y, position.z)) return;
-    if (player.placed) {
-      var dx = position.x - player.x;
-      var dz = position.z - player.z;
-      var dy = position.y - player.y;
-      if (dx * dx + dz * dz > MAX_H_STEP * MAX_H_STEP) return;
-      if (dy > MAX_V_STEP || dy < -MAX_V_STEP) return;
-    }
-    player.x = position.x;
-    player.y = position.y;
-    player.z = position.z;
-    player.placed = true;
-    var rotation = readQuat(body.rotation);
-    if (rotation) {
-      player.rx = rotation.x;
-      player.ry = rotation.y;
-      player.rz = rotation.z;
-      player.rw = rotation.w;
-    }
-    if (typeof body.animation === "string" && ANIMATIONS[body.animation]) player.animation = body.animation;
-    if (typeof body.game === "string" && (body.game === "" || GAMES[body.game])) player.game = body.game;
   }
 
-  function blankPlayer(nk: nkruntime.Nakama, logger: nkruntime.Logger, presence: Presence): Player {
-    return {
-      userId: presence.userId,
-      sessionId: presence.sessionId || "",
-      name: lookupName(nk, logger, presence.userId, presence.username || ""),
-      x: SPAWN_X,
-      y: SPAWN_Y,
-      z: SPAWN_Z,
-      rx: 0,
-      ry: 0,
-      rz: 0,
-      rw: 1,
-      animation: "idle",
-      relics: lookupRelics(nk, logger, presence.userId),
-      game: "",
-      placed: false,
-    };
+  export function entryOf(p: Player): { [k: string]: unknown } {
+    return { s: p.slot, u: p.userId, n: p.name, c: p.character, st: p.staff, pt: p.pet, r: p.relics, g: p.game, away: p.away };
   }
 
-  export function matchInit(
-    _ctx: nkruntime.Context,
-    logger: nkruntime.Logger,
-    _nk: nkruntime.Nakama,
-    _params: { [key: string]: string },
-  ): { state: HubState; tickRate: number; label: string } {
-    logger.info("hub match init tick " + String(TICK_RATE) + " max " + String(MAX_PLAYERS));
-    return {
-      state: { players: {}, count: 0 },
-      tickRate: TICK_RATE,
-      label: JSON.stringify({ name: "hub", players: 0, max: MAX_PLAYERS }),
-    };
+  function rowOf(p: Player): number[] {
+    return [p.slot, p.x, p.y, p.z, p.yaw, p.anim];
   }
 
-  export function matchJoinAttempt(
-    _ctx: nkruntime.Context,
-    _logger: nkruntime.Logger,
-    _nk: nkruntime.Nakama,
-    _dispatcher: MatchDispatcher,
-    _tick: number,
-    state: HubState,
-    presence: Presence,
-    _metadata: { [key: string]: string },
-  ): { state: HubState; accept: boolean; rejectMessage?: string } {
-    recount(state);
+  function labelOf(state: State): string {
+    return JSON.stringify({ game: "hub", kind: "hub", shard: state.shard, players: state.present, max: MAX_PLAYERS, open: state.present < SOFT_CAP });
+  }
+
+  function recount(state: State): void {
+    var n = 0;
+    for (var i = 0; i < state.slots.length; i++) {
+      var p = state.slots[i];
+      if (p && !p.away) n++;
+    }
+    state.present = n;
+  }
+
+  function updateLabel(dispatcher: nkruntime.MatchDispatcher, state: State): void {
+    var next = labelOf(state);
+    if (next === state.label) return;
+    state.label = next;
+    dispatcher.matchLabelUpdate(next);
+  }
+
+  function presences(state: State, zone: string | null, except: string | null): nkruntime.Presence[] {
+    var out: nkruntime.Presence[] = [];
+    for (var i = 0; i < state.slots.length; i++) {
+      var p = state.slots[i];
+      if (!p || p.away || p.userId === except) continue;
+      if (zone !== null && zoneOf(p.y) !== zone) continue;
+      out.push(p.presence);
+    }
+    return out;
+  }
+
+  function send(dispatcher: nkruntime.MatchDispatcher, op: number, body: unknown, to: nkruntime.Presence[] | null): void {
+    if (to && !to.length) return;
+    dispatcher.broadcastMessage(op, JSON.stringify(body), to, null, true);
+  }
+
+  function freeSlot(state: State): number {
+    for (var i = 0; i < state.slots.length; i++) if (!state.slots[i]) return i;
+    return -1;
+  }
+
+  function scopeOf(ctx: nkruntime.Context): string {
+    return ctx.vars && ctx.vars.scope ? ctx.vars.scope : "";
+  }
+
+  /** One batched relic read for many players. */
+  export function lookupRelics(nk: nkruntime.Nakama, logger: nkruntime.Logger, userIds: string[]): { [userId: string]: string[] } {
+    var out: { [userId: string]: string[] } = {};
+    if (!userIds.length) return out;
+    try {
+      var rows = nk.sqlQuery(
+        "SELECT user_id::text AS user_id, json_agg(relic_id)::text AS relics FROM game.relic_claim WHERE user_id = ANY($1::uuid[]) AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt') GROUP BY user_id",
+        [userIds],
+      );
+      for (var i = 0; i < (rows || []).length; i++) {
+        var raw = rows[i].relics;
+        var list = (typeof raw === "string" ? JSON.parse(raw) : raw) as unknown[];
+        var have: { [id: string]: boolean } = {};
+        for (var j = 0; list && j < list.length; j++) if (typeof list[j] === "string") have[list[j] as string] = true;
+        var ordered: string[] = [];
+        for (var k = 0; k < RELIC_ORDER.length; k++) if (have[RELIC_ORDER[k]]) ordered.push(RELIC_ORDER[k]);
+        out[String(rows[i].user_id)] = ordered;
+      }
+    } catch (e) {
+      logger.warn("hub relic read failed " + errorText(e));
+    }
+    return out;
+  }
+
+  function lookupNames(nk: nkruntime.Nakama, logger: nkruntime.Logger, list: nkruntime.Presence[]): { [userId: string]: string } {
+    var out: { [userId: string]: string } = {};
+    var ids: string[] = [];
+    for (var i = 0; i < list.length; i++) {
+      out[list[i].userId] = sanitizeName(list[i].username || "");
+      ids.push(list[i].userId);
+    }
+    try {
+      var users = nk.usersGetId(ids);
+      for (var j = 0; j < (users || []).length; j++) if (users[j].username) out[users[j].userId] = sanitizeName(users[j].username);
+    } catch (e) {
+      logger.warn("hub name read failed " + errorText(e));
+    }
+    return out;
+  }
+
+  function sameList(a: string[], b: string[]): boolean {
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  /** Validates a POSE body; returns true when it moved the player. */
+  export function applyPose(p: Player, raw: string): boolean {
+    if (!raw || raw.length > 64) return false;
+    var data = parseJson(raw, 64);
+    if (!data || Object.prototype.toString.call(data) !== "[object Array]") return false;
+    var a = data as unknown[];
+    if (a.length !== 5 || !isInt(a[0]) || !isInt(a[1]) || !isInt(a[2]) || !isInt(a[3]) || !isInt(a[4])) return false;
+    var x = a[0] as number, y = a[1] as number, z = a[2] as number, yaw = a[3] as number, anim = a[4] as number;
+    if (!inBounds(x, y, z) || yaw < 0 || yaw > 255 || anim < 0 || anim >= ANIMS.length) return false;
+    if (p.placed && zoneOf(y) === zoneOf(p.y)) {
+      var dx = x - p.x, dz = z - p.z, dy = y - p.y;
+      if (dx * dx + dz * dz > MAX_H_STEP_CM * MAX_H_STEP_CM || dy > MAX_V_STEP_CM || dy < -MAX_V_STEP_CM) {
+        p.rejects++;
+        if (p.rejects < SNAP_AFTER_REJECTS) return false;
+      }
+    }
+    p.rejects = 0;
+    if (p.placed && p.x === x && p.y === y && p.z === z && p.yaw === yaw && p.anim === anim) return false;
+    p.x = x;
+    p.y = y;
+    p.z = z;
+    p.yaw = yaw;
+    p.anim = anim;
+    p.placed = true;
+    p.dirty = true;
+    return true;
+  }
+
+  function applyProfile(p: Player, raw: string, tick: number): boolean {
+    if (tick - p.lastProfileTick < PROFILE_EVERY_TICKS) return false;
+    var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
+    if (!data || typeof data !== "object") return false;
+    var changed = false;
+    var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
+    var st = typeof data.staff === "string" && ID.test(data.staff) ? data.staff : p.staff;
+    var pt = data.pet === null || data.pet === "" ? "" : typeof data.pet === "string" && ID.test(data.pet) ? data.pet : p.pet;
+    if (c !== p.character || st !== p.staff || pt !== p.pet) changed = true;
+    p.character = c;
+    p.staff = st;
+    p.pet = pt;
+    p.lastProfileTick = tick;
+    return changed;
+  }
+
+  export function matchInit(_ctx: nkruntime.Context, logger: nkruntime.Logger, _nk: nkruntime.Nakama, params: { [key: string]: unknown }): { state: State; tickRate: number; label: string } {
+    var shard = Math.max(1, Math.floor(Number(params && params.shard) || 1));
+    var slots: (Player | null)[] = [];
+    for (var i = 0; i < MAX_PLAYERS; i++) slots.push(null);
+    var state: State = { shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "" };
+    state.label = labelOf(state);
+    logger.info("hub shard " + String(shard) + " up, tick " + String(TICK_RATE) + " max " + String(MAX_PLAYERS));
+    return { state: state, tickRate: TICK_RATE, label: state.label };
+  }
+
+  export function matchJoinAttempt(ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, _dispatcher: nkruntime.MatchDispatcher, _tick: number, state: State, presence: nkruntime.Presence, _metadata: { [key: string]: unknown }): { state: State; accept: boolean; rejectMessage?: string } {
     if (!presence || !presence.userId) return { state: state, accept: false, rejectMessage: "unauthorized" };
-    if (state.players[presence.userId]) return { state: state, accept: false, rejectMessage: "already_joined" };
-    if (state.count >= MAX_PLAYERS) return { state: state, accept: false, rejectMessage: "hub_full" };
+    var scope = scopeOf(ctx);
+    if (scope !== "hub" && scope !== "") return { state: state, accept: false, rejectMessage: "wrong_scope" };
+    // Same user again (reconnect within grace, or a newer tab): take over the slot.
+    if (state.byUser[presence.userId] !== undefined) return { state: state, accept: true };
+    if (freeSlot(state) < 0) return { state: state, accept: false, rejectMessage: "full" };
     return { state: state, accept: true };
   }
 
-  export function matchJoin(
-    _ctx: nkruntime.Context,
-    logger: nkruntime.Logger,
-    nk: nkruntime.Nakama,
-    dispatcher: MatchDispatcher,
-    tick: number,
-    state: HubState,
-    presences: Presence[],
-  ): { state: HubState } {
-    for (var i = 0; i < presences.length; i++) {
-      var presence = presences[i];
-      if (!presence || !presence.userId || state.players[presence.userId]) continue;
-      recount(state);
-      if (state.count >= MAX_PLAYERS) {
-        dispatcher.matchKick([presence]);
+  export function matchJoin(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: State, joined: nkruntime.Presence[]): { state: State } {
+    var fresh: nkruntime.Presence[] = [];
+    var returning: Player[] = [];
+    for (var i = 0; i < joined.length; i++) {
+      var pr = joined[i];
+      if (!pr || !pr.userId) continue;
+      var existing = state.byUser[pr.userId];
+      if (existing !== undefined && state.slots[existing]) {
+        var p = state.slots[existing] as Player;
+        if (!p.away && p.presence.sessionId !== pr.sessionId) dispatcher.matchKick([p.presence]);
+        p.presence = pr;
+        p.away = false;
+        returning.push(p);
+      } else {
+        fresh.push(pr);
+      }
+    }
+    var names = lookupNames(nk, logger, fresh);
+    var relicIds: string[] = [];
+    for (var r = 0; r < fresh.length; r++) relicIds.push(fresh[r].userId);
+    var relics = lookupRelics(nk, logger, relicIds);
+    var added: Player[] = [];
+    for (var j = 0; j < fresh.length; j++) {
+      var slot = freeSlot(state);
+      if (slot < 0) {
+        dispatcher.matchKick([fresh[j]]);
         continue;
       }
-      state.players[presence.userId] = blankPlayer(nk, logger, presence);
+      var np: Player = {
+        slot: slot,
+        userId: fresh[j].userId,
+        presence: fresh[j],
+        name: names[fresh[j].userId] || "player",
+        x: SPAWN[0],
+        y: SPAWN[1],
+        z: SPAWN[2],
+        yaw: 0,
+        anim: 0,
+        relics: relics[fresh[j].userId] || [],
+        game: "",
+        character: "",
+        staff: "",
+        pet: "",
+        away: false,
+        awayTick: 0,
+        placed: false,
+        dirty: false,
+        rejects: 0,
+        lastProfileTick: -PROFILE_EVERY_TICKS,
+        lastEmoteTick: -EMOTE_EVERY_TICKS,
+      };
+      state.slots[slot] = np;
+      state.byUser[np.userId] = slot;
+      added.push(np);
     }
     recount(state);
-    dispatcher.matchLabelUpdate(labelOf(state));
-    broadcast(dispatcher, tick, state);
-    return { state: state };
-  }
-
-  export function matchLeave(
-    _ctx: nkruntime.Context,
-    _logger: nkruntime.Logger,
-    _nk: nkruntime.Nakama,
-    dispatcher: MatchDispatcher,
-    tick: number,
-    state: HubState,
-    presences: Presence[],
-  ): { state: HubState } {
-    for (var i = 0; i < presences.length; i++) {
-      var userId = presences[i] && presences[i].userId;
-      if (userId && state.players[userId]) delete state.players[userId];
+    state.emptyTicks = 0;
+    var newcomers: { [userId: string]: boolean } = {};
+    var addEntries: { [k: string]: unknown }[] = [];
+    var updEntries: { [k: string]: unknown }[] = [];
+    for (var a = 0; a < added.length; a++) {
+      newcomers[added[a].userId] = true;
+      addEntries.push(entryOf(added[a]));
     }
-    recount(state);
-    dispatcher.matchLabelUpdate(labelOf(state));
-    if (state.count > 0) broadcast(dispatcher, tick, state);
-    return { state: state };
-  }
-
-  export function matchLoop(
-    _ctx: nkruntime.Context,
-    logger: nkruntime.Logger,
-    nk: nkruntime.Nakama,
-    dispatcher: MatchDispatcher,
-    tick: number,
-    state: HubState,
-    messages: MatchMessage[],
-  ): { state: HubState } {
-    var latest: { [userId: string]: string } = {};
-    for (var i = 0; i < messages.length; i++) {
-      var message = messages[i];
-      if (!message || message.opCode !== OP_POSE || !message.sender || !message.sender.userId) continue;
-      if (!state.players[message.sender.userId]) continue;
-      latest[message.sender.userId] = messageText(nk, message.data);
+    for (var b = 0; b < returning.length; b++) {
+      newcomers[returning[b].userId] = true;
+      updEntries.push(entryOf(returning[b]));
     }
-    var ids = Object.keys(latest);
-    for (var j = 0; j < ids.length; j++) {
-      var player = state.players[ids[j]];
-      if (player) applyPose(player, latest[ids[j]]);
+    var others: nkruntime.Presence[] = [];
+    var all = presences(state, null, null);
+    for (var o = 0; o < all.length; o++) if (!newcomers[all[o].userId]) others.push(all[o]);
+    if (addEntries.length || updEntries.length) {
+      var roster: { [k: string]: unknown } = {};
+      if (addEntries.length) roster.add = addEntries;
+      if (updEntries.length) roster.upd = updEntries;
+      send(dispatcher, OP_ROSTER, roster, others);
     }
-    if (tick % RELIC_REFRESH_TICKS === 0) {
-      var present = Object.keys(state.players);
-      for (var k = 0; k < present.length; k++) {
-        state.players[present[k]].relics = lookupRelics(nk, logger, present[k]);
+    var snapshotTargets = added.concat(returning);
+    if (snapshotTargets.length) {
+      var entries: { [k: string]: unknown }[] = [];
+      var rows: number[][] = [];
+      for (var s = 0; s < state.slots.length; s++) {
+        var sp = state.slots[s];
+        if (!sp) continue;
+        entries.push(entryOf(sp));
+        rows.push(rowOf(sp));
+      }
+      for (var t = 0; t < snapshotTargets.length; t++) {
+        send(dispatcher, OP_SNAPSHOT, { t: tick, you: snapshotTargets[t].slot, shard: state.shard, roster: entries, p: rows }, [snapshotTargets[t].presence]);
       }
     }
-    try {
-      HubBoards.onHubTick(nk, logger, tick);
-    } catch (e) {
-      logger.warn("hub meta tick failed " + errorText(e));
+    updateLabel(dispatcher, state);
+    return { state: state };
+  }
+
+  export function matchLeave(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: State, left: nkruntime.Presence[]): { state: State } {
+    var upd: { [k: string]: unknown }[] = [];
+    for (var i = 0; i < left.length; i++) {
+      var slot = left[i] ? state.byUser[left[i].userId] : undefined;
+      if (slot === undefined) continue;
+      var p = state.slots[slot];
+      // A kicked older session leaving after its replacement joined: ignore.
+      if (!p || p.away || p.presence.sessionId !== left[i].sessionId) continue;
+      p.away = true;
+      p.awayTick = tick;
+      upd.push(entryOf(p));
     }
     recount(state);
-    if (state.count > 0) broadcast(dispatcher, tick, state);
+    if (upd.length) send(dispatcher, OP_ROSTER, { upd: upd }, presences(state, null, null));
+    updateLabel(dispatcher, state);
     return { state: state };
   }
 
-  export function matchTerminate(
-    _ctx: nkruntime.Context,
-    _logger: nkruntime.Logger,
-    _nk: nkruntime.Nakama,
-    _dispatcher: MatchDispatcher,
-    _tick: number,
-    state: HubState,
-    _graceSeconds: number,
-  ): { state: HubState } {
+  export function matchLoop(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: State, messages: nkruntime.MatchMessage[]): { state: State } | null {
+    var latest: { [slot: string]: string } = {};
+    var rosterUpd: { [slot: string]: boolean } = {};
+    for (var i = 0; i < messages.length; i++) {
+      var m = messages[i];
+      if (!m || !m.sender) continue;
+      var slot = state.byUser[m.sender.userId];
+      if (slot === undefined) continue;
+      var p = state.slots[slot];
+      if (!p || p.away || p.presence.sessionId !== m.sender.sessionId) continue;
+      if (m.opCode === OP_POSE) {
+        latest[String(slot)] = messageText(nk, m.data);
+      } else if (m.opCode === OP_PROFILE) {
+        if (applyProfile(p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
+      } else if (m.opCode === OP_EMOTE) {
+        if (tick - p.lastEmoteTick < EMOTE_EVERY_TICKS) continue;
+        var emote = parseJson(messageText(nk, m.data), 64) as { e?: unknown } | null;
+        if (!emote || typeof emote.e !== "string" || !EMOTES[emote.e]) continue;
+        p.lastEmoteTick = tick;
+        send(dispatcher, OP_EMOTE, { s: p.slot, e: emote.e }, presences(state, zoneOf(p.y), null));
+      } else if (m.opCode === OP_TRAVEL) {
+        var travel = parseJson(messageText(nk, m.data), 64) as { game?: unknown } | null;
+        if (!travel || typeof travel.game !== "string") continue;
+        var game = travel.game === "" || GAMES[travel.game] ? travel.game : p.game;
+        if (game !== p.game) {
+          p.game = game;
+          rosterUpd[String(slot)] = true;
+        }
+      }
+    }
+    var poseSlots = Object.keys(latest);
+    for (var j = 0; j < poseSlots.length; j++) {
+      var pp = state.slots[Number(poseSlots[j])];
+      if (pp) applyPose(pp, latest[poseSlots[j]]);
+    }
+
+    // Grace expiry: away players past REJOIN_GRACE_TICKS leave the roster.
+    var del: number[] = [];
+    for (var k = 0; k < state.slots.length; k++) {
+      var ap = state.slots[k];
+      if (ap && ap.away && tick - ap.awayTick >= REJOIN_GRACE_TICKS) {
+        del.push(ap.slot);
+        delete state.byUser[ap.userId];
+        state.slots[k] = null;
+      }
+    }
+
+    // Staggered relic refresh: a quarter of the slots every RELIC_REFRESH_TICKS.
+    if (tick > 0 && tick % RELIC_REFRESH_TICKS === 0) {
+      var quarter = Math.floor(tick / RELIC_REFRESH_TICKS) % 4;
+      var ids: string[] = [];
+      for (var q = 0; q < state.slots.length; q++) {
+        var qp = state.slots[q];
+        if (qp && !qp.away && qp.slot % 4 === quarter) ids.push(qp.userId);
+      }
+      if (ids.length) {
+        var fresh = lookupRelics(nk, logger, ids);
+        for (var f = 0; f < ids.length; f++) {
+          var fp = state.slots[state.byUser[ids[f]]];
+          var next = fresh[ids[f]] || [];
+          if (fp && !sameList(fp.relics, next)) {
+            fp.relics = next;
+            rosterUpd[String(fp.slot)] = true;
+          }
+        }
+      }
+    }
+
+    var upd: { [k: string]: unknown }[] = [];
+    var updSlots = Object.keys(rosterUpd);
+    for (var u = 0; u < updSlots.length; u++) {
+      var upp = state.slots[Number(updSlots[u])];
+      if (upp) upd.push(entryOf(upp));
+    }
+    if (upd.length || del.length) {
+      var roster: { [k: string]: unknown } = {};
+      if (upd.length) roster.upd = upd;
+      if (del.length) roster.del = del;
+      send(dispatcher, OP_ROSTER, roster, presences(state, null, null));
+    }
+
+    // Deltas: one broadcast per occupied zone with that zone's changed rows.
+    var byZone: { [zone: string]: number[][] } = {};
+    for (var d = 0; d < state.slots.length; d++) {
+      var dp = state.slots[d];
+      if (!dp || !dp.dirty) continue;
+      dp.dirty = false;
+      if (dp.away) continue;
+      var zone = zoneOf(dp.y);
+      if (!byZone[zone]) byZone[zone] = [];
+      byZone[zone].push(rowOf(dp));
+    }
+    var zones = Object.keys(byZone);
+    for (var z = 0; z < zones.length; z++) {
+      send(dispatcher, OP_DELTA, { t: tick, p: byZone[zones[z]] }, presences(state, zones[z], null));
+    }
+
+    try {
+      HubBoards.maybeRecomputeMeta(nk, logger, Date.now());
+    } catch (e) {
+      logger.warn("hub meta rollup failed " + errorText(e));
+    }
+
+    recount(state);
+    updateLabel(dispatcher, state);
+    var occupied = 0;
+    for (var c = 0; c < state.slots.length; c++) if (state.slots[c]) occupied++;
+    if (occupied === 0) {
+      state.emptyTicks++;
+      if (state.shard !== 1 && state.emptyTicks >= EMPTY_CLOSE_TICKS) {
+        logger.info("hub shard " + String(state.shard) + " closed (empty)");
+        return null;
+      }
+    } else {
+      state.emptyTicks = 0;
+    }
     return { state: state };
   }
 
-  export function matchSignal(
-    _ctx: nkruntime.Context,
-    _logger: nkruntime.Logger,
-    _nk: nkruntime.Nakama,
-    _dispatcher: MatchDispatcher,
-    _tick: number,
-    state: HubState,
-    data: string,
-  ): { state: HubState; data: string } {
-    return { state: state, data: data };
+  export function matchTerminate(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, _dispatcher: nkruntime.MatchDispatcher, _tick: number, state: State, _graceSeconds: number): { state: State } {
+    return { state: state };
+  }
+
+  /** "status" → {shard, players, games:{game: n}} (counts of roster `g`). */
+  export function matchSignal(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, _dispatcher: nkruntime.MatchDispatcher, _tick: number, state: State, data: string): { state: State; data: string } {
+    if (data !== "status") return { state: state, data: "" };
+    var games: { [g: string]: number } = {};
+    for (var i = 0; i < state.slots.length; i++) {
+      var p = state.slots[i];
+      if (p && !p.away && p.game) games[p.game] = (games[p.game] || 0) + 1;
+    }
+    return { state: state, data: JSON.stringify({ shard: state.shard, players: state.present, games: games }) };
   }
 
   export var handler = {

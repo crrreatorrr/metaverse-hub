@@ -73,6 +73,37 @@ function rpcSprotoDevReplay(ctx: nkruntime.Context, logger: nkruntime.Logger, nk
   return guard(SprotoDuel.rpcReplay, ctx, logger, nk, payload);
 }
 
+function rpcHubJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.join, ctx, logger, nk, payload);
+}
+
+function rpcChatReport(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.report, ctx, logger, nk, payload);
+}
+
+type HubState = HubMatch.State;
+function hubInit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, params: { [key: string]: unknown }) {
+  return HubMatch.handler.matchInit(ctx, logger, nk, params);
+}
+function hubJoinAttempt(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, presence: nkruntime.Presence, metadata: { [key: string]: unknown }) {
+  return HubMatch.handler.matchJoinAttempt(ctx, logger, nk, dispatcher, tick, state, presence, metadata);
+}
+function hubJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, presences: nkruntime.Presence[]) {
+  return HubMatch.handler.matchJoin(ctx, logger, nk, dispatcher, tick, state, presences);
+}
+function hubLeave(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, presences: nkruntime.Presence[]) {
+  return HubMatch.handler.matchLeave(ctx, logger, nk, dispatcher, tick, state, presences);
+}
+function hubLoop(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, messages: nkruntime.MatchMessage[]) {
+  return HubMatch.handler.matchLoop(ctx, logger, nk, dispatcher, tick, state, messages);
+}
+function hubTerminate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, graceSeconds: number) {
+  return HubMatch.handler.matchTerminate(ctx, logger, nk, dispatcher, tick, state, graceSeconds);
+}
+function hubSignal(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: HubState, data: string) {
+  return HubMatch.handler.matchSignal(ctx, logger, nk, dispatcher, tick, state, data);
+}
+
 type DuelState = SprotoDuel.DuelState;
 // Nakama resolves match handlers by top-level function name, so each callback is a named wrapper.
 function sprotoDuelInit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, params: { [key: string]: unknown }) {
@@ -177,6 +208,17 @@ function InitModule(
     matchTerminate: sprotoDuelTerminate,
     matchSignal: sprotoDuelSignal,
   });
+  initializer.registerRpc("hub.join", rpcHubJoin);
+  initializer.registerRpc("chat.report", rpcChatReport);
+  initializer.registerMatch("hub", {
+    matchInit: hubInit,
+    matchJoinAttempt: hubJoinAttempt,
+    matchJoin: hubJoin,
+    matchLeave: hubLeave,
+    matchLoop: hubLoop,
+    matchTerminate: hubTerminate,
+    matchSignal: hubSignal,
+  });
   initializer.registerMatchmakerMatched(hubMatchmakerMatched);
   initializer.registerRtBefore("MatchmakerAdd", rtBeforeMatchmakerAdd);
   initializer.registerRtBefore("MatchCreate", rtBeforeMatchCreate);
@@ -215,5 +257,7 @@ function InitModule(
   // Provider-agnostic link and unlink are closed: this runtime registers no providers.
   initializer.registerBeforeLink(beforeClosed);
   initializer.registerBeforeUnlink(beforeClosed);
+  // Plaza shard 1 lives for the whole process; more shards open on demand (hub.join).
+  nk.matchCreate("hub", { shard: "1" });
   logger.info("metaverse hub runtime ready");
 }

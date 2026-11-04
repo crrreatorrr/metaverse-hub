@@ -8,8 +8,6 @@
 // game boards. Nothing here credits Tickets, Verse, Relics, or items.
 
 namespace HubBoards {
-  /** 15 Hz times five minutes. The hub match calls onHubTick. */
-  export var META_EVERY_TICKS = 4500;
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
@@ -283,8 +281,21 @@ namespace HubBoards {
     return row.recorded === true || row.recorded === "true";
   }
 
-  export function onHubTick(nk: nkruntime.Nakama, logger: nkruntime.Logger, tick: number): void {
-    if (tick < META_EVERY_TICKS || tick % META_EVERY_TICKS !== 0) return;
+  export var META_EVERY_MS = 5 * 60 * 1000;
+
+  /**
+   * Time-based meta rollup, called from every hub shard's loop. The node-wide
+   * localcache stamp makes one shard run it per window; the SQL itself is safe to repeat.
+   */
+  export function maybeRecomputeMeta(nk: nkruntime.Nakama, logger: nkruntime.Logger, nowMs: number): boolean {
+    var last = Number(nk.localcacheGet("hub:meta:last") || 0);
+    if (!last) {
+      nk.localcachePut("hub:meta:last", nowMs, 0);
+      return false;
+    }
+    if (nowMs - last < META_EVERY_MS) return false;
+    nk.localcachePut("hub:meta:last", nowMs, 0);
     recomputeMeta(nk, logger);
+    return true;
   }
 }
