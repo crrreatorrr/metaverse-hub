@@ -175,6 +175,25 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
   let lastToken = '';
 
   const pending = new Map<string, Pending>();
+  /** Match messages that arrived before their join reply, by match id. */
+  const orphans = new Map<string, MatchData[]>();
+  let joinsInFlight = 0;
+
+  async function joinRequest(body: Record<string, unknown>): Promise<Envelope> {
+    joinsInFlight += 1;
+    try {
+      return await request({ match_join: body }, 'match_join');
+    } finally {
+      joinsInFlight -= 1;
+    }
+  }
+
+  function takeOrphans(matchId: string): MatchData[] {
+    const held = orphans.get(matchId) ?? [];
+    orphans.delete(matchId);
+    if (joinsInFlight === 0) orphans.clear();
+    return held;
+  }
   const matches = new Map<string, MatchEntry>();
   const channels = new Map<string, ChannelEntry>();
   const matchmaker = new Map<string, MatchmakerEntry>();
@@ -265,9 +284,18 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     if (env.match_data) {
       const d = env.match_data;
       const entry = matches.get(d.match_id ?? '');
-      if (!entry) return;
       const sender = d.presence && d.presence.user_id ? presenceFromWire(d.presence) : null;
       const bytes = d.data ? base64ToBytes(d.data) : new Uint8Array(0);
+      if (!entry) {
+        // Nakama can deliver a match's first messages (sent from matchJoin) before the
+        // join reply. Hold them briefly; joinMatch hands them to the new handle.
+        if (joinsInFlight > 0 && d.match_id) {
+          const held = orphans.get(d.match_id) ?? [];
+          if (held.length < 64) held.push(matchData(d.match_id, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false));
+          orphans.set(d.match_id, held);
+        }
+        return;
+      }
       const msg = matchData(entry.matchId, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false);
       if (entry.message.size === 0) {
         if (entry.early.length < 256) entry.early.push(msg);
@@ -393,8 +421,11 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
   async function restore(): Promise<void> {
     for (const entry of [...matches.values()]) {
       try {
-        const env = await request({ match_join: { match_id: entry.matchId, metadata: entry.metadata ?? {} } }, 'match_join');
+        const env = await joinRequest({ match_id: entry.matchId, metadata: entry.metadata ?? {} });
         const m = env.match ?? {};
+        const held = takeOrphans(entry.matchId);
+        if (entry.message.size === 0) entry.early.push(...held);
+        else for (const msg of held) entry.message.emit(msg);
         entry.self = presenceFromWire(m.self);
         if (entry.self.sessionId) self = entry.self;
         entry.label = labelFromWire(m.label);
@@ -633,7 +664,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
       await ensureOpen();
       const body: Record<string, unknown> = 'matchId' in target ? { match_id: target.matchId } : { token: target.token };
       if (metadata) body.metadata = metadata;
-      const env = await request({ match_join: body }, 'match_join');
+      const env = await joinRequest(body);
       const m = env.match ?? {};
       const matchId = m.match_id ?? ('matchId' in target ? target.matchId : '');
       const existing = matches.get(matchId);
@@ -647,7 +678,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
         presences: (m.presences ?? []).map(presenceFromWire).filter((p) => !samePresence(p, me)),
         metadata,
         message: new Emitter(),
-        early: [],
+        early: takeOrphans(matchId),
         presence: new Emitter(),
         rejoin: new Emitter(),
         close: new Emitter(),

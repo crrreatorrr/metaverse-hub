@@ -345,6 +345,27 @@ async function chatHistory(): Promise<void> {
   rt.disconnect();
 }
 
+/** Nakama may send a match's first messages (from matchJoin) before the join reply. */
+async function earlyMatchData(): Promise<void> {
+  FakeSocket.all = [];
+  const rt = createRealtime({ serverUrl: 'http://hub.test', getToken: () => jwt('u1', 'a'), WebSocketImpl: FakeSocket as unknown as new (url: string) => WebSocket });
+  const p = rt.connect();
+  await tick();
+  const ws = FakeSocket.all[0]!;
+  ws.open();
+  await p;
+  const joining = rt.joinMatch({ matchId: 'm9.node' });
+  await tick();
+  ws.serverSend({ match_data: { match_id: 'm9.node', op_code: '2', data: bytesToBase64(utf8Encode('{"snap":1}')) } });
+  ws.serverSend({ cid: ws.last('match_join')!.cid, match: { match_id: 'm9.node', presences: [], self: { user_id: 'u1', session_id: 's1' } } });
+  const match = await joining;
+  await tick();
+  const got: unknown[] = [];
+  match.onMessage((m) => got.push(m.json()));
+  assert.deepEqual(got, [{ snap: 1 }]);
+  rt.disconnect();
+}
+
 async function noReconnectWhenDisabled(): Promise<void> {
   FakeSocket.all = [];
   const t = fakeTimers();
@@ -373,6 +394,7 @@ async function fromSdk(): Promise<void> {
 await protocolBasics();
 await connectAndMatch();
 await chatHistory();
+await earlyMatchData();
 await noReconnectWhenDisabled();
 await fromSdk();
 console.log('hub-sdk realtime tests ok');

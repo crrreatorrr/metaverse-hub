@@ -14,6 +14,7 @@
     "lint": "eslint .",
     "test": "npm run build -w @metaverse/hub-sdk && tsx packages/hub-sdk/test/sdk.test.ts && tsx packages/hub-sdk/test/realtime.test.ts && tsx packages/hub-sdk/test/realtime-mock.test.ts && tsx scripts/sim-capsule.ts && tsx apps/hub/test/net.test.ts && tsx server/test/unit/run.ts",
     "test:dup": "tsx server/test/duplication.test.ts",
+    "test:rt": "tsx server/test/rt/realtime.test.ts",
     "pack:sdk": "npm pack -w @metaverse/hub-sdk",
     "vendor:sdk": "node scripts/vendor-sdk.mjs",
     "fetch:games": "node scripts/fetch-game-web.mjs --all",
