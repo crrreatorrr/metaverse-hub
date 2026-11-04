@@ -1128,6 +1128,29 @@ async function pbExchange(): Promise<void> {
 
 /** NOBU payloads from the stated client contract (PR #1, e4b5446). The repo was not readable from this environment. */
 async function nobuRows(): Promise<void> {
+  await test('score', 'nobu layout 2 floors and rows stay separate from Classic', async () => {
+    const session = await login('nobu');
+    const classic = await call('score.submit', { boardId: 'nobu_trial_time', value: 15000, meta: { level: '1' } }, session.gameToken);
+    assert.equal(classic.body.accepted, true);
+    for (const [variant, floor] of [['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
+      const bad = await call('score.submit', { boardId: 'nobu_trial_time', value: floor - 1, meta: { level: variant } }, session.gameToken);
+      assert.equal(bad.body.error, 'implausible_score');
+      const ok = await call('score.submit', { boardId: 'nobu_trial_time', value: floor, meta: { level: variant, layout: 2 } }, session.gameToken);
+      assert.deepEqual(ok.body, { accepted: true, posted: true, value: floor, order: 'asc' });
+      const top = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant }, session.hub.token);
+      assert.equal((top.body.me as { value?: number } | null)?.value, floor);
+    }
+    for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+      const unknown = await call('score.submit', { boardId: 'nobu_trial_time', value: 100000, meta: { level: variant } }, session.gameToken);
+      assert.equal(unknown.body.error, 'bad_variant');
+    }
+    assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'nobu_trial_time'`), 4);
+    const old = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant: '1' }, session.hub.token);
+    assert.equal((old.body.me as { value?: number } | null)?.value, 15000);
+    assert.equal(ticketBalance(session.hub.userId, 'nobu'), 0);
+    assert.equal(verseBalance(session.hub.userId), 0);
+  });
+
   await test('score', 'nobu_trial_time is per level, integer ms, unranked, and grants nothing', async () => {
     const session = await login('nobu');
     const first = await call('score.submit', { boardId: 'nobu_trial_time', value: 40125, meta: { level: 1 } }, session.gameToken);

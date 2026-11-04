@@ -163,7 +163,7 @@ Rooms are `hub.<shard>` from `hub.join`. `HubChat` (RT before-hooks) enforces: r
 ## Decisions
 
 - Placement: least-full open shard, soft cap 90 of 100. No `fill` option.
-- NOBU: gear-free trials, always eligible (no ranked prompt); one board with per-level variants; integer ms; floors 15/15/12 s, ceiling 30 min; one submit per level per 5 s.
+- NOBU (Contract C13): gear-free trials, always eligible (no ranked prompt); one board with per-layout variants. Classic variants `1`/`2`/`3` retain floors 15/15/12 s; current variants `1v2`/`2v2`/`3v2` have floors 25.7/26/20.6 s. Integer ms, ceiling 30 min; one submit per variant per 5 s. Classic rows remain a separate archive.
 - Guests may chat, at 1 per 3 s (accounts 1 per 1.5 s).
 - Chat history is kept by Nakama; a 14-day purge job is not built yet.
 - The word list is a seed in `chat_words.ts` (hard list ROT13-encoded); extend it there.

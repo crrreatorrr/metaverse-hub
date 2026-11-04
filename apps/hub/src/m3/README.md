@@ -4,7 +4,7 @@ Orbit gems, living portals, the Hall of Champions, and the bar wall screen are c
 
 Stub names, counts, and champion rows load only when `import.meta.env.DEV` is true. That branch is stripped from the production build, and `./m3/stub` is not on the prod import graph. Production renders the empty state: the local avatar's real Relics (from `setRelics`), portals at 0 players, an empty Hall roster, and the live bar screen (below).
 
-The bar screen uses `createStubLeaderboardProvider()` in dev (watermarked `DEV PLACEHOLDER`). In production it shows live boards from `createLiveLeaderboardProvider` (`src/leaderboards.ts`): `leaderboard.top` for HPOS10I, the three NOBU time-trial levels (`nobu_trial_time:1..3`, integer ms shown as `m:ss.cc`), PB XP and Sproto Duel wins, plus the Verse pages from `verse.board`. Whenever that screen is up, `leaderboard-wall-screen` and its HTML tabs are hidden so the two canvases do not stack.
+The bar screen uses `createStubLeaderboardProvider()` in dev (watermarked `DEV PLACEHOLDER`). In production it shows live boards from `createLiveLeaderboardProvider` (`src/leaderboards.ts`): `leaderboard.top` for HPOS10I, the current NOBU time-trial layouts (`nobu_trial_time:1v2`, `2v2`, `3v2`) followed by the three Classic pages (`nobu_trial_time:1`, `2`, `3`), PB XP and Sproto Duel wins, plus the Verse pages from `verse.board`. NOBU values are integer ms shown as `m:ss.cc`. Whenever that screen is up, `leaderboard-wall-screen` and its HTML tabs are hidden so the two canvases do not stack.
 
 Walking into the Hall is not wired. The door sits on the pedestal, and `main.ts` (open PR #25) clamps the camera and the floor to the plaza or the bar. A warp to `HALL_SPAWN` needs that file.
 

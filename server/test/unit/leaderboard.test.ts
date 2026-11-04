@@ -44,12 +44,25 @@ const fresh = () => ({ userId: `00000000-0000-4000-8000-${String(++n).padStart(1
   assert.equal(JSON.parse(String(submitted.at(-1)![7])).godMode, undefined, 'god-mode flags are not stored');
 }
 
+// Layout 2 has separate rows/floors; Classic still accepts its original bounds.
+for (const [variant, floor] of [['1', 15000], ['2', 15000], ['3', 12000], ['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
+  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: floor, meta: { level: variant } }).accepted, true, variant);
+  assert.equal(submitted.at(-1)![8], variant, 'SQL preserves the complete variant');
+  const writes = submitted.length;
+  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: floor - 1, meta: { level: variant } }).error, 'implausible_score', variant);
+  assert.equal(submitted.length, writes, 'below-floor values never reach SQL');
+}
+for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 100000, meta: { level: variant } }).error, 'bad_variant', variant);
+}
+
 // Rate limit: 1 per (user, board, variant) per 5 s.
 {
   const who = fresh();
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 20000, meta: { level: 1 } }).accepted, true);
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 1 } }).error, 'rate_limited');
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 2 } }).accepted, true, 'other level is its own window');
+  assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 30000, meta: { level: '1v2' } }).accepted, true, 'new layout has its own window');
   const key = [...mod.nk.localcache.keys()].find((k) => k.startsWith(`score:${who.userId}:nobu_trial_time:1`))!;
   mod.nk.localcache.set(key, Date.now() - 6000);
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 1 } }).accepted, true);
@@ -74,6 +87,13 @@ const fresh = () => ({ userId: `00000000-0000-4000-8000-${String(++n).padStart(1
   const top = mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant: '3', limit: 500 });
   assert.equal(top.variant, '3');
   assert.deepEqual(plain(topArgs), ['nobu_trial_time', 'asc', U, '3', 50]);
+  for (const variant of ['1v2', '2v2', '3v2']) {
+    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant }).variant, variant);
+    assert.deepEqual(plain(topArgs), ['nobu_trial_time', 'asc', U, variant, 10]);
+  }
+  for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant }).error, 'bad_variant', variant);
+  }
   assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time' }).error, 'bad_variant');
   mod.call('leaderboard.top', game('sproto'), { boardId: 'sproto_wins' });
   assert.deepEqual(plain(topArgs), ['sproto_wins', 'desc', U, '', 10]);

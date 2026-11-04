@@ -570,6 +570,22 @@ async function scoresAndSession(): Promise<void> {
   const top = await h.sdk.getLeaderboard?.('nobu_trial_time', { variant: '1' });
   assert.equal(top?.order, 'asc');
   assert.equal(top?.rows[0]?.value, 20000);
+  for (const [variant, floor] of [['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
+    const posted = await h.sdk.submitScore('nobu_trial_time', floor, { level: variant, layout: 2 });
+    assert.deepEqual(posted, { accepted: true, posted: true, value: floor, order: 'asc' });
+    assert.equal(h.local.getItem(`hub:score:player-1:nobu_trial_time:${variant}`), String(floor));
+    await assert.rejects(() => h.sdk.submitScore('nobu_trial_time', floor - 1, { level: variant }),
+      (error: unknown) => error instanceof HubSdkError && error.code === 'implausible_score');
+    const page = await h.sdk.getLeaderboard?.('nobu_trial_time', { variant });
+    assert.equal(page?.variant, variant); assert.equal(page?.rows[0]?.value, floor);
+  }
+  assert.equal(h.local.getItem('hub:score:player-1:nobu_trial_time:1'), '20000', 'Classic best stays separate');
+  for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+    await assert.rejects(() => h.sdk.submitScore('nobu_trial_time', 100000, { level: variant }),
+      (error: unknown) => error instanceof HubSdkError && error.code === 'bad_variant');
+    await assert.rejects(async () => h.sdk.getLeaderboard?.('nobu_trial_time', { variant }),
+      (error: unknown) => error instanceof HubSdkError && error.code === 'bad_variant');
+  }
   assert.equal((await h.sdk.refreshSession?.())?.playerId, 'player-1');
 
   // An old-style double without the optional members still satisfies HubSdk.
@@ -635,6 +651,12 @@ async function refreshWire(): Promise<void> {
   assert.deepEqual(sent?.body, { boardId: 'nobu_trial_time', value: 21000, meta: { level: 1 }, godMode: false });
   await sdk.getLeaderboard?.('nobu_trial_time', { variant: '1', limit: 5 });
   assert.deepEqual(calls.find((c) => c.id === 'leaderboard.top')?.body, { boardId: 'nobu_trial_time', variant: '1', limit: 5 });
+  for (const [variant, floor] of [['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
+    await sdk.submitScore('nobu_trial_time', floor, { level: variant, layout: 2 });
+    assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', value: floor, meta: { level: variant, layout: 2 }, godMode: false });
+    await sdk.getLeaderboard?.('nobu_trial_time', { variant });
+    assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', variant });
+  }
   assert.equal(sdk.getSession?.()?.expiresAt, exp * 1000);
   const next = await sdk.refreshSession?.();
   assert.deepEqual(refreshed, ['refresh-9']);

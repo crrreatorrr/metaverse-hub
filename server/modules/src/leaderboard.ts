@@ -4,7 +4,7 @@
 // win boards for hpos10i and sproto accept a write only when
 // game.game_session.ranked is true (the session row, never the client). NOBU
 // time trials are gear-free and always eligible (Contract C13): one board,
-// variant = level ("1".."3"), integer milliseconds within the floors below.
+// variant = Classic level ("1".."3") or layout ("1v2".."3v2"), integer milliseconds.
 // peoples-bitcoin is exempt. sproto_wins and meta are server boards: only
 // recordWin and the meta rollup write them. God-mode posts write no row.
 // Nothing here credits Tickets, Verse, Relics, or items.
@@ -28,7 +28,10 @@ namespace HubBoards {
   };
 
   /** Integer ms floors per NOBU level (same numbers as NOBU's src/config/trials.js) and the ceiling. */
-  export var NOBU_FLOOR_MS: { [level: string]: number } = { "1": 15000, "2": 15000, "3": 12000 };
+  export var NOBU_FLOOR_MS: { [level: string]: number } = {
+    "1": 15000, "2": 15000, "3": 12000,
+    "1v2": 25700, "2v2": 26000, "3v2": 20600,
+  };
   export var NOBU_CEIL_MS = 1800000;
   export var SUBMIT_EVERY_MS = 5000;
   /** Boards a client may not post to. */
@@ -193,7 +196,7 @@ namespace HubBoards {
     if (boardId !== "nobu_trial_time") return "";
     var level = meta.level;
     var key = typeof level === "number" && isFinite(level) ? String(level) : typeof level === "string" ? level : "";
-    return NOBU_FLOOR_MS[key] !== undefined ? key : null;
+    return Object.prototype.hasOwnProperty.call(NOBU_FLOOR_MS, key) ? key : null;
   }
 
   /**
