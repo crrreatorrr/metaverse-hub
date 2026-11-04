@@ -18,6 +18,7 @@ import { connectPlaza, type Plaza, type PlazaStatus } from './net/plaza';
 import { animIndex } from './net/protocol';
 import { createRemoteWorld } from './net/remoteWorld';
 import { createRemotes } from './remotes';
+import { createOverheads } from './overheads';
 import {
   ARCADE_GAME,
   AVATAR_SCALE,
@@ -129,6 +130,9 @@ const chat = createChat({
   onClose() {
     keys.clear();
   },
+  onRemoteLine(senderId, parsed) {
+    overheads.show(senderId, parsed);
+  },
 });
 chat.system('Welcome to the plaza. Press Enter to chat.');
 
@@ -140,8 +144,10 @@ const remotes = createRemotes(world.scene, remoteWorld, {
   setOrbitAvatars: (avatars) => world.setRemoteOrbit(avatars),
   viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
 });
+const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : document.body);
 let plaza: Plaza | null = null;
 let plazaLine = '';
+let chatRoom = '';
 
 // Relics switched off in the Relics menu: their gems stop orbiting the avatar. Per browser.
 const HIDDEN_RELICS_KEY = 'hub:relics:hidden';
@@ -296,6 +302,7 @@ world.renderer.setAnimationLoop((timestamp) => {
   for (const socket of world.sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
   world.update(dt, moving, input.sprint);
   remotes.update(dt, performance.now(), world.camera, player.position);
+  overheads.update(dt, world.camera, (id, out) => remotes.positionOf(id, out), { width: window.innerWidth, height: window.innerHeight });
   plaza?.sendPose(
     player.position.x,
     player.position.y,
@@ -873,6 +880,30 @@ function showPlazaStatus(state: PlazaStatus, detail: string): void {
 
 let sessionLabel = '';
 
+/** Chat follows the shard: hub.<shard>, joined once per room. */
+async function joinShardChat(session: HubSession, room: string): Promise<void> {
+  if (!plaza || !room || room === chatRoom) return;
+  chatRoom = room;
+  try {
+    const channel = await plaza.realtime.joinChat({ room }, { persistence: true, hidden: false });
+    await chat.attach(channel, {
+      selfId: session.userId,
+      resolveName(name) {
+        const lower = name.toLowerCase();
+        for (const p of remoteWorld.players.values()) if (p.name.toLowerCase() === lower) return p.userId;
+        return null;
+      },
+      async report(userId, messageId, text) {
+        await plaza!.realtime.rpc('chat.report', { channelId: channel.id, messageId, userId, text, reason: 'player_report' });
+      },
+    });
+  } catch (error) {
+    chatRoom = '';
+    chat.system('Chat is offline; only you can see your lines.');
+    console.error(error);
+  }
+}
+
 async function startPlaza(session: HubSession): Promise<void> {
   try {
     plaza = await connectPlaza({
@@ -880,7 +911,11 @@ async function startPlaza(session: HubSession): Promise<void> {
       world: remoteWorld,
       getToken: () => plazaToken(session),
       onStatus: showPlazaStatus,
+      onShard: (info) => {
+        void joinShardChat(session, info.room);
+      },
     });
+    void joinShardChat(session, plaza.room);
     plaza.profile({ character: look.character, staff: look.staff, pet: petParam });
     showPlazaStatus('online', '');
     remoteWorld.onRoster(() => {

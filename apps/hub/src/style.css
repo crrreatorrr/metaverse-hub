@@ -2314,3 +2314,14 @@ button:disabled {
 .plaza-status {
   font: 600 12px/1.2 "Inter Variable", ui-sans-serif, system-ui, sans-serif;
 }
+
+/* Lines loaded from channel history: greyed, no overhead bubble. */
+.chat-line.history .chat-text,
+.chat-line.history .chat-name,
+#hud .chat-line.history .chat-text {
+  color: #9a96b0;
+}
+
+.overhead.remote {
+  font-size: 16px;
+}
