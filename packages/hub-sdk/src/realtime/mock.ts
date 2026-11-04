@@ -151,11 +151,17 @@ export function createMockRealtimeServer(options?: { now?: () => number }): Mock
     });
   }
 
+  /** Server → client frames arrive as separate macrotasks, like WebSocket message events. */
   function push(conn: Conn, env: Env): void {
     const text = JSON.stringify(env);
-    schedule(() => {
-      if (conn.open && conn.ws.readyState === 1) conn.ws.onmessage?.({ data: text });
-    });
+    pending += 1;
+    setTimeout(() => {
+      try {
+        if (conn.open && conn.ws.readyState === 1) conn.ws.onmessage?.({ data: text });
+      } finally {
+        pending -= 1;
+      }
+    }, 0);
   }
 
   function errorReply(conn: Conn, cid: string | undefined, code: number, message: string): void {

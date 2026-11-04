@@ -103,6 +103,8 @@ export interface HubWorld {
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
   setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
+  /** Near-tier remote avatars that orbit their Relic gems. */
+  setRemoteOrbit: (avatars: readonly OrbitAvatar[]) => void;
   verseStoreUi: VerseStoreUi;
   inInterior: () => boolean;
   zone: () => PlazaZone;
@@ -342,8 +344,11 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   let hiddenRelics = new Set<string>();
   let devAvatars: OrbitAvatar[] = [];
   let hallOpen = false;
+  let remoteOrbit: OrbitAvatar[] = [];
   const gems = addOrbitGems(scene, {
     avatars: [{ id: 'local', anchor: rig, relics: localRelics }],
+    // Local + the near-tier remotes (remotes.ts NEAR_MAX) + dev stubs.
+    maxAvatars: 32,
   });
   let boardProvider = createEmptyLeaderboardProvider();
   if (devPreview) {
@@ -370,7 +375,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   bar.root.visible = false;
 
   function syncGems(): void {
-    gems.setAvatars([{ id: 'local', anchor: rig, relics: localRelics }, ...devAvatars]);
+    gems.setAvatars([{ id: 'local', anchor: rig, relics: localRelics }, ...remoteOrbit, ...devAvatars]);
   }
   syncGems();
 
@@ -647,6 +652,10 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
     setHiddenRelics(ids) {
       hiddenRelics = new Set(ids);
       localRelics = ownedRelics.filter((id) => !hiddenRelics.has(id));
+      syncGems();
+    },
+    setRemoteOrbit(avatars) {
+      remoteOrbit = [...avatars];
       syncGems();
     },
     setBoard(title, rows, sample) {

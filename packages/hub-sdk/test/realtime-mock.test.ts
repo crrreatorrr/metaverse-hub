@@ -68,7 +68,10 @@ async function authoritative(): Promise<void> {
   await server.flush();
   await assert.rejects(clients[2]!.joinMatch({ matchId: id }), (e: unknown) => e instanceof HubSdkError && e.code === 'match_rejected:full');
   const echoes: unknown[] = [];
-  hb.onMessage((m) => echoes.push(m.json()));
+  const hbWelcome: unknown[] = [];
+  // Messages that arrived before the first subscriber are delivered to it (the welcome).
+  hb.onMessage((m) => (m.opCode === 3 ? echoes : hbWelcome).push(m.json()));
+  assert.deepEqual(hbWelcome, [{ welcome: 'b' }]);
   ha.send(1, 'one');
   hb.send(1, 'two');
   await server.flush();

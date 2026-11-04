@@ -47,6 +47,9 @@ class Emitter<A extends unknown[]> {
       this.list.delete(cb);
     };
   }
+  get size(): number {
+    return this.list.size;
+  }
   emit(...args: A): void {
     for (const cb of [...this.list]) {
       try {
@@ -76,6 +79,8 @@ interface MatchEntry {
   presences: RealtimePresence[];
   metadata: Record<string, string> | undefined;
   message: Emitter<[MatchData]>;
+  /** Messages that arrived before the first onMessage subscriber (flushed to it). */
+  early: MatchData[];
   presence: Emitter<[{ joins: RealtimePresence[]; leaves: RealtimePresence[] }]>;
   rejoin: Emitter<[]>;
   close: Emitter<[MatchCloseReason]>;
@@ -263,7 +268,12 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
       if (!entry) return;
       const sender = d.presence && d.presence.user_id ? presenceFromWire(d.presence) : null;
       const bytes = d.data ? base64ToBytes(d.data) : new Uint8Array(0);
-      entry.message.emit(matchData(entry.matchId, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false));
+      const msg = matchData(entry.matchId, opCodeFromWire(d.op_code), bytes, sender, d.reliable !== false);
+      if (entry.message.size === 0) {
+        if (entry.early.length < 256) entry.early.push(msg);
+      } else {
+        entry.message.emit(msg);
+      }
       return;
     }
     if (env.match_presence_event) {
@@ -476,7 +486,14 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
         else body.reliable = true;
         socket.send(JSON.stringify({ match_data_send: body }));
       },
-      onMessage: (cb) => entry.message.on(cb),
+      onMessage(cb) {
+        const off = entry.message.on(cb);
+        if (entry.early.length) {
+          const early = entry.early.splice(0);
+          for (const msg of early) entry.message.emit(msg);
+        }
+        return off;
+      },
       onPresence: (cb) => entry.presence.on(cb),
       onRejoin: (cb) => entry.rejoin.on(cb),
       onClose: (cb) => entry.close.on(cb),
@@ -630,6 +647,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
         presences: (m.presences ?? []).map(presenceFromWire).filter((p) => !samePresence(p, me)),
         metadata,
         message: new Emitter(),
+        early: [],
         presence: new Emitter(),
         rejoin: new Emitter(),
         close: new Emitter(),

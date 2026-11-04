@@ -2295,3 +2295,22 @@ button:disabled {
     animation: none !important;
   }
 }
+
+/* Remote avatar name tags (near tier), placed by remotes.ts. */
+.remote-name {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  transform-origin: 50% 100%;
+  font: 700 13px/1.1 "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  color: #ffffff;
+  -webkit-text-stroke: 2.5px #000;
+  paint-order: stroke fill;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.plaza-status {
+  font: 600 12px/1.2 "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+}

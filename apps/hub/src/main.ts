@@ -9,11 +9,15 @@ import {
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
 import { DefaultLoadingManager, DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
-import { signOut } from './auth';
+import { resume, signOut } from './auth';
 import '@fontsource-variable/inter/wght.css';
 import '@fontsource/press-start-2p/latin-400.css';
 import '@fontsource/vt323/latin-400.css';
 import { createChat } from './chat';
+import { connectPlaza, type Plaza, type PlazaStatus } from './net/plaza';
+import { animIndex } from './net/protocol';
+import { createRemoteWorld } from './net/remoteWorld';
+import { createRemotes } from './remotes';
 import {
   ARCADE_GAME,
   AVATAR_SCALE,
@@ -127,7 +131,17 @@ const chat = createChat({
   },
 });
 chat.system('Welcome to the plaza. Press Enter to chat.');
-chat.system('Only you can see chat until multiplayer goes live.');
+
+// Other players: the shard's RemoteWorld (fed by net/plaza.ts) drawn by remotes.ts.
+const hudRoot = document.querySelector('#hud');
+const remoteWorld = createRemoteWorld();
+const remotes = createRemotes(world.scene, remoteWorld, {
+  hud: hudRoot instanceof HTMLElement ? hudRoot : document.body,
+  setOrbitAvatars: (avatars) => world.setRemoteOrbit(avatars),
+  viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
+});
+let plaza: Plaza | null = null;
+let plazaLine = '';
 
 // Relics switched off in the Relics menu: their gems stop orbiting the avatar. Per browser.
 const HIDDEN_RELICS_KEY = 'hub:relics:hidden';
@@ -159,6 +173,7 @@ const menu = createMenu({
     look = next;
     world.setLook(look);
     saveLook(look);
+    plaza?.profile({ character: look.character, staff: look.staff, pet: petParam });
   },
   onOpen() {
     keys.clear();
@@ -280,6 +295,14 @@ world.renderer.setAnimationLoop((timestamp) => {
 
   for (const socket of world.sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
   world.update(dt, moving, input.sprint);
+  remotes.update(dt, performance.now(), world.camera, player.position);
+  plaza?.sendPose(
+    player.position.x,
+    player.position.y,
+    player.position.z,
+    player.facingYaw,
+    animIndex(moving ? (input.sprint ? 'run' : 'walk') : 'idle'),
+  );
   const warp = world.consumeWarp();
   if (warp) {
     dwell = initialDwell();
@@ -309,7 +332,7 @@ world.renderer.setAnimationLoop((timestamp) => {
     debug.x = player.position.x;
     debug.y = player.position.y;
     debug.z = player.position.z;
-    debug.element.textContent = `${calls} draws · ${fps.toFixed(0)} fps`;
+    debug.element.textContent = `${calls} draws · ${fps.toFixed(0)} fps · ${remotes.counts.near}+${remotes.counts.far} remotes`;
     if (calls > 150 && !warnedDraws) {
       warnedDraws = true;
       console.warn(`[hub] draw calls ${calls} exceed the 150 budget`);
@@ -530,6 +553,7 @@ async function travel(portal: { id: GameId; label: string; color: string }, page
       { game: portal.id, ranked: false },
       { token: session.token },
     );
+    plaza?.travel(portal.id);
     const remain = ENTER_FADE_MS - (performance.now() - shownAt);
     if (remain > 0) {
       await new Promise((resolve) => {
@@ -798,6 +822,10 @@ function bindAccount(session: HubSession): void {
         showVerse(profile.verse ?? 0);
         menu.setPets(profile.pets?.owned ?? null);
         note.textContent = 'This device is on the recovered guest.';
+        // The plaza socket belongs to the old guest: reconnect as the restored one.
+        plaza?.close();
+        plaza = null;
+        void startPlaza(session);
         code.hidden = true;
       } catch (error) {
         note.textContent = error instanceof HubSdkError ? error.message : 'Could not restore that code';
@@ -806,9 +834,79 @@ function bindAccount(session: HubSession): void {
   });
 }
 
-void boot().catch((error: unknown) => {
-  hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
-});
+const REFRESH_MARGIN_MS = 300_000;
+
+function tokenExpiry(token: string): number {
+  try {
+    const part = token.split('.')[1] ?? '';
+    const json = JSON.parse(atob(part.replace(/-/g, '+').replace(/_/g, '/'))) as { exp?: number };
+    return typeof json.exp === 'number' ? json.exp * 1000 : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Socket token: refreshed (account) or re-issued (guest device) within 5 minutes of expiry. */
+async function plazaToken(session: HubSession): Promise<string> {
+  const exp = tokenExpiry(session.token);
+  if (!exp || exp - Date.now() > REFRESH_MARGIN_MS) return session.token;
+  if (session.username) {
+    const fresh = await resume();
+    if (fresh) session.token = fresh.token;
+  } else {
+    session.token = (await session.client.authenticateDevice(session.deviceId)).token;
+  }
+  return session.token;
+}
+
+function showPlazaStatus(state: PlazaStatus, detail: string): void {
+  const status = document.querySelector<HTMLElement>('#link-status');
+  const who = sessionLabel;
+  if (state === 'online' && plaza) {
+    plazaLine = `World ${plaza.shard} · ${remoteWorld.presentCount() + 1}/100`;
+  } else {
+    plazaLine = detail;
+  }
+  if (status) status.textContent = plazaLine ? `${who} · ${plazaLine}` : who;
+  if (state === 'elsewhere' || state === 'offline') chat.system(detail || 'Plaza offline');
+}
+
+let sessionLabel = '';
+
+async function startPlaza(session: HubSession): Promise<void> {
+  try {
+    plaza = await connectPlaza({
+      serverUrl: '',
+      world: remoteWorld,
+      getToken: () => plazaToken(session),
+      onStatus: showPlazaStatus,
+    });
+    plaza.profile({ character: look.character, staff: look.staff, pet: petParam });
+    showPlazaStatus('online', '');
+    remoteWorld.onRoster(() => {
+      if (plaza) showPlazaStatus('online', '');
+    });
+  } catch (error) {
+    plaza = null;
+    showPlazaStatus('offline', 'Plaza offline: only you are here');
+    console.error(error);
+  }
+}
+
+const botCount = import.meta.env.DEV ? Number(new URLSearchParams(window.location.search).get('bots') ?? 0) : 0;
+if (import.meta.env.DEV && botCount > 0) {
+  const { startBots } = await import('./net/bots');
+  startBots(remoteWorld, botCount);
+}
+
+void boot()
+  .then((session) => {
+    sessionLabel = session.username ? `Signed in as ${session.username}` : 'Guest linked';
+    if (!botCount) void startPlaza(session);
+  })
+  .catch((error: unknown) => {
+    hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
+  });
 
 function createDebug(): HubDebugState & { element: HTMLElement } {
   const element = document.querySelector('#debug');
