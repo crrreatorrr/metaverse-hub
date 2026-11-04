@@ -385,8 +385,10 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-const LATER_GAMES = "('sproto-fighter')";
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade')";
 const PARKED_TABLES = ['game_session', 'game_beaten'] as const;
+/** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
+const LATER_RELICS = "('breakwater_coin')";
 
 function parkLaterGames(): void {
   psql('CREATE SCHEMA IF NOT EXISTS dup_park');
@@ -395,12 +397,16 @@ function parkLaterGames(): void {
     psql(`CREATE TABLE dup_park.${table} AS SELECT * FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
     psql(`DELETE FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
   }
+  psql('DROP TABLE IF EXISTS dup_park.relic_claim');
+  psql(`CREATE TABLE dup_park.relic_claim AS SELECT * FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
+  psql(`DELETE FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
 }
 
 function restoreLaterGames(): void {
   for (const table of PARKED_TABLES) {
     psql(`INSERT INTO game.${table} SELECT * FROM dup_park.${table}`);
   }
+  psql('INSERT INTO game.relic_claim SELECT * FROM dup_park.relic_claim');
   psql('DROP SCHEMA dup_park CASCADE');
 }
 
@@ -442,7 +448,8 @@ async function doPrepare(): Promise<Fixture> {
   for (const id of migrationIds().slice(migrationIds().indexOf('0003_merge_pb_into_peoples_bitcoin') + 1)) {
     psql(`DELETE FROM game.schema_migrations WHERE id = '${id}'`);
   }
-  // Earlier suite cases made rows for games added after 0003 (0009: sproto-fighter). A database
+  // Earlier suite cases made rows for games added after 0003 (0009: sproto-fighter, 0025:
+  // sproto-arcade and its Relic). A database
   // from before 0003 has none, and the 0003 replay re-adds its four-game checks, so those rows
   // wait outside the game schema during the boot. 0009 widens the checks again; then they return.
   parkLaterGames();

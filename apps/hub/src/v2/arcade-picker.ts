@@ -83,7 +83,7 @@ export function createArcadePicker(
     'position:fixed;inset:0;display:grid;place-items:center;z-index:40;background:#05030acc;font:600 15px system-ui,sans-serif;color:#fff4e0';
   const card = document.createElement('div');
   card.style.cssText =
-    'min-width:min(420px,calc(100vw - 32px));padding:20px;border:2px solid #ff3d6e;border-radius:10px;background:#140a1c;box-shadow:0 0 40px #ff3d6e66';
+    'box-sizing:border-box;width:min(560px,calc(100vw - 32px));padding:20px;border:2px solid #ff3d6e;border-radius:10px;background:#140a1c;box-shadow:0 0 40px #ff3d6e66';
   const title = document.createElement('div');
   title.textContent = 'ARCADE · CHOOSE A GAME';
   title.style.cssText = 'letter-spacing:.18em;font-size:12px;color:#ffcf6b;margin-bottom:12px';
