@@ -309,6 +309,7 @@ async function main(): Promise<void> {
 
   await liveSdk();
   await staleOutbox();
+  await finalOutbox();
   await nakamaClientWire();
   await scoresAndSession();
   await refreshWire();
@@ -512,6 +513,127 @@ async function staleOutbox(): Promise<void> {
   down = false;
   await open().init('nobu');
   assert.equal(sent.filter((call) => call.key === 'cone-3').at(-1)?.token, tokenOf('d'));
+}
+
+/**
+ * Outbox rows over the real Nakama wire client. A final refusal in a 2xx `{error}` body
+ * (amount_over_rule, a cap, idempotency_mismatch) is dropped and never blocks init again; the
+ * caller that queued it still gets the error. An HTTP 5xx or a network failure stays queued.
+ * A dead-session row on another player's token stays queued and does not fail init.
+ */
+async function finalOutbox(): Promise<void> {
+  const tickets: Record<string, { user: string; sid: string }> = {
+    a: { user: 'user-7', sid: 'sid-fa' },
+    b: { user: 'user-7', sid: 'sid-fb' },
+    c: { user: 'user-7', sid: 'sid-fc' },
+    d: { user: 'user-8', sid: 'sid-fd' },
+    e: { user: 'user-7', sid: 'sid-fe' },
+    f: { user: 'user-8', sid: 'sid-ff' },
+  };
+  const tokenOf = (name: string) => fakeJwt(tickets[name]!.user, { sid: tickets[name]!.sid, ranked: '0', scope: 'game', game: 'hpos10i' });
+  const json = (value: unknown, status = 200) => new Response(JSON.stringify(value), { status });
+  /** Per key: what the server answers to tickets.earn. */
+  const answers = new Map<string, 'ok' | 'over' | 'mismatch' | 'down' | 'offline'>();
+  const closed = new Set<string>();
+  const sent: { key: string; token: string }[] = [];
+  const client = createNakamaClient({
+    serverUrl: 'http://nakama.test',
+    fetchImpl: async (url, init) => {
+      const href = String(url);
+      if (href.includes('/authenticate/custom')) {
+        const id = (JSON.parse(String(init?.body)) as { id: string }).id;
+        return json({ token: tokenOf(id.slice(2)), refresh_token: `refresh-${id}` });
+      }
+      const token = ((init?.headers as Record<string, string>).Authorization ?? '').replace(/^Bearer /, '');
+      if (href.includes('/rpc/profile.get')) return json({ relics: [], ticketsCapLeft: 100 });
+      // Rows earlier cases left in the shared in-memory outbox are on their own closed sessions.
+      if (!href.includes('/rpc/tickets.earn')) return json({ error: 'session_closed', message: 'session_closed' });
+      const key = (JSON.parse(String(init?.body)) as { key: string }).key;
+      const answer = answers.get(key) ?? 'ok';
+      if (answer === 'offline') throw new TypeError('fetch failed');
+      sent.push({ key, token });
+      if (closed.has(token)) return json({ error: 'session_closed', message: 'session_closed' });
+      if (answer === 'down') return new Response('upstream unavailable', { status: 503 });
+      if (answer === 'over') return json({ error: 'amount_over_rule', message: 'amount_over_rule' });
+      if (answer === 'mismatch') return json({ error: 'idempotency_mismatch', message: 'idempotency_mismatch' });
+      return json({ balance: 20, capped: false });
+    },
+  });
+  let hash = '';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const isCode = (code: string) => (error: unknown) => {
+    assert.ok(error instanceof HubSdkError);
+    assert.equal(error.code, code);
+    return true;
+  };
+  const sends = (key: string) => sent.filter((call) => call.key === key).length;
+
+  // A final refusal on the first send reaches the caller and leaves nothing queued.
+  hash = '#t=a';
+  const first = open();
+  await first.init('hpos10i');
+  answers.set('over-now', 'over');
+  await assert.rejects(() => first.earnTickets(25, 'level_end', 'over-now'), isCode('amount_over_rule'));
+  answers.set('mismatch-now', 'mismatch');
+  await assert.rejects(() => first.earnTickets(20, 'level_end', 'mismatch-now'), isCode('idempotency_mismatch'));
+
+  // A write lost offline stays queued; when the server then refuses it for good, the next
+  // init drops it and still reaches the hub.
+  answers.set('over-later', 'offline');
+  await assert.rejects(() => first.earnTickets(30, 'level_end', 'over-later'), TypeError);
+  answers.set('over-later', 'over');
+  hash = '#t=b';
+  const second = await open().init('hpos10i');
+  assert.equal(second.playerId, 'user-7');
+  assert.equal(second.ticketsCapLeft, 100);
+  assert.equal(sends('over-later'), 1);
+  hash = '#t=c';
+  await open().init('hpos10i');
+  assert.equal(sends('over-now'), 1, 'a refused row was sent again');
+  assert.equal(sends('mismatch-now'), 1, 'a refused row was sent again');
+  assert.equal(sends('over-later'), 1, 'a refused row was sent again');
+
+  // HTTP 5xx is retryable: the row stays queued, and init fails as before until it lands.
+  const live = open();
+  await live.init('hpos10i');
+  answers.set('boom', 'down');
+  await assert.rejects(() => live.earnTickets(20, 'level_end', 'boom'), isCode('rpc_failed'));
+  await assert.rejects(() => open().init('hpos10i'), isCode('rpc_failed'));
+  assert.equal(sends('boom'), 2);
+  answers.set('boom', 'ok');
+  await open().init('hpos10i');
+  assert.equal(sends('boom'), 3);
+  await open().init('hpos10i');
+  assert.equal(sends('boom'), 3, 'a delivered row was sent again');
+
+  // Another player's row on a closed session stays queued and does not fail this init.
+  hash = '#t=d';
+  const other = open();
+  await other.init('hpos10i');
+  closed.add(tokenOf('d'));
+  await assert.rejects(() => other.earnTickets(20, 'level_end', 'dead-d'), isCode('session_closed'));
+  hash = '#t=e';
+  const mine = await open().init('hpos10i');
+  assert.equal(mine.playerId, 'user-7');
+  assert.equal(sent.filter((call) => call.key === 'dead-d').every((call) => call.token === tokenOf('d')), true);
+  const deadSends = sends('dead-d');
+  // That player's next session carries it.
+  hash = '#t=f';
+  await open().init('hpos10i');
+  assert.equal(sends('dead-d'), deadSends + 1);
+  assert.equal(sent.at(-1)?.token, tokenOf('f'));
+  session.removeItem('hub:hpos10i:session');
 }
 
 async function nakamaClientWire(): Promise<void> {
