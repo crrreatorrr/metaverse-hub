@@ -71,5 +71,7 @@ interface PbSimWorldHost {
 declare var PbSim: {
   version: string;
   createWorldHost(opts: { worldNo: number; matchId: string; seed: number; io: PbSimIO }): PbSimWorldHost;
+  /** players in one world for `ticks` ticks, `walkShare` of them clicking each tick; phase timings in ms. */
+  benchWorld(players: number, ticks: number, walkShare: number, now: () => number): { [k: string]: number };
   constants(): { PROTOCOL_VERSION: number; SIM_VERSION: string; GAME_ID: string; OP: { [k: string]: number } };
 };

@@ -88,6 +88,29 @@ namespace PbRpcs {
   }
 }
 
+namespace PbRpcs {
+  /**
+   * Development only (answers only when PB_DEV_RPCS=1): runs PB's world bench
+   * inside this runtime and returns the phase timings, to size worlds on a node.
+   */
+  export function rpcBench(ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, payload: string): string {
+    if (!ctx.env || ctx.env["PB_DEV_RPCS"] !== "1") throw new Error("not_found");
+    if (!ctx.userId) throw new Error("unauthenticated");
+    var body = payload ? (JSON.parse(payload) as { players?: number; ticks?: number; walk?: number }) : {};
+    var players = Math.max(1, Math.min(100, Math.floor(Number(body.players) || 100)));
+    var ticks = Math.max(1, Math.min(200, Math.floor(Number(body.ticks) || 30)));
+    var walk = Math.max(0, Math.min(1, Number(body.walk) || 0));
+    var result = PbSim.benchWorld(players, ticks, walk, function () {
+      return Date.now();
+    });
+    return JSON.stringify({ players: players, ticks: ticks, walk: walk, result: result, sim: PB_SIM_VERSION });
+  }
+}
+
+function rpcPbBench(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return PbRpcs.rpcBench(ctx, logger, nk, payload);
+}
+
 function rpcPbWorlds(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return PbRpcs.rpcWorlds(ctx, logger, nk, payload);
 }

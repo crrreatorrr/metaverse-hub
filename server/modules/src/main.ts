@@ -194,6 +194,7 @@ function InitModule(
   // >>> game: peoples-bitcoin registrations
   initializer.registerMatch("pb_world", { matchInit: pbWorldInit, matchJoinAttempt: pbWorldJoinAttempt, matchJoin: pbWorldJoin, matchLeave: pbWorldLeave, matchLoop: pbWorldLoop, matchTerminate: pbWorldTerminate, matchSignal: pbWorldSignal });
   initializer.registerRpc("pb.worlds", rpcPbWorlds);
+  initializer.registerRpc("pb.bench", rpcPbBench);
   // <<< game: peoples-bitcoin
 
   initializer.registerBeforeAuthenticateCustom(beforeCustom);

@@ -17,6 +17,8 @@ namespace PbWorld {
   export var REGISTRY = { collection: "pb_registry" };
   /** An empty world that lost its registry row ends after this many loops (about 1 minute). */
   var ORPHAN_LOOPS = 300;
+  /** Log loop timing this often (about 1 minute) while anyone is on. */
+  var TIMING_LOOPS = 300;
 
   export interface State {
     worldNo: number;
@@ -26,6 +28,8 @@ namespace PbWorld {
     presences: { [userId: string]: nkruntime.Presence };
     env: { nk: nkruntime.Nakama; logger: nkruntime.Logger };
     emptyLoops: number;
+    /** Loop timing since the last log: count, total and worst ms. */
+    timing: { n: number; total: number; worst: number };
   }
 
   function worldKey(n: number): string {
@@ -243,6 +247,7 @@ namespace PbWorld {
         presences: {},
         env: { nk: nk, logger: logger },
         emptyLoops: 0,
+        timing: { n: 0, total: 0, worst: 0 },
       };
       var host = hostOf(state, nk, logger);
       return { state: state, tickRate: TICK_RATE, label: host.label() };
@@ -270,11 +275,24 @@ namespace PbWorld {
     },
     matchLoop: function (_ctx, logger, nk, d, _tick, state, messages) {
       var host = hostOf(state, nk, logger);
+      var started = Date.now();
       for (var i = 0; i < messages.length; i++) {
         var m = messages[i];
         host.message(bare(m.sender), m.opCode, text(m.data, nk));
       }
       dispatch(state, d, host.loop());
+      var ms = Date.now() - started;
+      var t = state.timing;
+      t.n += 1;
+      t.total += ms;
+      if (ms > t.worst) t.worst = ms;
+      if (t.n >= TIMING_LOOPS) {
+        // Every third loop runs the 600 ms sim tick; the worst loop is a sim tick.
+        if (host.size() > 0) {
+          logger.info("[pb_world " + state.worldNo + "] " + host.size() + " players, loop avg " + (t.total / t.n).toFixed(1) + " ms, worst " + t.worst + " ms");
+        }
+        state.timing = { n: 0, total: 0, worst: 0 };
+      }
       if (host.size() === 0) {
         state.emptyLoops += 1;
         // An extra world created by a placement race closes once empty and unregistered.
