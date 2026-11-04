@@ -19,6 +19,7 @@ import { animIndex } from './net/protocol';
 import { createRemoteWorld } from './net/remoteWorld';
 import { createRemotes } from './remotes';
 import { createOverheads } from './overheads';
+import { createLiveLeaderboardProvider } from './leaderboards';
 import {
   ARCADE_GAME,
   AVATAR_SCALE,
@@ -319,7 +320,7 @@ world.renderer.setAnimationLoop((timestamp) => {
     world.avatar.rotation.y = -player.facingYaw;
   }
   const inBar = world.inInterior();
-  if (barTabs) barTabs.hidden = !inBar;
+  if (barTabs) barTabs.hidden = !inBar || world.liveBoards;
   if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
   placeOverhead(dt);
   fadeLabels();
@@ -736,6 +737,7 @@ async function openSession(): Promise<HubSession> {
     boardRows = board.rows ?? [];
     paintBar(boardTab);
     const session = { client, token: auth.token, userId: auth.userId, deviceId, username };
+    world.setLeaderboardProvider(createLiveLeaderboardProvider(client, () => session.token));
     bindAccount(session);
     if (status) {
       status.textContent = session.username ? `Signed in as ${session.username}` : 'Guest linked';

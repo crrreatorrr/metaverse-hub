@@ -58,8 +58,12 @@ function scoreOf(person: Person, boardId: HubBoardId): number {
   switch (boardId) {
     case 'hpos10i_act_time':
       return person.hpos10i_act_time;
-    case 'nobu_trial_time':
-      return person.nobu_trial_time;
+    case 'nobu_trial_time:1':
+      return Math.round(person.nobu_trial_time * 1000);
+    case 'nobu_trial_time:2':
+      return Math.round(person.nobu_trial_time * 1300);
+    case 'nobu_trial_time:3':
+      return Math.round(person.nobu_trial_time * 1700);
     case 'pb_total_xp':
       return person.pb_total_xp;
     case 'sproto_wins':
@@ -140,7 +144,7 @@ function topFor(boardId: HubBoardId): { name: string; score: string }[] {
 /** One portal at each glow tier: 0, 2, 4, and 8 players. */
 export const STUB_PORTAL_PRESENCE: readonly PortalPresence[] = [
   { gameId: 'hpos10i', count: 0, names: [], top: topFor('hpos10i_act_time') },
-  { gameId: 'nobu', count: 2, names: ['cone-kid', 'nobu'], top: topFor('nobu_trial_time') },
+  { gameId: 'nobu', count: 2, names: ['cone-kid', 'nobu'], top: topFor('nobu_trial_time:1') },
   {
     gameId: 'peoples-bitcoin',
     count: 4,

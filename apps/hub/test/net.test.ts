@@ -7,6 +7,9 @@ import { createInterp } from '../src/net/interp';
 import { connectPlaza } from '../src/net/plaza';
 import { ANIMS, OP, TICK_RATE, byteToYaw, decodeRow, encodePose, parseDelta, parseRoster, parseSnapshot, yawToByte, zoneOf, type PoseRow } from '../src/net/protocol';
 import { createRemoteWorld } from '../src/net/remoteWorld';
+import { createLiveLeaderboardProvider } from '../src/leaderboards';
+import { formatBoardScore, formatTrialMs, serverBoard } from '../src/m3/types';
+import type { NakamaClient } from '@metaverse/hub-sdk';
 
 // Quantisation round trip.
 {
@@ -130,6 +133,35 @@ import { createRemoteWorld } from '../src/net/remoteWorld';
   plaza.close();
   void members;
   void asked;
+}
+
+// Bar screen: NOBU pages per level in ms, verse pages from verse.board.
+{
+  assert.equal(formatTrialMs(83456), '1:23.45');
+  assert.equal(formatTrialMs(15000), '0:15.00');
+  assert.equal(formatBoardScore('nobu_trial_time:2', 61009), '1:01.00');
+  assert.equal(formatBoardScore('hpos10i_act_time', 61.5), '1:01.50');
+  assert.deepEqual(serverBoard('nobu_trial_time:3'), { board: 'nobu_trial_time', variant: '3' });
+  assert.equal(serverBoard('verse_total'), null);
+  const calls: { id: string; body: object }[] = [];
+  const client: NakamaClient = {
+    authenticateDevice: async () => ({ token: '', userId: '' }),
+    async rpc<T>(id: string, body: object): Promise<T> {
+      calls.push({ id, body });
+      if (id === 'leaderboard.top') return { rows: [{ userId: 'u1', name: 'cone-kid', value: 41230, rank: 1 }] } as T;
+      return { rows: [{ name: 'a', userId: 'ua', gameId: 'nobu', lifetime: 5 }, { name: 'a', userId: 'ua', gameId: 'sproto', lifetime: 7 }, { name: 'b', userId: 'ub', gameId: 'nobu', lifetime: 9 }] } as T;
+    },
+  };
+  const provider = createLiveLeaderboardProvider(client, () => 'tok');
+  const nobu = await provider.load('nobu_trial_time:2');
+  assert.deepEqual(calls[0], { id: 'leaderboard.top', body: { boardId: 'nobu_trial_time', limit: 10, variant: '2' } });
+  assert.equal(nobu.rows[0]!.score, 41230);
+  assert.equal(nobu.order, 'asc');
+  const total = await provider.load('verse_total');
+  assert.deepEqual(total.rows.map((r) => [r.name, r.score, r.rank]), [['a', 12, 1], ['b', 9, 2]]);
+  const byNobu = await provider.load('verse_by_game_nobu');
+  assert.deepEqual(byNobu.rows.map((r) => r.name), ['b', 'a']);
+  assert.equal(calls.filter((c) => c.id === 'verse.board').length, 1, 'verse rows cached');
 }
 
 console.log('hub net tests ok');

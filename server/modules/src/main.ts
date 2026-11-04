@@ -33,6 +33,10 @@ function rpcScoreSubmit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nk
   return guard(HubRpc.scoreSubmit, ctx, logger, nk, payload);
 }
 
+function rpcLeaderboardTop(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubBoards.top, ctx, logger, nk, payload);
+}
+
 function rpcTicketsEarn(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.ticketsEarn, ctx, logger, nk, payload);
 }
@@ -189,6 +193,7 @@ function InitModule(
   initializer.registerRpc("session.event", rpcSessionEvent);
   initializer.registerRpc("session.close", rpcSessionClose);
   initializer.registerRpc("score.submit", rpcScoreSubmit);
+  initializer.registerRpc("leaderboard.top", rpcLeaderboardTop);
   initializer.registerRpc("tickets.earn", rpcTicketsEarn);
   initializer.registerRpc("tickets.exchange", rpcTicketsExchange);
   initializer.registerRpc("tickets.spend", rpcTicketsSpend);
