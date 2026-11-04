@@ -8,6 +8,8 @@ import {
   createNakamaClient,
   memoryKeyValue,
   mintMockTicket,
+  relicForEvent,
+  encodeSave,
   userIdFromToken,
   verifyMockTicket,
   type GameId,
@@ -69,7 +71,41 @@ async function ticket(game: GameId, extra?: { ranked?: boolean; expOffset?: numb
   });
 }
 
+async function arcadeAndSaves(): Promise<void> {
+  // Sproto Arcade's first story boss grants the Breakwater Coin; other bosses and games do not.
+  assert.equal(relicForEvent('sproto-arcade', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), 'breakwater_coin');
+  assert.equal(relicForEvent('sproto-arcade', HubEvent.ArcadeBossDefeated, { boss: 'vela' }), undefined);
+  assert.equal(relicForEvent('nobu', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), undefined);
+
+  // Standalone: saves no-op.
+  {
+    const h = harness('sproto-arcade');
+    await h.sdk.init('sproto-arcade');
+    assert.deepEqual(await h.sdk.loadSave?.(), { data: null, updatedAt: 0 });
+    assert.deepEqual(await h.sdk.writeSave?.({ v: 1 }), { data: null, updatedAt: 0 });
+  }
+
+  // Mock session: write, read back, the Coin is granted once, and bad saves throw.
+  {
+    const h = harness('sproto-arcade');
+    h.setHash(`#t=${await ticket('sproto-arcade')}`);
+    await h.sdk.init('sproto-arcade');
+    const data = { v: 1, cleared: [0], unlocked: ['rivet'] };
+    assert.deepEqual(await h.sdk.writeSave?.(data), { data, updatedAt: NOW });
+    assert.deepEqual(await h.sdk.loadSave?.(), { data, updatedAt: NOW });
+    const first = await h.sdk.reportEvent(HubEvent.ArcadeBossDefeated, { boss: 'bront' }, 'arcade:bront:1');
+    assert.equal(first.granted, 'breakwater_coin');
+    const again = await h.sdk.reportEvent(HubEvent.ArcadeBossDefeated, { boss: 'bront' }, 'arcade:bront:2');
+    assert.equal(again.granted, undefined);
+    assert.ok((await h.sdk.init('sproto-arcade')).relics.includes('breakwater_coin'));
+    await assert.rejects(() => h.sdk.writeSave!([1] as unknown as Record<string, unknown>), (e: unknown) => e instanceof HubSdkError && e.code === 'bad_save');
+    await assert.rejects(() => h.sdk.writeSave!({ blob: 'x'.repeat(5000) }), (e: unknown) => e instanceof HubSdkError && e.code === 'save_too_large');
+  }
+  assert.equal(encodeSave({ a: 1 }), '{"a":1}');
+}
+
 async function main(): Promise<void> {
+  await arcadeAndSaves();
   const signed = await mintMockTicket({ game: 'hpos10i', playerId: 'p', now: NOW, jti: 'j1' });
   const claims = await verifyMockTicket(signed);
   assert.equal(claims?.game, 'hpos10i');

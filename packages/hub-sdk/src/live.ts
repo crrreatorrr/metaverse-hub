@@ -2,6 +2,7 @@ import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
 import { sessionVarsFromToken, tokenExpiryMs, userIdFromToken, type CustomAuthResult, type NakamaClient } from './nakama';
 import { getOrCreateDeviceId } from './storage';
+import { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
   GAME_IDS,
@@ -444,6 +445,17 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (opts?.variant !== undefined) body.variant = opts.variant;
       if (opts?.limit !== undefined) body.limit = opts.limit;
       return client.rpc<LeaderboardTop>('leaderboard.top', body, { token: active.token });
+    },
+
+    async loadSave() {
+      if (!active) return { ...EMPTY_SAVE };
+      return readSaveResult(await client.rpc('save.get', {}, { token: active.token }));
+    },
+
+    async writeSave(data) {
+      encodeSave(data);
+      if (!active) return { ...EMPTY_SAVE };
+      return readSaveResult(await client.rpc('save.put', { data }, { token: active.token }));
     },
 
     async earnTickets(amount, reason, key) {

@@ -46,11 +46,13 @@ function marquee(): Mesh {
     x.strokeRect(6, 6, 500, 116);
     x.textAlign = 'center';
     x.fillStyle = '#ffd21f';
-    x.font = `64px ${SIGN_FONT}, Arial Black`;
-    x.fillText('SPROTO FIGHTER', 256, 78);
+    x.font = `44px ${SIGN_FONT}, Arial Black`;
+    x.fillText('SPROTO ARCADE', 256, 52);
+    x.fillStyle = '#ff6f93';
+    x.fillText('SPROTO FIGHTER', 256, 94);
     x.fillStyle = '#7fe8ff';
-    x.font = `22px ${SIGN_FONT}, Arial Black`;
-    x.fillText('PRESS E TO PLAY', 256, 112);
+    x.font = `18px ${SIGN_FONT}, Arial Black`;
+    x.fillText('PRESS E · PICK A GAME', 256, 118);
   });
   const mesh = new Mesh(new PlaneGeometry(0.9, 0.225), new MeshBasicMaterial({ map: texture, toneMapped: false }));
   mesh.name = 'arcade_marquee';

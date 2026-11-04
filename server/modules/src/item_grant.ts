@@ -49,6 +49,7 @@ namespace HubItems {
     "cones_tip",
     "tinubu_crown",
     "tidebreaker_belt",
+    "breakwater_coin",
     "pet_speed_sproto",
     "pet_nobu",
     "pet_duelist_sproto",

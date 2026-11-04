@@ -17,6 +17,7 @@ namespace HubLoadout {
     cones_tip: "nobu",
     tinubu_crown: "sproto",
     tidebreaker_belt: "sproto-fighter",
+    breakwater_coin: "sproto-arcade",
   };
   var SLOTS: { [game: string]: string[] } = {
     hpos10i: ["skin", "cape"],

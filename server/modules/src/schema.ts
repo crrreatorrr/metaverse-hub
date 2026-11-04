@@ -1977,7 +1977,7 @@ namespace HubSchema {
 
   // Migrations registered by game files (src/games/*.ts) at load time.
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
-  // sproto 0020-0024. The runner refuses an unapplied id below the highest
+  // sproto 0020-0024, sproto-arcade 0025-0029. The runner refuses an unapplied id below the highest
   // recorded one, so PRs merge and deploy in id order (or renumber first).
   var REGISTERED: SchemaMigration[] = [];
 

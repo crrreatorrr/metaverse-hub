@@ -31,6 +31,9 @@ namespace HubEffects {
     tinubu_crown: "sproto",
     // Sproto Fighter. One item in each of the four other games.
     tidebreaker_belt: "sproto-fighter",
+    // Sproto Arcade. Its awards repeat Cone's Tip's items in each game's own code; the matrix
+    // rows stay keyed by Cone's Tip, so the Coin adds no rows here.
+    breakwater_coin: "sproto-arcade",
   };
 
   // §2 effect ids and param names. Relic effects never change Tickets, flags, or boards.

@@ -21,6 +21,7 @@ The games live in their own repos. Game ids are used in code and in `#from=`; sl
 | The People's Bitcoin (18+) | `peoples-bitcoin` | `peoples-bitcoin` | [crrreatorrr/peoples-bitcoin](https://github.com/crrreatorrr/peoples-bitcoin) |
 | Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
 | Sproto Fighter (Bar arcade cabinet) | `sproto-fighter` | `sproto-fighter` | [crrreatorrr/Sproto-Fighter](https://github.com/crrreatorrr/Sproto-Fighter) |
+| Sproto Arcade (Bar arcade cabinet) | `sproto-arcade` | `sproto-arcade` | [crrreatorrr/Sproto-Arcade](https://github.com/crrreatorrr/Sproto-Arcade) |
 
 ## Run the plaza
 
@@ -57,7 +58,9 @@ Coming back from a game, open the hub with the game id in the hash. The avatar s
 http://127.0.0.1:5173/hub/#from=sproto
 ```
 
-`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, or `sproto-fighter`. `#from=sproto-fighter` loads the Bar and puts the avatar at the arcade cabinet.
+`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, or `sproto-arcade`. `#from=sproto-fighter` and `#from=sproto-arcade` load the Bar and put the avatar at the arcade cabinet.
+
+**The Bar cabinet** holds two games. Press **E** at it to pick **Sproto Arcade** (story mode, `/play/sproto-arcade/`) or **Sproto Fighter** with 1/2 or the arrows and Enter; Esc steps away. Each choice mints its own portal ticket. Sproto Arcade is a static classic-script game: for dev, copy or symlink a Sproto-Arcade checkout to `apps/hub/public/play/sproto-arcade/`, or set `VITE_GAME_URL_SPROTO_ARCADE` to wherever it is served. Production serving (Caddy `import game sproto-arcade`, deploy slug lists) is an owner follow-up and is not wired yet.
 
 **Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet by the EXIT door and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It also has the fifth socket on the monument and orbits your avatar like the other Relics, but it does not count toward the Hall of Champions or the Four Lights Sproto pet, which still need the original four. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
 
@@ -123,6 +126,7 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
 | `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
+| `arcade.boss_defeated` with boss `bront` (god mode counts) | `breakwater_coin` |
 
 Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.5.0; see its README for the realtime API and the mock server for game tests.
 

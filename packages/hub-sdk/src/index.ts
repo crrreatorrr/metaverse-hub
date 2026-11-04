@@ -9,6 +9,7 @@ export {
   NOBU_TRIAL_FLOOR_MS,
   RELIC_BY_GAME,
   RELIC_IDS,
+  SAVE_MAX_BYTES,
   TICKETS_PER_VERSE,
   VERSE_DAILY_CAP,
   canonicalGameId,
@@ -28,12 +29,14 @@ export type {
   LeaderboardTop,
   RedeemedSession,
   RelicId,
+  SaveResult,
   ScoreResult,
   SellResult,
   SpendResult,
   TicketBalanceResult,
 } from './types';
 export { HubEvent, relicForEvent } from './events';
+export { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
 export type { HubEventId } from './events';
 export { DEVICE_ID_KEY, getOrCreateDeviceId, memoryKeyValue } from './storage';
 export type { KeyValue } from './storage';
