@@ -26,7 +26,8 @@ import { STAND_Y } from './physics';
 import { ANIMS, zoneOf, type Pose } from './net/protocol';
 import type { RemotePlayer, RemoteWorld } from './net/remoteWorld';
 
-export const NEAR_MAX = 12;
+// Tuned with ?bots=99 (headless): each skinned rig costs ~12 draws; 6 keeps the plaza near the 150-draw budget (~165).
+export const NEAR_MAX = 6;
 export const NEAR_RADIUS = 30;
 const HYSTERESIS = 3;
 const TIER_EVERY_MS = 250;

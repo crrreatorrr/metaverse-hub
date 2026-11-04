@@ -1,6 +1,7 @@
 import {
   HubSdkError,
   createNakamaClient,
+  type ChatChannel,
   getOrCreateDeviceId,
   type GameId,
   type ProfileResult,
@@ -149,6 +150,7 @@ const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : doc
 let plaza: Plaza | null = null;
 let plazaLine = '';
 let chatRoom = '';
+let chatChannel: ChatChannel | null = null;
 
 // Relics switched off in the Relics menu: their gems stop orbiting the avatar. Per browser.
 const HIDDEN_RELICS_KEY = 'hub:relics:hidden';
@@ -868,7 +870,13 @@ async function plazaToken(session: HubSession): Promise<string> {
   return session.token;
 }
 
+let plazaState: PlazaStatus = 'connecting';
+let plazaDetail = '';
+
 function showPlazaStatus(state: PlazaStatus, detail: string): void {
+  const changed = state !== plazaState;
+  plazaState = state;
+  plazaDetail = detail;
   const status = document.querySelector<HTMLElement>('#link-status');
   const who = sessionLabel;
   if (state === 'online' && plaza) {
@@ -877,7 +885,7 @@ function showPlazaStatus(state: PlazaStatus, detail: string): void {
     plazaLine = detail;
   }
   if (status) status.textContent = plazaLine ? `${who} · ${plazaLine}` : who;
-  if (state === 'elsewhere' || state === 'offline') chat.system(detail || 'Plaza offline');
+  if (changed && (state === 'elsewhere' || state === 'offline')) chat.system(detail || 'Plaza offline');
 }
 
 let sessionLabel = '';
@@ -887,7 +895,10 @@ async function joinShardChat(session: HubSession, room: string): Promise<void> {
   if (!plaza || !room || room === chatRoom) return;
   chatRoom = room;
   try {
+    const previous = chatChannel;
     const channel = await plaza.realtime.joinChat({ room }, { persistence: true, hidden: false });
+    chatChannel = channel;
+    if (previous && previous.id !== channel.id) void previous.leave();
     await chat.attach(channel, {
       selfId: session.userId,
       resolveName(name) {
@@ -921,7 +932,7 @@ async function startPlaza(session: HubSession): Promise<void> {
     plaza.profile({ character: look.character, staff: look.staff, pet: petParam });
     showPlazaStatus('online', '');
     remoteWorld.onRoster(() => {
-      if (plaza) showPlazaStatus('online', '');
+      if (plaza) showPlazaStatus(plazaState, plazaDetail);
     });
   } catch (error) {
     plaza = null;
