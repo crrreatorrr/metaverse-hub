@@ -44,4 +44,4 @@ Everything else (code, tests, docs, the decisions in `docs/realtime.md` § Decis
 
 8. **Optional:** extend the profanity/slur seed lists in `server/modules/src/chat_words.ts` (`MASK` plain words, `HARD_ROT13` ROT13-encoded slurs).
 
-9. **Checks I could not run here:** the GitHub Actions run itself (CI now runs `npm run test:rt` after `npm run test:dup`), and a test against the production Caddy/Cloudflare path (`wss://<domain>/ws`). Both happen when the PR is pushed and deployed.
+9. **Checks I could not run here:** the GitHub Actions run itself (CI now runs `npm run test:rt` after `npm run test:dup`), and a test against the production Caddy/Cloudflare path (`wss://<domain>/ws`). Both happen when the PR is pushed and deployed. Locally every `test:dup` group passed and `test:rt` passed, except the 11 `fault … x100` cases, which hit their 150 s budget in this sandbox; the same case times out identically on `main` here, so it is machine speed, not this change. Watch that the CI `duplication` job (which passed on `main`) stays green.
