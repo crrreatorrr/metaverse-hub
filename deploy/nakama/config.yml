@@ -17,6 +17,8 @@ database:
 runtime:
   path: "/nakama/data/modules"
   http_key: "${NAKAMA_HTTP_KEY}"
+  # Each hub shard / PB world is one match VM; RPCs and hooks draw from the same pool.
+  js_max_count: 64
   env:
     - "TICKET_HMAC_KEY=${TICKET_HMAC_KEY}"
     - "RECOVERY_PEPPER=${RECOVERY_PEPPER}"
@@ -27,6 +29,13 @@ socket:
   # 15s server pings keep the browser socket inside Cloudflare's idle window.
   ping_period_ms: 15000
   pong_wait_ms: 25000
+  # Plaza deltas at 100 players are ~3 KB; PB snapshots must stay under this cap.
+  max_message_size_bytes: 8192
+  outgoing_queue_size: 256
+
+match:
+  input_queue_size: 256
+  call_queue_size: 256
 
 session:
   encryption_key: "${NAKAMA_SESSION_ENCRYPTION_KEY}"

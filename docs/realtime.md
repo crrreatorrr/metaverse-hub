@@ -130,3 +130,49 @@ const routed = mod.matchmake([{ presence: presence('a'), properties: { game: 'sp
 The module runs in `node:vm` with only ES built-ins. Values that come out of the vm realm need `plain()` before `assert.deepEqual`. The fake `nk` covers SQL (scripted), localcache (throws on objects), storage with OCC versions, `matchCreate`/`matchList`/`matchGet`/`matchSignal`, accounts, users, friends and notifications.
 
 Docker (hub agent only; compose ports and project name collide between worktrees): `npm run test:dup` and `npm run test:rt` against `server/docker-compose.yml`. A game agent that wants a live smoke uses plain `docker run` with its own names and port (`pg-<game>`/`nk-<game>` on `net-<game>`, Nakama on host port 7360 for sproto or 7370 for PB) and removes the containers afterwards.
+
+## Plaza (hub match)
+
+Constants (`HubMatch`, mirrored in `apps/hub/src/net/protocol.ts`; a unit test compares them): 10 Hz, 100 slots, soft cap 90 (placement only), 20 s rejoin grace, empty shards close after 2 min (shard 1 never).
+
+| Op | Dir | Body (JSON text) |
+| --- | --- | --- |
+| 1 `POSE` | c→s | `[xCm, yCm, zCm, yaw8, anim]` ints, ≤ 64 bytes; the client sends at most 10/s when changed plus a 1 Hz keepalive; latest per tick wins |
+| 2 `SNAPSHOT` | s→joiner | `{t, you, shard, roster:[Entry], p:[[slot,x,y,z,yaw,anim]]}` (also after a rejoin) |
+| 3 `DELTA` | s→zone | `{t, p:[...]}` changed slots only, one broadcast per occupied zone (plaza y > −50 m, bar y < −250 m) |
+| 4 `ROSTER` | s→all | `{add?, del?, upd?}` |
+| 5 `PROFILE` | c→s | `{character, staff, pet}` ids, 1 per 2 s |
+| 6 `EMOTE` | c→s→zone | `{e: wave|dance|cheer}`, 1 per s |
+| 7 `TRAVEL` | c→s | `{game}`: others see where the player is going |
+
+`Entry = {s, u, n, c, st, pt, r, g, away}`. Poses are validated (bounds, 4.2 m/tick horizontal and 3 m vertical slack, zone changes allowed as teleports; ten rejected poses in a row accept a snap). A second session of the same user takes over the slot and the old one is kicked (the client then stands down instead of fighting the other tab). `matchSignal("status")` returns `{shard, players, games}`.
+
+Bandwidth at 100 players in one shard: a full delta is ≈ 2.4 KB of JSON (asserted < 3.2 KB in the unit test), so worst case ≈ 32 KB/s per client with base64 overhead, typically ≤ 10 KB/s. Relics are refreshed in one batched query, a quarter of the slots every 10 s.
+
+## Chat
+
+Rooms are `hub.<shard>` from `hub.join`. `HubChat` (RT before-hooks) enforces: rooms per scope (hub: `hub.<n>`, DMs and groups; game scope: only rooms its game registered, none in this round); content `{text, color?, effect?}` ≤ 512 bytes, text NFC-normalised, control/zero-width characters removed, whitespace collapsed, 1–120 characters, colour/effect allowlists (unknown keys dropped); mute (`game.chat_mute`, cached 30 s); profanity masked and hard-list slurs rejected (`chat_rejected`, auto report); token bucket burst 5, 1 per 1.5 s (guests, i.e. accounts without an email, 1 per 3 s); repeats within 30 s rejected (`chat_duplicate`). Edits and removals are rejected (moderators remove through the console). DMs check the target's block list (friend state 3). The client sends `{text, color, effect}` from the `red:wave:` prefixes and shows only the server's copy.
+
+## Scaling
+
+1. **Within a node:** N plaza shards × 100 and N PB worlds × 100, created on demand. Each match is one goroutine and one JS VM, and each VM evaluates the whole `index.js`. Expected capacity on a CCX23 is roughly 600–1000 concurrent plaza/world players, CPU-bound by match loops; confirm with a load test before relying on it.
+2. **Vertical:** CCX33/CCX43. Postgres stays on the same box until about 2k CCU.
+3. **Multi-node:** Nakama OSS does not cluster; the path is Heroic Cloud / Nakama Enterprise. Labels, `matchList` placement, channels and notifications work unchanged across a cluster, so it is a deploy change. Separate regional stacks are not recommended because they split the economy.
+4. **Runtime knobs** (`deploy/nakama/config.yml`, dev compose flags): `runtime.js_max_count 64`, `socket.max_message_size_bytes 8192` (PB snapshots must stay under it), `socket.outgoing_queue_size 256`, `match.input_queue_size 256`, `match.call_queue_size 256`.
+
+## Decisions
+
+- Placement: least-full open shard, soft cap 90 of 100. No `fill` option.
+- NOBU: gear-free trials, always eligible (no ranked prompt); one board with per-level variants; integer ms; floors 15/15/12 s, ceiling 30 min; one submit per level per 5 s.
+- Guests may chat, at 1 per 3 s (accounts 1 per 1.5 s).
+- Chat history is kept by Nakama; a 14-day purge job is not built yet.
+- The word list is a seed in `chat_words.ts` (hard list ROT13-encoded); extend it there.
+- Match handlers credit Tickets only through `HubEconomy` with `srv_*` reasons and deterministic sealed keys.
+- `sproto_wins` is server-only.
+- Opcodes are per match.
+- Sproto Fighter keeps matchmaking on the hub session (`hubScope: true`); every other game matchmakes with its game session.
+- The Bar's live board replaces the old wall screen and its HTML tabs (its pages include the per-game and total Verse boards).
+
+## Not built yet (stretch)
+
+AOI distance tiers / grid-cell buckets (zone filter only today), the mid avatar tier and a name-label atlas, `hub.status` portal counts and a shard switcher, friends / `/block` / `/w` whispers in the UI (the server already checks blocks for DMs; the SDK's `friends` rejects with `not_implemented`), `chat.mute` RPC with `HUB_MODERATORS`, the plaza load-bot script, the 14-day history purge, binary deltas.

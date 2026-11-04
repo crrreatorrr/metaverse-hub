@@ -168,6 +168,15 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.equal(least.matchId, second.matchId, 'least-full wins');
   const prefer = HubShards.place(m.nk, m.logger, { ...opts, preferMatchId: first.matchId });
   assert.equal(prefer.matchId, first.matchId, 'preferMatchId keeps the shard while it is open');
+
+  // A burst while new matches are not listable yet fills the fresh shard instead of opening one per call.
+  const lag = loadModule({ noInit: true });
+  lag.registered.matches.set('room', m.registered.matches.get('room')!);
+  lag.nk.listLagMs = 60_000;
+  const LagShards = lag.global.HubShards as typeof HubShards;
+  const burst = Array.from({ length: 7 }, () => LagShards.place(lag.nk, lag.logger, opts));
+  assert.deepEqual(plain(burst.map((b) => b.shard)), [1, 1, 1, 2, 2, 2, 3]);
+  assert.equal(lag.nk.matches.size, 3);
 }
 
 console.log('server scaffold tests ok');

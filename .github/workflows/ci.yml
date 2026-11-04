@@ -67,6 +67,8 @@ jobs:
           exit 1
       - run: npm run test:dup
         timeout-minutes: 75
+      - run: npm run test:rt
+        timeout-minutes: 10
       - name: Economy audit
         if: always()
         run: docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/audit.sql

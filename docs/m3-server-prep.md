@@ -1,5 +1,7 @@
 # M3 server prep
 
+> **Status (realtime hub work):** the hub match and the leaderboards are now wired. `hub_match.ts` was rewritten for 100 players per shard at 10 Hz and is registered as `hub` (shard 1 at boot, more through `hub.join`); `leaderboard.ts` is in the bundle behind `score.submit` and `leaderboard.top` with migration `0011_ranked_scores` (variant column; NOBU per level in integer ms, Contract C13). The match and board sections below describe the original 10-player prep and are kept for history; the current behaviour is in [realtime.md](realtime.md) and `server/README.md` § Realtime. `loadout.ts` is still unwired.
+
 Hub match, ranked leaderboards, and loadout RPCs. Nothing here is registered or applied. #12, #13, and #25 edit `main.ts`, `rpcs.ts`, `schema.ts`, `nakama.d.ts`, `tsconfig.json`, and the SDK, so this branch only adds files. Wire it after those PRs merge. #24's ledger is not on main; do not edit `0002_baseline` or any applied migration. QA owns tests. This change adds none.
 
 The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin.

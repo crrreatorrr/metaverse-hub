@@ -215,6 +215,7 @@ export interface FakeMatch {
   presences: Map<string, Presence>;
   dispatcher: FakeDispatcher;
   ended: boolean;
+  createdAt: number;
 }
 
 export interface CtxInput {
@@ -251,6 +252,8 @@ export interface FakeNakama {
   friends: Map<string, { friends: { user: { userId: string; username: string }; state: number }[] }>;
   matches: Map<string, FakeMatch>;
   signals: { matchId: string; data: string }[];
+  /** Real Nakama lists a new match only ~1 s after matchCreate; set > 0 to emulate it. */
+  listLagMs: number;
   [method: string]: unknown;
 }
 
@@ -360,6 +363,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
     friends: new Map(),
     matches: fakeMatches,
     signals: [],
+    listLagMs: 0,
     sqlQuery(sql: string, args: unknown[]) {
       nk.sqlCalls.push({ sql, args, kind: 'query' });
       return answer(sql, args);
@@ -465,6 +469,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
           match.label = label;
         }),
         ended: false,
+        createdAt: Date.now(),
       };
       fakeMatches.set(matchId, match);
       return matchId;
@@ -478,6 +483,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
       const out: unknown[] = [];
       for (const m of fakeMatches.values()) {
         if (m.ended) continue;
+        if (nk.listLagMs > 0 && Date.now() - m.createdAt < nk.listLagMs) continue;
         if (label !== null && label !== undefined && label !== '' && m.label !== label) continue;
         if (minSize !== null && minSize !== undefined && m.presences.size < minSize) continue;
         if (maxSize !== null && maxSize !== undefined && m.presences.size > maxSize) continue;
