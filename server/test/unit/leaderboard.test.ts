@@ -7,7 +7,7 @@ const SID = '33333333-3333-4333-8333-333333333333';
 const mod = loadModule();
 const game = (g: string, ranked = '0') => ({ userId: U, vars: { scope: 'game', game: g, sid: SID, ranked } });
 
-let submitted: unknown[][] = [];
+const submitted: unknown[][] = [];
 mod.nk.onSql('INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)', (args, sql) => {
   if (!sql.startsWith('WITH sess')) return [];
   submitted.push(args);
