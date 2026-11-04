@@ -386,7 +386,7 @@ async function prepare(): Promise<Fixture> {
 }
 
 const LATER_GAMES = "('sproto-fighter', 'sproto-arcade')";
-const PARKED_TABLES = ['game_session', 'game_beaten'] as const;
+const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
 /** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
 const LATER_RELICS = "('breakwater_coin')";
 
@@ -400,6 +400,10 @@ function parkLaterGames(): void {
   psql('DROP TABLE IF EXISTS dup_park.relic_claim');
   psql(`CREATE TABLE dup_park.relic_claim AS SELECT * FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
   psql(`DELETE FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
+  // Their grant rows go too, or the boot audit sees a mint without a claim.
+  psql('DROP TABLE IF EXISTS dup_park.item_ledger');
+  psql(`CREATE TABLE dup_park.item_ledger AS SELECT * FROM game.item_ledger WHERE op = 'grant_relic' AND item_id IN ${LATER_RELICS}`);
+  psql(`DELETE FROM game.item_ledger WHERE op = 'grant_relic' AND item_id IN ${LATER_RELICS}`);
 }
 
 function restoreLaterGames(): void {
@@ -407,6 +411,7 @@ function restoreLaterGames(): void {
     psql(`INSERT INTO game.${table} SELECT * FROM dup_park.${table}`);
   }
   psql('INSERT INTO game.relic_claim SELECT * FROM dup_park.relic_claim');
+  psql('INSERT INTO game.item_ledger SELECT * FROM dup_park.item_ledger');
   psql('DROP SCHEMA dup_park CASCADE');
 }
 
