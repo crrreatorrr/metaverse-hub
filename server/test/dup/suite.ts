@@ -558,7 +558,8 @@ async function forged(): Promise<void> {
     assert.equal(unknown.body.granted, undefined);
     const wrong = await call('session.event', {
       eventId: relic.eventId,
-      data: { boss: 'obama', zone: 'nope', questId: 'nope' },
+      // Not 'obama': since 0030 that boss is an item_rule match (pet_presidential_sproto).
+      data: { boss: 'not_a_boss', zone: 'nope', questId: 'nope' },
       key: 'wrong-payload',
     }, session.gameToken);
     assert.equal(wrong.body.granted, undefined);
