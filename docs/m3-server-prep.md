@@ -2,6 +2,12 @@
 
 > **Status (realtime hub work):** the hub match and the leaderboards are now wired. `hub_match.ts` was rewritten for 100 players per shard at 10 Hz and is registered as `hub` (shard 1 at boot, more through `hub.join`); `leaderboard.ts` is in the bundle behind `score.submit` and `leaderboard.top` with migration `0011_ranked_scores` (variant column; NOBU per level in integer ms, Contract C13). The match and board sections below describe the original 10-player prep and are kept for history; the current behaviour is in [realtime.md](realtime.md) and `server/README.md` § Realtime. `loadout.ts` is still unwired.
 
+## Current NOBU trial contract (C13)
+
+`nobu_trial_time` uses integer milliseconds. Its variant is the NOBU level (`'1'`..`'3'`, Classic), or `<level>v<layout>` for later layouts. Accepted layout-2 variants are `1v2`, `2v2`, `3v2`, with minimum times 25700, 26000, 20600 ms. Classic floors remain 15000, 15000, 12000 ms; all variants retain the 1800000 ms ceiling. Unknown variants are rejected. Each variant has its own score row and 5-second submit window. NOBU trials are gear-free and eligible from unranked sessions; god-mode scores are excluded.
+
+The plaza cycles current layout-2 pages before pages labelled Classic. No existing scores are reset or rewritten. Deploy order is owner-operated: hub server floors, hub plaza app, then extended NOBU. NOBU must re-sync its vendored `hub-sdk` using its `VENDOR.md` workflow before its layout-2 release; no API signature changes are required. The owner must announce the board transition before that NOBU release.
+
 Hub match, ranked leaderboards, and loadout RPCs. Nothing here is registered or applied. #12, #13, and #25 edit `main.ts`, `rpcs.ts`, `schema.ts`, `nakama.d.ts`, `tsconfig.json`, and the SDK, so this branch only adds files. Wire it after those PRs merge. #24's ledger is not on main; do not edit `0002_baseline` or any applied migration. QA owns tests. This change adds none.
 
 The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). There is no Go plugin.

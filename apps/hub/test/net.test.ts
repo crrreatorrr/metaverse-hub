@@ -8,7 +8,8 @@ import { connectPlaza } from '../src/net/plaza';
 import { ANIMS, OP, TICK_RATE, byteToYaw, decodeRow, encodePose, parseDelta, parseRoster, parseSnapshot, yawToByte, zoneOf, type PoseRow } from '../src/net/protocol';
 import { createRemoteWorld } from '../src/net/remoteWorld';
 import { createLiveLeaderboardProvider } from '../src/leaderboards';
-import { formatBoardScore, formatTrialMs, serverBoard } from '../src/m3/types';
+import { BOARD_META, HUB_BOARD_IDS, formatBoardScore, formatTrialMs, gameForBoard, serverBoard } from '../src/m3/types';
+import { createStubLeaderboardProvider } from '../src/m3/stub';
 import type { NakamaClient } from '@metaverse/hub-sdk';
 
 // Quantisation round trip.
@@ -137,6 +138,19 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
 
 // Bar screen: NOBU pages per level in ms, verse pages from verse.board.
 {
+  assert.deepEqual(HUB_BOARD_IDS.filter((id) => id.startsWith('nobu_trial_time:')), [
+    'nobu_trial_time:1v2', 'nobu_trial_time:2v2', 'nobu_trial_time:3v2',
+    'nobu_trial_time:1', 'nobu_trial_time:2', 'nobu_trial_time:3',
+  ], 'wall cycles current layouts before Classic');
+  const stub = createStubLeaderboardProvider();
+  for (const level of ['1', '2', '3'] as const) {
+    const current = `nobu_trial_time:${level}v2` as const, classic = `nobu_trial_time:${level}` as const;
+    assert.equal(BOARD_META[current].title, `NOBU · LEVEL ${level}`);
+    assert.equal(BOARD_META[classic].title, `NOBU · LEVEL ${level} CLASSIC`);
+    assert.equal(gameForBoard(current), 'nobu');
+    const oldPage = await stub.load(classic), newPage = await stub.load(current);
+    assert.deepEqual(newPage.rows.map((r) => r.score), oldPage.rows.map((r) => Math.round(r.score * 1.72)));
+  }
   assert.equal(formatTrialMs(83456), '1:23.45');
   assert.equal(formatTrialMs(15000), '0:15.00');
   assert.equal(formatBoardScore('nobu_trial_time:2', 61009), '1:01.00');
@@ -157,6 +171,12 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.deepEqual(calls[0], { id: 'leaderboard.top', body: { boardId: 'nobu_trial_time', limit: 10, variant: '2' } });
   assert.equal(nobu.rows[0]!.score, 41230);
   assert.equal(nobu.order, 'asc');
+  for (const variant of ['1v2', '2v2', '3v2'] as const) {
+    const page = await provider.load(`nobu_trial_time:${variant}`);
+    assert.deepEqual(calls.at(-1), { id: 'leaderboard.top', body: { boardId: 'nobu_trial_time', limit: 10, variant } });
+    assert.equal(page.title, `NOBU · LEVEL ${variant[0]}`);
+    assert.equal(page.rows[0]!.score, 41230);
+  }
   const total = await provider.load('verse_total');
   assert.deepEqual(total.rows.map((r) => [r.name, r.score, r.rank]), [['a', 12, 1], ['b', 9, 2]]);
   const byNobu = await provider.load('verse_by_game_nobu');

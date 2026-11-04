@@ -37,6 +37,9 @@ export interface OrbitAvatar {
 export const HUB_BOARD_IDS = [
   'hpos10i_act_time',
   // NOBU time trials: one server board (nobu_trial_time), one page per level (variant), values in integer ms.
+  'nobu_trial_time:1v2',
+  'nobu_trial_time:2v2',
+  'nobu_trial_time:3v2',
   'nobu_trial_time:1',
   'nobu_trial_time:2',
   'nobu_trial_time:3',
@@ -53,9 +56,12 @@ export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
 
 export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'desc'; unit: string }> = {
   hpos10i_act_time: { title: 'HPOS10I', order: 'asc', unit: 'best act time' },
-  'nobu_trial_time:1': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
-  'nobu_trial_time:2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
-  'nobu_trial_time:3': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:1v2': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:2v2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:3v2': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:1': { title: 'NOBU · LEVEL 1 CLASSIC', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:2': { title: 'NOBU · LEVEL 2 CLASSIC', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:3': { title: 'NOBU · LEVEL 3 CLASSIC', order: 'asc', unit: 'time trial' },
   pb_total_xp: { title: "PEOPLE'S BITCOIN", order: 'desc', unit: 'total XP' },
   sproto_wins: { title: 'SPROTO DUEL', order: 'desc', unit: 'wins' },
   verse_by_game_hpos10i: { title: 'HPOS10I VERSE', order: 'desc', unit: 'lifetime Verse' },
@@ -103,6 +109,9 @@ export function gameForBoard(boardId: HubBoardId): GameId | null {
     case 'nobu_trial_time:1':
     case 'nobu_trial_time:2':
     case 'nobu_trial_time:3':
+    case 'nobu_trial_time:1v2':
+    case 'nobu_trial_time:2v2':
+    case 'nobu_trial_time:3v2':
     case 'verse_by_game_nobu':
       return 'nobu';
     case 'pb_total_xp':

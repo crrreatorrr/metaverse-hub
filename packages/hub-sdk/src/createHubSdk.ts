@@ -49,6 +49,10 @@ const BOARD_MODE: Record<BoardId, 'asc-best' | 'desc-set' | 'desc-incr'> = {
   meta: 'desc-set',
 };
 
+function isNobuVariant(value: string): value is keyof typeof NOBU_TRIAL_FLOOR_MS {
+  return Object.prototype.hasOwnProperty.call(NOBU_TRIAL_FLOOR_MS, value);
+}
+
 function dayKey(now: number): string {
   return new Date(now).toISOString().slice(0, 10);
 }
@@ -327,8 +331,8 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       let variant = '';
       if (boardId === 'nobu_trial_time') {
         variant = String(metaObj.level ?? '');
-        const floor = NOBU_TRIAL_FLOOR_MS[variant as '1' | '2' | '3'];
-        if (floor === undefined) throw new HubSdkError('bad_variant', 'Unknown level');
+        if (!isNobuVariant(variant)) throw new HubSdkError('bad_variant', 'Unknown level');
+        const floor = NOBU_TRIAL_FLOOR_MS[variant];
         if (!Number.isInteger(value)) throw new HubSdkError('bad_score', 'Time must be integer milliseconds');
         if (value < floor || value > NOBU_TRIAL_CEIL_MS) throw new HubSdkError('implausible_score', 'Time is out of bounds');
       }
@@ -360,6 +364,7 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       const variant = opts?.variant ?? '';
       const order = BOARD_MODE[boardId] === 'asc-best' ? 'asc' : 'desc';
       if (!active) return { boardId, variant, order, rows: [], me: null };
+      if (boardId === 'nobu_trial_time' && !isNobuVariant(variant)) throw new HubSdkError('bad_variant', 'Unknown level');
       const raw = resolved.local.getItem(`hub:score:${active.playerId}:${boardId}${variant ? `:${variant}` : ''}`);
       if (raw === null) return { boardId, variant, order, rows: [], me: null };
       const row = { userId: active.playerId, name: active.playerId, value: Number(raw), rank: 1 };
