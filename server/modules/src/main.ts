@@ -25,6 +25,14 @@ function rpcSessionEvent(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: n
   return guard(HubRpc.sessionEvent, ctx, logger, nk, payload);
 }
 
+function rpcSaveGet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.saveGet, ctx, logger, nk, payload);
+}
+
+function rpcSavePut(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.savePut, ctx, logger, nk, payload);
+}
+
 function rpcSessionClose(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.sessionClose, ctx, logger, nk, payload);
 }
@@ -192,6 +200,8 @@ function InitModule(
   initializer.registerRpc("portal.enter", rpcPortalEnter);
   initializer.registerRpc("session.event", rpcSessionEvent);
   initializer.registerRpc("session.close", rpcSessionClose);
+  initializer.registerRpc("save.get", rpcSaveGet);
+  initializer.registerRpc("save.put", rpcSavePut);
   initializer.registerRpc("score.submit", rpcScoreSubmit);
   initializer.registerRpc("leaderboard.top", rpcLeaderboardTop);
   initializer.registerRpc("tickets.earn", rpcTicketsEarn);

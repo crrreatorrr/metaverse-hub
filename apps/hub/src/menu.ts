@@ -37,6 +37,13 @@ const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; figh
     fighter: '',
     unlock: "Tidebreaker Belt aura · Fighter's Might (Sproto Duel) · Champion's Crown (NOBU) · Champion Sproto (People's Bitcoin) · Tidebreaker skin (HPOS10I)",
   },
+  breakwater_coin: {
+    game: 'Sproto Arcade (Bar arcade)',
+    how: 'Beat Fat Head Dave at Tidebreak Marina, the first story boss. God mode counts.',
+    pet: '',
+    fighter: 'Pissing Sproto',
+    unlock: "Repeats Cone's Tip: Nobu's staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
+  },
 };
 
 interface PetInfo {

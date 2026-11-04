@@ -22,7 +22,7 @@ import { createRemotes } from './remotes';
 import { createOverheads } from './overheads';
 import { createLiveLeaderboardProvider } from './leaderboards';
 import {
-  ARCADE_GAME,
+  ARCADE_GAMES,
   AVATAR_SCALE,
   CAMERA_ARM,
   CAMERA_LOOK_DROP,
@@ -43,6 +43,7 @@ import { gate } from './login';
 import { createWorld } from './scene';
 import './style.css';
 import { ARCADE_PROMPT } from './v2/arcade-layout';
+import { createArcadePicker } from './v2/arcade-picker';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 
 const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
@@ -87,8 +88,8 @@ const player = createPlayerController(world.collider.bvh);
 const returnGame = parseReturnGame(window.location.hash);
 const initial = spawnFor(returnGame);
 player.spawn(initial.x, STAND_Y, initial.z, initial.yaw);
-// Back from Sproto Fighter: stand at the Bar's arcade cabinet once the room loads.
-if (returnGame === ARCADE_GAME.id) world.returnToArcade();
+// Back from a cabinet game (Sproto Fighter or Sproto Arcade): stand at the Bar's arcade cabinet once the room loads.
+if (ARCADE_GAMES.some((game) => game.id === returnGame)) world.returnToArcade();
 // M6 pets: profile.get / loadout.set_hub are not wired yet (docs/m6-server-prep.md), so the equipped pet
 // comes from ?pet=<catalog id> for previews until the profile hook lands.
 const petParam = new URLSearchParams(window.location.search).get('pet');
@@ -100,6 +101,11 @@ let pitch = 0.28;
 let dragging = false;
 let jumpQueued = false;
 let traveling = false;
+/** The Bar cabinet's game picker (Sproto Arcade or Sproto Fighter). */
+const arcadePicker = createArcadePicker(ARCADE_GAMES, (game) => {
+  const page = pageFor(game.id);
+  if (page && !traveling && !menu.open) void travel(game, page);
+});
 let dwell: PortalDwell = initialDwell();
 let portalError = '';
 let fps = 60;
@@ -226,6 +232,8 @@ document.addEventListener('pointerlockchange', () => {
 window.addEventListener('keydown', (event) => {
   // The login gate owns the keyboard until it closes.
   if (gate.isOpen()) return;
+  // The cabinet picker owns it while it is open.
+  if (arcadePicker.handleKey(event)) return;
   if (event.code === 'Escape' || event.key === 'Escape') {
     if (traveling || chat.open) return;
     // Some browsers deliver the Esc that released the lock as well.
@@ -496,7 +504,11 @@ function updateHint(): void {
       : zone === 'exit'
         ? `${look}Walk through the exit to return to the plaza`
       : zone === 'arcade'
-        ? pageFor(ARCADE_GAME.id) ? `${look}${ARCADE_PROMPT}` : `${look}${ARCADE_GAME.label} · Coming soon`
+        ? arcadePicker.open
+          ? `${look}Arcade · pick a game`
+          : ARCADE_GAMES.some((game) => pageFor(game.id))
+            ? `${look}${ARCADE_PROMPT}`
+            : `${look}Arcade · Coming soon`
       : zone === 'store'
         ? world.verseStoreUi.open ? `${look}Sprotel Bitcoin · Verse store` : `${look}Press E · ${world.verseStoreUi.prompt}`
         : closed
@@ -540,12 +552,13 @@ function considerPortal(dt: number): void {
 
 const ENTER_FADE_MS = 700;
 
-/** E at the Bar's arcade cabinet. Same ticket flow as a ring. */
+/** E at the Bar's arcade cabinet opens the game picker. Each choice uses the same ticket flow as a ring. */
 function playArcade(): void {
-  if (traveling || menu.open) return;
-  const page = pageFor(ARCADE_GAME.id);
-  if (!page) return;
-  void travel(ARCADE_GAME, page);
+  if (traveling || menu.open || arcadePicker.open) return;
+  if (!ARCADE_GAMES.some((game) => pageFor(game.id))) return;
+  releasePointer();
+  keys.clear();
+  arcadePicker.show((id) => Boolean(pageFor(id)));
 }
 
 async function travel(portal: { id: GameId; label: string; color: string }, page: string): Promise<void> {
@@ -602,6 +615,7 @@ const gameUrls: GameUrlContext = {
     'peoples-bitcoin': import.meta.env.VITE_GAME_URL_PEOPLES_BITCOIN,
     sproto: import.meta.env.VITE_GAME_URL_SPROTO_DUEL,
     'sproto-fighter': import.meta.env.VITE_GAME_URL_SPROTO_FIGHTER,
+    'sproto-arcade': import.meta.env.VITE_GAME_URL_SPROTO_ARCADE,
   },
 };
 

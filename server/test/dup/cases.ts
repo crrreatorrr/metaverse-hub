@@ -187,7 +187,29 @@ export const M2_SHOP: ShopFlow[] = [
   },
 ];
 
-export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS, ...FIGHTER_FLOWS];
+/** Sproto Arcade (migration 0025): the first story boss grants the Breakwater Coin; clears earn Tickets. */
+export const ARCADE_FLOWS: DupFlow[] = [
+  {
+    kind: 'relic',
+    id: 'sproto-arcade.breakwater_coin',
+    game: 'sproto-arcade',
+    eventId: 'arcade.boss_defeated',
+    data: { boss: 'bront' },
+    mismatchData: { boss: 'vela' },
+    relicId: 'breakwater_coin',
+  },
+  {
+    kind: 'exchange',
+    id: 'sproto-arcade.tickets_to_verse',
+    game: 'sproto-arcade',
+    earnAmount: 20,
+    earnReason: 'arcade_clear',
+    tickets: 20,
+    verse: 2,
+  },
+];
+
+export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS, ...FIGHTER_FLOWS, ...ARCADE_FLOWS];
 
 export function repeatCount(kind: 'sequential' | 'concurrent' | 'fault' | 'kill'): number {
   const fallback = { sequential: 100, concurrent: 20, fault: 100, kill: 2 }[kind];

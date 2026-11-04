@@ -43,8 +43,8 @@ namespace HubMatch {
   export var MAX_V_STEP_CM = 300;
   export var SPAWN = [0, 178, 4200];
 
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
-  var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt"];
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true };
+  var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin"];
   var ID = /^[a-z0-9_-]{1,32}$/;
 
   export interface Player {
@@ -192,7 +192,7 @@ namespace HubMatch {
     if (!userIds.length) return out;
     try {
       var rows = nk.sqlQuery(
-        "SELECT user_id::text AS user_id, json_agg(relic_id)::text AS relics FROM game.relic_claim WHERE user_id = ANY($1::uuid[]) AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt') GROUP BY user_id",
+        "SELECT user_id::text AS user_id, json_agg(relic_id)::text AS relics FROM game.relic_claim WHERE user_id = ANY($1::uuid[]) AND relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin') GROUP BY user_id",
         [userIds],
       );
       for (var i = 0; i < (rows || []).length; i++) {

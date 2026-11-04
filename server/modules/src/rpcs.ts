@@ -1,5 +1,5 @@
 namespace HubRpc {
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   export function fail(code: string, message: string): string {
@@ -491,6 +491,65 @@ namespace HubRpc {
       logger.info("relic granted " + result.granted + " user " + session.userId);
     }
     return ok(result);
+  }
+
+  /** Cloud saves: one owner-readable, server-written storage object per player per game. */
+  export var SAVE_COLLECTION = "game_save";
+  export var SAVE_MAX_BYTES = 4096;
+
+  function utf8Length(value: string): number {
+    var n = 0;
+    for (var i = 0; i < value.length; i++) {
+      var c = value.charCodeAt(i);
+      if (c < 0x80) n += 1;
+      else if (c < 0x800) n += 2;
+      else if (c >= 0xd800 && c <= 0xdbff) {
+        n += 4;
+        i++;
+      } else n += 3;
+    }
+    return n;
+  }
+
+  function readSave(nk: nkruntime.Nakama, userId: string, game: string): { data: unknown; updatedAt: number } {
+    var rows = nk.storageRead([{ collection: SAVE_COLLECTION, key: game, userId: userId }]);
+    if (!rows || !rows.length || !rows[0].value) return { data: null, updatedAt: 0 };
+    var value = rows[0].value as { data?: unknown; updatedAt?: unknown };
+    var data = value.data && typeof value.data === "object" && Object.prototype.toString.call(value.data) !== "[object Array]" ? value.data : null;
+    return { data: data, updatedAt: data && typeof value.updatedAt === "number" ? value.updatedAt : 0 };
+  }
+
+  /** save.get: this game session's cloud save, or `{ data: null, updatedAt: 0 }`. */
+  export function saveGet(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {
+    var session = requireGame(ctx);
+    return ok(readSave(nk, session.userId, session.game));
+  }
+
+  /**
+   * save.put: replaces this game session's cloud save with `data`, a JSON object of at most
+   * SAVE_MAX_BYTES. Saves never grant Relics, Tickets or items; games treat them as progress only.
+   */
+  export function savePut(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "save.put");
+    var session = requireGame(ctx);
+    var body = parse(payload);
+    var data = body.data;
+    if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
+      return fail("bad_save", "A save must be a JSON object");
+    }
+    if (utf8Length(JSON.stringify(data)) > SAVE_MAX_BYTES) return fail("save_too_large", "A save is at most " + SAVE_MAX_BYTES + " bytes");
+    var updatedAt = serverNowMs(nk);
+    nk.storageWrite([
+      {
+        collection: SAVE_COLLECTION,
+        key: session.game,
+        userId: session.userId,
+        value: { data: data, updatedAt: updatedAt },
+        permissionRead: 1,
+        permissionWrite: 0,
+      },
+    ]);
+    return ok({ data: data, updatedAt: updatedAt });
   }
 
   export function sessionClose(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama): string {

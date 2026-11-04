@@ -12,7 +12,7 @@
     "build": "npm run build -w @metaverse/hub-sdk && node server/modules/embed-shop.mjs && tsc -p server/modules/tsconfig.json && node server/modules/append-vendor.mjs && npm run build -w @metaverse/hub && node scripts/check-prod-bundle.mjs",
     "typecheck": "npm run typecheck -w @metaverse/hub-sdk && npm run build -w @metaverse/hub-sdk && node server/modules/embed-shop.mjs && tsc -p server/modules/tsconfig.json && npm run typecheck -w @metaverse/hub && tsc -p scripts/tsconfig.json --noEmit && tsc -p server/test/tsconfig.json",
     "lint": "eslint .",
-    "test": "npm run build -w @metaverse/hub-sdk && tsx packages/hub-sdk/test/sdk.test.ts && tsx packages/hub-sdk/test/realtime.test.ts && tsx packages/hub-sdk/test/realtime-mock.test.ts && tsx scripts/sim-capsule.ts && tsx apps/hub/test/net.test.ts && tsx server/test/unit/run.ts",
+    "test": "npm run build -w @metaverse/hub-sdk && tsx packages/hub-sdk/test/sdk.test.ts && tsx packages/hub-sdk/test/realtime.test.ts && tsx packages/hub-sdk/test/realtime-mock.test.ts && tsx scripts/sim-capsule.ts && tsx apps/hub/test/net.test.ts && tsx apps/hub/test/arcade.test.ts && tsx server/test/unit/run.ts",
     "test:dup": "tsx server/test/duplication.test.ts",
     "test:rt": "tsx server/test/rt/realtime.test.ts",
     "load:plaza": "tsx scripts/load/plaza-bots.ts",
@@ -24,6 +24,7 @@
     "fetch:peoples-bitcoin": "node scripts/fetch-game-web.mjs peoples-bitcoin",
     "fetch:sproto-duel": "node scripts/fetch-game-web.mjs sproto-duel",
     "fetch:sproto-fighter": "node scripts/fetch-game-web.mjs sproto-fighter",
+    "fetch:sproto-arcade": "node scripts/fetch-game-web.mjs sproto-arcade",
     "preview": "npm run preview -w @metaverse/hub"
   },
   "devDependencies": {

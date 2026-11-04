@@ -23,7 +23,8 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_NOBU'
     | 'VITE_GAME_URL_PEOPLES_BITCOIN'
     | 'VITE_GAME_URL_SPROTO_DUEL'
-    | 'VITE_GAME_URL_SPROTO_FIGHTER';
+    | 'VITE_GAME_URL_SPROTO_FIGHTER'
+    | 'VITE_GAME_URL_SPROTO_ARCADE';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -58,6 +59,12 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'sproto-fighter',
     slug: 'sproto-fighter',
     env: 'VITE_GAME_URL_SPROTO_FIGHTER',
+  },
+  {
+    // The Bar cabinet's second game. Static classic-script build; the page is the repo root.
+    id: 'sproto-arcade',
+    slug: 'sproto-arcade',
+    env: 'VITE_GAME_URL_SPROTO_ARCADE',
   },
 ];
 

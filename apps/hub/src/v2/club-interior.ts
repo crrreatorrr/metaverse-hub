@@ -45,7 +45,7 @@ export interface ClubMood {
 export type ClubMarker = keyof typeof CLUB_MARKERS;
 
 export interface ClubInteriorBuild extends InteriorBuild {
-  /** EXIT door (back wall). `exit` from InteriorBuild points at the same object. */
+  /** EXIT door (back wall). Scenery only: the entrance (`entry`) is the Bar's one way out. */
   exitDoor: Object3D;
   /** Outside the front threshold; walking back out through the glass doors lands here. */
   entry: Object3D;

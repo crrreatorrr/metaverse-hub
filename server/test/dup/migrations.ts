@@ -385,8 +385,10 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-const LATER_GAMES = "('sproto-fighter')";
-const PARKED_TABLES = ['game_session', 'game_beaten'] as const;
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade')";
+const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
+/** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
+const LATER_RELICS = "('breakwater_coin')";
 
 function parkLaterGames(): void {
   psql('CREATE SCHEMA IF NOT EXISTS dup_park');
@@ -395,12 +397,26 @@ function parkLaterGames(): void {
     psql(`CREATE TABLE dup_park.${table} AS SELECT * FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
     psql(`DELETE FROM game.${table} WHERE game_id IN ${LATER_GAMES}`);
   }
+  psql('DROP TABLE IF EXISTS dup_park.relic_claim');
+  psql(`CREATE TABLE dup_park.relic_claim AS SELECT * FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
+  psql(`DELETE FROM game.relic_claim WHERE relic_id IN ${LATER_RELICS}`);
+  // Their grant rows go too, or the boot audit sees a mint without a claim. item_ledger is append-only,
+  // so its user triggers are off only while the test moves those rows out and back.
+  psql('DROP TABLE IF EXISTS dup_park.item_ledger');
+  psql(`CREATE TABLE dup_park.item_ledger AS SELECT * FROM game.item_ledger WHERE op = 'grant_relic' AND item_id IN ${LATER_RELICS}`);
+  psql('ALTER TABLE game.item_ledger DISABLE TRIGGER USER');
+  psql(`DELETE FROM game.item_ledger WHERE op = 'grant_relic' AND item_id IN ${LATER_RELICS}`);
+  psql('ALTER TABLE game.item_ledger ENABLE TRIGGER USER');
 }
 
 function restoreLaterGames(): void {
   for (const table of PARKED_TABLES) {
     psql(`INSERT INTO game.${table} SELECT * FROM dup_park.${table}`);
   }
+  psql('INSERT INTO game.relic_claim SELECT * FROM dup_park.relic_claim');
+  psql('ALTER TABLE game.item_ledger DISABLE TRIGGER USER');
+  psql('INSERT INTO game.item_ledger SELECT * FROM dup_park.item_ledger');
+  psql('ALTER TABLE game.item_ledger ENABLE TRIGGER USER');
   psql('DROP SCHEMA dup_park CASCADE');
 }
 
@@ -442,7 +458,8 @@ async function doPrepare(): Promise<Fixture> {
   for (const id of migrationIds().slice(migrationIds().indexOf('0003_merge_pb_into_peoples_bitcoin') + 1)) {
     psql(`DELETE FROM game.schema_migrations WHERE id = '${id}'`);
   }
-  // Earlier suite cases made rows for games added after 0003 (0009: sproto-fighter). A database
+  // Earlier suite cases made rows for games added after 0003 (0009: sproto-fighter, 0025:
+  // sproto-arcade and its Relic). A database
   // from before 0003 has none, and the 0003 replay re-adds its four-game checks, so those rows
   // wait outside the game schema during the boot. 0009 widens the checks again; then they return.
   parkLaterGames();
@@ -694,8 +711,9 @@ async function raceHubBoots(): Promise<void> {
   assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
   assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
   assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-  // The four Relic triggers from 0002 plus the Tidebreaker Belt from 0009. Ticket rules are not counted.
-  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 5);
+  // One Relic trigger per game: the four from 0002, the Tidebreaker Belt (0009) and the Breakwater Coin
+  // (0025). Ticket rules are not counted.
+  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 6);
   // 0002's open game_beaten rules, until 0008 drops them.
   assert.equal(
     num(`SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten'`),

@@ -8,6 +8,7 @@ interface ImportMetaEnv {
   readonly VITE_GAME_URL_PEOPLES_BITCOIN?: string;
   readonly VITE_GAME_URL_SPROTO_DUEL?: string;
   readonly VITE_GAME_URL_SPROTO_FIGHTER?: string;
+  readonly VITE_GAME_URL_SPROTO_ARCADE?: string;
 }
 
 /** Inlined by vite.config.ts. Empty in production unless VITE_NAKAMA_SERVER_KEY is set. */

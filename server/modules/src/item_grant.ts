@@ -49,6 +49,7 @@ namespace HubItems {
     "cones_tip",
     "tinubu_crown",
     "tidebreaker_belt",
+    "breakwater_coin",
     "pet_speed_sproto",
     "pet_nobu",
     "pet_duelist_sproto",
@@ -104,7 +105,11 @@ namespace HubItems {
     if (!excluded["pet_speed_sproto"] || !excluded["pet_nobu"] || !excluded["pet_duelist_sproto"]) {
       throw new Error("bad_excluded");
     }
-    if (!excluded["hpos10i_core"] || EXCLUDED.length !== 7) throw new Error("bad_excluded");
+    // Every Relic plus the three derived pets, and nothing else. Counting the list itself keeps the
+    // check true when a Relic is added (it was 7 before the Belt and the Coin and was never updated).
+    var relics = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin"];
+    for (var r = 0; r < relics.length; r++) if (!excluded[relics[r]]) throw new Error("bad_excluded");
+    if (EXCLUDED.length !== relics.length + 3) throw new Error("bad_excluded");
     for (var k = 0; k < RULES.length; k++) {
       if (excluded[RULES[k].item]) throw new Error("bad_rules");
     }

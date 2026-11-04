@@ -254,10 +254,11 @@ export function buildPedestal(parent: Object3D): { top: number; rings: Mesh[] } 
     g.add(glow(edge));
     y += h;
   });
-  // One ring per monument socket (config SOCKETS order); the fifth is the Tidebreaker Belt.
-  const colors = ['#00e6ff', '#ff3bd4', '#ffc233', '#39ff6a', '#66d7e8'];
+  // One ring per monument socket (config SOCKETS order); the fifth is the Tidebreaker Belt and the
+  // sixth the Breakwater Coin.
+  const colors = ['#00e6ff', '#ff3bd4', '#ffc233', '#39ff6a', '#66d7e8', '#3ec6ff'];
   const rings: Mesh[] = [];
-  [-0.62, -0.31, 0, 0.31, 0.62].forEach((a, i) => {
+  [-0.62, -0.31, 0, 0.31, 0.62, 0.93].forEach((a, i) => {
     const ring = new Mesh(new TorusGeometry(1.9, 0.22, 12, 64), neonMat(colors[i] ?? '#00e6ff', 5));
     ring.rotation.x = Math.PI / 2;
     ring.position.set(Math.sin(a) * 22.6, 1.32 + 0.12, Math.cos(a) * 22.6);
