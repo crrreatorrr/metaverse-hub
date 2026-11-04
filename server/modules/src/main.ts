@@ -192,6 +192,8 @@ function InitModule(
   // <<< game: sproto
   // ----
   // >>> game: peoples-bitcoin registrations
+  initializer.registerMatch("pb_world", { matchInit: pbWorldInit, matchJoinAttempt: pbWorldJoinAttempt, matchJoin: pbWorldJoin, matchLeave: pbWorldLeave, matchLoop: pbWorldLoop, matchTerminate: pbWorldTerminate, matchSignal: pbWorldSignal });
+  initializer.registerRpc("pb.worlds", rpcPbWorlds);
   // <<< game: peoples-bitcoin
 
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
