@@ -142,15 +142,34 @@ function latestMigration(): string {
   return ids[ids.length - 1] as string;
 }
 
+/** Files that hold migrations: schema.ts (the MIGRATIONS array) and game files (HubSchema.register calls). */
+function migrationSourceFiles(): string[] {
+  const files = [SCHEMA_FILE];
+  const gamesDir = path.join(path.dirname(SCHEMA_FILE), 'games');
+  if (existsSync(gamesDir)) {
+    for (const name of readdirSync(gamesDir).filter((n) => n.endsWith('.ts')).sort()) files.push(path.join(gamesDir, name));
+  }
+  return files;
+}
+
 export function fileChecksum(migrationId: string): string {
-  const source = ts.createSourceFile(
-    SCHEMA_FILE,
-    readFileSync(SCHEMA_FILE, 'utf8'),
-    ts.ScriptTarget.Latest,
-    true,
-    ts.ScriptKind.TS,
-  );
   let statements: string[] | null = null;
+  const readMigration = (element: ts.ObjectLiteralExpression): void => {
+    let id = '';
+    let statementNode: ts.ArrayLiteralExpression | null = null;
+    for (const prop of element.properties) {
+      if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
+      if (prop.name.text === 'id' && ts.isStringLiteral(prop.initializer)) id = prop.initializer.text;
+      if (prop.name.text === 'statements' && ts.isArrayLiteralExpression(prop.initializer)) {
+        statementNode = prop.initializer;
+      }
+    }
+    if (id !== migrationId || !statementNode) return;
+    statements = (statementNode as ts.ArrayLiteralExpression).elements.map((entry) => {
+      if (ts.isStringLiteral(entry) || ts.isNoSubstitutionTemplateLiteral(entry)) return entry.text;
+      throw new Error(`${migrationId} statement is not a plain string (${ts.SyntaxKind[entry.kind]})`);
+    });
+  };
   const visit = (node: ts.Node): void => {
     if (
       ts.isVariableDeclaration(node)
@@ -160,28 +179,27 @@ export function fileChecksum(migrationId: string): string {
       && ts.isArrayLiteralExpression(node.initializer)
     ) {
       for (const element of node.initializer.elements) {
-        if (!ts.isObjectLiteralExpression(element)) continue;
-        let id = '';
-        let statementNode: ts.ArrayLiteralExpression | null = null;
-        for (const prop of element.properties) {
-          if (!ts.isPropertyAssignment(prop) || !ts.isIdentifier(prop.name)) continue;
-          if (prop.name.text === 'id' && ts.isStringLiteral(prop.initializer)) id = prop.initializer.text;
-          if (prop.name.text === 'statements' && ts.isArrayLiteralExpression(prop.initializer)) {
-            statementNode = prop.initializer;
-          }
-        }
-        if (id !== migrationId || !statementNode) continue;
-        statements = statementNode.elements.map((entry) => {
-          if (ts.isStringLiteral(entry) || ts.isNoSubstitutionTemplateLiteral(entry)) return entry.text;
-          throw new Error(`${migrationId} statement is not a plain string (${ts.SyntaxKind[entry.kind]})`);
-        });
+        if (ts.isObjectLiteralExpression(element)) readMigration(element);
       }
+    }
+    if (
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && ts.isIdentifier(node.expression.expression)
+      && node.expression.expression.text === 'HubSchema'
+      && node.expression.name.text === 'register'
+    ) {
+      const arg = node.arguments[0];
+      if (arg && ts.isObjectLiteralExpression(arg)) readMigration(arg);
     }
     ts.forEachChild(node, visit);
   };
-  visit(source);
-  if (!statements) throw new Error(`migration ${migrationId} not found in schema.ts`);
-  return createHash('sha256').update(statements.join('\n'), 'utf8').digest('hex');
+  for (const file of migrationSourceFiles()) {
+    visit(ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
+    if (statements) break;
+  }
+  if (!statements) throw new Error(`migration ${migrationId} not found in schema.ts or games/*.ts`);
+  return createHash('sha256').update((statements as string[]).join('\n'), 'utf8').digest('hex');
 }
 
 function migrationSnapshot(): string {
