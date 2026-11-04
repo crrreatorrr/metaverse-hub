@@ -117,6 +117,8 @@ export interface TicketBalanceResult {
 
 export interface EventResult {
   granted?: RelicId;
+  /** Cosmetic items (pets) this event granted, from the live server (migration 0030). `[]` when none. */
+  granted_items?: string[];
 }
 
 /** Nakama session from `redeemTicket`. The HTTP key is not involved. */
