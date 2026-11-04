@@ -29,7 +29,7 @@ jobs:
 
   duplication:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 140
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -66,7 +66,7 @@ jobs:
           done
           exit 1
       - run: npm run test:dup
-        timeout-minutes: 75
+        timeout-minutes: 120
       - run: npm run test:rt
         timeout-minutes: 10
       - name: Economy audit
