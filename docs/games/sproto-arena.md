@@ -83,3 +83,15 @@ half the time), 5 paid wins per pair per day, 10 paid wins (200 Tickets) per pla
 `TICK_RATE 30`, `JOIN_TIMEOUT_S 30`, `ROOM_TIMEOUT_S 300`, `RECONNECT_S 10`, `STALL_S 10`, `MAX_PLAY_S 480`,
 `MIN_PLAY_S 15`, `LINGER_S 2`, `RESULT_WAIT_S 5`, `MIN_ROUND_S 2`, `MAX_MSGS_PER_TICK 4`, `PVP_WIN_TICKETS 20`,
 `PVP_PAIR_DAILY 5`, `PVP_DAILY_PAID_WINS 10`.
+
+## Verified live (2026-11-04)
+
+Against Nakama 3.41.0 + Postgres 16.8 (own containers on port 7360) with this module: migration
+`0020_sproto_pvp` applied, the RPCs and match registered, and two bot accounts through the real
+portal flow (device auth → `portal.enter {game:"sproto"}` → custom auth with the ticket) driving the
+sproto-duel client's `OnlineSession` + `HubLobby` over the SDK realtime client: quick match, START,
+about 500 snapshots and 1000 input frames relayed, PINGs, two ROUNDs, agreeing RESULTs →
+`verified`, exactly one `srv_pvp_win:20` ledger row; the public `tickets.earn` with `srv_pvp_win`
+answers `server_reason`; a private room joined by its lowercase code, and a quick FORFEIT paid
+nothing. The payout statement was also run directly: repeat → no second row, the 6th paid win of a
+pair in a day → `paid = false`, a new pair → paid.
