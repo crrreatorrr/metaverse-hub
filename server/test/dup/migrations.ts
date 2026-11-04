@@ -64,9 +64,9 @@ const GAME_ID_TABLES = [
 /**
  * Tables with a game_id that 0003 does not merge: created after 0003 with a CHECK
  * that already excludes 'pb', so they can never hold a pb row.
- * auth_ticket: 0006_hashed_portal_tickets.
+ * auth_ticket: 0006_hashed_portal_tickets. item_rule: 0030_m6_item_grants.
  */
-const POST_PB_TABLES = ['auth_ticket'] as const;
+const POST_PB_TABLES = ['auth_ticket', 'item_rule'] as const;
 
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
