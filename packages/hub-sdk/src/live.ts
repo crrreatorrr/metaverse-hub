@@ -1,6 +1,6 @@
 import { resolveHubEnv, type HubSdkEnv } from './env';
 import { HubSdkError } from './errors';
-import { sessionVarsFromToken, userIdFromToken, type CustomAuthResult, type NakamaClient } from './nakama';
+import { sessionVarsFromToken, tokenExpiryMs, userIdFromToken, type CustomAuthResult, type NakamaClient } from './nakama';
 import { getOrCreateDeviceId } from './storage';
 import { readTicketParam, stripTicketParam } from './ticket';
 import {
@@ -11,7 +11,10 @@ import {
   type ExchangeResult,
   type GameId,
   type HubSdk,
+  type HubSessionInfo,
   type InitResult,
+  type LeaderboardTop,
+  type ScoreResult,
   type RedeemedSession,
   type RelicId,
   type SellResult,
@@ -39,6 +42,8 @@ interface LiveSession {
   ranked: boolean;
   sid: string;
   token: string;
+  /** Kept so realtime can refresh a long session. Older caches have none. */
+  refreshToken?: string;
   effects: Record<string, number | boolean | string>;
   relics: RelicId[];
   ticketsCapLeft: number;
@@ -195,6 +200,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         ranked: parsed.ranked,
         sid: parsed.sid,
         token: parsed.token,
+        refreshToken: typeof parsed.refreshToken === 'string' ? parsed.refreshToken : undefined,
         effects: flatEffects(parsed.effects),
         relics: asRelics(parsed.relics),
         ticketsCapLeft: typeof parsed.ticketsCapLeft === 'number' ? parsed.ticketsCapLeft : 0,
@@ -209,6 +215,16 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     for (const game of GAME_IDS) resolved.session.removeItem(sessionKey(game));
     resolved.session.setItem(sessionKey(session.game), JSON.stringify(session));
     active = session;
+  }
+
+  function sessionInfo(session: LiveSession): HubSessionInfo {
+    return {
+      token: session.token,
+      playerId: session.playerId,
+      game: session.game,
+      ranked: session.ranked,
+      expiresAt: tokenExpiryMs(session.token),
+    };
   }
 
   function profileOf(session: LiveSession, serverTime: number): InitResult {
@@ -320,6 +336,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       ranked,
       sid: vars.sid,
       token: auth.token,
+      refreshToken: auth.refreshToken || undefined,
       effects,
       relics,
       ticketsCapLeft,
@@ -395,8 +412,38 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     async submitScore(boardId, value, meta) {
       if (!isBoardId(boardId)) throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
       if (!Number.isFinite(value) || value < 0) throw new HubSdkError('bad_score', 'Score must be a non-negative number');
-      if (!active || !active.ranked) return;
-      await client.rpc('score.submit', { boardId, value, meta: meta ?? {} }, { token: active.token });
+      // The server owns eligibility (ranked gate, god mode, bounds), so unranked sessions post too.
+      if (!active) return;
+      const godMode = (meta as { godMode?: unknown } | undefined)?.godMode === true;
+      return client.rpc<ScoreResult>('score.submit', { boardId, value, meta: meta ?? {}, godMode }, { token: active.token });
+    },
+
+    getSession() {
+      return active ? sessionInfo(active) : null;
+    },
+
+    async refreshSession() {
+      if (!active) return null;
+      const session = active;
+      const expiresAt = tokenExpiryMs(session.token);
+      if (!expiresAt || expiresAt - resolved.now() > 300_000) return sessionInfo(session);
+      if (!client.sessionRefresh || !session.refreshToken) return sessionInfo(session);
+      const fresh = await client.sessionRefresh(session.refreshToken);
+      if (active !== session) return active ? sessionInfo(active) : null;
+      session.token = fresh.token;
+      session.refreshToken = fresh.refreshToken;
+      writeCached(session);
+      return sessionInfo(session);
+    },
+
+    async getLeaderboard(boardId, opts) {
+      if (!isBoardId(boardId)) throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
+      const variant = opts?.variant ?? '';
+      if (!active) return { boardId, variant, order: boardId === 'hpos10i_act_time' || boardId === 'nobu_trial_time' ? 'asc' : 'desc', rows: [], me: null } satisfies LeaderboardTop;
+      const body: Record<string, unknown> = { boardId };
+      if (opts?.variant !== undefined) body.variant = opts.variant;
+      if (opts?.limit !== undefined) body.limit = opts.limit;
+      return client.rpc<LeaderboardTop>('leaderboard.top', body, { token: active.token });
     },
 
     async earnTickets(amount, reason, key) {

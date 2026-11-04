@@ -129,7 +129,13 @@ export interface HubSdk {
   redeemTicket(input: { game: GameId }): Promise<RedeemedSession>;
   init(gameId: GameId): Promise<InitResult>;
   reportEvent(eventId: string, data: object, key: string): Promise<EventResult>;
-  submitScore(boardId: string, value: number, meta?: object): Promise<void>;
+  /**
+   * The server decides eligibility (ranked gate, god mode, bounds) and answers with a
+   * `ScoreResult`. Errors throw `HubSdkError` (`session_closed`, `not_game_session`,
+   * `bad_board`, `bad_score`, `bad_variant`, `implausible_score`, `rate_limited`).
+   * Standalone (no session) resolves with nothing.
+   */
+  submitScore(boardId: string, value: number, meta?: object): Promise<ScoreResult | void>;
   earnTickets(amount: number, reason: string, key: string): Promise<EarnResult>;
   exchange(tickets: number, key: string): Promise<ExchangeResult>;
   /** Buy `packs` from `shopId` at the server price per pack. The caller mints `key` once. */
@@ -138,7 +144,48 @@ export interface HubSdk {
   sellItem(shopId: string, itemId: string, packs: number, key: string): Promise<SellResult>;
   getTicketBalance(): Promise<TicketBalanceResult>;
   exit(reason?: string): void;
+  /** The live game session, or null standalone. Optional so older doubles still typecheck. */
+  getSession?(): HubSessionInfo | null;
+  /** Refresh via /v2/account/session/refresh when within 5 min of expiry; null when standalone. */
+  refreshSession?(): Promise<HubSessionInfo | null>;
+  /** Public board read (leaderboard.top). Works for any session. */
+  getLeaderboard?(boardId: BoardId, opts?: { variant?: string; limit?: number }): Promise<LeaderboardTop>;
 }
+
+/** Game session handed to realtime (`realtimeFromSdk`). */
+export interface HubSessionInfo {
+  token: string;
+  playerId: string;
+  game: GameId;
+  ranked: boolean;
+  /** Epoch ms from the JWT `exp` claim. */
+  expiresAt: number;
+}
+
+/** `score.submit` answer. `reason` explains `accepted:false`. */
+export interface ScoreResult {
+  accepted: boolean;
+  posted?: boolean;
+  value?: number;
+  order?: 'asc' | 'desc';
+  reason?: 'god_mode' | 'server_board' | 'unranked';
+}
+
+export interface LeaderboardRow { userId: string; name: string; value: number; rank: number }
+
+/** `leaderboard.top` answer: top rows plus the caller's own row. */
+export interface LeaderboardTop {
+  boardId: string;
+  variant: string;
+  order: 'asc' | 'desc';
+  rows: LeaderboardRow[];
+  me: LeaderboardRow | null;
+}
+
+/** NOBU time-trial floors per level, integer ms (Contract C13). The same numbers are in NOBU's src/config/trials.js. */
+export const NOBU_TRIAL_FLOOR_MS: Readonly<Record<'1' | '2' | '3', number>> = { '1': 15000, '2': 15000, '3': 12000 };
+/** NOBU time-trial ceiling, integer ms. */
+export const NOBU_TRIAL_CEIL_MS = 1_800_000;
 
 export function isGameId(value: string): value is GameId {
   return (GAME_IDS as readonly string[]).includes(value);

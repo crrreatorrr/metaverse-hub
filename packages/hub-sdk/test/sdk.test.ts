@@ -11,6 +11,7 @@ import {
   userIdFromToken,
   verifyMockTicket,
   type GameId,
+  type HubSdk,
   type HubSdkEnv,
   type NakamaClient,
 } from '../src/index';
@@ -208,8 +209,8 @@ async function main(): Promise<void> {
     const h = harness('sproto');
     h.setHash(`#t=${await ticket('sproto', { ranked: false })}`);
     await h.sdk.init('sproto');
-    await h.sdk.submitScore('sproto_wins', 1);
-    assert.equal(h.local.getItem('hub:score:player-1:sproto_wins'), null);
+    assert.deepEqual(await h.sdk.submitScore('hpos10i_act_time', 1000), { accepted: false, reason: 'unranked' });
+    assert.equal(h.local.getItem('hub:score:player-1:hpos10i_act_time'), null);
     await assert.rejects(() => h.sdk.submitScore('not_a_board', 1), (error: unknown) => {
       assert.ok(error instanceof HubSdkError);
       assert.equal(error.code, 'bad_board');
@@ -221,9 +222,9 @@ async function main(): Promise<void> {
     const h = harness('sproto');
     h.setHash(`#t=${await ticket('sproto', { ranked: true })}`);
     await h.sdk.init('sproto');
-    await h.sdk.submitScore('sproto_wins', 1, { match: 'a' });
-    await h.sdk.submitScore('sproto_wins', 1, { match: 'b' });
-    assert.equal(h.local.getItem('hub:score:player-1:sproto_wins'), '2');
+    // sproto_wins is server-only: the match writes it (Contract C6).
+    assert.deepEqual(await h.sdk.submitScore('sproto_wins', 1, { match: 'a' }), { accepted: false, reason: 'server_board' });
+    assert.equal(h.local.getItem('hub:score:player-1:sproto_wins'), null);
     await h.sdk.submitScore('hpos10i_act_time', 50);
     await h.sdk.submitScore('hpos10i_act_time', 42);
     await h.sdk.submitScore('hpos10i_act_time', 48);
@@ -273,6 +274,8 @@ async function main(): Promise<void> {
   await liveSdk();
   await staleOutbox();
   await nakamaClientWire();
+  await scoresAndSession();
+  await refreshWire();
   console.log('hub-sdk tests ok');
 }
 
@@ -495,6 +498,114 @@ async function nakamaClientWire(): Promise<void> {
   assert.match(seen[0] ?? '', /^http:\/\/nakama\.test\/v2\/account\/authenticate\/device\?create=true$/);
   await client.rpc('profile.get', {}, { token: 'game' });
   assert.match(seen[1] ?? '', /\/v2\/rpc\/profile\.get\?unwrap=true$/);
+}
+
+/** NOBU trials are gear-free: unranked sessions post, per level, in integer ms (Contract C13). */
+async function scoresAndSession(): Promise<void> {
+  const h = harness('nobu');
+  assert.equal(h.sdk.getSession?.(), null);
+  assert.equal(await h.sdk.submitScore('nobu_trial_time', 20000, { level: 1 }), undefined);
+  h.setHash(`#t=${await ticket('nobu', { ranked: false })}`);
+  await h.sdk.init('nobu');
+  const info = h.sdk.getSession?.();
+  assert.equal(info?.game, 'nobu');
+  assert.equal(info?.ranked, false);
+  assert.ok((info?.expiresAt ?? 0) > NOW);
+  const first = await h.sdk.submitScore('nobu_trial_time', 20000, { level: 1 });
+  assert.deepEqual(first, { accepted: true, posted: true, value: 20000, order: 'asc' });
+  const slower = await h.sdk.submitScore('nobu_trial_time', 25000, { level: 1 });
+  assert.deepEqual(slower, { accepted: true, posted: false, value: 20000, order: 'asc' });
+  await h.sdk.submitScore('nobu_trial_time', 40000, { level: 2 });
+  assert.equal(h.local.getItem('hub:score:player-1:nobu_trial_time:1'), '20000');
+  assert.equal(h.local.getItem('hub:score:player-1:nobu_trial_time:2'), '40000');
+  assert.deepEqual(await h.sdk.submitScore('nobu_trial_time', 30000, { level: 1, godMode: true }), { accepted: false, reason: 'god_mode' });
+  for (const [value, meta, code] of [
+    [20000, { level: 4 }, 'bad_variant'],
+    [20000.5, { level: 1 }, 'bad_score'],
+    [100, { level: 1 }, 'implausible_score'],
+    [1_800_001, { level: 3 }, 'implausible_score'],
+  ] as const) {
+    await assert.rejects(() => h.sdk.submitScore('nobu_trial_time', value, meta), (error: unknown) => {
+      assert.ok(error instanceof HubSdkError);
+      assert.equal(error.code, code);
+      return true;
+    });
+  }
+  const top = await h.sdk.getLeaderboard?.('nobu_trial_time', { variant: '1' });
+  assert.equal(top?.order, 'asc');
+  assert.equal(top?.rows[0]?.value, 20000);
+  assert.equal((await h.sdk.refreshSession?.())?.playerId, 'player-1');
+
+  // An old-style double without the optional members still satisfies HubSdk.
+  const legacy: HubSdk = {
+    redeemTicket: async () => ({ token: '', refreshToken: '' }),
+    init: async () => ({ playerId: 'p', ranked: false, relics: [], effects: {}, ticketsCapLeft: 0, serverTime: 0 }),
+    reportEvent: async () => ({}),
+    submitScore: async () => undefined,
+    earnTickets: async () => ({ balance: 0, capped: false }),
+    exchange: async () => ({ verse: 0, ticketsLeft: 0, balance: 0, receiptId: '' }),
+    spendTickets: async () => ({ shop_id: '', item_id: '', packs: 0, units: 0, spent: 0, balance: 0 }),
+    sellItem: async () => ({ shop_id: '', item_id: '', packs: 0, units: 0, credited: 0, balance: 0 }),
+    getTicketBalance: async () => ({ balance: 0, sessionCapLeft: 0, dailyCapLeft: 0, serverTime: 0 }),
+    exit: () => undefined,
+  };
+  assert.equal(legacy.getSession, undefined);
+}
+
+/** Live SDK: unranked submits reach the server, leaderboard.top, and session refresh near expiry. */
+async function refreshWire(): Promise<void> {
+  const exp = Math.floor(NOW / 1000) + 120;
+  const tokenWith = (n: number) => {
+    const payload = { uid: 'user-9', exp: n, vrs: { sid: 'sid-9', ranked: '0', scope: 'game', game: 'nobu' } };
+    return `e30.${Buffer.from(JSON.stringify(payload)).toString('base64url')}.sig`;
+  };
+  const calls: { id: string; body: object; token?: string }[] = [];
+  const refreshed: string[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-9' };
+    },
+    async authenticateCustom() {
+      return { token: tokenWith(exp), refreshToken: 'refresh-9', userId: 'user-9' };
+    },
+    async sessionRefresh(refreshToken) {
+      refreshed.push(refreshToken);
+      return { token: tokenWith(exp + 7200), refreshToken: 'refresh-10' };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string }): Promise<T> {
+      calls.push({ id, body, token: opts?.token });
+      if (id === 'profile.get') return { playerId: 'user-9', relics: [] } as T;
+      if (id === 'score.submit') return { accepted: true, posted: true, value: 21000, order: 'asc' } as T;
+      if (id === 'leaderboard.top') return { boardId: 'nobu_trial_time', variant: '1', order: 'asc', rows: [], me: null } as T;
+      // Earlier cases may leave rows in the shared in-memory outbox; they drain here.
+      return {} as T;
+    },
+  };
+  let hash = '#t=ticket-9';
+  const sdk = createHubSdk({
+    client,
+    local: memoryKeyValue(),
+    session: memoryKeyValue(),
+    now: () => NOW,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+  });
+  await sdk.init('nobu');
+  const result = await sdk.submitScore('nobu_trial_time', 21000, { level: 1 });
+  assert.deepEqual(result, { accepted: true, posted: true, value: 21000, order: 'asc' });
+  const sent = calls.find((c) => c.id === 'score.submit');
+  assert.deepEqual(sent?.body, { boardId: 'nobu_trial_time', value: 21000, meta: { level: 1 }, godMode: false });
+  await sdk.getLeaderboard?.('nobu_trial_time', { variant: '1', limit: 5 });
+  assert.deepEqual(calls.find((c) => c.id === 'leaderboard.top')?.body, { boardId: 'nobu_trial_time', variant: '1', limit: 5 });
+  assert.equal(sdk.getSession?.()?.expiresAt, exp * 1000);
+  const next = await sdk.refreshSession?.();
+  assert.deepEqual(refreshed, ['refresh-9']);
+  assert.equal(next?.expiresAt, (exp + 7200) * 1000);
+  assert.equal(sdk.getSession?.()?.token, tokenWith(exp + 7200));
+  await sdk.refreshSession?.();
+  assert.equal(refreshed.length, 1, 'no refresh while the token has more than 5 minutes left');
 }
 
 function TICKETS_FOR_CAP(): number {

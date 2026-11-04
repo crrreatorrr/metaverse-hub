@@ -5,6 +5,8 @@ export {
   GAME_IDS,
   MOCK_TICKET_EARN_CAP,
   MOCK_TICKET_TTL_SECONDS,
+  NOBU_TRIAL_CEIL_MS,
+  NOBU_TRIAL_FLOOR_MS,
   RELIC_BY_GAME,
   RELIC_IDS,
   TICKETS_PER_VERSE,
@@ -20,9 +22,13 @@ export type {
   ExchangeResult,
   GameId,
   HubSdk,
+  HubSessionInfo,
   InitResult,
+  LeaderboardRow,
+  LeaderboardTop,
   RedeemedSession,
   RelicId,
+  ScoreResult,
   SellResult,
   SpendResult,
   TicketBalanceResult,
@@ -46,6 +52,7 @@ export { HUB_OUTBOX_DB } from './live';
 export {
   LOCAL_NAKAMA,
   createNakamaClient,
+  tokenExpiryMs,
   userIdFromToken,
 } from './nakama';
 export type {
@@ -57,3 +64,43 @@ export type {
   RecoveryRedeemResult,
   RedeemResult,
 } from './nakama';
+export { createRealtime, realtimeFromSdk } from './realtime/client';
+export { createMockRealtimeServer, mockLabelMatches } from './realtime/mock';
+export type { MockMatchDispatcher, MockMatchHandler, MockMatchmakerEntry, MockRealtimeServer } from './realtime/mock';
+export {
+  CHAT_COLORS,
+  CHAT_EFFECTS,
+  CHAT_RATE,
+  CHAT_RAW_MAX_BYTES,
+  CHAT_RULE_FIXTURES,
+  CHAT_TEXT_MAX,
+  chatRuleOutcome,
+  normalizeChatText,
+  takeChatToken,
+  validateChatContent,
+} from './realtime/chatRules';
+export type { ChatRuleResult } from './realtime/chatRules';
+export { errorCodeFromMessage } from './realtime/protocol';
+export type {
+  ChatChannel,
+  ChatContent,
+  ChatMessage,
+  ChatTarget,
+  Friend,
+  FriendState,
+  HubFriends,
+  HubRealtime,
+  MatchCloseReason,
+  MatchData,
+  MatchHandle,
+  MatchListing,
+  MatchmakerMatched,
+  MatchmakerRequest,
+  MatchmakerUser,
+  MatchQuery,
+  RealtimeNotification,
+  RealtimeOptions,
+  RealtimePresence,
+  RealtimeState,
+  Unsubscribe,
+} from './realtime/types';

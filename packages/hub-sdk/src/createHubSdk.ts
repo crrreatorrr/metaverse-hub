@@ -9,6 +9,8 @@ import { readTicketParam, stripTicketParam, verifyMockTicket, type TicketClaims 
 import {
   GAME_IDS,
   MOCK_TICKET_EARN_CAP,
+  NOBU_TRIAL_CEIL_MS,
+  NOBU_TRIAL_FLOOR_MS,
   TICKETS_PER_VERSE,
   VERSE_DAILY_CAP,
   canonicalGameId,
@@ -18,8 +20,11 @@ import {
   type ExchangeResult,
   type GameId,
   type HubSdk,
+  type HubSessionInfo,
   type InitResult,
+  type LeaderboardTop,
   type RelicId,
+  type ScoreResult,
   type SellResult,
   type SpendResult,
 } from './types';
@@ -219,6 +224,17 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
     return session;
   }
 
+  function mockSessionInfo(): HubSessionInfo | null {
+    if (!active) return null;
+    return {
+      token: `mock.${active.playerId}`,
+      playerId: active.playerId,
+      game: active.game,
+      ranked: active.ranked,
+      expiresAt: resolved.now() + 7_200_000,
+    };
+  }
+
   async function withIdem<T>(playerId: string, key: string, rpc: string, body: string, run: () => T): Promise<T> {
     if (!key) throw new HubSdkError('bad_key', 'Idempotency key is required');
     const hash = await sha256(`${rpc}:${body}`);
@@ -298,19 +314,55 @@ function createMockHubSdk(env: HubSdkEnv): HubSdk {
       });
     },
 
-    async submitScore(boardId, value, meta) {
+    async submitScore(boardId, value, meta): Promise<ScoreResult | void> {
       if (!isBoardId(boardId)) throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
       if (!Number.isFinite(value) || value < 0) throw new HubSdkError('bad_score', 'Score must be a non-negative number');
-      if (!active || !active.ranked) return;
-      const storageKey = `hub:score:${active.playerId}:${boardId}`;
+      if (!active) return;
+      // Same rules as the server's HubBoards.submit (Contract C13).
+      const metaObj = (meta && typeof meta === 'object' ? meta : {}) as Record<string, unknown>;
+      if (boardId === 'meta' || boardId === 'sproto_wins') return { accepted: false, reason: 'server_board' };
+      if (!active.ranked && (active.game === 'hpos10i' || active.game === 'sproto')) return { accepted: false, reason: 'unranked' };
+      if (metaObj.godMode === true) return { accepted: false, reason: 'god_mode' };
+      let variant = '';
+      if (boardId === 'nobu_trial_time') {
+        variant = String(metaObj.level ?? '');
+        const floor = NOBU_TRIAL_FLOOR_MS[variant as '1' | '2' | '3'];
+        if (floor === undefined) throw new HubSdkError('bad_variant', 'Unknown level');
+        if (!Number.isInteger(value)) throw new HubSdkError('bad_score', 'Time must be integer milliseconds');
+        if (value < floor || value > NOBU_TRIAL_CEIL_MS) throw new HubSdkError('implausible_score', 'Time is out of bounds');
+      }
+      const storageKey = `hub:score:${active.playerId}:${boardId}${variant ? `:${variant}` : ''}`;
       const previous = readNumber(resolved.local, storageKey);
       const hasPrevious = resolved.local.getItem(storageKey) !== null;
       const mode = BOARD_MODE[boardId];
-      let next = value;
-      if (mode === 'asc-best') next = hasPrevious ? Math.min(previous, value) : value;
-      if (mode === 'desc-incr') next = previous + value;
+      const whole = Math.round(value);
+      let next = whole;
+      if (mode === 'asc-best') next = hasPrevious ? Math.min(previous, whole) : whole;
+      if (mode === 'desc-incr') next = previous + whole;
+      const posted = !hasPrevious || next !== previous;
       writeNumber(resolved.local, storageKey, next);
-      if (meta && typeof meta === 'object') resolved.local.setItem(`${storageKey}:meta`, stable(meta));
+      if (posted) resolved.local.setItem(`${storageKey}:meta`, stable(metaObj));
+      return { accepted: true, posted, value: next, order: mode === 'asc-best' ? 'asc' : 'desc' };
+    },
+
+    getSession(): HubSessionInfo | null {
+      return mockSessionInfo();
+    },
+
+    async refreshSession() {
+      return mockSessionInfo();
+    },
+
+
+    async getLeaderboard(boardId, opts): Promise<LeaderboardTop> {
+      if (!isBoardId(boardId)) throw new HubSdkError('bad_board', `Unknown board "${boardId}"`);
+      const variant = opts?.variant ?? '';
+      const order = BOARD_MODE[boardId] === 'asc-best' ? 'asc' : 'desc';
+      if (!active) return { boardId, variant, order, rows: [], me: null };
+      const raw = resolved.local.getItem(`hub:score:${active.playerId}:${boardId}${variant ? `:${variant}` : ''}`);
+      if (raw === null) return { boardId, variant, order, rows: [], me: null };
+      const row = { userId: active.playerId, name: active.playerId, value: Number(raw), rank: 1 };
+      return { boardId, variant, order, rows: [row], me: row };
     },
 
     async earnTickets(amount, reason, key) {
