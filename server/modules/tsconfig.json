@@ -22,10 +22,20 @@
     "src/sproto_sim.d.ts",
     "src/shop_seed.ts",
     "src/schema.ts",
+    "src/hub_games.ts",
+    "src/server_economy.ts",
+    "src/shards.ts",
+    "src/leaderboard.ts",
     "src/effects.ts",
     "src/fault.ts",
     "src/rpcs.ts",
+    "src/chat_words.ts",
+    "src/chat_guard.ts",
+    "src/rt_hooks.ts",
     "src/sproto_duel.ts",
     "src/main.ts"
-  ]
+  ],
+  // Game files (Contract C3): emitted after `files`, alphabetically, so they can
+  // call HubGames / HubSchema / HubEconomy at top level without being listed.
+  "include": ["src/games/*.ts"]
 }

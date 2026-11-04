@@ -261,6 +261,28 @@ namespace HubBoards {
     return { players: asInt(wrote.players, 0), updated: asInt(wrote.updated, 0), removed: asInt(dropped.removed, 0) };
   }
 
+  var WIN_SQL = "WITH ins AS ("
+    + " INSERT INTO game.win_record (match_id, user_id, board_id) VALUES ($1::text, $2::uuid, $3::text)"
+    + " ON CONFLICT (match_id, user_id) DO NOTHING RETURNING user_id),"
+    + " up AS ("
+    + " INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)"
+    + " SELECT user_id, $3::text, '', 1, '{}'::jsonb, NULL, now() FROM ins"
+    + " ON CONFLICT (user_id, board_id, variant) DO UPDATE SET value = game.ranked_score.value + 1, updated_at = now()"
+    + " RETURNING value)"
+    + " SELECT jsonb_build_object('recorded', EXISTS (SELECT 1 FROM ins), 'value', (SELECT value FROM up))::text AS result";
+
+  /**
+   * Server-only +1 on an incr board (sproto_wins). Idempotent on matchId through
+   * game.win_record. Returns false when this (match, user) was already recorded.
+   */
+  export function recordWin(nk: nkruntime.Nakama, userId: string, boardId: string, matchId: string): boolean {
+    if (!UUID.test(userId || "")) throw new Error("unauthorized");
+    if (BOARD_MODE[boardId] !== "incr") throw new Error("bad_board");
+    if (!matchId || matchId.length > 128) throw new Error("bad_match");
+    var row = queryJson(nk, WIN_SQL, [matchId, userId, boardId]);
+    return row.recorded === true || row.recorded === "true";
+  }
+
   export function onHubTick(nk: nkruntime.Nakama, logger: nkruntime.Logger, tick: number): void {
     if (tick < META_EVERY_TICKS || tick % META_EVERY_TICKS !== 0) return;
     recomputeMeta(nk, logger);

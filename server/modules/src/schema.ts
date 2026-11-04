@@ -1824,6 +1824,62 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Public boards (Contract C13). variant is the NOBU level ('1'..'3'), '' elsewhere.
+      // win_record makes HubBoards.recordWin idempotent per (match, user).
+      id: "0011_ranked_scores",
+      statements: [
+        `CREATE TABLE IF NOT EXISTS game.ranked_score (
+           user_id uuid NOT NULL,
+           board_id text NOT NULL,
+           variant text NOT NULL DEFAULT '',
+           value bigint NOT NULL CHECK (value >= 0),
+           meta jsonb NOT NULL DEFAULT '{}'::jsonb,
+           session_id uuid,
+           updated_at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (user_id, board_id, variant),
+           CONSTRAINT ranked_score_board CHECK (board_id IN (
+             'hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins', 'meta'
+           )),
+           CONSTRAINT ranked_score_meta_object CHECK (jsonb_typeof(meta) = 'object')
+         )`,
+        "CREATE INDEX IF NOT EXISTS ranked_score_board_value ON game.ranked_score (board_id, variant, value)",
+        `CREATE TABLE IF NOT EXISTS game.win_record (
+           match_id text NOT NULL,
+           user_id uuid NOT NULL,
+           board_id text NOT NULL,
+           at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (match_id, user_id)
+         )`,
+      ],
+    },
+    {
+      // Plaza chat moderation (Contract C14). Mutes are checked by HubChat; reports come
+      // from chat.report and from automatic hard-list hits (reporter NULL, reason 'auto').
+      id: "0012_chat_moderation",
+      statements: [
+        `CREATE TABLE IF NOT EXISTS game.chat_mute (
+           user_id uuid NOT NULL,
+           until timestamptz NOT NULL,
+           reason text NOT NULL DEFAULT '',
+           by uuid,
+           created_at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (user_id, until)
+         )`,
+        `CREATE TABLE IF NOT EXISTS game.chat_report (
+           id bigserial PRIMARY KEY,
+           reporter uuid,
+           target uuid NOT NULL,
+           channel_id text NOT NULL DEFAULT '',
+           message_id text NOT NULL DEFAULT '',
+           text text NOT NULL DEFAULT '',
+           reason text NOT NULL DEFAULT '',
+           created_at timestamptz NOT NULL DEFAULT now()
+         )`,
+        "CREATE INDEX IF NOT EXISTS chat_report_created ON game.chat_report (created_at)",
+        "CREATE INDEX IF NOT EXISTS chat_report_reporter ON game.chat_report (reporter, created_at)",
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -1919,18 +1975,57 @@ namespace HubSchema {
     throw new Error(message);
   }
 
+  // Migrations registered by game files (src/games/*.ts) at load time.
+  // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
+  // sproto 0020-0024. The runner refuses an unapplied id below the highest
+  // recorded one, so PRs merge and deploy in id order (or renumber first).
+  var REGISTERED: SchemaMigration[] = [];
+
+  /** Call at top level of a game file. apply() sorts every migration by numeric prefix and rejects duplicates. */
+  export function register(m: { id: string; statements: string[] }): void {
+    if (!m || typeof m.id !== "string" || !/^[0-9]+_[a-z0-9_]+$/.test(m.id)) {
+      throw new Error("schema migration id must be <number>_<name>: " + String(m && m.id));
+    }
+    if (!m.statements || !m.statements.length) throw new Error("schema migration has no statements: " + m.id);
+    REGISTERED.push({ id: m.id, statements: m.statements.slice() });
+  }
+
+  /** Every migration (hub + registered), sorted by numeric prefix. Throws on a duplicate id or number. */
+  export function all(): { id: string; statements: string[] }[] {
+    var list = MIGRATIONS.concat(REGISTERED);
+    var ids: { [id: string]: boolean } = {};
+    var numbers: { [n: string]: string } = {};
+    var indexed: { n: number; i: number; m: SchemaMigration }[] = [];
+    for (var i = 0; i < list.length; i++) {
+      var id = list[i].id;
+      if (ids[id]) throw new Error("duplicate schema migration id: " + id);
+      ids[id] = true;
+      var n = migrationNumber(id);
+      if (numbers[String(n)]) throw new Error("duplicate schema migration number: " + id + " and " + numbers[String(n)]);
+      numbers[String(n)] = id;
+      indexed.push({ n: n, i: i, m: list[i] });
+    }
+    indexed.sort(function (a, b) {
+      return a.n - b.n || a.i - b.i;
+    });
+    var out: { id: string; statements: string[] }[] = [];
+    for (var j = 0; j < indexed.length; j++) out.push(indexed[j].m);
+    return out;
+  }
+
   export function apply(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
-    var known: { [id: string]: boolean } = {};
     var plans: { id: string; checksum: string; statements: string[] }[] = [];
-    for (var i = 0; i < MIGRATIONS.length; i++) {
-      if (known[MIGRATIONS[i].id]) {
-        fail(logger, "duplicate schema migration id: " + MIGRATIONS[i].id);
-      }
-      known[MIGRATIONS[i].id] = true;
+    var sorted: { id: string; statements: string[] }[];
+    try {
+      sorted = all();
+    } catch (e) {
+      fail(logger, String(e && (e as { message?: unknown }).message ? (e as { message: unknown }).message : e));
+    }
+    for (var i = 0; i < sorted.length; i++) {
       plans.push({
-        id: MIGRATIONS[i].id,
-        checksum: nk.sha256Hash(migrationSource(MIGRATIONS[i].statements)),
-        statements: MIGRATIONS[i].statements,
+        id: sorted[i].id,
+        checksum: nk.sha256Hash(migrationSource(sorted[i].statements)),
+        statements: sorted[i].statements,
       });
     }
 

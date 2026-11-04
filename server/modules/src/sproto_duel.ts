@@ -319,3 +319,6 @@ namespace SprotoDuel {
     return id;
   }
 }
+
+// Sproto Fighter runs on the hub session, so hub-scope tickets may matchmake for it.
+HubGames.register({ game: SprotoDuel.GAME_ID, matchmaker: SprotoDuel.onMatched, hubScope: true });

@@ -96,8 +96,29 @@ function sprotoDuelTerminate(ctx: nkruntime.Context, logger: nkruntime.Logger, n
 function sprotoDuelSignal(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, dispatcher: nkruntime.MatchDispatcher, tick: number, state: DuelState, data: string) {
   return SprotoDuel.handler.matchSignal(ctx, logger, nk, dispatcher, tick, state, data);
 }
-function sprotoDuelMatched(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
-  return SprotoDuel.onMatched(ctx, logger, nk, matches);
+// The one matchmaker hook Nakama allows. Games route through HubGames.register (Contract C4).
+function hubMatchmakerMatched(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
+  return HubRt.onMatched(ctx, logger, nk, matches);
+}
+
+function rtBeforeMatchmakerAdd(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope | void {
+  return HubRt.beforeMatchmakerAdd(ctx, logger, nk, envelope);
+}
+
+function rtBeforeMatchCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope | void {
+  return HubRt.beforeMatchCreate(ctx, logger, nk, envelope);
+}
+
+function rtBeforeChannelJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope | void {
+  return HubChat.beforeJoin(ctx, logger, nk, envelope);
+}
+
+function rtBeforeChannelMessageSend(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope | void {
+  return HubChat.beforeSend(ctx, logger, nk, envelope);
+}
+
+function rtBeforeChannelMessageEdit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope | void {
+  return HubChat.beforeReadonly(ctx, logger, nk, envelope);
 }
 
 function beforeCustom(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
@@ -156,7 +177,23 @@ function InitModule(
     matchTerminate: sprotoDuelTerminate,
     matchSignal: sprotoDuelSignal,
   });
-  initializer.registerMatchmakerMatched(sprotoDuelMatched);
+  initializer.registerMatchmakerMatched(hubMatchmakerMatched);
+  initializer.registerRtBefore("MatchmakerAdd", rtBeforeMatchmakerAdd);
+  initializer.registerRtBefore("MatchCreate", rtBeforeMatchCreate);
+  initializer.registerRtBefore("ChannelJoin", rtBeforeChannelJoin);
+  initializer.registerRtBefore("ChannelMessageSend", rtBeforeChannelMessageSend);
+  initializer.registerRtBefore("ChannelMessageUpdate", rtBeforeChannelMessageEdit);
+  initializer.registerRtBefore("ChannelMessageRemove", rtBeforeChannelMessageEdit);
+
+  // Game registrations (Contract C5). Inside its block a game adds only
+  // initializer.registerMatch(...) / initializer.registerRpc(...) lines (plus PB's
+  // boot-time world creation). Each argument is a top-level named function.
+  // >>> game: sproto (Sproto Duel) registrations
+  // <<< game: sproto
+  // ----
+  // >>> game: peoples-bitcoin registrations
+  // <<< game: peoples-bitcoin
+
   initializer.registerBeforeAuthenticateCustom(beforeCustom);
   initializer.registerBeforeAuthenticateDevice(beforeHub);
   // Email auth is on in Nakama with no extra provider config. Same hub scope as device.

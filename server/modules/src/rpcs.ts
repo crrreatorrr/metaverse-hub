@@ -550,6 +550,8 @@ namespace HubRpc {
       return fail("bad_amount", "Ticket amount must be positive");
     }
     if (!reason || reason.length > 64) return fail("bad_reason", "Reason must be 1 to 64 characters");
+    // srv_* reasons are granted by match handlers through HubEconomy only (Contract C6).
+    if (reason.indexOf("srv_") === 0) return fail("server_reason", "This reason is granted by the server");
     var amount = Math.floor(body.amount);
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
