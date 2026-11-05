@@ -139,3 +139,15 @@ omit it. The shared portal implementation is unchanged. Vite now emits `realm-pa
 its actual HTML inputs so Task 12 can validate a dist without requiring a source checkout or
 Node on the production host. All four required checks passed, and independent review found
 no blocking issue. Actual fetched-game gameplay remains outside this light walkthrough.
+
+Task 13 checkpoint: all six views again match 97/122/48/35/42/82 scene draws and 40 assets,
+with no page errors. The signed-in light walkthrough passed. Before/after login and menu
+screenshots were captured outside git; sampled computed styles across 52 login nodes and
+340 menu nodes have zero differences. Sandbox HTML resolves the gray token override before
+the world loads. All four checks passed. Independent final review of tasks 11–13 found no
+blocking issue. Task 12's Caddy validation and deploy guard fixtures passed locally; only
+deploy files changed in that task, and no deploy or production reload was performed.
+
+Tasks 1–13 are implemented. Tasks 14–16 (real theme/art, realm build and launch checks) have
+not started. The full duplication suite is delegated to CI, as in the plan; local realtime
+and browser results above do not claim a local duplication run or real fetched-game gameplay.

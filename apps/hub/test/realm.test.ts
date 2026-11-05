@@ -49,3 +49,14 @@ function assetViolations(realm: string, source: string): string[] {
 assert.ok(assetViolations('sandbox', "const art = '/world/realms/other/floor.glb'").length > 0, 'realm_cannot_reference_other_realm');
 assert.ok(assetViolations('plaza', "const art = 'world/realms/sandbox/floor.glb'").length > 0, 'plaza cannot reference realm art');
 assert.deepEqual(assetViolations('sandbox', "const art = '/world/realms/sandbox/floor.glb'"), []);
+
+// Palettes and art defaults live in one theme; the plaza keeps its scoped gold/green values.
+const theme = readFileSync(new URL('../src/core/theme.css', import.meta.url), 'utf8');
+assert.ok(theme.includes('--gold: #f5b942'), 'plaza retains the original global gold');
+assert.ok(theme.includes('--gold-dk: #b07a0c'), 'pixel gold retains its original shade');
+assert.ok(theme.includes('[data-realm="sandbox"]'), 'sandbox can override a few tokens');
+for (const file of ['style.css', 'login.css']) {
+  const css = readFileSync(new URL('../src/' + file, import.meta.url), 'utf8');
+  assert.doesNotMatch(css, /--(?:ink|blue|navy|yellow)\s*:/, 'palette definitions are consolidated');
+  assert.doesNotMatch(css, /url\(['"]?\/world\/ui\//, 'art URLs use theme variables');
+}
