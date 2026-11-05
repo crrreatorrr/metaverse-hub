@@ -166,7 +166,7 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.m.dispatcher.broadcasts.filter((b) => b.opCode === OP.INPUT).length, 4, 'MAX_MSGS_PER_TICK');
 }
 
-// Agreed results → verified, the winner paid exactly once (deterministic key), the board updated.
+// Agreed results → verified, no Ticket mint, the board updated.
 {
   const a = start();
   const winner = a.hostSeat;
@@ -183,20 +183,12 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(out.length, 1);
   assert.equal(out[0]!.body.status, 'verified');
   assert.equal(out[0]!.body.winnerSeat, winner);
-  assert.deepEqual(plain(out[0]!.body.paid), { [a.host.userId]: 20 });
-  assert.equal(a.earns.length, 1);
-  const args = a.earns[0]!;
-  assert.equal(args[0], a.host.userId);
-  assert.equal(args[1], a.host.userId === A ? SID_A : SID_B, 'the winner\'s own game session');
-  assert.equal(args[2], 'sproto');
-  assert.equal(args[3], 20);
-  assert.equal(args[4], 'srv_pvp_win');
-  assert.match(String(args[5]), /^sproto:pvp:[0-9a-f-]{36}:[0-9a-f]{8}$/);
-  assert.ok(String(args[5]).length <= 80);
+  assert.deepEqual(plain(out[0]!.body.paid), {});
+  assert.equal(a.earns.length, 0, 'a verified online win mints no Tickets');
   assert.equal(a.wins.length, 1, 'sproto_wins recorded');
   // A repeat RESULT after the outcome pays nothing more.
   a.m.loop([{ sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: winner, wins, rounds: 2 } }]);
-  assert.equal(a.earns.length, 1);
+  assert.equal(a.earns.length, 0);
   assert.equal(outcome(a).length, 1);
 }
 
@@ -227,7 +219,7 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.earns.length, 0);
 }
 
-// A player leaves for good → forfeit after the grace, paid (a round finished, past MIN_PLAY).
+// A player leaves for good → forfeit after the grace (a round finished, past MIN_PLAY). No Ticket mint.
 {
   const a = start();
   play(a, 16);
@@ -243,7 +235,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   const out = outcome(a)[0]!.body;
   assert.equal(out.status, 'forfeit');
   assert.equal(out.winnerSeat, a.hostSeat);
-  assert.deepEqual(plain(out.paid), { [a.host.userId]: 20 });
+  assert.deepEqual(plain(out.paid), {});
+  assert.equal(a.earns.length, 0);
+  assert.equal(a.wins.length, 1, 'sproto_wins recorded');
 }
 
 // Back within the grace: no forfeit, START re-sent, the opponent told.

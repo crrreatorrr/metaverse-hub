@@ -3,9 +3,9 @@
 // The duel's simulation needs Rapier WASM and three.js, which goja cannot run, so
 // one client (the host, picked at random) runs the fight and this match relays and
 // referees: guest INPUT goes only to the host, host SNAPSHOTs only to the guest,
-// the host reports each ROUND, and both clients report a RESULT. Tickets are paid
-// only when both RESULTs agree and fit the recorded rounds and the elapsed time,
-// or on a forfeit after at least one finished round and MIN_PLAY. A modified host
+// the host reports each ROUND, and both clients report a RESULT. A verified win or
+// a forfeit after at least one finished round and MIN_PLAY is recorded, including
+// on sproto_wins. It does not mint Tickets (migration 0031). A modified host
 // can still lie; the exposure is bounded by the random host pick and the pair and
 // daily caps below. Opcodes match src/net/protocol.ts in the sproto-duel repo.
 
@@ -47,7 +47,8 @@ namespace SprotoArena {
   export var MAX_SNAPSHOT_BYTES = 8192;
   export var ROUNDS_TO_WIN = 2;
 
-  export var PVP_WIN_TICKETS = 20;
+  /** Online wins mint no Tickets. Migration 0031 also sets srv_pvp_win max_amount to 0. */
+  export var PVP_WIN_TICKETS = 0;
   export var PVP_REASON = "srv_pvp_win";
   /** Paid wins per unordered pair of players per UTC day, and per winner per day. */
   export var PVP_PAIR_DAILY = 5;
@@ -175,39 +176,21 @@ namespace SprotoArena {
   }
 
   /**
-   * Deterministic per match and winner, so a retry or a repeat RESULT reuses it (game.idempotency).
-   * HubEconomy caps keys at 80 characters: the match's uuid (without ".<node>") and the winner's
-   * first 8 characters fit in 56.
-   */
-  export function earnKey(matchId: string, winner: string): string {
-    return "sproto:pvp:" + matchId.split(".")[0] + ":" + winner.slice(0, 8);
-  }
-
-  /**
-   * Record a paid-or-not result row and pay the winner when the pair and daily caps allow
-   * (decided in one statement; the match id key makes it idempotent), then count the win
-   * on sproto_wins. Returns the Tickets paid (0 when capped, closed or failed).
+   * Record the result row (the match id makes a repeat a no-op) and count the win
+   * on sproto_wins. Online wins do not mint Tickets: there is no HubEconomy.earn
+   * here, and migration 0031 sets srv_pvp_win max_amount to 0.
    */
   export function payout(nk: nkruntime.Nakama, logger: nkruntime.Logger, matchId: string, state: State, winnerSeat: number, status: string, out: Outcome): void {
     var winner = state.players[winnerSeat], loser = state.players[1 - winnerSeat];
     if (!winner || !loser) return;
-    var paid = false;
+    var recorded = false;
     try {
       var rows = nk.sqlQuery(PAY_SQL, [matchId, winner, loser, status, PVP_PAIR_DAILY, PVP_DAILY_PAID_WINS]);
-      paid = !!rows && rows.length > 0 && (rows[0].paid === true || rows[0].paid === "true" || rows[0].paid === "t");
+      recorded = !!rows && rows.length > 0;
     } catch (e) {
       logger.error("sproto_arena payout row failed " + matchId + ": " + String(e));
     }
-    if (paid) {
-      var key = earnKey(matchId, winner);
-      var res = HubEconomy.earn(nk, { userId: winner, sid: state.sids[winner] || "", game: GAME_ID }, PVP_WIN_TICKETS, PVP_REASON, key);
-      if (res && res.error) {
-        logger.warn("sproto_arena earn " + matchId + " " + winner + ": " + String(res.error));
-      } else {
-        out.paid[winner] = PVP_WIN_TICKETS;
-        if (res && typeof res.balance === "number") out.balances[winner] = res.balance as number;
-      }
-    }
+    if (!recorded) logger.warn("sproto_arena " + matchId + " " + PVP_REASON + " result row missing; mint stays " + String(PVP_WIN_TICKETS));
     try {
       HubBoards.recordWin(nk, winner, WINS_BOARD, matchId);
     } catch (e) {
