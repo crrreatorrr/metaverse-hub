@@ -401,6 +401,7 @@ namespace HubRpc {
       profileBody.ranked = !!(ctx.vars && ctx.vars.ranked === "1");
     }
     profileBody.serverTime = serverNowMs(nk);
+    profileBody.pets = HubPets.profilePets(nk, userId);
     return ok(profileBody);
   }
 

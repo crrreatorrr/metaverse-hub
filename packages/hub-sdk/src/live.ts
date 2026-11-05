@@ -165,6 +165,22 @@ function deadSession(error: unknown): boolean {
   return error.code === 'rpc_failed' && error.status === 401;
 }
 
+/** Codes a server can answer in a 2xx body that a later attempt of the same write can still pass. */
+const RETRY_CODES = new Set(['rate_limited', 'missing_ticket_key', 'missing_recovery_pepper']);
+
+/**
+ * The server answered this write with a final refusal in a 2xx `{error}` body:
+ * amount_over_rule, a Ticket cap, idempotency_mismatch, unknown_reason, bad_amount and
+ * the like. Resending the same body and key gets the same answer, so the outbox drops
+ * the row. A network failure, any HTTP error status (5xx, or 401 for an expired token),
+ * and a session problem (deadSession) are not final and stay queued.
+ */
+function finalRefusal(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  if (error.status !== undefined || error.code === 'rpc_failed') return false;
+  return !deadSession(error) && !RETRY_CODES.has(error.code);
+}
+
 async function forget(key: string): Promise<void> {
   if (!useIndexedDb()) {
     memoryWrites.delete(key);
@@ -259,9 +275,18 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     writeCached(session);
   }
 
-  /** One attempt. A lost response rejects and leaves the queued record in place. */
+  /**
+   * One attempt. A lost response rejects and leaves the queued record in place. A final
+   * refusal from the server drops the record and still rejects, so the caller sees it.
+   */
   async function transmit(row: OutboxRecord): Promise<unknown> {
-    const response = await client.rpc(row.rpc, { ...row.body, key: row.key }, { token: row.token });
+    let response: unknown;
+    try {
+      response = await client.rpc(row.rpc, { ...row.body, key: row.key }, { token: row.token });
+    } catch (error) {
+      if (finalRefusal(error)) await forget(row.key).catch(() => undefined);
+      throw error;
+    }
     await forget(row.key);
     if (active && row.gameId === active.game && row.rpc === 'session.event') noteGrant(active, response);
     return response;
@@ -295,6 +320,9 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       try {
         await transmit(row);
       } catch (error) {
+        // The server refused the row for good and transmit dropped it. The write that
+        // queued it already got that error; this init must not fail on it again.
+        if (finalRefusal(error)) continue;
         // A row on a dead session that this session cannot carry stays queued for a
         // later session of its own player and game. It must not fail this init, or
         // one stale row keeps every later launch from reaching the hub.

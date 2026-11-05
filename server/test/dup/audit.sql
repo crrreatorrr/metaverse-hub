@@ -226,6 +226,48 @@ BEGIN
     END LOOP;
   END IF;
 
+  -- M6 item grants (0030_m6_item_grants, docs/m6-server-prep.md "Audit").
+  IF to_regclass('game.item_owned') IS NOT NULL THEN
+    FOR r IN EXECUTE $q$
+      SELECT kind, subject, detail FROM (
+        SELECT 'item_owned_without_ledger'::text AS kind,
+               o.user_id::text AS subject,
+               o.item_id || ' ref=' || COALESCE(o.ref_id::text, 'null') AS detail
+        FROM game.item_owned o
+        WHERE o.ref_id IS NULL
+           OR NOT EXISTS (
+             SELECT 1 FROM game.item_ledger l
+             WHERE l.user_id = o.user_id
+               AND l.item_id = o.item_id
+               AND l.ref_id = o.ref_id
+               AND l.op IN ('grant_item', 'purchase')
+           )
+
+        UNION ALL
+        SELECT 'duplicate_item_grant',
+               user_id::text,
+               item_id || ' x' || count(*)::text
+        FROM game.item_ledger
+        WHERE op = 'grant_item'
+        GROUP BY user_id, item_id
+        HAVING count(*) > 1
+
+        UNION ALL
+        SELECT 'derived_item_owned',
+               user_id::text,
+               item_id
+        FROM game.item_owned
+        WHERE item_id IN ('pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto',
+                          'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
+                          'tidebreaker_belt', 'breakwater_coin')
+      ) items
+    $q$
+    LOOP
+      n := n + 1;
+      msg := msg || r.kind || '|' || r.subject || '|' || r.detail || E'\n';
+    END LOOP;
+  END IF;
+
   IF to_regclass('game.cosmetic_owned') IS NOT NULL THEN
     FOR r IN EXECUTE $q$
       SELECT 'duplicate_cosmetic'::text AS kind,

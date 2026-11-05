@@ -17,6 +17,7 @@ import { runAccounts } from './accounts.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runMigrations } from './migrations.ts';
+import { runPets } from './pets.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
 import { runShop } from './shop.ts';
@@ -557,7 +558,8 @@ async function forged(): Promise<void> {
     assert.equal(unknown.body.granted, undefined);
     const wrong = await call('session.event', {
       eventId: relic.eventId,
-      data: { boss: 'obama', zone: 'nope', questId: 'nope' },
+      // Not 'obama': since 0030 that boss is an item_rule match (pet_presidential_sproto).
+      data: { boss: 'not_a_boss', zone: 'nope', questId: 'nope' },
       key: 'wrong-payload',
     }, session.gameToken);
     assert.equal(wrong.body.granted, undefined);
@@ -1460,7 +1462,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'migration', 'accounts'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1718,6 +1720,7 @@ export async function main(): Promise<void> {
     if (selected('game_beaten')) await runGameBeaten({ test, pending });
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test);
+    if (selected('pets')) await runPets(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
   } finally {

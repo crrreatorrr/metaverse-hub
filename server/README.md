@@ -61,7 +61,7 @@ The module also runs the plaza and the games' online pieces. The full guide, inc
 | Ticket calls for match handlers (`srv_*` reasons; `tickets.earn` rejects them from clients) | `modules/src/server_economy.ts` |
 | Game files (Sproto Duel `sproto_arena`, PB `pb_world`), compiled through tsconfig `include` | `modules/src/games/*.ts` |
 
-Migrations `0011_ranked_scores` (`game.ranked_score`, `game.win_record`) and `0012_chat_moderation` (`game.chat_mute`, `game.chat_report`) are the hub's. Game files register theirs with `HubSchema.register` in their reserved ranges (PB 0013–0019, Sproto 0020–0024). The runner refuses an unapplied id below the highest recorded one, so deploy in id order.
+Migrations `0011_ranked_scores` (`game.ranked_score`, `game.win_record`) and `0012_chat_moderation` (`game.chat_mute`, `game.chat_report`) are the hub's, and so is `0030_m6_item_grants` (`game.item_owned`, `game.item_rule`, the `grant_item` ledger op, and the `session.event` pet grant in `game.apply_event`; see `docs/m6-server-prep.md`). Game files register theirs with `HubSchema.register` in their reserved ranges (PB 0013–0019, Sproto 0020–0024, Sproto Arcade 0025–0029). The runner refuses an unapplied id below the highest recorded one, so deploy in id order.
 
 Moderation is SQL for now:
 
