@@ -663,6 +663,10 @@ async function scoresAndSession(): Promise<void> {
   const h = harness('nobu');
   assert.equal(h.sdk.getSession?.(), null);
   assert.equal(await h.sdk.submitScore('nobu_trial_time', 20000, { level: 1 }), undefined);
+  for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+    assert.equal(await h.sdk.submitScore('nobu_trial_time', floor, { level: variant }), undefined);
+    assert.deepEqual((await h.sdk.getLeaderboard?.('nobu_trial_time', { variant }))?.rows, []);
+  }
   h.setHash(`#t=${await ticket('nobu', { ranked: false })}`);
   await h.sdk.init('nobu');
   const info = h.sdk.getSession?.();
@@ -678,7 +682,7 @@ async function scoresAndSession(): Promise<void> {
   assert.equal(h.local.getItem('hub:score:player-1:nobu_trial_time:2'), '40000');
   assert.deepEqual(await h.sdk.submitScore('nobu_trial_time', 30000, { level: 1, godMode: true }), { accepted: false, reason: 'god_mode' });
   for (const [value, meta, code] of [
-    [20000, { level: 4 }, 'bad_variant'],
+    [20000, { level: 9 }, 'bad_variant'],
     [20000.5, { level: 1 }, 'bad_score'],
     [100, { level: 1 }, 'implausible_score'],
     [1_800_001, { level: 3 }, 'implausible_score'],
@@ -701,8 +705,24 @@ async function scoresAndSession(): Promise<void> {
     const page = await h.sdk.getLeaderboard?.('nobu_trial_time', { variant });
     assert.equal(page?.variant, variant); assert.equal(page?.rows[0]?.value, floor);
   }
+  const noGrantKeys = ['hub:tickets:nobu', 'hub:verse', 'hub:relics'];
+  const economy = noGrantKeys.map(key => h.local.getItem(key));
+  for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+    assert.deepEqual(await h.sdk.submitScore('nobu_trial_time', floor + 1, { level: variant }), { accepted: true, posted: true, value: floor + 1, order: 'asc' });
+    assert.deepEqual(await h.sdk.submitScore('nobu_trial_time', floor, { level: Number(variant) }), { accepted: true, posted: true, value: floor, order: 'asc' });
+    assert.equal((await h.sdk.submitScore('nobu_trial_time', 1_800_000, { level: variant }))?.value, floor, 'inclusive ceiling preserves the faster best');
+    for (const [value, code] of [[floor - 1, 'implausible_score'], [1_800_001, 'implausible_score'], [floor + .5, 'bad_score']] as const) {
+      await assert.rejects(() => h.sdk.submitScore('nobu_trial_time', value, { level: variant }),
+        (error: unknown) => error instanceof HubSdkError && error.code === code);
+    }
+    assert.deepEqual(await h.sdk.submitScore('nobu_trial_time', floor, { level: variant, godMode: true }), { accepted: false, reason: 'god_mode' });
+    const page = await h.sdk.getLeaderboard?.('nobu_trial_time', { variant });
+    assert.equal(page?.variant, variant); assert.equal(page?.me?.value, floor);
+    assert.equal(h.local.getItem(`hub:score:player-1:nobu_trial_time:${variant}`), String(floor));
+  }
+  assert.deepEqual(noGrantKeys.map(key => h.local.getItem(key)), economy, 'new score variants grant no economy or relics');
   assert.equal(h.local.getItem('hub:score:player-1:nobu_trial_time:1'), '20000', 'Classic best stays separate');
-  for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+  for (const variant of ['4v2', '5v2', '6v2', 'toString', 'constructor', '__proto__']) {
     await assert.rejects(() => h.sdk.submitScore('nobu_trial_time', 100000, { level: variant }),
       (error: unknown) => error instanceof HubSdkError && error.code === 'bad_variant');
     await assert.rejects(async () => h.sdk.getLeaderboard?.('nobu_trial_time', { variant }),
@@ -776,6 +796,12 @@ async function refreshWire(): Promise<void> {
   for (const [variant, floor] of [['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
     await sdk.submitScore('nobu_trial_time', floor, { level: variant, layout: 2 });
     assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', value: floor, meta: { level: variant, layout: 2 }, godMode: false });
+    await sdk.getLeaderboard?.('nobu_trial_time', { variant });
+    assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', variant });
+  }
+  for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+    await sdk.submitScore('nobu_trial_time', floor, { level: variant });
+    assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', value: floor, meta: { level: variant }, godMode: false });
     await sdk.getLeaderboard?.('nobu_trial_time', { variant });
     assert.deepEqual(calls.at(-1)?.body, { boardId: 'nobu_trial_time', variant });
   }

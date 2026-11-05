@@ -157,7 +157,7 @@ Guest accounts and recovery codes live in the hub, not in the game. The device i
 
 `submitScore(boardId, value, meta)` always reaches the server when there is a game session; the server decides. It answers `{ accepted, posted?, value?, order?, reason? }`, where `reason` is `god_mode`, `server_board` or `unranked`. Errors throw `HubSdkError` with `session_closed`, `not_game_session`, `bad_board`, `bad_score`, `bad_variant`, `implausible_score` or `rate_limited`.
 
-- `nobu_trial_time` is per layout: pass `meta.level` (`'1'`..`'3'` for Classic, `'1v2'`..`'3v2'` for the extended levels) and an **integer number of milliseconds**. Floors are `NOBU_TRIAL_FLOOR_MS`: Classic 15000/15000/12000; layout 2 25700/26000/20600. The ceiling is `NOBU_TRIAL_CEIL_MS` (30 min). NOBU trials count from unranked sessions. One submit per variant per 5 s. Existing numeric Classic levels remain valid.
+- `nobu_trial_time` is per layout: pass `meta.level` (`'1'`..`'3'` for Classic, `'1v2'`..`'3v2'` for the extended levels, `'4'`/`'6'`/`'5'` for Chapter 2) and an **integer number of milliseconds**. Floors are `NOBU_TRIAL_FLOOR_MS`: Classic 15000/15000/12000; layout 2 25700/26000/20600; Chapter 2 levels 4/6/5 24000/30000/21000. The ceiling is `NOBU_TRIAL_CEIL_MS` (30 min). NOBU trials count from unranked sessions. One submit per variant per 5 s. Existing numeric Classic levels remain valid.
 - `sproto_wins` and `meta` are server boards (`reason: 'server_board'`).
 - `meta.godMode === true` posts nothing (`reason: 'god_mode'`).
 

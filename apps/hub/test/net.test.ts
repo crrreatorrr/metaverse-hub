@@ -140,6 +140,7 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
 {
   assert.deepEqual(HUB_BOARD_IDS.filter((id) => id.startsWith('nobu_trial_time:')), [
     'nobu_trial_time:1v2', 'nobu_trial_time:2v2', 'nobu_trial_time:3v2',
+    'nobu_trial_time:4', 'nobu_trial_time:6', 'nobu_trial_time:5',
     'nobu_trial_time:1', 'nobu_trial_time:2', 'nobu_trial_time:3',
   ], 'wall cycles current layouts before Classic');
   const stub = createStubLeaderboardProvider();
@@ -150,6 +151,16 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
     assert.equal(gameForBoard(current), 'nobu');
     const oldPage = await stub.load(classic), newPage = await stub.load(current);
     assert.deepEqual(newPage.rows.map((r) => r.score), oldPage.rows.map((r) => Math.round(r.score * 1.72)));
+  }
+  for (const [level, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+    const id = `nobu_trial_time:${level}` as const;
+    assert.equal(gameForBoard(id), 'nobu');
+    assert.equal(BOARD_META[id].title, `NOBU · LEVEL ${level}`);
+    assert.deepEqual(serverBoard(id), { board: 'nobu_trial_time', variant: level });
+    const page = await stub.load(id);
+    assert.equal(page.order, 'asc'); assert.equal(page.rows.length, 10);
+    assert.ok(page.rows.every(row => Number.isInteger(row.score) && row.score >= floor));
+    assert.deepEqual(page.rows.map(row => row.score), page.rows.map(row => row.score).sort((a, b) => a - b));
   }
   assert.equal(formatTrialMs(83456), '1:23.45');
   assert.equal(formatTrialMs(15000), '0:15.00');
@@ -171,7 +182,7 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.deepEqual(calls[0], { id: 'leaderboard.top', body: { boardId: 'nobu_trial_time', limit: 10, variant: '2' } });
   assert.equal(nobu.rows[0]!.score, 41230);
   assert.equal(nobu.order, 'asc');
-  for (const variant of ['1v2', '2v2', '3v2'] as const) {
+  for (const variant of ['1v2', '2v2', '3v2', '4', '6', '5'] as const) {
     const page = await provider.load(`nobu_trial_time:${variant}`);
     assert.deepEqual(calls.at(-1), { id: 'leaderboard.top', body: { boardId: 'nobu_trial_time', limit: 10, variant } });
     assert.equal(page.title, `NOBU · LEVEL ${variant[0]}`);

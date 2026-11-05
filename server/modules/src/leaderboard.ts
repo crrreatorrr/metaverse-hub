@@ -4,7 +4,7 @@
 // win boards for hpos10i and sproto accept a write only when
 // game.game_session.ranked is true (the session row, never the client). NOBU
 // time trials are gear-free and always eligible (Contract C13): one board,
-// variant = Classic level ("1".."3") or layout ("1v2".."3v2"), integer milliseconds.
+// variant = Classic level ("1".."3"), layout ("1v2".."3v2"), or new level ("4".."6"), integer milliseconds.
 // peoples-bitcoin is exempt. sproto_wins and meta are server boards: only
 // recordWin and the meta rollup write them. God-mode posts write no row.
 // Nothing here credits Tickets, Verse, Relics, or items.
@@ -31,6 +31,7 @@ namespace HubBoards {
   export var NOBU_FLOOR_MS: { [level: string]: number } = {
     "1": 15000, "2": 15000, "3": 12000,
     "1v2": 25700, "2v2": 26000, "3v2": 20600,
+    "4": 24000, "6": 30000, "5": 21000,
   };
   export var NOBU_CEIL_MS = 1800000;
   export var SUBMIT_EVERY_MS = 5000;
