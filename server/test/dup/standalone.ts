@@ -9,16 +9,15 @@ import { createRealtime, HubSdkError, type HubRealtime, type MatchData, type Mat
 import {
   SERVER_KEY,
   call,
-  compose,
   guest,
   login,
   num,
   openGame,
+  psql,
   sleep,
   sqlId,
   ticketBalance,
   verseBalance,
-  waitReady,
   type Guest,
   type RpcResult,
 } from './harness.ts';
@@ -86,22 +85,9 @@ function issue(token: string, payload: object = { app: APP }): Promise<RpcResult
 }
 
 async function clearRateLimits(): Promise<void> {
-  compose(['restart', 'nakama']);
-  await waitReady();
-  // Device auth can 503 for a moment after the gateway is healthy (dial 7349 refused).
-  const deadline = Date.now() + 20_000;
-  let last = 'auth not attempted';
-  while (Date.now() < deadline) {
-    try {
-      await guest();
-      return;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-      if (!last.includes('503') && !last.includes('connection refused')) throw error;
-      await sleep(250);
-    }
-  }
-  throw new Error(`Nakama auth did not recover after restart: ${last}`);
+  // Counters live in Nakama storage, so a process restart leaves them in place
+  // and later cases share the runner IP bucket. Delete the rows.
+  psql(`DELETE FROM storage WHERE collection = 'sproto_sa_rl'`);
 }
 
 function purse(userId: string): string {
