@@ -14,8 +14,13 @@
 // refresh token; the access token lasts for the server's token_expiry_sec
 // (7200 in deploy and compose). Call again when it expires.
 //
-// Rate limits use Nakama localcache (one node, cleared on restart). A call is
-// counted only after the marker and the hub scope check pass.
+// Rate limits are storage counters, one row per bucket, in a fixed 10-minute
+// window. A call is counted only after the marker and the hub scope check pass.
+// Each reserve increments under the row's storage version (optimistic
+// concurrency). The write commits only if that version is still current, so
+// two callers cannot both claim the same count. If the committed count is over
+// the limit, that increment is rolled back and the call is denied. Retries
+// that run out, or any storage error, deny as well.
 //
 // | Bucket | Limit | Window |
 // | user id | 10 | 10 minutes |
@@ -62,30 +67,135 @@ namespace SprotoStandalone {
   }
 
   interface Slot { key: string; limit: number }
+  interface Claim { key: string; start: number }
 
-  function windowCount(nk: nkruntime.Nakama, key: string, now: number): { count: number; start: number } {
-    var raw = nk.localcacheGet(key);
-    if (typeof raw !== "string") return { count: 0, start: now };
-    var parts = raw.split(":");
-    var count = Number(parts[0]);
-    var start = Number(parts[1]);
-    if (!isFinite(count) || !isFinite(start) || now - start >= WINDOW_MS) return { count: 0, start: now };
-    return { count: count, start: start };
+  /** Storage owner for every bucket. Not an account; same nil id other game rows use. */
+  var RATE_OWNER = "00000000-0000-0000-0000-000000000000";
+  var RATE_COLLECTION = "sproto_sa_rl";
+  /** Enough for a burst to serialize on one row, then give up and deny. */
+  var RESERVE_ATTEMPTS = 16;
+
+  function errorText(e: unknown): string {
+    if (e && typeof e === "object" && "message" in e) return String((e as { message: unknown }).message);
+    return String(e);
   }
 
-  /** All-or-nothing fixed window. A full bucket rejects without incrementing the others. */
-  function take(nk: nkruntime.Nakama, slots: Slot[], now: number): boolean {
-    var open: { count: number; start: number }[] = [];
+  function versionConflict(e: unknown): boolean {
+    return errorText(e).toLowerCase().indexOf("version") >= 0;
+  }
+
+  function whole(n: unknown): number | null {
+    if (typeof n !== "number" || !isFinite(n) || n < 0) return null;
+    return Math.floor(n);
+  }
+
+  function readRows(nk: nkruntime.Nakama, slots: Slot[]): { [key: string]: nkruntime.StorageObject } | null {
+    var keys: nkruntime.StorageReadRequest[] = [];
     for (var i = 0; i < slots.length; i++) {
-      var state = windowCount(nk, slots[i].key, now);
-      if (state.count >= slots[i].limit) return false;
-      open.push(state);
+      keys.push({ collection: RATE_COLLECTION, key: slots[i].key, userId: RATE_OWNER });
     }
-    var ttl = Math.ceil(WINDOW_MS / 1000);
-    for (var j = 0; j < slots.length; j++) {
-      nk.localcachePut(slots[j].key, String(open[j].count + 1) + ":" + String(open[j].start), ttl);
+    try {
+      var rows = nk.storageRead(keys);
+      var out: { [key: string]: nkruntime.StorageObject } = {};
+      for (var j = 0; j < rows.length; j++) out[rows[j].key] = rows[j];
+      return out;
+    } catch (_e) {
+      return null;
     }
-    return true;
+  }
+
+  /**
+   * Claim one slot on every bucket, or none. The increment is committed with the
+   * row version just read, so a racing call cannot commit the same count. A
+   * committed count over that bucket's limit is rolled back and the call is denied.
+   */
+  function reserve(nk: nkruntime.Nakama, logger: nkruntime.Logger, slots: Slot[], now: number): boolean {
+    for (var attempt = 0; attempt < RESERVE_ATTEMPTS; attempt++) {
+      var rows = readRows(nk, slots);
+      if (!rows) return false;
+      var writes: nkruntime.StorageWrite[] = [];
+      var claimed: Claim[] = [];
+      var over = false;
+      for (var i = 0; i < slots.length; i++) {
+        var slot = slots[i];
+        var row = rows[slot.key];
+        var count = 0;
+        var start = now;
+        var version = "*";
+        if (row) {
+          version = row.version || "*";
+          var seen = whole(row.value.count);
+          var opened = whole(row.value.start);
+          var live = seen !== null && opened !== null && now >= opened && now - opened < WINDOW_MS;
+          if (live) {
+            count = seen as number;
+            start = opened as number;
+          } else if (seen === null && opened !== null && now >= opened && now - opened < WINDOW_MS) {
+            return false;
+          }
+        }
+        var next = count + 1;
+        if (next > slot.limit) over = true;
+        writes.push({
+          collection: RATE_COLLECTION,
+          key: slot.key,
+          userId: RATE_OWNER,
+          value: { count: next, start: start },
+          version: version,
+          permissionRead: 0,
+          permissionWrite: 0,
+        });
+        claimed.push({ key: slot.key, start: start });
+      }
+      try {
+        nk.storageWrite(writes);
+      } catch (e) {
+        if (versionConflict(e)) continue;
+        logger.warn("sproto standalone rate write " + errorText(e));
+        return false;
+      }
+      if (!over) return true;
+      undo(nk, logger, claimed);
+      return false;
+    }
+    logger.warn("sproto standalone rate retries exhausted");
+    return false;
+  }
+
+  /** Drop one claimed increment per key. A changed window is left alone. */
+  function undo(nk: nkruntime.Nakama, logger: nkruntime.Logger, claimed: Claim[]): void {
+    for (var i = 0; i < claimed.length; i++) {
+      var claim = claimed[i];
+      for (var attempt = 0; attempt < RESERVE_ATTEMPTS; attempt++) {
+        var rows: nkruntime.StorageObject[];
+        try {
+          rows = nk.storageRead([{ collection: RATE_COLLECTION, key: claim.key, userId: RATE_OWNER }]);
+        } catch (e) {
+          logger.warn("sproto standalone rate undo read " + errorText(e));
+          break;
+        }
+        if (!rows.length) break;
+        var count = whole(rows[0].value.count);
+        var start = whole(rows[0].value.start);
+        if (count === null || start === null || start !== claim.start || count <= 0) break;
+        try {
+          nk.storageWrite([{
+            collection: RATE_COLLECTION,
+            key: claim.key,
+            userId: RATE_OWNER,
+            value: { count: count - 1, start: start },
+            version: rows[0].version,
+            permissionRead: 0,
+            permissionWrite: 0,
+          }]);
+          break;
+        } catch (e) {
+          if (versionConflict(e)) continue;
+          logger.warn("sproto standalone rate undo " + errorText(e));
+          break;
+        }
+      }
+    }
   }
 
   /**
@@ -122,7 +232,7 @@ namespace SprotoStandalone {
     }
     var ip = clientIp(ctx);
     if (ip) slots.push({ key: "sproto:sa:ip:" + nk.sha256Hash(ip), limit: IP_LIMIT });
-    if (!take(nk, slots, Date.now())) return fail("rate_limited", "Too many Duel sessions. Try again in a few minutes.");
+    if (!reserve(nk, logger, slots, Date.now())) return fail("rate_limited", "Too many Duel sessions. Try again in a few minutes.");
 
     var sid = nk.uuidv4();
     if (!UUID.test(sid)) return fail("mint_failed", "Could not open a Duel session");

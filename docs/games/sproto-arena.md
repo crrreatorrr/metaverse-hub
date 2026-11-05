@@ -54,7 +54,7 @@ A visitor who never entered the plaza portal still gets a session this match acc
 
 Nakama stores those vars in the session JWT (`vrs`). Match join, `sproto.room_create`, `sproto.room_join`, and the matchmaker read `ctx.vars` from it, the same way they read a portal game token.
 
-Rate limits (Nakama localcache, per node, cleared on restart), counted only after the marker and the hub-scope check:
+Rate limits are storage counters (one row per bucket, claimed with the row version so concurrent calls cannot share a slot), counted only after the marker and the hub-scope check:
 
 | Bucket | Limit | Window |
 | --- | --- | --- |

@@ -101,7 +101,7 @@ The reply is `{token, exp, sid}`. Use that token for the socket. It is an access
 
 `ranked:"0"` cannot wager, earn Tickets, or take a Fighter stake. The arena skips `HubEconomy.earn` for that var and still posts `sproto_wins`. The minted `sid` is not a `game.game_session` row, so `tickets.earn`, `session.event` / `apply_event`, `tickets.spend`, `tickets.sell`, and `tickets.exchange` return `session_closed`. `save.put` stores progress only and does not mint Tickets, Relics, or items. This token's game is `sproto`, so a Fighter matchmaker ticket is `wrong_game` and `sproto_wager_hold` does not run. Fighter stays hub-scope only.
 
-Rate limits on `sproto.standalone_session` (localcache, per node, 10-minute window): 10 per user id, 10 per linked device id, 40 per client IP when Nakama supplies `ctx.clientIp`. A full bucket is `rate_limited` and mints nothing.
+Rate limits on `sproto.standalone_session` (storage counters, 10-minute window, claimed with the row version): 10 per user id, 10 per linked device id, 40 per client IP when Nakama supplies `ctx.clientIp`. A count over the limit is rolled back and the call is `rate_limited`. A full bucket mints nothing.
 
 Details and the arena referee live in `docs/games/sproto-arena.md`.
 
