@@ -402,6 +402,11 @@ namespace HubRpc {
     }
     profileBody.serverTime = serverNowMs(nk);
     profileBody.pets = HubPets.profilePets(nk, userId);
+    // Same owned union as checkGate. gates carry unlocked bools only: no missing list,
+    // no required item ids. A read error leaves both empty, which locks every prompt.
+    var inventory = HubGate.forClient(nk, userId);
+    profileBody.items = inventory.items;
+    profileBody.gates = inventory.gates;
     return ok(profileBody);
   }
 

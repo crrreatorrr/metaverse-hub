@@ -2065,6 +2065,250 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Hub item gates. Read-only to clients: no RPC writes this table. Hall of Champions
+      // stays on the four Four Lights relic ids in the plaza client; that rule is not an item id.
+      id: "0034_hub_gate",
+      statements: [
+        `CREATE TABLE IF NOT EXISTS game.hub_gate (
+           gate_id text PRIMARY KEY,
+           action_type text NOT NULL CHECK (action_type IN ('portal', 'session', 'interact', 'zone')),
+           target text,
+           required_item_ids text[] NOT NULL,
+           require_all boolean NOT NULL DEFAULT true,
+           enabled boolean NOT NULL DEFAULT true,
+           locked_hint_pool text
+         )`,
+        `COMMENT ON TABLE game.hub_gate IS 'Server-owned item gates. Clients receive unlocked bools only. Gates grant nothing.'`,
+        `CREATE OR REPLACE FUNCTION game.owned_item_ids(p_user_id uuid)
+         RETURNS text[]
+         LANGUAGE sql
+         STABLE
+         AS $own$
+           SELECT COALESCE(array_agg(item_id ORDER BY item_id), ARRAY[]::text[])
+           FROM (
+             SELECT DISTINCT item_id FROM (
+               SELECT 'duel_staff_sproto'::text AS item_id
+               UNION ALL
+               SELECT v.item_id
+               FROM (VALUES
+                 ('nobu_clown_collar', 'hpos10i_core'),
+                 ('pb_summon_speed_sproto', 'hpos10i_core'),
+                 ('duel_staff_momentum', 'hpos10i_core'),
+                 ('pet_speed_sproto', 'hpos10i_core'),
+                 ('hpos_skin_golden_sproto', 'genesis_shard'),
+                 ('nobu_golden_collar', 'genesis_shard'),
+                 ('duel_staff_moonward', 'genesis_shard'),
+                 ('hpos_skin_nobu', 'cones_tip'),
+                 ('pb_summon_nobu', 'cones_tip'),
+                 ('duel_staff_nobu', 'cones_tip'),
+                 ('pet_nobu', 'cones_tip'),
+                 ('pb_summon_duelist_sproto', 'tinubu_crown'),
+                 ('nobu_wizard_hat', 'tinubu_crown'),
+                 ('hpos_cape_duelist', 'tinubu_crown'),
+                 ('pet_duelist_sproto', 'tinubu_crown'),
+                 ('duel_staff_fighters_might', 'tidebreaker_belt'),
+                 ('nobu_champions_crown', 'tidebreaker_belt'),
+                 ('pb_summon_champion_sproto', 'tidebreaker_belt'),
+                 ('hpos_skin_tidebreaker', 'tidebreaker_belt')
+               ) AS v(item_id, relic_id)
+               WHERE EXISTS (
+                 SELECT 1 FROM game.relic_claim c
+                 WHERE c.user_id = p_user_id AND c.relic_id = v.relic_id
+               )
+               UNION ALL
+               SELECT o.item_id
+               FROM game.item_owned o
+               WHERE o.user_id = p_user_id
+               -- quantum_cell is keepsake-derived from NOBU rematch pieces. Those piece ids are
+               -- not in this repo. An empty piece list must not count as owned. A real item_owned
+               -- row for the id still counts in the branch above.
+             ) u
+             WHERE item_id IS NOT NULL AND item_id <> ''
+           ) d
+         $own$`,
+        `INSERT INTO game.hub_gate (gate_id, action_type, target, required_item_ids, require_all, enabled, locked_hint_pool)
+         VALUES
+           ('hub_arcade_vcoin_game', 'session', 'vcoin', ARRAY['hub_v_coin'], true, true, NULL),
+           ('hub_quantum_door', 'zone', 'quantum_door', ARRAY['quantum_cell'], true, true, NULL),
+           (
+             'hub_hatchery',
+             'portal',
+             'hatchery',
+             ARRAY['arc_the_remote', 'duel_time_spirit_potion', 'pb_space_goggles', 'hub_v_coin', 'hub_life_medal', 'quantum_cell'],
+             true,
+             true,
+             NULL
+           )
+         ON CONFLICT (gate_id) DO NOTHING`,
+      ],
+    },
+    {
+      // V Coin. People's Bitcoin white rabbit / Bar beat (quest_way_out) on the verified
+      // pb.quest_complete path, and only when pb_space_goggles is already on the owned union.
+      // 0 Tickets / 0 Verse: no event_rule tickets row and no verse write. Earn-once is
+      // item_owned's primary key plus ON CONFLICT DO NOTHING.
+      // apply_event is 0030's body plus the hub_v_coin predicate in eligible.
+      // Open PR #62 (0031_story_boss_tickets) also replaces apply_event; reconcile both edits.
+      id: "0035_hub_v_coin",
+      statements: [
+        `INSERT INTO game.item_rule (game_id, event_type, item_id, match)
+         VALUES ('peoples-bitcoin', 'pb.quest_complete', 'hub_v_coin', '{"questId":"quest_way_out"}'::jsonb)
+         ON CONFLICT (game_id, event_type, item_id) DO NOTHING`,
+        `CREATE OR REPLACE FUNCTION game.apply_event(
+           p_user_id uuid,
+           p_session_id uuid,
+           p_game_id text,
+           p_event_id text,
+           p_data jsonb,
+           p_idem_key text,
+           p_req_hash text,
+           p_seq bigint DEFAULT NULL
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_response jsonb;
+           v_hash bytea;
+           v_existing_hash bytea;
+           v_relic text;
+           v_last bigint;
+           v_pay bigint;
+           v_credit jsonb;
+           v_items json;
+         BEGIN
+           PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
+           v_hash := decode(p_req_hash, 'hex');
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF FOUND THEN
+             IF v_existing_hash <> v_hash THEN
+               RETURN jsonb_build_object('error', 'idempotency_mismatch');
+             END IF;
+             RETURN v_response;
+           END IF;
+           SELECT event_seq INTO v_last
+           FROM game.game_session
+           WHERE session_id = p_session_id
+             AND user_id = p_user_id
+             AND game_id = p_game_id
+             AND state = 'open'
+             AND lease_until > now()
+             AND ticket_redeemed_at IS NOT NULL
+           FOR UPDATE;
+           IF NOT FOUND THEN
+             RETURN jsonb_build_object('error', 'session_closed');
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             IF v_last > 0 AND p_seq = v_last THEN
+               RETURN jsonb_build_object('error', 'seq_duplicate');
+             ELSIF p_seq <> v_last + 1 THEN
+               RETURN jsonb_build_object('error', 'seq_stale');
+             END IF;
+           END IF;
+           SELECT tickets INTO v_pay
+           FROM game.event_rule
+           WHERE game_id = p_game_id
+             AND event_type = p_event_id
+             AND tickets IS NOT NULL
+             AND match <@ COALESCE(p_data, '{}'::jsonb)
+           LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 THEN
+             PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+             v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
+             IF v_credit ? 'error' THEN
+               IF v_credit->>'error' IN ('session_ticket_cap', 'daily_ticket_cap') THEN
+                 v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+                 RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
+               END IF;
+               RETURN v_credit;
+             END IF;
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             UPDATE game.game_session SET event_seq = p_seq WHERE session_id = p_session_id;
+           END IF;
+           v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+           v_response := '{}'::jsonb;
+           IF v_relic IS NOT NULL THEN
+             v_response := jsonb_build_object('granted', v_relic);
+           END IF;
+           IF v_credit IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+             v_response := v_response || jsonb_build_object('tickets', (v_credit->>'applied')::bigint);
+           END IF;
+           -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
+           -- idempotency insert, so a replay of this key returns the stored granted_items.
+           -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
+           -- 0035: hub_v_coin also requires pb_space_goggles on game.owned_item_ids. 0 Tickets / 0 Verse.
+           WITH sess AS (
+             -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
+             SELECT event_seq FROM game.game_session
+             WHERE session_id = p_session_id
+               AND user_id = p_user_id
+               AND game_id = p_game_id
+               AND state = 'open'
+               AND lease_until > now()
+               AND ticket_redeemed_at IS NOT NULL
+             FOR UPDATE
+           ),
+           eligible AS (
+             SELECT r.item_id FROM game.item_rule r
+             WHERE EXISTS (SELECT 1 FROM sess)
+               AND (
+                 (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
+                 OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
+                 OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
+                 OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
+               )
+               AND r.game_id = p_game_id AND r.event_type = p_event_id
+               AND r.event_type <> 'game_beaten'
+               AND r.match <> '{}'::jsonb
+               AND r.match <@ COALESCE(p_data, '{}'::jsonb)
+               AND r.item_id NOT IN (
+                 'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
+                 'tidebreaker_belt', 'breakwater_coin',
+                 'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
+               )
+               AND (
+                 r.item_id <> 'hub_v_coin'
+                 OR 'pb_space_goggles' = ANY (game.owned_item_ids(p_user_id))
+               )
+               AND EXISTS (
+                 SELECT 1 FROM game.event_rule e
+                 WHERE e.game_id = r.game_id AND e.event_type = r.event_type
+                   AND e.event_type <> 'game_beaten'
+               )
+           ),
+           ins AS (
+             INSERT INTO game.item_owned (user_id, item_id, source, ref_id)
+             SELECT p_user_id, item_id, 'event', gen_random_uuid() FROM eligible
+             ON CONFLICT (user_id, item_id) DO NOTHING
+             RETURNING item_id, ref_id
+           ),
+           led AS (
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             SELECT ref_id, p_user_id, 'grant_item', item_id, 'event', ref_id FROM ins
+             RETURNING item_id
+           )
+           SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json) INTO v_items FROM led;
+           v_response := COALESCE(v_response, '{}'::jsonb)
+             || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
+           INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+           VALUES (p_user_id, p_idem_key, 'session.event', v_hash, v_response);
+           RETURN v_response;
+         EXCEPTION WHEN unique_violation THEN
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF NOT FOUND THEN
+             RAISE;
+           END IF;
+           IF v_existing_hash <> v_hash THEN
+             RETURN jsonb_build_object('error', 'idempotency_mismatch');
+           END IF;
+           RETURN v_response;
+         END;
+         $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -2163,7 +2407,8 @@ namespace HubSchema {
   // Migrations registered by game files (src/games/*.ts) at load time.
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
-  // reserved range (0030_m6_item_grants). The runner refuses an unapplied id below the highest
+  // reserved range (0030_m6_item_grants, then 0034_hub_gate and 0035_hub_v_coin). 0031–0033 are
+  // not on main. The runner refuses an unapplied id below the highest
   // recorded one, so PRs merge and deploy in id order (or renumber first).
   var REGISTERED: SchemaMigration[] = [];
 
