@@ -173,6 +173,8 @@ interface OutboxGame {
   exchangeTickets: number;
   verse: number;
   ticketsLeft: number;
+  /** Positive ticket credits. Sproto's crown boss pays 20 as well as the funding boss. */
+  credits?: number;
 }
 
 const SPROTO_OUTBOX: OutboxGame = {
@@ -183,7 +185,8 @@ const SPROTO_OUTBOX: OutboxGame = {
   earnAmount: 20,
   exchangeTickets: 20,
   verse: 2,
-  ticketsLeft: 0,
+  ticketsLeft: 20,
+  credits: 2,
 };
 
 interface LiveKit {
@@ -218,7 +221,7 @@ function quiet(promise: Promise<unknown>): Promise<RpcResult> {
 function assertOneEconomy(userId: string, spec: OutboxGame, keys: { earn: string; exchange: string; crown: string }): void {
   assert.equal(mints(userId, spec.relicId), 1);
   assert.equal(relicClaims(userId, spec.relicId), 1);
-  assert.equal(earnLedgerCount(userId), 1);
+  assert.equal(earnLedgerCount(userId), spec.credits ?? 1);
   assert.equal(exchangeCount(userId), 1);
   assert.equal(ticketBalance(userId, spec.game), spec.ticketsLeft);
   assert.equal(verseBalance(userId), spec.verse);
@@ -314,8 +317,11 @@ async function freshSdk(kit: LiveKit, session: KeyValue): Promise<HubSdk> {
 }
 
 async function loseAll(kit: LiveKit, keys: { earn: string; exchange: string; crown: string }): Promise<void> {
-  const reason = kit.spec.game === 'hpos10i' ? 'level_end' : 'win';
-  await lose(kit, 'tickets.earn', keys.earn, () => kit.sdk.earnTickets(kit.spec.earnAmount, reason, keys.earn));
+  if (kit.spec.game === 'sproto') {
+    await lose(kit, 'session.event', keys.earn, () => kit.sdk.reportEvent('sproto.boss_defeated', { boss: 'sahil' }, keys.earn));
+  } else {
+    await lose(kit, 'tickets.earn', keys.earn, () => kit.sdk.earnTickets(kit.spec.earnAmount, 'level_end', keys.earn));
+  }
   await lose(kit, 'tickets.exchange', keys.exchange, () => kit.sdk.exchange(kit.spec.exchangeTickets, keys.exchange));
   await lose(kit, 'session.event', keys.crown, () => kit.sdk.reportEvent(kit.spec.eventId, kit.spec.data, keys.crown));
 }
@@ -323,7 +329,7 @@ async function loseAll(kit: LiveKit, keys: { earn: string; exchange: string; cro
 async function reloadLost(kit: LiveKit, keys: { earn: string; exchange: string; crown: string }): Promise<void> {
   await loseAll(kit, keys);
   await freshSdk(kit, kit.session);
-  assert.ok(times(kit.calls, `tickets.earn:${keys.earn}`) >= 2);
+  assert.ok(times(kit.calls, `${kit.spec.game === 'sproto' ? 'session.event' : 'tickets.earn'}:${keys.earn}`) >= 2);
   assert.ok(times(kit.calls, `tickets.exchange:${keys.exchange}`) >= 2);
   assert.ok(times(kit.calls, `session.event:${keys.crown}`) >= 2);
   assertOneEconomy(kit.playerId, kit.spec, keys);
@@ -333,7 +339,7 @@ async function secondTab(kit: LiveKit, keys: { earn: string; exchange: string; c
   await loseAll(kit, keys);
   await freshSdk(kit, memoryKeyValue());
   assert.ok(times(kit.calls, `session.event:${keys.crown}`) >= 2);
-  assert.ok(times(kit.calls, `tickets.earn:${keys.earn}`) >= 2);
+  assert.ok(times(kit.calls, `${kit.spec.game === 'sproto' ? 'session.event' : 'tickets.earn'}:${keys.earn}`) >= 2);
   assert.ok(times(kit.calls, `tickets.exchange:${keys.exchange}`) >= 2);
   assertOneEconomy(kit.playerId, kit.spec, keys);
 }
@@ -349,8 +355,21 @@ async function killOne(kit: LiveKit, point: string, effect: () => number, run: (
 }
 
 async function killBetween(kit: LiveKit, keys: { earn: string; exchange: string; crown: string }): Promise<void> {
-  const reason = kit.spec.game === 'hpos10i' ? 'level_end' : 'win';
-  await killOne(kit, 'earn.after_commit', () => earnLedgerCount(kit.playerId), () => kit.sdk.earnTickets(kit.spec.earnAmount, reason, keys.earn));
+  if (kit.spec.game === 'sproto') {
+    await killOne(
+      kit,
+      'grant.after_commit',
+      () => earnLedgerCount(kit.playerId),
+      () => kit.sdk.reportEvent('sproto.boss_defeated', { boss: 'sahil' }, keys.earn),
+    );
+  } else {
+    await killOne(
+      kit,
+      'earn.after_commit',
+      () => earnLedgerCount(kit.playerId),
+      () => kit.sdk.earnTickets(kit.spec.earnAmount, 'level_end', keys.earn),
+    );
+  }
   await killOne(
     kit,
     'exchange.after_commit',
@@ -364,7 +383,7 @@ async function killBetween(kit: LiveKit, keys: { earn: string; exchange: string;
     () => kit.sdk.reportEvent(kit.spec.eventId, kit.spec.data, keys.crown),
   );
   await freshSdk(kit, kit.session);
-  assert.ok(times(kit.calls, `tickets.earn:${keys.earn}`) >= 2);
+  assert.ok(times(kit.calls, `${kit.spec.game === 'sproto' ? 'session.event' : 'tickets.earn'}:${keys.earn}`) >= 2);
   assert.ok(times(kit.calls, `tickets.exchange:${keys.exchange}`) >= 2);
   assert.ok(times(kit.calls, `session.event:${keys.crown}`) >= 2);
   assertOneEconomy(kit.playerId, kit.spec, keys);
@@ -433,7 +452,7 @@ async function runSeq(runner: GateRunner): Promise<void> {
       assert.equal(replay.body.granted, event.relicId);
       assert.equal(mints(session.hub.userId, event.relicId), 1);
       assert.equal(verseBalance(session.hub.userId), 0);
-      assert.equal(ticketBalance(session.hub.userId, event.game), 0);
+      assert.equal(ticketBalance(session.hub.userId, event.game), event.game === 'sproto' ? 20 : 0);
     });
     await runner.test('seq', `${label} stale_seq_rejected`, async () => {
       const session = await login(event.game);
@@ -445,7 +464,7 @@ async function runSeq(runner: GateRunner): Promise<void> {
       assert.equal(stale.body.granted, undefined);
       assert.equal(mints(session.hub.userId, event.relicId), 1);
       assert.equal(verseBalance(session.hub.userId), 0);
-      assert.equal(ticketBalance(session.hub.userId, event.game), 0);
+      assert.equal(ticketBalance(session.hub.userId, event.game), event.game === 'sproto' ? 20 : 0);
     });
     await runner.test('seq', `${label} concurrent_duplicate_seq_one_mint`, async () => {
       const session = await login(event.game);
@@ -503,7 +522,6 @@ async function runSessionCap(runner: GateRunner): Promise<void> {
     return;
   }
   const games = [
-    { game: 'sproto' as const, reason: 'win' },
     { game: 'hpos10i' as const, reason: 'level_end' },
   ];
   for (const item of games) {
@@ -571,6 +589,18 @@ async function runSessionCap(runner: GateRunner): Promise<void> {
       assert.equal(earnLedgerCount(session.hub.userId), first + second);
     });
   }
+  await runner.test('session-cap', 'sproto win is amount_over_rule before the session cap', async () => {
+    const session = await login('sproto');
+    for (const amount of [1, 20]) {
+      const key = `win-rule-${amount}`;
+      const result = await call('tickets.earn', { amount, reason: 'win', key }, session.gameToken);
+      assert.equal(result.body.error, 'amount_over_rule', JSON.stringify(result.body));
+      const replay = await call('tickets.earn', { amount, reason: 'win', key }, session.gameToken);
+      assert.equal(replay.body.error, 'amount_over_rule', JSON.stringify(replay.body));
+    }
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 0);
+    assert.equal(earnLedgerCount(session.hub.userId), 0);
+  });
 }
 
 async function runMockClock(runner: GateRunner): Promise<void> {
