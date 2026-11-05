@@ -13,8 +13,6 @@ import {
   TorusGeometry,
   type Camera,
 } from 'three';
-import { PORTAL_DISTANCE, PORTALS } from '../config';
-import { portalPosition } from '../layout';
 import { fitText, paintedCanvas } from './canvas';
 import type { FinisherEvent, PortalPlacement, PortalPresence } from './types';
 
@@ -39,24 +37,9 @@ export function glowTierForCount(count: number): GlowTier {
   return 3;
 }
 
-export function defaultPortalPlacements(): PortalPlacement[] {
-  return PORTALS.map((portal) => {
-    const at = portalPosition(portal.angle, PORTAL_DISTANCE);
-    return {
-      gameId: portal.id,
-      x: at.x,
-      y: 0,
-      z: at.z,
-      rotationY: -portal.angle,
-      color: portal.color,
-      label: portal.label,
-    };
-  });
-}
-
 export interface LivingPortalsOptions {
   presence?: readonly PortalPresence[];
-  placements?: readonly PortalPlacement[];
+  placements: readonly PortalPlacement[];
   /** Marks counts and top-10 rows as placeholders. Scene passes this only in dev. */
   placeholder?: boolean;
 }
@@ -94,8 +77,8 @@ interface PortalState {
  * cover every gate. Each gate also has a canvas label and a canvas banner.
  * Firework motes are one instanced icosahedron.
  */
-export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions = {}): LivingPortals {
-  const placements = (opts.placements ?? defaultPortalPlacements()).slice();
+export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): LivingPortals {
+  const placements = opts.placements.slice();
   const group = new Group();
   group.name = 'm3-portals';
   scene.add(group);

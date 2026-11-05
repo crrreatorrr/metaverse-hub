@@ -14,7 +14,6 @@ fi
 
 src="$1"
 base="/srv/hub"
-install -d -m 755 "$base"
 dest=""
 swapped=0
 cleanup() {
@@ -24,12 +23,35 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [ ! -f "${src%/}/hub/index.html" ]; then
-  echo "dist has no hub/index.html: ${src}" >&2
-  exit 1
-fi
+check_hub_pages() {
+  local dist_root="${1%/}"
+  if [ ! -f "$dist_root/hub/index.html" ]; then
+    echo "dist has no hub/index.html: $dist_root" >&2
+    return 1
+  fi
+  if [ ! -f "$dist_root/realm-pages.txt" ]; then
+    echo "dist has no Vite realm-pages.txt manifest: $dist_root" >&2
+    return 1
+  fi
+  local page
+  while IFS= read -r page || [ -n "$page" ]; do
+    [ -n "$page" ] || continue
+    if [[ ! "$page" =~ ^realm/[a-z0-9_-]+/index\.html$ ]]; then
+      echo "invalid realm page in Vite manifest: $page" >&2
+      return 1
+    fi
+    if [ ! -f "$dist_root/$page" ]; then
+      echo "dist is missing Vite realm input: $page" >&2
+      return 1
+    fi
+  done < "$dist_root/realm-pages.txt"
+}
+
+check_hub_pages "$src"
 
 "$(dirname "$(readlink -f "$0")")/check-dist-secrets.sh" "$src"
+
+install -d -m 755 "$base"
 
 rel="$(stage_release "$base" "$src")"
 dest="${base}/releases/${rel}"

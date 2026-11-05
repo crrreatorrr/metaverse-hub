@@ -1,3 +1,4 @@
+import type { RealmId } from './core/realm-id';
 // Remote plaza avatars for up to 100 players.
 //   near: the NEAR_MAX closest within NEAR_RADIUS get a full skinned rig (pooled),
 //         a DOM name label and orbit gems;
@@ -55,6 +56,7 @@ export interface Remotes {
 }
 
 export interface RemotesOptions {
+  realm?: RealmId;
   hud: HTMLElement;
   /** Near-tier avatars for the orbit-gem instancer. */
   setOrbitAvatars?: (avatars: OrbitAvatar[]) => void;
@@ -149,7 +151,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     const candidates: { slot: number; d: number }[] = [];
     for (const p of world.players.values()) {
       const at = rendered.get(p.slot);
-      if (!at || p.away || zoneOf(at.y) !== localZone) continue;
+      if (!at || p.away || zoneOf(at.y, opts.realm) !== localZone) continue;
       const d = Math.hypot(at.x - localPos.x, at.z - localPos.z);
       const limit = wantedNear.has(p.slot) ? NEAR_RADIUS + HYSTERESIS : NEAR_RADIUS;
       if (d <= limit) candidates.push({ slot: p.slot, d: wantedNear.has(p.slot) ? d - HYSTERESIS : d });
@@ -200,7 +202,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   return {
     counts,
     update(dt, nowMs, camera, localPos) {
-      const localZone = zoneOf(localPos.y);
+      const localZone = zoneOf(localPos.y, opts.realm);
       for (const p of world.players.values()) {
         const got = p.away ? null : p.interp.sample(nowMs, pose);
         if (!got) {
@@ -224,7 +226,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
       let nearCount = 0;
       const { width, height } = opts.viewport();
       for (const [slot, r] of rendered) {
-        if (zoneOf(r.y) !== localZone) continue;
+        if (zoneOf(r.y, opts.realm) !== localZone) continue;
         const n = nearBySlot.get(slot);
         if (n) {
           nearCount += 1;
@@ -256,7 +258,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
       for (const n of near) {
         if (n.slot === null) continue;
         const r = rendered.get(n.slot);
-        if (!r || zoneOf(r.y) !== localZone) {
+        if (!r || zoneOf(r.y, opts.realm) !== localZone) {
           n.root.visible = false;
           n.label.hidden = true;
         }

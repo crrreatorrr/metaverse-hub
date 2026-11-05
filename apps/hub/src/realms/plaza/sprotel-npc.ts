@@ -2,7 +2,7 @@ import {
   AnimationMixer, Euler, LoopOnce, MathUtils, Quaternion, Vector3,
   type AnimationAction, type AnimationClip, type Object3D,
 } from 'three';
-import meta from './sprotel.meta.json';
+import meta from '../../v2/sprotel.meta.json';
 
 /**
  * Sprotel Bitcoin, the Club barman / Verse store NPC (hub-world/sprotel/drop-for-tech, final v4).

@@ -68,6 +68,24 @@ function dropFetchedBuilds(): Plugin {
     };
   }
 
+function realmPages(): Plugin {
+  let pages: string[] = [];
+  return {
+    name: 'realm-page-manifest',
+    configResolved(config) {
+      const input = config.build.rollupOptions.input;
+      const entries = typeof input === 'string' ? [input] : Array.isArray(input) ? input : Object.values(input ?? {});
+      pages = entries.flatMap(entry => {
+        const match = entry.replaceAll('\\', '/').match(/\/realm\/([a-z0-9_-]+)\/index\.html$/);
+        return match ? [`realm/${match[1]}/index.html`] : [];
+      }).sort();
+    },
+    generateBundle() {
+      this.emitFile({ type: 'asset', fileName: 'realm-pages.txt', source: pages.join('\n') + '\n' });
+    },
+  };
+}
+
   function redirectRoot(): Plugin {
     const redirect = (req: { url?: string }, res: { writeHead: (code: number, headers: Record<string, string>) => void; end: () => void }, next: () => void) => {
       if (req.url === '/' || req.url === '') {
@@ -97,7 +115,7 @@ function dropFetchedBuilds(): Plugin {
     if (command === 'serve') preferFetchedBuilds();
     return {
     base: '/',
-    plugins: [redirectRoot(), dropFetchedBuilds()],
+    plugins: [redirectRoot(), dropFetchedBuilds(), realmPages()],
     resolve: {
       alias: {
         '@metaverse/hub-sdk': resolve(__dirname, '../../packages/hub-sdk/src/index.ts'),
@@ -124,6 +142,7 @@ function dropFetchedBuilds(): Plugin {
       rollupOptions: {
         input: {
           hub: resolve(__dirname, 'hub/index.html'),
+          sandbox: resolve(__dirname, 'realm/sandbox/index.html'),
           sproto: resolve(__dirname, 'play/sproto/index.html'),
         },
       },

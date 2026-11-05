@@ -215,10 +215,11 @@ export interface LeaderboardTop {
   me: LeaderboardRow | null;
 }
 
-/** NOBU time-trial floors per Classic level or versioned layout, integer ms (Contract C13). */
-export const NOBU_TRIAL_FLOOR_MS: Readonly<Record<'1' | '2' | '3' | '1v2' | '2v2' | '3v2', number>> = {
+/** NOBU time-trial floors per Classic level, versioned layout or Chapter 2 level, integer ms (Contract C13). */
+export const NOBU_TRIAL_FLOOR_MS: Readonly<Record<'1' | '2' | '3' | '1v2' | '2v2' | '3v2' | '4' | '6' | '5', number>> = {
   '1': 15000, '2': 15000, '3': 12000,
   '1v2': 25700, '2v2': 26000, '3v2': 20600,
+  '4': 24000, '6': 30000, '5': 21000,
 };
 /** NOBU time-trial ceiling, integer ms. */
 export const NOBU_TRIAL_CEIL_MS = 1_800_000;
