@@ -3,6 +3,11 @@
 // game.apply_event by migration 0030_m6_item_grants (schema.ts); grantFromEvent is
 // not registered and session.event does not call it. Wiring is docs/m6-server-prep.md.
 // Keep CANONICAL, RULES and EXCLUDED in step with that migration.
+// 0033_hold_client_relic_grants does not change those seeds. Held item_rule rows
+// (grant_hold) are diverted by the item_owned BEFORE INSERT trigger into
+// item_owned_pending. This function is not called by session.event. A direct
+// call that inserts a held item without claim_event_relic's session context
+// fails closed (grant_hold_missing_session) instead of granting it live.
 //
 // A pet or any other cosmetic item is granted only by session.event plus a
 // matching game.item_rule row. The grant is one statement: insert item_owned,
