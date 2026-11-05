@@ -1,3 +1,4 @@
+import { PEDESTAL_COLORS } from './config';
 import {
   AdditiveBlending,
   Box3,
@@ -256,7 +257,7 @@ export function buildPedestal(parent: Object3D): { top: number; rings: Mesh[] } 
   });
   // One ring per monument socket (config SOCKETS order); the fifth is the Tidebreaker Belt and the
   // sixth the Breakwater Coin.
-  const colors = ['#00e6ff', '#ff3bd4', '#ffc233', '#39ff6a', '#66d7e8', '#3ec6ff'];
+  const colors = PEDESTAL_COLORS;
   const rings: Mesh[] = [];
   [-0.62, -0.31, 0, 0.31, 0.62, 0.93].forEach((a, i) => {
     const ring = new Mesh(new TorusGeometry(1.9, 0.22, 12, 64), neonMat(colors[i] ?? '#00e6ff', 5));

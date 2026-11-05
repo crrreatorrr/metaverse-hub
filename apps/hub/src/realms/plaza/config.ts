@@ -1,3 +1,4 @@
+import { RELICS } from '../../core/relics';
 import type { PortalConfig } from '../../config';
 
 export const PORTAL_DISTANCE = 96;
@@ -36,3 +37,9 @@ export const PILLAR_OFFSET = 1.7;
 export const PILLAR_HEIGHT = 3.05;
 export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
+
+/** Monument angles stay in plaza ring order. */
+const SOCKET_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4, -Math.PI / 4, 0, Math.PI];
+export const SOCKETS = RELICS.map((relic, index) => ({ ...relic, relic: relic.name, angle: SOCKET_ANGLES[index]! }));
+export const PEDESTAL_COLORS = RELICS.map(relic => relic.color);
+export const ARCADE_RELIC = SOCKETS[4];

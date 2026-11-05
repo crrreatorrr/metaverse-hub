@@ -1,3 +1,5 @@
+import { isRelicId } from '@metaverse/hub-sdk';
+import { RELICS } from './relics';
 import { MOVEMENT } from '../core/movement';
 import {
   HubSdkError,
@@ -21,7 +23,7 @@ import { animIndex } from '../net/protocol';
 import { createRemoteWorld } from '../net/remoteWorld';
 import { createRemotes } from '../remotes';
 import { createOverheads } from '../overheads';
-import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, ALL_RELICS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
+import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
 import { createMenu } from '../menu';
 import { gameUrl, type GameUrlContext } from '../games';
@@ -590,7 +592,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const relicPips = new Map<string, HTMLElement>();
   if (relicCount) {
     const pips = relicCount.querySelector('.relic-pips');
-    for (const socket of ALL_RELICS) {
+    for (const socket of RELICS) {
       const pip = document.createElement('span');
       pip.className = 'relic-pip';
       pip.style.setProperty('--relic', socket.color);
@@ -609,7 +611,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   function showRelics(ids: readonly string[]): void {
-    world.setRelics(ids);
+    engine.setRelics(ids);
+    content.onRelicsChanged?.(ids.filter(isRelicId));
     menu.setRelics(ids);
     const owned = new Set(ids);
     let count = 0;

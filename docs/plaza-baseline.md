@@ -106,3 +106,11 @@ no uncaught page errors. The signed-in light walkthrough passed (Bar return, arc
 Sprotel prompt, menu, chat and return/dwell checks). Adversarial review found one loading-hint
 copy regression; the interaction contract now preserves the original unprefixed loading text.
 All four checks passed after that correction. Shared core imports no realm implementation.
+
+Task 7 checkpoint: six views remain 97/122/48/35/42/82 draws and 40 loaded assets, with no
+uncaught browser errors. The expected visual difference is the first four pedestal rings now
+matching their Relic colors. The signed-in light walkthrough passed. Four Lights fallback is
+tested with exactly four versus three lights; stale initial counts and monument-only menu copy
+were corrected. All four required checks passed. Git transport credentials expired after task 5;
+task 6 and subsequent commits are published through the connected GitHub API with a checked
+expected branch head and identical tested tree, then mirrored locally. No branch is force-pushed.

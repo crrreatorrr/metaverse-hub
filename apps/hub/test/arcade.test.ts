@@ -1,7 +1,7 @@
 // Bar arcade cabinet: picker keys, cabinet choices, URLs and the return spawn.
 import assert from 'node:assert/strict';
 import { canonicalGameId } from '@metaverse/hub-sdk';
-import { SOCKETS } from '../src/config';
+import { SOCKETS } from '../src/realms/plaza/config';
 import { ARCADE_GAMES } from '../src/realms/plaza/config';
 import { GAME_URLS, gameUrl } from '../src/games';
 import { parseReturnGame } from '../src/travel';

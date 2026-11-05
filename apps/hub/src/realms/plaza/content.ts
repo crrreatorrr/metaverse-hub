@@ -10,7 +10,7 @@ import { Box3, BoxGeometry, CanvasTexture, Euler, Group, InstancedMesh, Matrix4,
 import { FOUR_LIGHTS_RELIC_IDS } from '@metaverse/hub-sdk';
 
 import type { AvatarLook } from '../../look';
-import { SOCKETS } from '../../config';
+import { SOCKETS } from './config';
 import { PLAZA_SLOT, PLAZA_YAW } from './config';
 import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './barLeaderboard';
 import { addHallOfChampions } from './hallOfChampions';
@@ -76,7 +76,6 @@ export interface HubWorld {
   labels: Sprite[];
   sockets: { mesh: Mesh; on: boolean }[];
   sceneDraws: number;
-  setRelics: (ids: readonly string[]) => void;
   /** Relics the player switched off in the Relics menu: their gems stop orbiting the avatar. */
   setHiddenRelics: (ids: readonly string[]) => void;
   setLook: (look: AvatarLook) => void;
@@ -612,11 +611,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     get sceneDraws() { return sceneDraws; },
     setLook: engine.setLook,
     setPet: engine.setPet,
-    setRelics(ids) {
+    onRelicsChanged(ids) {
       const owned = new Set(ids);
       // Every owned Relic orbits the avatar unless switched off. The Hall of Champions still opens
       // on the four Four Lights Relics only (the server's Four Lights rule).
-      engine.setRelics(ids);
       beltOwned = owned.has('tidebreaker_belt');
       arcade?.setBeltOwned(beltOwned);
       if (!devPreview) {

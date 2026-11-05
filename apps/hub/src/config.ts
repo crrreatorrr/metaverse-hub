@@ -1,4 +1,4 @@
-import type { GameId, RelicId } from '@metaverse/hub-sdk';
+import type { GameId } from '@metaverse/hub-sdk';
 import { MOVEMENT } from './core/movement';
 
 /**
@@ -115,24 +115,3 @@ export const AVATAR_CLIPS = {
 } as const;
 /** Crossfade times (s). The clips bake their own bounce, so the old procedural bob is off. */
 export const AVATAR_BLEND = { idleToMove: 0.15, moveToIdle: 0.2, jogToDash: 0.22, dashToJog: 0.28 } as const;
-
-/**
- * Sockets on the monument, one per Relic, in ring order. The first four are the Four Lights
- * (Hall of Champions and the Four Lights Sproto still need exactly those); the Tidebreaker Belt
- * (Sproto Fighter) is the fifth and the Breakwater Coin (Sproto Arcade) the sixth.
- */
-export const SOCKETS: readonly { id: RelicId; relic: string; color: string; angle: number }[] = [
-  { id: 'hpos10i_core', relic: 'HPOS10I Core', color: '#ff2ea6', angle: Math.PI / 4 },
-  { id: 'genesis_shard', relic: 'Genesis Block Shard', color: '#f5b942', angle: (3 * Math.PI) / 4 },
-  { id: 'cones_tip', relic: "Cone's Tip", color: '#3ec6ff', angle: (-3 * Math.PI) / 4 },
-  { id: 'tinubu_crown', relic: "Tinubu's Crown", color: '#8d6bff', angle: -Math.PI / 4 },
-  { id: 'tidebreaker_belt', relic: 'Tidebreaker Belt', color: '#66d7e8', angle: 0 },
-  // Sproto Arcade. Placeholder look: Cone's Tip's gem and color until the Coin has its own art.
-  { id: 'breakwater_coin', relic: 'Breakwater Coin', color: '#3ec6ff', angle: Math.PI },
-];
-
-/** Sproto Fighter's Relic. It has a monument socket and also lights the plinth by the Bar's arcade cabinet. */
-export const ARCADE_RELIC = SOCKETS[4];
-
-/** Every Relic, for the Relics menu and the HUD count. */
-export const ALL_RELICS: readonly { id: RelicId; relic: string; color: string }[] = SOCKETS;
