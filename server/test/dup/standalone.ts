@@ -86,8 +86,9 @@ function issue(token: string, payload: object = { app: APP }): Promise<RpcResult
 }
 
 async function clearRateLimits(): Promise<void> {
-  // Counters persist in storage; clear only this disposable database's fixtures.
-  psql("DELETE FROM storage WHERE collection = 'sproto_sa_rl'");
+  // Counters live in Nakama storage. Deleting the rows is enough; restarting
+  // Nakama does not clear them and the gateway can 503 while it comes back.
+  psql(`DELETE FROM storage WHERE collection = 'sproto_sa_rl'`);
 }
 
 function purse(userId: string): string {
