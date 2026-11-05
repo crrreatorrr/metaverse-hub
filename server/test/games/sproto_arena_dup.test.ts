@@ -459,13 +459,11 @@ check('(e) a verified guest win posts one sproto_wins row and a replay does not 
   assert.equal(out[0]?.body.status, 'verified');
   assert.equal(out[0]?.body.winnerSeat, 0);
   assertOneBoardRow(f, A);
-  assert.equal(f.earns.length, 1, 'the paid win mints once');
-  assert.equal(f.earns[0]?.[0], A);
-  assert.equal(f.earns[0]?.[3], 20);
-  assert.equal(f.earns[0]?.[4], 'srv_pvp_win');
+  assert.equal(f.earns.length, 0, 'an online win does not mint');
   assert.equal(f.payRows.length, 1);
   replayResult(f, result);
   assert.equal(outcome(f).length, 1);
+  assert.equal(f.earns.length, 0, 'replaying the result does not mint');
 });
 
 check('(e) a quick forfeit, including a guest winner, posts one row at 0 T', () => {
@@ -496,14 +494,11 @@ check('(e) a forfeit after a round posts one row and a replay does not mint', ()
   assert.equal(out[0]?.body.status, 'forfeit');
   assert.equal(out[0]?.body.winnerSeat, 0);
   assertOneBoardRow(f, A);
-  assert.equal(f.earns.length, 1);
-  assert.equal(f.earns[0]?.[3], 20);
-  assert.equal(f.earns[0]?.[4], 'srv_pvp_win');
-  const earns = f.earns.length;
+  assert.equal(f.earns.length, 0, 'an online forfeit does not mint');
   const wins = f.wins.length;
   f.m.loop([{ sender: f.pa, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [1, 0], rounds: 1 } }]);
   assert.equal(f.wins.length, wins);
-  assert.equal(f.earns.length, earns, 'retrying the forfeit result does not mint');
+  assert.equal(f.earns.length, 0, 'retrying the forfeit result does not mint');
 });
 
 check('(f) a dropped socket re-queues immediately with one row and the same queued count', () => {
