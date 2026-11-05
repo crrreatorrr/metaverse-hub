@@ -24,7 +24,6 @@ if (
   throw new Error('Sproto mock markup is missing');
 }
 
-const TICKETS_PER_WIN = 20;
 let tickets = 0;
 
 const sdk = installHubSdk(createHubSdk({
@@ -82,10 +81,10 @@ async function report(fresh: boolean): Promise<void> {
   lastData = data;
   replay.disabled = false;
   try {
-    const earned = await sdk.earnTickets(TICKETS_PER_WIN, 'win', `earn:${key}`);
-    tickets = earned.balance;
-    showWallet();
     const outcome = await sdk.reportEvent(HubEvent.SprotoBossDefeated, data, key);
+    const balance = await sdk.getTicketBalance();
+    tickets = balance.balance;
+    showWallet();
     if (outcome.granted === 'tinubu_crown') {
       result.textContent = fresh
         ? 'Tinubu\'s Crown granted. God mode did not block it.'

@@ -224,6 +224,19 @@ async function returnToHub(gameToken: string, hubToken: string): Promise<void> {
 }
 
 async function fillSession(spec: GameSpec, token: string, prefix: string): Promise<void> {
+  if (spec.game === 'sproto') {
+    const bosses = ['sahil', 'broccoli', 'agent', 'obama'];
+    for (const boss of bosses) {
+      const got = await call('session.event', {
+        eventId: 'sproto.boss_defeated',
+        data: { boss },
+        key: `${prefix}-boss-${boss}`,
+      }, token);
+      assert.equal(got.body.error, undefined, JSON.stringify(got.body));
+      assert.equal(got.body.tickets, SPROTO_WIN, JSON.stringify(got.body));
+    }
+    return;
+  }
   const steps = SESSION_CAP / spec.chunk;
   for (let i = 0; i < steps; i += 1) {
     const got = await call('tickets.earn', {
@@ -237,6 +250,14 @@ async function fillSession(spec: GameSpec, token: string, prefix: string): Promi
   }
 }
 
+function filledTickets(spec: GameSpec): number {
+  return spec.game === 'sproto' ? 4 * SPROTO_WIN : SESSION_CAP;
+}
+
+function fillSteps(spec: GameSpec): number {
+  return spec.game === 'sproto' ? 4 : SESSION_CAP / spec.chunk;
+}
+
 /**
  * A second redeem must not hand out a new session. After the only session is
  * at its cap, every token from those redeems rejects another full earn.
@@ -247,7 +268,7 @@ async function assertNoFreshCap(spec: GameSpec, userId: string, tokens: string[]
   const first = tokens[0];
   if (!first) throw new Error('redeem produced no session');
   await fillSession(spec, first, prefix);
-  assert.equal(positiveEarns(userId, spec.game), SESSION_CAP / spec.chunk);
+  assert.equal(positiveEarns(userId, spec.game), fillSteps(spec));
   assert.equal(earnSessions(userId, spec.game), 1, `${spec.game} credited more than one session`);
   for (let index = 0; index < tokens.length; index += 1) {
     const token = tokens[index];
@@ -257,9 +278,10 @@ async function assertNoFreshCap(spec: GameSpec, userId: string, tokens: string[]
       reason: spec.reason,
       key: `${prefix}-over-${index}`,
     }, token);
-    assert.equal(over.body.error, 'session_ticket_cap', `fresh cap via ${spec.game} token ${index}: ${JSON.stringify(over.body)}`);
+    const expectedError = spec.game === 'sproto' ? 'amount_over_rule' : 'session_ticket_cap';
+    assert.equal(over.body.error, expectedError, `fresh cap via ${spec.game} token ${index}: ${JSON.stringify(over.body)}`);
   }
-  assertCredit(userId, spec.game, SESSION_CAP);
+  assertCredit(userId, spec.game, filledTickets(spec));
   assert.equal(earnSessions(userId, spec.game), 1);
 }
 
@@ -452,14 +474,24 @@ async function ticketReuse(test: TestFn): Promise<void> {
         if (token) tokens.push(token);
       }
       await assertNoFreshCap(spec, who.userId, tokens, `seq-${spec.game}`);
-      const replay = await outboxSend('tickets.earn', {
-        amount: spec.chunk,
-        reason: spec.reason,
-        key: `seq-${spec.game}-fill-0`,
-      }, tokens[0] ?? tokenOf(first));
-      assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
-      assert.equal(replay.body.balance, spec.chunk, JSON.stringify(replay.body));
-      assertCredit(who.userId, spec.game, SESSION_CAP);
+      const token = tokens[0] ?? tokenOf(first);
+      if (spec.game === 'sproto') {
+        const replay = await outboxSend('session.event', {
+          eventId: 'sproto.boss_defeated',
+          data: { boss: 'sahil' },
+          key: `seq-${spec.game}-boss-sahil`,
+        }, token);
+        assert.equal(replay.body.tickets, SPROTO_WIN, JSON.stringify(replay.body));
+      } else {
+        const replay = await outboxSend('tickets.earn', {
+          amount: spec.chunk,
+          reason: spec.reason,
+          key: `seq-${spec.game}-fill-0`,
+        }, token);
+        assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
+        assert.equal(replay.body.balance, spec.chunk, JSON.stringify(replay.body));
+      }
+      assertCredit(who.userId, spec.game, filledTickets(spec));
       assert.equal(mints(who.userId, spec.relicId), 0);
     }
   });
@@ -492,14 +524,21 @@ async function reenter(test: TestFn): Promise<void> {
     const who = await guest();
     const first = await enter(who.token, 'sproto');
     const firstToken = tokenOf(await redeem(first.ticket, 'sproto'));
-    const win = await call('tickets.earn', { amount: SPROTO_WIN, reason: 'win', key: 'visit-win' }, firstToken);
-    assert.equal(win.body.error, undefined, JSON.stringify(win.body));
-    assert.equal(win.body.capped, false, JSON.stringify(win.body));
-    assert.equal(win.body.balance, SPROTO_WIN);
-    const duel = await call('tickets.earn', { amount: SPROTO_WIN, reason: 'duel_win', key: 'visit-duel' }, firstToken);
-    assert.equal(duel.body.error, undefined, JSON.stringify(duel.body));
-    assert.equal(duel.body.capped, false, JSON.stringify(duel.body));
-    assert.equal(duel.body.balance, SPROTO_WIN * 2);
+    const sahil = await call('session.event', {
+      eventId: 'sproto.boss_defeated',
+      data: { boss: 'sahil' },
+      key: 'visit-sahil',
+    }, firstToken);
+    assert.equal(sahil.body.error, undefined, JSON.stringify(sahil.body));
+    assert.equal(sahil.body.tickets, SPROTO_WIN);
+    const broccoli = await call('session.event', {
+      eventId: 'sproto.boss_defeated',
+      data: { boss: 'broccoli' },
+      key: 'visit-broccoli',
+    }, firstToken);
+    assert.equal(broccoli.body.error, undefined, JSON.stringify(broccoli.body));
+    assert.equal(broccoli.body.tickets, SPROTO_WIN);
+    assert.equal(ticketBalance(who.userId, 'sproto'), SPROTO_WIN * 2);
     const crown = await call('session.event', {
       eventId: 'sproto.boss_defeated',
       data: { boss: 'tinubu', elapsed: 12 },
@@ -511,10 +550,13 @@ async function reenter(test: TestFn): Promise<void> {
     const second = await enter(who.token, 'sproto');
     const secondToken = tokenOf(await redeem(second.ticket, 'sproto'));
     assert.notEqual(second.sessionId, first.sessionId);
-    for (const key of ['visit-win', 'visit-duel']) {
-      const reason = key === 'visit-duel' ? 'duel_win' : 'win';
-      const replay = await call('tickets.earn', { amount: SPROTO_WIN, reason, key }, secondToken);
-      assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
+    for (const key of ['visit-sahil', 'visit-broccoli']) {
+      const replay = await call('session.event', {
+        eventId: 'sproto.boss_defeated',
+        data: { boss: key === 'visit-sahil' ? 'sahil' : 'broccoli' },
+        key,
+      }, secondToken);
+      assert.equal(replay.body.tickets, SPROTO_WIN, JSON.stringify(replay.body));
     }
     const crownReplay = await call('session.event', {
       eventId: 'sproto.boss_defeated',
@@ -522,19 +564,23 @@ async function reenter(test: TestFn): Promise<void> {
       key: 'visit-crown',
     }, secondToken);
     assert.equal(crownReplay.body.granted, 'tinubu_crown', JSON.stringify(crownReplay.body));
-    assert.equal(positiveEarns(who.userId, 'sproto'), 2);
+    assert.equal(positiveEarns(who.userId, 'sproto'), 3);
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
-    const again = await call('tickets.earn', { amount: SPROTO_WIN, reason: 'win', key: 'visit-2-win' }, secondToken);
+    const again = await call('session.event', {
+      eventId: 'sproto.boss_defeated',
+      data: { boss: 'agent' },
+      key: 'visit-agent',
+    }, secondToken);
     assert.equal(again.body.error, undefined, JSON.stringify(again.body));
-    assert.equal(again.body.capped, false, JSON.stringify(again.body));
-    assert.equal(again.body.balance, SPROTO_WIN * 3);
+    assert.equal(again.body.tickets, SPROTO_WIN);
+    assert.equal(ticketBalance(who.userId, 'sproto'), SPROTO_WIN * 4);
     const secondCrown = await call('session.event', {
       eventId: 'sproto.boss_defeated',
       data: { boss: 'tinubu', elapsed: 12 },
       key: 'visit-2-crown',
     }, secondToken);
     assert.equal(secondCrown.body.granted, undefined, JSON.stringify(secondCrown.body));
-    assertCredit(who.userId, 'sproto', SPROTO_WIN * 3);
+    assertCredit(who.userId, 'sproto', SPROTO_WIN * 4);
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
     assert.equal(earnSessions(who.userId, 'sproto'), 2);
 
@@ -616,8 +662,13 @@ async function reload(test: TestFn): Promise<void> {
       assert.ok(cached);
       assert.equal(cached.sid, opened.sessionId);
       const earnKey = `reload-earn-${spec.game}`;
-      dropOnce.add(`tickets.earn:${earnKey}`);
-      await assert.rejects(() => page.sdk.earnTickets(spec.chunk, spec.reason, earnKey));
+      if (spec.game === 'sproto') {
+        dropOnce.add(`session.event:${earnKey}`);
+        await assert.rejects(() => page.sdk.reportEvent('sproto.boss_defeated', { boss: 'sahil' }, earnKey));
+      } else {
+        dropOnce.add(`tickets.earn:${earnKey}`);
+        await assert.rejects(() => page.sdk.earnTickets(spec.chunk, spec.reason, earnKey));
+      }
       assert.equal(await outboxHas(earnKey), true, `${earnKey} left the outbox before it was acked`);
       assert.equal(positiveEarns(who.userId, spec.game), 1);
       page.hash.value = `#t=${opened.ticket}`;
@@ -639,12 +690,19 @@ async function reload(test: TestFn): Promise<void> {
         await drained.sdk.init(spec.game);
       }
       assert.equal(await outboxHas(earnKey), false, `${earnKey} was not acked by the reload drain`);
-      const replay = await outboxSend('tickets.earn', {
-        amount: spec.chunk,
-        reason: spec.reason,
-        key: earnKey,
-      }, cached.token);
-      assert.equal(replay.body.balance, spec.chunk, JSON.stringify(replay.body));
+      const replay = spec.game === 'sproto'
+        ? await outboxSend('session.event', {
+          eventId: 'sproto.boss_defeated',
+          data: { boss: 'sahil' },
+          key: earnKey,
+        }, cached.token)
+        : await outboxSend('tickets.earn', {
+          amount: spec.chunk,
+          reason: spec.reason,
+          key: earnKey,
+        }, cached.token);
+      if (spec.game === 'sproto') assert.equal(replay.body.tickets, SPROTO_WIN, JSON.stringify(replay.body));
+      else assert.equal(replay.body.balance, spec.chunk, JSON.stringify(replay.body));
       assert.equal(positiveEarns(who.userId, spec.game), 1);
       assertCredit(who.userId, spec.game, spec.chunk);
       if (spec.chunk === SESSION_CAP) {
@@ -722,7 +780,7 @@ async function backButton(test: TestFn): Promise<void> {
       }, cached.token);
       assert.equal(freshRelic.body.granted, undefined, JSON.stringify(freshRelic.body));
       assert.equal(mints(who.userId, spec.relicId), 1);
-      assertCredit(who.userId, spec.game, SESSION_CAP);
+      assertCredit(who.userId, spec.game, spec.game === 'sproto' ? filledTickets(spec) + SPROTO_WIN : filledTickets(spec));
       assert.equal(earnSessions(who.userId, spec.game), 1);
     }
   });
@@ -745,9 +803,12 @@ async function fromHash(test: TestFn): Promise<void> {
     const who = await guest();
     const opened = await enter(who.token, 'sproto');
     const token = tokenOf(await redeem(opened.ticket, 'sproto'));
-    const earned = await call('tickets.earn', { amount: SPROTO_WIN, reason: 'win', key: 'from-earn' }, token);
-    assert.equal(earned.body.capped, false, JSON.stringify(earned.body));
-    assert.equal(earned.body.balance, SPROTO_WIN);
+    const earned = await call('session.event', {
+      eventId: 'sproto.boss_defeated',
+      data: { boss: 'sahil' },
+      key: 'from-earn',
+    }, token);
+    assert.equal(earned.body.tickets, SPROTO_WIN, JSON.stringify(earned.body));
     const crown = await call('session.event', {
       eventId: 'sproto.boss_defeated',
       data: { boss: 'tinubu', elapsed: 12 },
@@ -799,7 +860,7 @@ async function fromHash(test: TestFn): Promise<void> {
     assert.equal(sessions(who.userId, 'hpos10i'), 0, 'forged #from=hpos10i opened HPOS10I');
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
     assert.equal(mints(who.userId, 'hpos10i_core'), 0);
-    assertCredit(who.userId, 'sproto', SPROTO_WIN);
+    assertCredit(who.userId, 'sproto', SPROTO_WIN * 2);
   });
 }
 
@@ -820,8 +881,8 @@ async function outboxAcrossVisits(test: TestFn): Promise<void> {
     const earnKey = 'tab-earn';
     const crownKey = 'tab-crown';
     const exchangeKey = 'tab-exchange';
-    dropOnce.add(`tickets.earn:${earnKey}`);
-    await assert.rejects(() => page.sdk.earnTickets(SPROTO_WIN, 'win', earnKey));
+    dropOnce.add(`session.event:${earnKey}`);
+    await assert.rejects(() => page.sdk.reportEvent('sproto.boss_defeated', { boss: 'sahil' }, earnKey));
     dropOnce.add(`session.event:${crownKey}`);
     await assert.rejects(() => page.sdk.reportEvent('sproto.boss_defeated', { boss: 'tinubu', elapsed: 12 }, crownKey));
     dropOnce.add(`tickets.exchange:${exchangeKey}`);
@@ -829,8 +890,8 @@ async function outboxAcrossVisits(test: TestFn): Promise<void> {
     assert.equal(await outboxHas(earnKey), true);
     assert.equal(await outboxHas(crownKey), true);
     assert.equal(await outboxHas(exchangeKey), true);
-    assertCredit(who.userId, 'sproto', 0, 2);
-    assert.equal(positiveEarns(who.userId, 'sproto'), 1);
+    assertCredit(who.userId, 'sproto', SPROTO_WIN, 2);
+    assert.equal(positiveEarns(who.userId, 'sproto'), 2);
     assert.equal(exchangeCount(who.userId), 1);
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
     const beforeReturn = books(who.userId);
@@ -852,28 +913,32 @@ async function outboxAcrossVisits(test: TestFn): Promise<void> {
     assert.equal(await outboxHas(exchangeKey), false);
     assert.equal(readCached(nextSession, 'sproto')?.sid, next.sessionId);
     assert.notEqual(next.sessionId, opened.sessionId);
-    assertCredit(who.userId, 'sproto', 0, 2);
-    assert.equal(positiveEarns(who.userId, 'sproto'), 1);
+    assertCredit(who.userId, 'sproto', SPROTO_WIN, 2);
+    assert.equal(positiveEarns(who.userId, 'sproto'), 2);
     assert.equal(exchangeCount(who.userId), 1);
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
     assert.equal(earnSessions(who.userId, 'sproto'), 1);
-    const second = await nextPage.sdk.earnTickets(SPROTO_WIN, 'win', 'tab-earn-2');
-    assert.equal(second.capped, false);
-    assert.equal(second.balance, SPROTO_WIN);
+    const second = await nextPage.sdk.reportEvent('sproto.boss_defeated', { boss: 'broccoli' }, 'tab-earn-2');
+    assert.equal(second.granted, undefined);
+    assert.equal(ticketBalance(who.userId, 'sproto'), SPROTO_WIN * 2);
     const drainedAgain = openPage('', nextSession, client, closes);
     await drainedAgain.sdk.init('sproto');
-    await outboxSend('tickets.earn', { amount: SPROTO_WIN, reason: 'win', key: earnKey }, cached.token);
+    await outboxSend('session.event', {
+      eventId: 'sproto.boss_defeated',
+      data: { boss: 'sahil' },
+      key: earnKey,
+    }, cached.token);
     await outboxSend('tickets.exchange', { tickets: SPROTO_WIN, key: exchangeKey }, cached.token);
     await outboxSend('session.event', {
       eventId: 'sproto.boss_defeated',
       data: { boss: 'tinubu', elapsed: 12 },
       key: crownKey,
     }, cached.token);
-    assert.equal(positiveEarns(who.userId, 'sproto'), 2);
+    assert.equal(positiveEarns(who.userId, 'sproto'), 3);
     assert.equal(exchangeCount(who.userId), 1);
     assert.equal(mints(who.userId, 'tinubu_crown'), 1);
     assert.equal(redeemedSessions(who.userId, 'sproto'), 2);
-    assertCredit(who.userId, 'sproto', SPROTO_WIN, 2);
+    assertCredit(who.userId, 'sproto', SPROTO_WIN * 2, 2);
     assert.equal(duplicateKeys(who.userId), 0);
   });
 }

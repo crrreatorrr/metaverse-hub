@@ -2065,6 +2065,247 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Ken's Ticket rules (Nov 4), economy step only. Online and CPU win mints stop.
+      // Story bosses pay 20 T once per player per boss per UTC day through session.event.
+      // 0007/0009/0020 are frozen, so this entry updates the live rows and replaces
+      // game.apply_event. Wager escrow (0010) is not touched.
+      //
+      // event_rule_max_amount forbids 0, so the ceiling is widened to >= 0 and the
+      // four win-mint rows are set to 0. earn_tickets then rejects any positive amount
+      // (amount_over_rule). Their tickets column stays NULL, so apply_event does not
+      // pay them either.
+      //
+      // The old primary key is (game_id, event_type), which cannot hold one row per
+      // boss. rule_key is the match's boss id, or '' when the rule is not per-boss.
+      // day_limit and session_limit were never read. day_limit 1 is now enforced per
+      // (player, boss, UTC day) with an earn_window bucket boss:<game>:<boss>, inside
+      // the same apply_event transaction as the idempotency row. A second key the same
+      // day pays nothing and still runs the relic and item claims.
+      id: "0031_story_boss_tickets",
+      statements: [
+        "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_max_amount",
+        "ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_max_amount CHECK (max_amount IS NULL OR max_amount >= 0)",
+        `UPDATE game.event_rule SET max_amount = 0
+         WHERE (game_id, event_type) IN (
+           ('sproto', 'win'),
+           ('sproto', 'duel_win'),
+           ('sproto', 'srv_pvp_win'),
+           ('sproto-fighter', 'fighter_win')
+         )`,
+        "ALTER TABLE game.event_rule ADD COLUMN IF NOT EXISTS rule_key text",
+        `UPDATE game.event_rule
+         SET rule_key = COALESCE(match->>'boss', '')
+         WHERE rule_key IS NULL`,
+        "ALTER TABLE game.event_rule ALTER COLUMN rule_key SET DEFAULT ''",
+        "ALTER TABLE game.event_rule ALTER COLUMN rule_key SET NOT NULL",
+        "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_rule_key",
+        "ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_rule_key CHECK (rule_key = COALESCE(match->>'boss', ''))",
+        "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_pkey",
+        "ALTER TABLE game.event_rule ADD PRIMARY KEY (game_id, event_type, rule_key)",
+        `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount, rule_key)
+         VALUES
+           ('sproto', 'sproto.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sahil"}'::jsonb, NULL, 'sahil'),
+           ('sproto', 'sproto.boss_defeated', NULL, 20, NULL, 1, '{"boss":"obama"}'::jsonb, NULL, 'obama'),
+           ('sproto', 'sproto.boss_defeated', NULL, 20, NULL, 1, '{"boss":"broccoli"}'::jsonb, NULL, 'broccoli'),
+           ('sproto', 'sproto.boss_defeated', NULL, 20, NULL, 1, '{"boss":"agent"}'::jsonb, NULL, 'agent'),
+           ('sproto', 'sproto.boss_defeated', 'tinubu_crown', 20, NULL, 1, '{"boss":"tinubu"}'::jsonb, NULL, 'tinubu'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sproto3215"}'::jsonb, NULL, 'sproto3215'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sproto2616"}'::jsonb, NULL, 'sproto2616'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sproto3152"}'::jsonb, NULL, 'sproto3152'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"rivet"}'::jsonb, NULL, 'rivet'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sproto865"}'::jsonb, NULL, 'sproto865'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"sproto943"}'::jsonb, NULL, 'sproto943'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"nick"}'::jsonb, NULL, 'nick'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"guest07"}'::jsonb, NULL, 'guest07'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"vela"}'::jsonb, NULL, 'vela'),
+           ('sproto-fighter', 'fighter.boss_defeated', NULL, 20, NULL, 1, '{"boss":"vaudream"}'::jsonb, NULL, 'vaudream')
+         ON CONFLICT (game_id, event_type, rule_key) DO UPDATE
+           SET tickets = EXCLUDED.tickets,
+               day_limit = EXCLUDED.day_limit`,
+        `CREATE OR REPLACE FUNCTION game.apply_event(
+           p_user_id uuid,
+           p_session_id uuid,
+           p_game_id text,
+           p_event_id text,
+           p_data jsonb,
+           p_idem_key text,
+           p_req_hash text,
+           p_seq bigint DEFAULT NULL
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_response jsonb;
+           v_hash bytea;
+           v_existing_hash bytea;
+           v_relic text;
+           v_last bigint;
+           v_pay bigint;
+           v_credit jsonb;
+           v_items json;
+           v_day_limit integer;
+           v_rule_match jsonb;
+           v_boss text;
+           v_rule_bucket text;
+           v_rule_day date;
+           v_used bigint;
+         BEGIN
+           PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
+           v_hash := decode(p_req_hash, 'hex');
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF FOUND THEN
+             IF v_existing_hash <> v_hash THEN
+               RETURN jsonb_build_object('error', 'idempotency_mismatch');
+             END IF;
+             RETURN v_response;
+           END IF;
+           SELECT event_seq INTO v_last
+           FROM game.game_session
+           WHERE session_id = p_session_id
+             AND user_id = p_user_id
+             AND game_id = p_game_id
+             AND state = 'open'
+             AND lease_until > now()
+             AND ticket_redeemed_at IS NOT NULL
+           FOR UPDATE;
+           IF NOT FOUND THEN
+             RETURN jsonb_build_object('error', 'session_closed');
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             IF v_last > 0 AND p_seq = v_last THEN
+               RETURN jsonb_build_object('error', 'seq_duplicate');
+             ELSIF p_seq <> v_last + 1 THEN
+               RETURN jsonb_build_object('error', 'seq_stale');
+             END IF;
+           END IF;
+           -- Most specific match wins. Boss rows are disjoint; the extra order
+           -- keeps a broader row from beating a boss row if one is added later.
+           v_rule_bucket := NULL;
+           SELECT tickets, day_limit, match
+             INTO v_pay, v_day_limit, v_rule_match
+           FROM game.event_rule
+           WHERE game_id = p_game_id
+             AND event_type = p_event_id
+             AND tickets IS NOT NULL
+             AND tickets > 0
+             AND match <@ COALESCE(p_data, '{}'::jsonb)
+           ORDER BY cardinality(ARRAY(SELECT jsonb_object_keys(match))) DESC
+           LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 AND v_day_limit IS NOT NULL THEN
+             v_boss := v_rule_match->>'boss';
+             IF v_boss IS NULL OR v_boss = '' THEN
+               v_pay := NULL;
+             ELSE
+               v_rule_day := (now() AT TIME ZONE 'utc')::date;
+               v_rule_bucket := 'boss:' || p_game_id || ':' || v_boss;
+               SELECT amount INTO v_used FROM game.earn_window
+               WHERE user_id = p_user_id AND bucket = v_rule_bucket AND day = v_rule_day;
+               IF COALESCE(v_used, 0) >= v_day_limit THEN
+                 v_pay := NULL;
+                 v_rule_bucket := NULL;
+               END IF;
+             END IF;
+           END IF;
+           IF v_pay IS NOT NULL AND v_pay > 0 THEN
+             PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+             v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
+             IF v_credit ? 'error' THEN
+               IF v_credit->>'error' IN ('session_ticket_cap', 'daily_ticket_cap') THEN
+                 v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+                 RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
+               END IF;
+               RETURN v_credit;
+             END IF;
+             IF v_rule_bucket IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+               INSERT INTO game.earn_window (user_id, bucket, day, amount)
+               VALUES (p_user_id, v_rule_bucket, v_rule_day, 1)
+               ON CONFLICT (user_id, bucket, day) DO UPDATE
+                 SET amount = game.earn_window.amount + 1
+               WHERE game.earn_window.amount < v_day_limit;
+             END IF;
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             UPDATE game.game_session SET event_seq = p_seq WHERE session_id = p_session_id;
+           END IF;
+           v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+           v_response := '{}'::jsonb;
+           IF v_relic IS NOT NULL THEN
+             v_response := jsonb_build_object('granted', v_relic);
+           END IF;
+           IF v_credit IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+             v_response := v_response || jsonb_build_object('tickets', (v_credit->>'applied')::bigint);
+           END IF;
+           -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
+           -- idempotency insert, so a replay of this key returns the stored granted_items.
+           -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
+           WITH sess AS (
+             -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
+             SELECT event_seq FROM game.game_session
+             WHERE session_id = p_session_id
+               AND user_id = p_user_id
+               AND game_id = p_game_id
+               AND state = 'open'
+               AND lease_until > now()
+               AND ticket_redeemed_at IS NOT NULL
+             FOR UPDATE
+           ),
+           eligible AS (
+             SELECT r.item_id FROM game.item_rule r
+             WHERE EXISTS (SELECT 1 FROM sess)
+               AND (
+                 (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
+                 OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
+                 OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
+                 OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
+               )
+               AND r.game_id = p_game_id AND r.event_type = p_event_id
+               AND r.event_type <> 'game_beaten'
+               AND r.match <> '{}'::jsonb
+               AND r.match <@ COALESCE(p_data, '{}'::jsonb)
+               AND r.item_id NOT IN (
+                 'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
+                 'tidebreaker_belt', 'breakwater_coin',
+                 'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
+               )
+               AND EXISTS (
+                 SELECT 1 FROM game.event_rule e
+                 WHERE e.game_id = r.game_id AND e.event_type = r.event_type
+                   AND e.event_type <> 'game_beaten'
+               )
+           ),
+           ins AS (
+             INSERT INTO game.item_owned (user_id, item_id, source, ref_id)
+             SELECT p_user_id, item_id, 'event', gen_random_uuid() FROM eligible
+             ON CONFLICT (user_id, item_id) DO NOTHING
+             RETURNING item_id, ref_id
+           ),
+           led AS (
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             SELECT ref_id, p_user_id, 'grant_item', item_id, 'event', ref_id FROM ins
+             RETURNING item_id
+           )
+           SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json) INTO v_items FROM led;
+           v_response := COALESCE(v_response, '{}'::jsonb)
+             || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
+           INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+           VALUES (p_user_id, p_idem_key, 'session.event', v_hash, v_response);
+           RETURN v_response;
+         EXCEPTION WHEN unique_violation THEN
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF NOT FOUND THEN
+             RAISE;
+           END IF;
+           IF v_existing_hash <> v_hash THEN
+             RETURN jsonb_build_object('error', 'idempotency_mismatch');
+           END IF;
+           RETURN v_response;
+         END;
+         $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -2163,7 +2404,7 @@ namespace HubSchema {
   // Migrations registered by game files (src/games/*.ts) at load time.
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
-  // reserved range (0030_m6_item_grants). The runner refuses an unapplied id below the highest
+  // reserved range (0030_m6_item_grants, then 0031_story_boss_tickets). The runner refuses an unapplied id below the highest
   // recorded one, so PRs merge and deploy in id order (or renumber first).
   var REGISTERED: SchemaMigration[] = [];
 
