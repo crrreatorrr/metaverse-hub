@@ -4,8 +4,8 @@ import type { Engine, EngineOptions } from './engine';
 import type { Collider } from '../collider';
 import type { PortalConfig } from '../config';
 
-export const REALM_IDS = ['plaza', 'sandbox'] as const;
-export type RealmId = (typeof REALM_IDS)[number];
+import type { RealmId } from './realm-id';
+export { REALM_IDS, type RealmId } from './realm-id';
 export interface SpawnPoint { x: number; y: number; z: number; yaw: number }
 export interface FrameState { moving: boolean; sprint: boolean; position: Vector3 }
 export interface RealmContext {

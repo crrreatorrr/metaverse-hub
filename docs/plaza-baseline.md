@@ -6,7 +6,8 @@ The reference includes the merged NOBU expanded trial boards, newer than the des
 ## Repeatable capture
 
 Use Chromium, 960 × 540 CSS pixels, device scale 1, a clean browser context, and the Vite dev
-server. Enter as a guest with no equipped pet and no bots. Wait for all five buildings and
+server. Isolate this capture from `/v2/` HTTP requests so concurrent local test accounts cannot
+introduce remote avatars or nameplate fonts. Keep `/world/v2/` asset requests enabled. Enter as a guest with no equipped pet and no bots. Wait for all five buildings and
 near-distance LOD upgrades to finish. Development enables the same ten Relic stub anchors and
 sample boards on both versions. Keep screenshots outside git.
 
@@ -114,3 +115,12 @@ tested with exactly four versus three lights; stale initial counts and monument-
 were corrected. All four required checks passed. Git transport credentials expired after task 5;
 task 6 and subsequent commits are published through the connected GitHub API with a checked
 expected branch head and identical tested tree, then mirrored locally. No branch is force-pushed.
+
+Task 9: six views and the signed-in light walkthrough repeated with unchanged counts
+(97/122/48/35/42/82 draws; 40 assets each) and no page errors. Reconnect/re-placement, per-realm
+preferences and rate-limit waiting/retry tests pass. A pure realm-id module keeps Node wire tests
+from importing Vite renderer types. All four checks passed after that type-boundary correction.
+
+Task 9's first concurrent capture loaded one extra Inter font after briefly seeing a remote
+nameplate. The isolated final capture restored all six 40-asset counts; world asset URLs did
+not change. Signed-in behavior is tested separately against the local server.

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { createMockRealtimeServer, type RealtimePresence } from '@metaverse/hub-sdk';
 import { loadModule } from '../../../server/test/unit/harness';
 import { createInterp } from '../src/net/interp';
-import { connectPlaza } from '../src/net/plaza';
+import { connectPlaza, sessionMatchKey } from '../src/net/plaza';
 import { ANIMS, OP, TICK_RATE, byteToYaw, decodeRow, encodePose, parseDelta, parseRoster, parseSnapshot, yawToByte, zoneOf, type PoseRow } from '../src/net/protocol';
 import { createRemoteWorld } from '../src/net/remoteWorld';
 import { createLiveLeaderboardProvider } from '../src/leaderboards';
@@ -109,7 +109,7 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   });
   let t = 0;
   const statuses: string[] = [];
-  const plaza = await connectPlaza({ getToken: () => 'unused', realtime: server.connect({ userId: 'a', username: 'alice' }), now: () => t, onStatus: (s) => statuses.push(s) });
+  const plaza = await connectPlaza({ realm: 'plaza', getToken: () => 'unused', realtime: server.connect({ userId: 'a', username: 'alice' }), now: () => t, onStatus: (s) => statuses.push(s) });
   await server.flush();
   assert.equal(plaza.shard, 1);
   assert.equal(plaza.room, 'hub.1');
@@ -133,7 +133,7 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.ok(statuses.includes('online'));
   plaza.close();
   void members;
-  void asked;
+  assert.deepEqual(asked[0], {}, 'plaza placement omits realm');
 }
 
 // Bar screen: NOBU pages per level in ms, verse pages from verse.board.
@@ -196,3 +196,58 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
 }
 
 console.log('hub net tests ok');
+
+// Per-realm storage and every fresh placement, including one after a match ends.
+{
+  assert.equal(sessionMatchKey('plaza'), 'hub:plaza:match', 'session_key_is_per_realm');
+  assert.equal(sessionMatchKey('sandbox'), 'hub:plaza:match:sandbox');
+  const values = new Map([['hub:plaza:match', 'plaza-old'], ['hub:plaza:match:sandbox', 'sandbox-old']]);
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage');
+  Object.defineProperty(globalThis, 'sessionStorage', { configurable: true, value: { getItem: (key: string) => values.get(key) ?? null, setItem: (key: string, value: string) => values.set(key, value) } });
+  const server = createMockRealtimeServer();
+  let ending = false;
+  server.registerMatch('realm', { init: () => ({ state: {} }), loop: (_s, _m, d) => { if (ending) { ending = false; d.end(); } } });
+  const asks: { realm?: string; prefer?: string }[] = [];
+  server.registerRpc('hub.join', (_ctx, body) => {
+    asks.push(body as { realm?: string; prefer?: string });
+    return { matchId: server.createMatch('realm'), shard: 1, room: 'hub.sandbox.1' };
+  });
+  const rt = server.connect({ userId: 'realm-user' });
+  const realm = await connectPlaza({ realm: 'sandbox', realtime: rt, getToken: () => '' });
+  assert.deepEqual(asks[0], { prefer: 'sandbox-old', realm: 'sandbox' });
+  assert.equal(values.get('hub:plaza:match'), 'plaza-old', 'sandbox does not replace the plaza preference');
+  server.drop('realm-user');
+  await server.flush(); await new Promise(resolve => setTimeout(resolve, 10)); await server.flush();
+  assert.equal(realm.room, 'hub.sandbox.1', 'reconnect_keeps_realm');
+  ending = true; server.tick(); await server.flush();
+  for (let i=0; i<20 && asks.length<2; i++) { await new Promise(resolve => setTimeout(resolve, 1)); await server.flush(); }
+  assert.ok(asks.length >= 2, 'ended match triggers fresh realm placement');
+  assert.ok(asks.every(ask => ask.realm === 'sandbox'), 'every re-placement retains realm');
+  realm.close();
+  if (previous) Object.defineProperty(globalThis, 'sessionStorage', previous); else Reflect.deleteProperty(globalThis, 'sessionStorage');
+}
+
+// A fixed-window placement limit is a wait, followed by a retry after the window.
+{
+  const server = createMockRealtimeServer(); const matchId = server.createMatch();
+  let attempts = 0; const statuses: string[] = []; const delays: number[] = [];
+  server.registerRpc('hub.join', () => ++attempts === 1 ? { error: 'rate_limited' } : { matchId, shard: 1, room: 'hub.sandbox.1' });
+  let release!: () => void; const windowElapsed = new Promise<void>(resolve => { release = resolve; });
+  const connecting = connectPlaza({ realm: 'sandbox', realtime: server.connect({ userId: 'limited' }), getToken: () => '', onStatus: s => statuses.push(s), wait: ms => { delays.push(ms); return windowElapsed; } });
+  await server.flush(); await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(delays, [60000]);
+  assert.equal(attempts, 1, 'no retry before the limit window');
+  assert.ok(statuses.includes('waiting'), 'rate_limited_shows_wait_message');
+  assert.ok(!statuses.includes('offline'));
+  release(); const realm = await connecting;
+  assert.equal(attempts, 2); assert.equal(realm.room, 'hub.sandbox.1'); realm.close();
+}
+
+// Client/server zone decisions agree throughout each realm's valid bands.
+{
+  const mod = loadModule({ noInit: true });
+  const table = mod.global.HubRealms as { get(id: string): unknown; zoneOf(realm: unknown, y: number): string };
+  for (const realm of ['plaza', 'sandbox'] as const) {
+    for (const y of [-300, -250, -50, -4, 1.775, 40]) assert.equal(zoneOf(y, realm), table.zoneOf(table.get(realm), y * 100));
+  }
+}

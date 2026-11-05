@@ -138,6 +138,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const hudRoot = document.querySelector('#hud');
   const remoteWorld = createRemoteWorld();
   const remotes = createRemotes(world.scene, remoteWorld, {
+    realm: definition.id,
     hud: hudRoot instanceof HTMLElement ? hudRoot : document.body,
     setOrbitAvatars: (avatars) => world.setRemoteOrbit(avatars),
     viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
@@ -841,6 +842,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   async function startPlaza(session: HubSession): Promise<void> {
     try {
       plaza = await connectPlaza({
+        realm: definition.id,
         serverUrl: '',
         world: remoteWorld,
         getToken: () => plazaToken(session),
