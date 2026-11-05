@@ -1,0 +1,32 @@
+# Pin the vendored Sproto Fighter simulation to a Fighter commit. The local
+# checks need no secrets. The upstream read is anonymous against the public
+# Sproto-Fighter repo; GITHUB_TOKEN is sent only to raise the API rate limit.
+name: sproto-sim-version
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * *'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sproto-sim-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  sim-version:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check Sproto Fighter simulation version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-sproto-sim-version.mjs
