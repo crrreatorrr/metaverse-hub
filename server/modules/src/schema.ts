@@ -862,7 +862,7 @@ namespace HubSchema {
       ],
     },
     // 0004 is reserved. Shop catalog, ledger kind, nobu level_end cap, and the
-    // stricter whole-credit session path. No pb game_id row rewrite.
+    // stricter whole-credit session path. No pb game_id row rewrite.,
     {
       id: "0005_pb_shop_tickets",
       statements: [
@@ -1263,7 +1263,7 @@ namespace HubSchema {
      $fn$`,
       ],
     },
-    // Portal tickets. 0004 stays unused. These statements do not rewrite economy rows.
+    // Portal tickets. 0004 stays unused. These statements do not rewrite economy rows.,
     {
       id: "0006_hashed_portal_tickets",
       statements: [
@@ -1318,7 +1318,7 @@ namespace HubSchema {
     },
     // 0004 stays unused. Earn ceilings, cap-time relic grants, and whole Verse
     // exchange rejects. This migration does not delete rows. The event_rule
-    // upsert updates max_amount on rows that already exist.
+    // upsert updates max_amount on rows that already exist.,
     {
       id: "0007_earn_caps_relic_exchange",
       statements: [
@@ -2382,6 +2382,829 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Interim hold for forgeable client-reported Relic and item grants (0033).
+      // Does not revoke or rewrite game.relic_claim / game.item_owned. A matching
+      // rule with grant_hold goes to the pending table (earn-once PK, ON CONFLICT
+      // DO NOTHING) and pays nothing: no Tickets, no Verse, no item_ledger, no
+      // game_beaten, no derived staff/pet. sproto_wager_hold counts fighter_win
+      // tickets_ledger rows only, so a pending row cannot qualify a wager.
+      // Story-boss allowlist rows (match pins a boss) and server-recorded results
+      // stay live. Promotion is game.promote_pending_grant; nothing calls it yet,
+      // and it is not an RPC.
+      //
+      // Held pairs (grant_hold = true):
+      //   sproto-fighter, fighter.story_level_complete, tidebreaker_belt
+      //     Client posts the story level. No Fighter story sim.
+      //   hpos10i, hpos10i.level_complete, hpos10i_core
+      //   hpos10i, hpos10i.level_complete, pet_honk_sproto
+      //   hpos10i, hpos10i.level_complete, pet_spiral_sproto
+      //     Client posts the act. The server does not replay the level.
+      //   peoples-bitcoin, pb.quest_complete, genesis_shard
+      //   peoples-bitcoin, pb.quest_complete, pet_moon_sproto
+      //   peoples-bitcoin, pb.quest_complete, pet_sproto_pup
+      //     Client posts the quest. The server does not verify completion.
+      // Left live: nobu.boss_defeated (cones_tip, pet_mecha_sproto, pet_conehead_sproto),
+      // sproto.boss_defeated (tinubu_crown, pet_presidential_sproto),
+      // arcade.boss_defeated (breakwater_coin). Those matches are the story-boss
+      // allowlist. Duel sim and arena srv_pvp_win write no Relic or item.
+      //
+      // game.apply_event is not replaced. PR #62 (0031) replaces that function;
+      // replacing it here would drop that body or be dropped by it. Relic holds
+      // live in claim_event_relic, which 0031 does not replace. Item holds live
+      // in a BEFORE INSERT trigger, so whichever apply_event inserts item_owned
+      // still diverts a held item.
+      id: "0033_hold_client_relic_grants",
+      statements: [
+        "ALTER TABLE game.event_rule ADD COLUMN IF NOT EXISTS grant_hold boolean NOT NULL DEFAULT false",
+        "ALTER TABLE game.item_rule ADD COLUMN IF NOT EXISTS grant_hold boolean NOT NULL DEFAULT false",
+        `CREATE TABLE IF NOT EXISTS game.relic_claim_pending (
+           user_id uuid NOT NULL,
+           relic_id text NOT NULL,
+           session_id uuid NOT NULL,
+           game_id text NOT NULL,
+           event_type text NOT NULL,
+           data jsonb NOT NULL DEFAULT '{}'::jsonb,
+           created_at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (user_id, relic_id),
+           CONSTRAINT relic_claim_pending_known CHECK (relic_id IN (
+             'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin'
+           ))
+         )`,
+        `CREATE TABLE IF NOT EXISTS game.item_owned_pending (
+           user_id uuid NOT NULL,
+           item_id text NOT NULL,
+           session_id uuid NOT NULL,
+           game_id text NOT NULL,
+           event_type text NOT NULL,
+           data jsonb NOT NULL DEFAULT '{}'::jsonb,
+           created_at timestamptz NOT NULL DEFAULT now(),
+           PRIMARY KEY (user_id, item_id)
+         )`,
+        `UPDATE game.event_rule SET grant_hold = true
+         WHERE (game_id, event_type, relic_id) IN (
+           ('sproto-fighter', 'fighter.story_level_complete', 'tidebreaker_belt'),
+           ('hpos10i', 'hpos10i.level_complete', 'hpos10i_core'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'genesis_shard')
+         )`,
+        `UPDATE game.item_rule SET grant_hold = true
+         WHERE (game_id, event_type, item_id) IN (
+           ('hpos10i', 'hpos10i.level_complete', 'pet_honk_sproto'),
+           ('hpos10i', 'hpos10i.level_complete', 'pet_spiral_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_moon_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup')
+         )`,
+        "ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_hold_no_tickets",
+        `ALTER TABLE game.event_rule ADD CONSTRAINT event_rule_hold_no_tickets
+           CHECK (grant_hold = false OR tickets IS NULL)`,
+        // 0007's body, plus transaction-local grant context for the item trigger,
+        // plus the hold branch. The live insert is unchanged.
+        `CREATE OR REPLACE FUNCTION game.claim_event_relic(
+           p_user_id uuid, p_session_id uuid, p_game_id text, p_event_id text, p_data jsonb
+         ) RETURNS text LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_relic text;
+           v_event uuid;
+           v_inserted int;
+           v_hold boolean;
+         BEGIN
+           PERFORM set_config('hub.grant_session', COALESCE(p_session_id::text, ''), true);
+           PERFORM set_config('hub.grant_game', COALESCE(p_game_id, ''), true);
+           PERFORM set_config('hub.grant_event', COALESCE(p_event_id, ''), true);
+           PERFORM set_config('hub.grant_data', COALESCE(p_data, '{}'::jsonb)::text, true);
+           v_relic := game.relic_for_event(p_game_id, p_event_id, p_data);
+           IF v_relic IS NULL THEN
+             RETURN NULL;
+           END IF;
+           v_hold := false;
+           SELECT grant_hold INTO v_hold
+           FROM game.event_rule
+           WHERE game_id = p_game_id
+             AND event_type = p_event_id
+             AND relic_id = v_relic
+             AND match <@ COALESCE(p_data, '{}'::jsonb)
+           LIMIT 1;
+           IF NOT FOUND THEN
+             v_hold := false;
+           END IF;
+           IF v_hold THEN
+             IF NOT EXISTS (
+               SELECT 1 FROM game.relic_claim
+               WHERE user_id = p_user_id AND relic_id = v_relic
+             ) THEN
+               INSERT INTO game.relic_claim_pending (
+                 user_id, relic_id, session_id, game_id, event_type, data
+               ) VALUES (
+                 p_user_id, v_relic, p_session_id, p_game_id, p_event_id, COALESCE(p_data, '{}'::jsonb)
+               )
+               ON CONFLICT (user_id, relic_id) DO NOTHING;
+             END IF;
+             RETURN NULL;
+           END IF;
+           v_event := gen_random_uuid();
+           INSERT INTO game.relic_claim (user_id, relic_id, session_id, event_id)
+           VALUES (p_user_id, v_relic, p_session_id, v_event)
+           ON CONFLICT (user_id, relic_id) DO NOTHING;
+           GET DIAGNOSTICS v_inserted = ROW_COUNT;
+           IF v_inserted = 1 THEN
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             VALUES (v_event, p_user_id, 'grant_relic', v_relic, p_game_id, p_session_id);
+             INSERT INTO game.game_beaten (user_id, game_id, relic_id)
+             VALUES (p_user_id, p_game_id, v_relic)
+             ON CONFLICT (user_id, game_id) DO NOTHING;
+             RETURN v_relic;
+           END IF;
+           RETURN NULL;
+         END;
+         $fn$`,
+        `CREATE OR REPLACE FUNCTION game.item_owned_hold_pending()
+         RETURNS trigger LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_session uuid;
+           v_game text;
+           v_event text;
+           v_data jsonb;
+         BEGIN
+           IF current_setting('hub.grant_promote', true) = '1' THEN
+             RETURN NEW;
+           END IF;
+           IF NEW.source IS DISTINCT FROM 'event' THEN
+             RETURN NEW;
+           END IF;
+           IF NOT EXISTS (
+             SELECT 1 FROM game.item_rule
+             WHERE item_id = NEW.item_id AND grant_hold
+           ) THEN
+             RETURN NEW;
+           END IF;
+           BEGIN
+             v_session := NULLIF(current_setting('hub.grant_session', true), '')::uuid;
+             v_data := COALESCE(NULLIF(current_setting('hub.grant_data', true), '')::jsonb, '{}'::jsonb);
+           EXCEPTION WHEN others THEN
+             v_session := NULL;
+             v_data := '{}'::jsonb;
+           END;
+           v_game := COALESCE(NULLIF(current_setting('hub.grant_game', true), ''), '');
+           v_event := COALESCE(NULLIF(current_setting('hub.grant_event', true), ''), '');
+           IF v_session IS NULL OR v_game = '' OR v_event = '' THEN
+             RAISE EXCEPTION 'grant_hold_missing_session';
+           END IF;
+           IF NOT EXISTS (
+             SELECT 1 FROM game.item_owned o
+             WHERE o.user_id = NEW.user_id AND o.item_id = NEW.item_id
+           ) THEN
+             INSERT INTO game.item_owned_pending (
+               user_id, item_id, session_id, game_id, event_type, data
+             ) VALUES (
+               NEW.user_id, NEW.item_id, v_session, v_game, v_event, v_data
+             )
+             ON CONFLICT (user_id, item_id) DO NOTHING;
+           END IF;
+           RETURN NULL;
+         END;
+         $fn$`,
+        "DROP TRIGGER IF EXISTS item_owned_hold_pending ON game.item_owned",
+        `CREATE TRIGGER item_owned_hold_pending
+           BEFORE INSERT ON game.item_owned
+           FOR EACH ROW EXECUTE FUNCTION game.item_owned_hold_pending()`,
+        // Server-side only. Not registered as an RPC. No caller yet.
+        // Moves one pending Relic or item onto the live table exactly once.
+        // Writes the same ledger (and, for a Relic, game_beaten) as a live claim.
+        // Does not pay Tickets or Verse, does not insert a staff or a pet, and
+        // does not update a row that is already live.
+        `CREATE OR REPLACE FUNCTION game.promote_pending_grant(
+           p_user_id uuid, p_kind text, p_id text
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_relic game.relic_claim_pending%ROWTYPE;
+           v_item game.item_owned_pending%ROWTYPE;
+           v_event uuid;
+           v_inserted int;
+         BEGIN
+           IF p_kind IS NULL OR p_kind NOT IN ('relic', 'item') THEN
+             RETURN jsonb_build_object('ok', false, 'reason', 'bad_kind');
+           END IF;
+           IF p_user_id IS NULL OR p_id IS NULL OR p_id = '' THEN
+             RETURN jsonb_build_object('ok', false, 'reason', 'bad_id');
+           END IF;
+           PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
+           IF p_kind = 'relic' THEN
+             IF EXISTS (
+               SELECT 1 FROM game.relic_claim
+               WHERE user_id = p_user_id AND relic_id = p_id
+             ) THEN
+               DELETE FROM game.relic_claim_pending
+               WHERE user_id = p_user_id AND relic_id = p_id;
+               RETURN jsonb_build_object('ok', true, 'promoted', false, 'reason', 'already_live', 'kind', 'relic', 'id', p_id);
+             END IF;
+             SELECT * INTO v_relic FROM game.relic_claim_pending
+             WHERE user_id = p_user_id AND relic_id = p_id
+             FOR UPDATE;
+             IF NOT FOUND THEN
+               RETURN jsonb_build_object('ok', false, 'reason', 'not_pending', 'kind', 'relic', 'id', p_id);
+             END IF;
+             v_event := gen_random_uuid();
+             INSERT INTO game.relic_claim (user_id, relic_id, session_id, event_id)
+             VALUES (p_user_id, v_relic.relic_id, v_relic.session_id, v_event)
+             ON CONFLICT (user_id, relic_id) DO NOTHING;
+             GET DIAGNOSTICS v_inserted = ROW_COUNT;
+             IF v_inserted = 1 THEN
+               INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+               VALUES (v_event, p_user_id, 'grant_relic', v_relic.relic_id, v_relic.game_id, v_relic.session_id);
+               INSERT INTO game.game_beaten (user_id, game_id, relic_id)
+               VALUES (p_user_id, v_relic.game_id, v_relic.relic_id)
+               ON CONFLICT (user_id, game_id) DO NOTHING;
+               DELETE FROM game.relic_claim_pending
+               WHERE user_id = p_user_id AND relic_id = p_id;
+               RETURN jsonb_build_object('ok', true, 'promoted', true, 'kind', 'relic', 'id', p_id);
+             END IF;
+             IF EXISTS (
+               SELECT 1 FROM game.relic_claim
+               WHERE user_id = p_user_id AND relic_id = p_id
+             ) THEN
+               DELETE FROM game.relic_claim_pending
+               WHERE user_id = p_user_id AND relic_id = p_id;
+               RETURN jsonb_build_object('ok', true, 'promoted', false, 'reason', 'already_live', 'kind', 'relic', 'id', p_id);
+             END IF;
+             RETURN jsonb_build_object('ok', false, 'reason', 'not_promoted', 'kind', 'relic', 'id', p_id);
+           END IF;
+           IF EXISTS (
+             SELECT 1 FROM game.item_owned
+             WHERE user_id = p_user_id AND item_id = p_id
+           ) THEN
+             DELETE FROM game.item_owned_pending
+             WHERE user_id = p_user_id AND item_id = p_id;
+             RETURN jsonb_build_object('ok', true, 'promoted', false, 'reason', 'already_live', 'kind', 'item', 'id', p_id);
+           END IF;
+           SELECT * INTO v_item FROM game.item_owned_pending
+           WHERE user_id = p_user_id AND item_id = p_id
+           FOR UPDATE;
+           IF NOT FOUND THEN
+             RETURN jsonb_build_object('ok', false, 'reason', 'not_pending', 'kind', 'item', 'id', p_id);
+           END IF;
+           v_event := gen_random_uuid();
+           PERFORM set_config('hub.grant_promote', '1', true);
+           INSERT INTO game.item_owned (user_id, item_id, source, ref_id)
+           VALUES (p_user_id, v_item.item_id, 'event', v_event)
+           ON CONFLICT (user_id, item_id) DO NOTHING;
+           GET DIAGNOSTICS v_inserted = ROW_COUNT;
+           PERFORM set_config('hub.grant_promote', '', true);
+           IF v_inserted = 1 THEN
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             VALUES (v_event, p_user_id, 'grant_item', v_item.item_id, 'event', v_event);
+             DELETE FROM game.item_owned_pending
+             WHERE user_id = p_user_id AND item_id = p_id;
+             RETURN jsonb_build_object('ok', true, 'promoted', true, 'kind', 'item', 'id', p_id);
+           END IF;
+           IF EXISTS (
+             SELECT 1 FROM game.item_owned
+             WHERE user_id = p_user_id AND item_id = p_id
+           ) THEN
+             DELETE FROM game.item_owned_pending
+             WHERE user_id = p_user_id AND item_id = p_id;
+             RETURN jsonb_build_object('ok', true, 'promoted', false, 'reason', 'already_live', 'kind', 'item', 'id', p_id);
+           END IF;
+           RETURN jsonb_build_object('ok', false, 'reason', 'not_promoted', 'kind', 'item', 'id', p_id);
+         END;
+         $fn$`,
+      ],
+    },
+    {
+      // Hub item gates. Read-only to clients: no RPC writes this table. Hall of Champions
+      // stays on the four Four Lights relic ids in the plaza client; that rule is not an item id.
+      id: "0034_hub_gate",
+      statements: [
+        `CREATE TABLE IF NOT EXISTS game.hub_gate (
+           gate_id text PRIMARY KEY,
+           action_type text NOT NULL CHECK (action_type IN ('portal', 'session', 'interact', 'zone')),
+           target text,
+           required_item_ids text[] NOT NULL,
+           require_all boolean NOT NULL DEFAULT true,
+           enabled boolean NOT NULL DEFAULT true,
+           locked_hint_pool text
+         )`,
+        `COMMENT ON TABLE game.hub_gate IS 'Server-owned item gates. Clients receive unlocked bools only. Gates grant nothing.'`,
+        `CREATE OR REPLACE FUNCTION game.owned_item_ids(p_user_id uuid)
+         RETURNS text[]
+         LANGUAGE sql
+         STABLE
+         AS $own$
+           SELECT COALESCE(array_agg(item_id ORDER BY item_id), ARRAY[]::text[])
+           FROM (
+             SELECT DISTINCT item_id FROM (
+               SELECT 'duel_staff_sproto'::text AS item_id
+               UNION ALL
+               SELECT v.item_id
+               FROM (VALUES
+                 ('nobu_clown_collar', 'hpos10i_core'),
+                 ('pb_summon_speed_sproto', 'hpos10i_core'),
+                 ('duel_staff_momentum', 'hpos10i_core'),
+                 ('pet_speed_sproto', 'hpos10i_core'),
+                 ('hpos_skin_golden_sproto', 'genesis_shard'),
+                 ('nobu_golden_collar', 'genesis_shard'),
+                 ('duel_staff_moonward', 'genesis_shard'),
+                 ('hpos_skin_nobu', 'cones_tip'),
+                 ('pb_summon_nobu', 'cones_tip'),
+                 ('duel_staff_nobu', 'cones_tip'),
+                 ('pet_nobu', 'cones_tip'),
+                 ('pb_summon_duelist_sproto', 'tinubu_crown'),
+                 ('nobu_wizard_hat', 'tinubu_crown'),
+                 ('hpos_cape_duelist', 'tinubu_crown'),
+                 ('pet_duelist_sproto', 'tinubu_crown'),
+                 ('duel_staff_fighters_might', 'tidebreaker_belt'),
+                 ('nobu_champions_crown', 'tidebreaker_belt'),
+                 ('pb_summon_champion_sproto', 'tidebreaker_belt'),
+                 ('hpos_skin_tidebreaker', 'tidebreaker_belt')
+               ) AS v(item_id, relic_id)
+               WHERE EXISTS (
+                 SELECT 1 FROM game.relic_claim c
+                 WHERE c.user_id = p_user_id AND c.relic_id = v.relic_id
+               )
+               UNION ALL
+               SELECT o.item_id
+               FROM game.item_owned o
+               WHERE o.user_id = p_user_id
+               -- quantum_cell is keepsake-derived from NOBU rematch pieces. Those piece ids are
+               -- not in this repo. An empty piece list must not count as owned. A real item_owned
+               -- row for the id still counts in the branch above.
+             ) u
+             WHERE item_id IS NOT NULL AND item_id <> ''
+           ) d
+         $own$`,
+        `INSERT INTO game.hub_gate (gate_id, action_type, target, required_item_ids, require_all, enabled, locked_hint_pool)
+         VALUES
+           ('hub_arcade_vcoin_game', 'session', 'vcoin', ARRAY['hub_v_coin'], true, true, NULL),
+           ('hub_quantum_door', 'zone', 'quantum_door', ARRAY['quantum_cell'], true, true, NULL),
+           (
+             'hub_hatchery',
+             'portal',
+             'hatchery',
+             ARRAY['arc_the_remote', 'duel_time_spirit_potion', 'pb_space_goggles', 'hub_v_coin', 'hub_life_medal', 'quantum_cell'],
+             true,
+             true,
+             NULL
+           )
+         ON CONFLICT (gate_id) DO NOTHING`,
+        "ALTER TABLE game.game_session DROP CONSTRAINT IF EXISTS game_session_game",
+        "ALTER TABLE game.game_session ADD CONSTRAINT game_session_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'vcoin'))",
+        "ALTER TABLE game.auth_ticket DROP CONSTRAINT IF EXISTS auth_ticket_game",
+        "ALTER TABLE game.auth_ticket ADD CONSTRAINT auth_ticket_game CHECK (game_id IN ('hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'vcoin'))",
+      ],
+    },
+    {
+      // V Coin. People's Bitcoin white rabbit / Bar beat (quest_way_out) on the verified
+      // pb.quest_complete path, and only when pb_space_goggles is already on the owned union.
+      // 0 Tickets / 0 Verse: no event_rule tickets row and no verse write. Earn-once is
+      // item_owned's primary key plus ON CONFLICT DO NOTHING.
+      // apply_event is 0031_story_boss_tickets' body plus the hub_v_coin predicate in eligible.
+      id: "0035_hub_v_coin",
+      statements: [
+        `INSERT INTO game.item_rule (game_id, event_type, item_id, match)
+         VALUES ('peoples-bitcoin', 'pb.quest_complete', 'hub_v_coin', '{"questId":"quest_way_out"}'::jsonb)
+         ON CONFLICT (game_id, event_type, item_id) DO NOTHING`,
+        `CREATE OR REPLACE FUNCTION game.apply_event(
+           p_user_id uuid,
+           p_session_id uuid,
+           p_game_id text,
+           p_event_id text,
+           p_data jsonb,
+           p_idem_key text,
+           p_req_hash text,
+           p_seq bigint DEFAULT NULL
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_response jsonb;
+           v_hash bytea;
+           v_existing_hash bytea;
+           v_relic text;
+           v_last bigint;
+           v_pay bigint;
+           v_credit jsonb;
+           v_items json;
+           v_day_limit integer;
+           v_rule_match jsonb;
+           v_boss text;
+           v_rule_bucket text;
+           v_rule_day date;
+           v_used bigint;
+         BEGIN
+           PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
+           v_hash := decode(p_req_hash, 'hex');
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF FOUND THEN
+             IF v_existing_hash <> v_hash THEN
+               RETURN jsonb_build_object('error', 'idempotency_mismatch');
+             END IF;
+             RETURN v_response;
+           END IF;
+           SELECT event_seq INTO v_last
+           FROM game.game_session
+           WHERE session_id = p_session_id
+             AND user_id = p_user_id
+             AND game_id = p_game_id
+             AND state = 'open'
+             AND lease_until > now()
+             AND ticket_redeemed_at IS NOT NULL
+           FOR UPDATE;
+           IF NOT FOUND THEN
+             RETURN jsonb_build_object('error', 'session_closed');
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             IF v_last > 0 AND p_seq = v_last THEN
+               RETURN jsonb_build_object('error', 'seq_duplicate');
+             ELSIF p_seq <> v_last + 1 THEN
+               RETURN jsonb_build_object('error', 'seq_stale');
+             END IF;
+           END IF;
+           -- Most specific match wins. Boss rows are disjoint; the extra order
+           -- keeps a broader row from beating a boss row if one is added later.
+           v_rule_bucket := NULL;
+           SELECT tickets, day_limit, match
+             INTO v_pay, v_day_limit, v_rule_match
+           FROM game.event_rule
+           WHERE game_id = p_game_id
+             AND event_type = p_event_id
+             AND tickets IS NOT NULL
+             AND tickets > 0
+             AND match <@ COALESCE(p_data, '{}'::jsonb)
+           ORDER BY cardinality(ARRAY(SELECT jsonb_object_keys(match))) DESC
+           LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 AND v_day_limit IS NOT NULL THEN
+             v_boss := v_rule_match->>'boss';
+             IF v_boss IS NULL OR v_boss = '' THEN
+               v_pay := NULL;
+             ELSE
+               v_rule_day := (now() AT TIME ZONE 'utc')::date;
+               v_rule_bucket := 'boss:' || p_game_id || ':' || v_boss;
+               SELECT amount INTO v_used FROM game.earn_window
+               WHERE user_id = p_user_id AND bucket = v_rule_bucket AND day = v_rule_day;
+               IF COALESCE(v_used, 0) >= v_day_limit THEN
+                 v_pay := NULL;
+                 v_rule_bucket := NULL;
+               END IF;
+             END IF;
+           END IF;
+           IF v_pay IS NOT NULL AND v_pay > 0 THEN
+             PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+             v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
+             IF v_credit ? 'error' THEN
+               IF v_credit->>'error' IN ('session_ticket_cap', 'daily_ticket_cap') THEN
+                 v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+                 RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
+               END IF;
+               RETURN v_credit;
+             END IF;
+             IF v_rule_bucket IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+               INSERT INTO game.earn_window (user_id, bucket, day, amount)
+               VALUES (p_user_id, v_rule_bucket, v_rule_day, 1)
+               ON CONFLICT (user_id, bucket, day) DO UPDATE
+                 SET amount = game.earn_window.amount + 1
+               WHERE game.earn_window.amount < v_day_limit;
+             END IF;
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             UPDATE game.game_session SET event_seq = p_seq WHERE session_id = p_session_id;
+           END IF;
+           v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+           v_response := '{}'::jsonb;
+           IF v_relic IS NOT NULL THEN
+             v_response := jsonb_build_object('granted', v_relic);
+           END IF;
+           IF v_credit IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+             v_response := v_response || jsonb_build_object('tickets', (v_credit->>'applied')::bigint);
+           END IF;
+           -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
+           -- idempotency insert, so a replay of this key returns the stored granted_items.
+           -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
+           WITH sess AS (
+             -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
+             SELECT event_seq FROM game.game_session
+             WHERE session_id = p_session_id
+               AND user_id = p_user_id
+               AND game_id = p_game_id
+               AND state = 'open'
+               AND lease_until > now()
+               AND ticket_redeemed_at IS NOT NULL
+             FOR UPDATE
+           ),
+           eligible AS (
+             SELECT r.item_id FROM game.item_rule r
+             WHERE EXISTS (SELECT 1 FROM sess)
+               AND (
+                 (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
+                 OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
+                 OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
+                 OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
+               )
+               AND r.game_id = p_game_id AND r.event_type = p_event_id
+               AND r.event_type <> 'game_beaten'
+               AND r.match <> '{}'::jsonb
+               AND r.match <@ COALESCE(p_data, '{}'::jsonb)
+               AND r.item_id NOT IN (
+                 'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
+                 'tidebreaker_belt', 'breakwater_coin',
+                 'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
+               )
+               -- 0035: hub_v_coin also requires pb_space_goggles on the owned union.
+               AND (
+                 r.item_id <> 'hub_v_coin'
+                 OR 'pb_space_goggles' = ANY (game.owned_item_ids(p_user_id))
+               )
+               AND EXISTS (
+                 SELECT 1 FROM game.event_rule e
+                 WHERE e.game_id = r.game_id AND e.event_type = r.event_type
+                   AND e.event_type <> 'game_beaten'
+               )
+           ),
+           ins AS (
+             INSERT INTO game.item_owned (user_id, item_id, source, ref_id)
+             SELECT p_user_id, item_id, 'event', gen_random_uuid() FROM eligible
+             ON CONFLICT (user_id, item_id) DO NOTHING
+             RETURNING item_id, ref_id
+           ),
+           led AS (
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             SELECT ref_id, p_user_id, 'grant_item', item_id, 'event', ref_id FROM ins
+             RETURNING item_id
+           )
+           SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json) INTO v_items FROM led;
+           v_response := COALESCE(v_response, '{}'::jsonb)
+             || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
+           INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+           VALUES (p_user_id, p_idem_key, 'session.event', v_hash, v_response);
+           RETURN v_response;
+         EXCEPTION WHEN unique_violation THEN
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF NOT FOUND THEN
+             RAISE;
+           END IF;
+           IF v_existing_hash <> v_hash THEN
+             RETURN jsonb_build_object('error', 'idempotency_mismatch');
+           END IF;
+           RETURN v_response;
+         END;
+         $fn$`,
+      ],
+    },
+    {
+      // Life Medal. Earn-once, 0 Tickets, 0 Verse. No effect except hub_hatchery membership
+      // once the row is live, and a place on the shelf (the owned-item list from
+      // game.owned_item_ids). There is no item_def table; this item_rule is the definition.
+      // grant_hold sends the insert to item_owned_pending (0033 trigger). A pending row is
+      // excluded from owned_item_ids, so checkGate stays fail-closed until promotion.
+      id: "0037_hub_life_medal",
+      statements: [
+        `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount, rule_key, grant_hold)
+         VALUES ('hpos10i', 'hpos10i.boss_defeated', NULL, NULL, NULL, NULL, '{"boss":"deathbot"}'::jsonb, NULL, 'deathbot', false)
+         ON CONFLICT (game_id, event_type, rule_key) DO NOTHING`,
+        `INSERT INTO game.item_rule (game_id, event_type, item_id, match, grant_hold)
+         VALUES ('hpos10i', 'hpos10i.boss_defeated', 'hub_life_medal', '{"boss":"deathbot"}'::jsonb, true)
+         ON CONFLICT (game_id, event_type, item_id) DO UPDATE SET grant_hold = EXCLUDED.grant_hold`,
+        `CREATE OR REPLACE FUNCTION game.owned_item_ids(p_user_id uuid)
+         RETURNS text[]
+         LANGUAGE sql
+         STABLE
+         AS $own$
+           SELECT COALESCE(array_agg(item_id ORDER BY item_id), ARRAY[]::text[])
+           FROM (
+             SELECT DISTINCT item_id FROM (
+               SELECT 'duel_staff_sproto'::text AS item_id
+               UNION ALL
+               SELECT v.item_id
+               FROM (VALUES
+                 ('nobu_clown_collar', 'hpos10i_core'),
+                 ('pb_summon_speed_sproto', 'hpos10i_core'),
+                 ('duel_staff_momentum', 'hpos10i_core'),
+                 ('pet_speed_sproto', 'hpos10i_core'),
+                 ('hpos_skin_golden_sproto', 'genesis_shard'),
+                 ('nobu_golden_collar', 'genesis_shard'),
+                 ('duel_staff_moonward', 'genesis_shard'),
+                 ('hpos_skin_nobu', 'cones_tip'),
+                 ('pb_summon_nobu', 'cones_tip'),
+                 ('duel_staff_nobu', 'cones_tip'),
+                 ('pet_nobu', 'cones_tip'),
+                 ('pb_summon_duelist_sproto', 'tinubu_crown'),
+                 ('nobu_wizard_hat', 'tinubu_crown'),
+                 ('hpos_cape_duelist', 'tinubu_crown'),
+                 ('pet_duelist_sproto', 'tinubu_crown'),
+                 ('duel_staff_fighters_might', 'tidebreaker_belt'),
+                 ('nobu_champions_crown', 'tidebreaker_belt'),
+                 ('pb_summon_champion_sproto', 'tidebreaker_belt'),
+                 ('hpos_skin_tidebreaker', 'tidebreaker_belt')
+               ) AS v(item_id, relic_id)
+               WHERE EXISTS (
+                 SELECT 1 FROM game.relic_claim c
+                 WHERE c.user_id = p_user_id AND c.relic_id = v.relic_id
+               )
+               UNION ALL
+               SELECT o.item_id
+               FROM game.item_owned o
+               WHERE o.user_id = p_user_id
+               -- quantum_cell is keepsake-derived from NOBU rematch pieces. Those piece ids are
+               -- not in this repo. An empty piece list must not count as owned. A real item_owned
+               -- row for the id still counts in the branch above.
+             ) u
+             WHERE item_id IS NOT NULL AND item_id <> ''
+               AND NOT EXISTS (
+                 SELECT 1 FROM game.item_owned_pending p
+                 WHERE p.user_id = p_user_id AND p.item_id = u.item_id
+               )
+           ) d
+         $own$`,
+        `CREATE OR REPLACE FUNCTION game.apply_event(
+           p_user_id uuid,
+           p_session_id uuid,
+           p_game_id text,
+           p_event_id text,
+           p_data jsonb,
+           p_idem_key text,
+           p_req_hash text,
+           p_seq bigint DEFAULT NULL
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_response jsonb;
+           v_hash bytea;
+           v_existing_hash bytea;
+           v_relic text;
+           v_last bigint;
+           v_pay bigint;
+           v_credit jsonb;
+           v_items json;
+           v_day_limit integer;
+           v_rule_match jsonb;
+           v_boss text;
+           v_rule_bucket text;
+           v_rule_day date;
+           v_used bigint;
+         BEGIN
+           PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
+           v_hash := decode(p_req_hash, 'hex');
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF FOUND THEN
+             IF v_existing_hash <> v_hash THEN
+               RETURN jsonb_build_object('error', 'idempotency_mismatch');
+             END IF;
+             RETURN v_response;
+           END IF;
+           SELECT event_seq INTO v_last
+           FROM game.game_session
+           WHERE session_id = p_session_id
+             AND user_id = p_user_id
+             AND game_id = p_game_id
+             AND state = 'open'
+             AND lease_until > now()
+             AND ticket_redeemed_at IS NOT NULL
+           FOR UPDATE;
+           IF NOT FOUND THEN
+             RETURN jsonb_build_object('error', 'session_closed');
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             IF v_last > 0 AND p_seq = v_last THEN
+               RETURN jsonb_build_object('error', 'seq_duplicate');
+             ELSIF p_seq <> v_last + 1 THEN
+               RETURN jsonb_build_object('error', 'seq_stale');
+             END IF;
+           END IF;
+           -- Most specific match wins. Boss rows are disjoint; the extra order
+           -- keeps a broader row from beating a boss row if one is added later.
+           v_rule_bucket := NULL;
+           SELECT tickets, day_limit, match
+             INTO v_pay, v_day_limit, v_rule_match
+           FROM game.event_rule
+           WHERE game_id = p_game_id
+             AND event_type = p_event_id
+             AND tickets IS NOT NULL
+             AND tickets > 0
+             AND match <@ COALESCE(p_data, '{}'::jsonb)
+           ORDER BY cardinality(ARRAY(SELECT jsonb_object_keys(match))) DESC
+           LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 AND v_day_limit IS NOT NULL THEN
+             v_boss := v_rule_match->>'boss';
+             IF v_boss IS NULL OR v_boss = '' THEN
+               v_pay := NULL;
+             ELSE
+               v_rule_day := (now() AT TIME ZONE 'utc')::date;
+               v_rule_bucket := 'boss:' || p_game_id || ':' || v_boss;
+               SELECT amount INTO v_used FROM game.earn_window
+               WHERE user_id = p_user_id AND bucket = v_rule_bucket AND day = v_rule_day;
+               IF COALESCE(v_used, 0) >= v_day_limit THEN
+                 v_pay := NULL;
+                 v_rule_bucket := NULL;
+               END IF;
+             END IF;
+           END IF;
+           IF v_pay IS NOT NULL AND v_pay > 0 THEN
+             PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+             v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
+             IF v_credit ? 'error' THEN
+               IF v_credit->>'error' IN ('session_ticket_cap', 'daily_ticket_cap') THEN
+                 v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+                 RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
+               END IF;
+               RETURN v_credit;
+             END IF;
+             IF v_rule_bucket IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+               INSERT INTO game.earn_window (user_id, bucket, day, amount)
+               VALUES (p_user_id, v_rule_bucket, v_rule_day, 1)
+               ON CONFLICT (user_id, bucket, day) DO UPDATE
+                 SET amount = game.earn_window.amount + 1
+               WHERE game.earn_window.amount < v_day_limit;
+             END IF;
+           END IF;
+           IF p_seq IS NOT NULL THEN
+             UPDATE game.game_session SET event_seq = p_seq WHERE session_id = p_session_id;
+           END IF;
+           v_relic := game.claim_event_relic(p_user_id, p_session_id, p_game_id, p_event_id, p_data);
+           v_response := '{}'::jsonb;
+           IF v_relic IS NOT NULL THEN
+             v_response := jsonb_build_object('granted', v_relic);
+           END IF;
+           IF v_credit IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+             v_response := v_response || jsonb_build_object('tickets', (v_credit->>'applied')::bigint);
+           END IF;
+           -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
+           -- idempotency insert, so a replay of this key returns the stored granted_items.
+           -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
+           WITH sess AS (
+             -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
+             SELECT event_seq FROM game.game_session
+             WHERE session_id = p_session_id
+               AND user_id = p_user_id
+               AND game_id = p_game_id
+               AND state = 'open'
+               AND lease_until > now()
+               AND ticket_redeemed_at IS NOT NULL
+             FOR UPDATE
+           ),
+           eligible AS (
+             SELECT r.item_id FROM game.item_rule r
+             WHERE EXISTS (SELECT 1 FROM sess)
+               AND (
+                 (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.level_complete')
+                 OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
+                 OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
+                 OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
+                 -- 0037: Deathbot can match hub_life_medal. grant_hold diverts that insert to pending.
+                 OR (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.boss_defeated')
+               )
+               AND r.game_id = p_game_id AND r.event_type = p_event_id
+               AND r.event_type <> 'game_beaten'
+               AND r.match <> '{}'::jsonb
+               AND r.match <@ COALESCE(p_data, '{}'::jsonb)
+               AND r.item_id NOT IN (
+                 'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
+                 'tidebreaker_belt', 'breakwater_coin',
+                 'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
+               )
+               -- 0035: hub_v_coin also requires pb_space_goggles on the owned union.
+               AND (
+                 r.item_id <> 'hub_v_coin'
+                 OR 'pb_space_goggles' = ANY (game.owned_item_ids(p_user_id))
+               )
+               AND EXISTS (
+                 SELECT 1 FROM game.event_rule e
+                 WHERE e.game_id = r.game_id AND e.event_type = r.event_type
+                   AND e.event_type <> 'game_beaten'
+               )
+           ),
+           ins AS (
+             INSERT INTO game.item_owned (user_id, item_id, source, ref_id)
+             SELECT p_user_id, item_id, 'event', gen_random_uuid() FROM eligible
+             ON CONFLICT (user_id, item_id) DO NOTHING
+             RETURNING item_id, ref_id
+           ),
+           led AS (
+             INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+             SELECT ref_id, p_user_id, 'grant_item', item_id, 'event', ref_id FROM ins
+             RETURNING item_id
+           )
+           SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json) INTO v_items FROM led;
+           v_response := COALESCE(v_response, '{}'::jsonb)
+             || jsonb_build_object('granted_items', COALESCE(v_items, '[]'::json));
+           INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+           VALUES (p_user_id, p_idem_key, 'session.event', v_hash, v_response);
+           RETURN v_response;
+         EXCEPTION WHEN unique_violation THEN
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency
+           WHERE user_id = p_user_id AND key = p_idem_key;
+           IF NOT FOUND THEN
+             RAISE;
+           END IF;
+           IF v_existing_hash <> v_hash THEN
+             RETURN jsonb_build_object('error', 'idempotency_mismatch');
+           END IF;
+           RETURN v_response;
+         END;
+         $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -2480,8 +3303,10 @@ namespace HubSchema {
   // Migrations registered by game files (src/games/*.ts) at load time.
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
-  // reserved range (0030_m6_item_grants, then 0031_story_boss_tickets, then 0032_wager_online_qualify). The runner refuses an unapplied id below the highest
-  // recorded one, so PRs merge and deploy in id order (or renumber first).
+  // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
+  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
+  // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
+  // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
   /** Call at top level of a game file. apply() sorts every migration by numeric prefix and rejects duplicates. */

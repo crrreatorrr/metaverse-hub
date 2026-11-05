@@ -6,7 +6,22 @@
  * audit.sql runs from the suite wrapper after every case (item_owned / grant_item checks included).
  */
 import assert from 'node:assert/strict';
-import { call, canonical, guest, login, num, openGame, psql, sqlId, type GameLogin, type RpcResult } from './harness.ts';
+import {
+  call,
+  canonical,
+  guest,
+  login,
+  num,
+  openGame,
+  pendingItems,
+  pendingRelics,
+  psql,
+  sqlId,
+  ticketBalance,
+  verseBalance,
+  type GameLogin,
+  type RpcResult,
+} from './harness.ts';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
@@ -43,63 +58,75 @@ async function clear(session: GameLogin, zone: string, act: number, key: string,
   return call('session.event', { eventId: LEVEL, data: { zone, act, time }, key }, session.gameToken);
 }
 
+function assertHeldItem(userId: string, itemId: string, result: RpcResult): void {
+  const detail = JSON.stringify(result.body);
+  assert.equal(result.status, 200, detail);
+  assert.equal(body(result).error, undefined, detail);
+  assert.equal(body(result).granted, undefined, detail);
+  assert.deepEqual(body(result).granted_items ?? [], [], detail);
+  assert.deepEqual(owned(userId), []);
+  assert.equal(grantRows(userId), 0);
+  assert.equal(pendingItems(userId, itemId), 1);
+  assert.equal(ticketBalance(userId, HPOS), 0);
+  assert.equal(verseBalance(userId), 0);
+  assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}' AND item_id = '${itemId}'`), 0);
+}
+
 async function honkOnce(): Promise<void> {
   const session = await login(HPOS);
   const user = session.hub.userId;
   const key = crypto.randomUUID();
   const first = await clear(session, 'z1_retro_rush_hills', 2, key);
-  assert.equal(first.status, 200, JSON.stringify(first.body));
-  assert.equal(body(first).error, undefined, JSON.stringify(first.body));
-  assert.deepEqual(body(first).granted_items, ['pet_honk_sproto'], JSON.stringify(first.body));
-  assert.equal(body(first).granted, undefined, JSON.stringify(first.body));
-  assert.deepEqual(owned(user), ['pet_honk_sproto:event']);
-  assert.equal(grantRows(user), 1);
-  assert.equal(
-    num(`SELECT count(*) FROM game.item_owned o JOIN game.item_ledger l ON l.ref_id = o.ref_id AND l.item_id = o.item_id
-         WHERE o.user_id = '${sqlId(user)}' AND l.op = 'grant_item' AND l.source = 'event'`),
-    1,
-    'item_owned.ref_id does not match its grant_item ledger row',
-  );
+  assertHeldItem(user, 'pet_honk_sproto', first);
 
   const replay = await clear(session, 'z1_retro_rush_hills', 2, key);
   assert.equal(canonical(replay.body), canonical(first.body), 'replay of the same key changed the response');
-  assert.deepEqual(body(replay).granted_items, ['pet_honk_sproto']);
-  assert.deepEqual(owned(user), ['pet_honk_sproto:event']);
-  assert.equal(grantRows(user), 1);
+  assert.deepEqual(body(replay).granted_items ?? [], []);
+  assert.deepEqual(owned(user), []);
+  assert.equal(grantRows(user), 0);
+  assert.equal(pendingItems(user, 'pet_honk_sproto'), 1);
 
   const again = await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID(), 11.1);
   assert.equal(body(again).error, undefined, JSON.stringify(again.body));
-  assert.deepEqual(body(again).granted_items, [], JSON.stringify(again.body));
-  assert.deepEqual(owned(user), ['pet_honk_sproto:event']);
-  assert.equal(grantRows(user), 1);
+  assert.deepEqual(body(again).granted_items ?? [], [], JSON.stringify(again.body));
+  assert.deepEqual(owned(user), []);
+  assert.equal(grantRows(user), 0);
+  assert.equal(pendingItems(user, 'pet_honk_sproto'), 1);
 
-  // A second session for the same player cannot grant it again either.
   const next = await openGame(session.hub.token, HPOS);
   const other = await clear(next, 'z1_retro_rush_hills', 2, crypto.randomUUID());
-  assert.deepEqual(body(other).granted_items, [], JSON.stringify(other.body));
-  assert.equal(grantRows(user), 1);
+  assert.deepEqual(body(other).granted_items ?? [], [], JSON.stringify(other.body));
+  assert.equal(grantRows(user), 0);
+  assert.equal(pendingItems(user, 'pet_honk_sproto'), 1);
 }
 
 async function spiral(): Promise<void> {
   const session = await login(HPOS);
   const user = session.hub.userId;
   const result = await clear(session, 'z2_wizard_academy', 2, crypto.randomUUID());
-  assert.deepEqual(body(result).granted_items, ['pet_spiral_sproto'], JSON.stringify(result.body));
-  assert.deepEqual(owned(user), ['pet_spiral_sproto:event']);
+  assertHeldItem(user, 'pet_spiral_sproto', result);
   const act1 = await clear(session, 'z2_wizard_academy', 1, crypto.randomUUID());
-  assert.deepEqual(body(act1).granted_items, [], JSON.stringify(act1.body));
-  assert.equal(grantRows(user), 1);
+  assert.deepEqual(body(act1).granted_items ?? [], [], JSON.stringify(act1.body));
+  assert.equal(grantRows(user), 0);
+  assert.equal(pendingItems(user, 'pet_spiral_sproto'), 1);
 }
 
 async function relicStillGrants(): Promise<void> {
   const session = await login(HPOS);
   const user = session.hub.userId;
   const result = await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
-  assert.equal(body(result).granted, 'hpos10i_core', JSON.stringify(result.body));
-  assert.deepEqual(body(result).granted_items, [], JSON.stringify(result.body));
-  assert.deepEqual(owned(user), [], 'a relic clear wrote item_owned');
+  const detail = JSON.stringify(result.body);
+  assert.equal(body(result).error, undefined, detail);
+  assert.equal(body(result).granted, undefined, detail);
+  assert.deepEqual(body(result).granted_items ?? [], [], detail);
+  assert.deepEqual(owned(user), [], 'a held relic clear wrote item_owned');
   assert.equal(grantRows(user), 0);
-  assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(user)}'`), 1);
+  assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(user)}'`), 0);
+  assert.equal(pendingRelics(user, 'hpos10i_core'), 1);
+  assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'hpos10i_core'`), 0);
+  assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'hpos10i'`), 0);
+  assert.equal(ticketBalance(user, HPOS), 0);
+  assert.equal(verseBalance(user), 0);
 }
 
 async function wrongGameOrPayload(): Promise<void> {
@@ -129,8 +156,13 @@ async function profileAndLoadout(): Promise<void> {
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
   assert.deepEqual(
-    (profile.body as { pets?: ProfilePets }).pets,
-    { owned: ['pet_honk_sproto', 'pet_speed_sproto'], active: null },
+    (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
+    { owned: [], active: null },
+    JSON.stringify(profile.body),
+  );
+  assert.equal(
+    ((profile.body as { relics?: string[] }).relics ?? []).includes('hpos10i_core'),
+    false,
     JSON.stringify(profile.body),
   );
 
@@ -139,15 +171,26 @@ async function profileAndLoadout(): Promise<void> {
   const forged = await call('loadout.set_hub', { v: 1, pet: 'pet_coom_sproto', seq: 1 }, hub.token);
   assert.equal(forged.body.ok, false, JSON.stringify(forged.body));
   assert.equal((forged.body as { reason?: string }).reason, 'not_owned');
-  const set = await call('loadout.set_hub', { v: 1, pet: 'pet_honk_sproto', seq: 1 }, hub.token);
+  const heldPet = await call('loadout.set_hub', { v: 1, pet: 'pet_honk_sproto', seq: 1 }, hub.token);
+  assert.equal(heldPet.body.ok, false, JSON.stringify(heldPet.body));
+  assert.equal((heldPet.body as { reason?: string }).reason, 'not_owned');
+
+  // A live pet (not on the hold list) still grants and equips.
+  const nobu = await openGame(hub.token, 'nobu');
+  const mecha = await call('session.event', {
+    eventId: 'nobu.boss_defeated',
+    data: { boss: 'bird' },
+    key: crypto.randomUUID(),
+  }, nobu.gameToken);
+  assert.deepEqual(body(mecha).granted_items, ['pet_mecha_sproto'], JSON.stringify(mecha.body));
+  assert.deepEqual(owned(hub.userId), ['pet_mecha_sproto:event']);
+  assert.equal(grantRows(hub.userId), 1);
+  const set = await call('loadout.set_hub', { v: 1, pet: 'pet_mecha_sproto', seq: 1 }, hub.token);
   assert.equal(set.body.ok, true, JSON.stringify(set.body));
-  const stale = await call('loadout.set_hub', { v: 1, pet: 'pet_speed_sproto', seq: 1 }, hub.token);
+  const stale = await call('loadout.set_hub', { v: 1, pet: null, seq: 1 }, hub.token);
   assert.equal((stale.body as { reason?: string }).reason, 'stale_seq', JSON.stringify(stale.body));
-  const derived = await call('loadout.set_hub', { v: 1, pet: 'pet_speed_sproto', seq: 2 }, hub.token);
-  assert.equal(derived.body.ok, true, JSON.stringify(derived.body));
   const after = await call('profile.get', {}, hub.token);
-  assert.equal((after.body as { pets?: ProfilePets }).pets?.active, 'pet_speed_sproto', JSON.stringify(after.body));
-  // Equipping writes no item row.
+  assert.equal((after.body as { pets?: ProfilePets }).pets?.active, 'pet_mecha_sproto', JSON.stringify(after.body));
   assert.equal(grantRows(hub.userId), 1);
 
   const stranger = await guest();
@@ -156,9 +199,9 @@ async function profileAndLoadout(): Promise<void> {
 }
 
 export async function runPets(test: TestFn): Promise<void> {
-  await test('pets', 'hpos10i z1 act 2 grants pet_honk_sproto once and a replay keeps granted_items', honkOnce);
-  await test('pets', 'hpos10i z2 act 2 grants pet_spiral_sproto', spiral);
-  await test('pets', 'hpos10i z1 act 1 still grants hpos10i_core with no items', relicStillGrants);
+  await test('pets', 'hpos10i z1 act 2 holds pet_honk_sproto once and a replay stays empty', honkOnce);
+  await test('pets', 'hpos10i z2 act 2 holds pet_spiral_sproto', spiral);
+  await test('pets', 'hpos10i z1 act 1 holds hpos10i_core with no items', relicStillGrants);
   await test('pets', 'wrong game, named item, or other zone grants no pet', wrongGameOrPayload);
-  await test('pets', 'profile.get lists pets and loadout.set_hub equips an owned one', profileAndLoadout);
+  await test('pets', 'profile.get omits held pets and loadout.set_hub equips a live one', profileAndLoadout);
 }

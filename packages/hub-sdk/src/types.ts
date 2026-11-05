@@ -60,6 +60,19 @@ export const MOCK_TICKET_EARN_CAP = 1000;
 /** Portal tickets are single-use and short-lived. */
 export const MOCK_TICKET_TTL_SECONDS = 60;
 
+/**
+ * One hub gate as `init()` may show it. `unlocked` is cosmetic.
+ * The server does not send the missing item ids, and this type has nowhere to put them.
+ */
+export interface HubGateView {
+  gateId: string;
+  unlocked: boolean;
+  actionType: string;
+  /** Allowlisted realm id or session/zone key. Never a URL. */
+  target: string | null;
+  lockedHintPool: string | null;
+}
+
 export interface InitResult {
   playerId: string;
   ranked: boolean;
@@ -69,6 +82,16 @@ export interface InitResult {
   ticketsCapLeft: number;
   /** Nakama server clock at this response, epoch milliseconds. */
   serverTime: number;
+  /**
+   * Owned union from the server (starters, relic-derived, item_owned, keepsake-derived).
+   * Omitted when this response did not come from `profile.get`.
+   */
+  items?: string[];
+  /**
+   * Per-gate unlocked bools. Omitted when this response did not come from `profile.get`.
+   * Never includes the server's missing-item list.
+   */
+  gates?: HubGateView[];
 }
 
 export interface EarnResult {

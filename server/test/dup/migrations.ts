@@ -62,11 +62,12 @@ const GAME_ID_TABLES = [
 ] as const;
 
 /**
- * Tables with a game_id that 0003 does not merge: created after 0003 with a CHECK
- * that already excludes 'pb', so they can never hold a pb row.
+ * Tables with a game_id that 0003 does not merge. They are created after 0003,
+ * so they never hold a pb row for that migration to rewrite.
  * auth_ticket: 0006_hashed_portal_tickets. item_rule: 0030_m6_item_grants.
+ * relic_claim_pending and item_owned_pending: 0033_hold_client_relic_grants.
  */
-const POST_PB_TABLES = ['auth_ticket', 'item_rule'] as const;
+const POST_PB_TABLES = ['auth_ticket', 'item_rule', 'relic_claim_pending', 'item_owned_pending'] as const;
 
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 

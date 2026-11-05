@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -212,6 +212,51 @@ export function mints(userId: string, relicId: string): number {
   return num(
     `SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}' AND item_id = '${relicId}' AND op = 'grant_relic'`,
   );
+}
+
+const SLUG = /^[a-z0-9_]+$/;
+
+/**
+ * 0033 stores a held Relic in `game.relic_claim_pending` (PK user_id, relic_id).
+ * There is no `game.grant_pending` and no status column: the row's presence is
+ * status held. `game.promote_pending_grant` deletes it and writes the live claim.
+ */
+export function pendingRelics(userId: string, relicId: string): number {
+  if (!SLUG.test(relicId)) throw new Error(`bad relic ${relicId}`);
+  return num(
+    `SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(userId)}' AND relic_id = '${relicId}'`,
+  );
+}
+
+/** Held cosmetic items. Same earn-once PK, no status column. Presence is held. */
+export function pendingItems(userId: string, itemId: string): number {
+  if (!SLUG.test(itemId)) throw new Error(`bad item ${itemId}`);
+  return num(
+    `SELECT count(*) FROM game.item_owned_pending WHERE user_id = '${sqlId(userId)}' AND item_id = '${itemId}'`,
+  );
+}
+
+export function psqlAsync(sql: string, database = 'nakama'): Promise<string> {
+  if (!/^[a-z_]+$/.test(database)) return Promise.reject(new Error(`bad database name ${database}`));
+  return new Promise((resolve, reject) => {
+    execFile(
+      'docker',
+      composeArgs([
+        'exec', '-T', 'postgres',
+        'psql', '-U', 'postgres', '-d', database,
+        '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A',
+        '-c', sql,
+      ]),
+      { cwd: ROOT, encoding: 'utf8', timeout: 30_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${stderr ?? ''}\n${error.message}`));
+          return;
+        }
+        resolve(String(stdout).trim());
+      },
+    );
+  });
 }
 
 export function ticketBalance(userId: string, game: string): number {
