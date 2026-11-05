@@ -8,7 +8,7 @@ The hub runs one Nakama OSS node. Realtime pieces are authoritative matches (one
 | --- | --- |
 | Game ids (`ctx.vars.game`, matchmaker `properties.game`, label `game`) | `nobu`, `sproto` (Sproto Duel), `sproto-fighter`, `peoples-bitcoin`, `hpos10i`. The plaza is scope `hub` with no game. `sproto-duel` is never an id. |
 | Match modules | `hub` (plaza), `sproto_duel` (Sproto Fighter, existing), `sproto_arena` (Sproto Duel), `pb_world` (People's Bitcoin) |
-| RPCs | hub: `hub.join`, `leaderboard.top`, `chat.report`, `score.submit`. Sproto Duel: `sproto.room_create`, `sproto.room_join`. PB: `pb.worlds`. New ids are prefixed by their owner (`hub.`, `chat.`, `sproto.`, `pb.`). |
+| RPCs | hub: `hub.join`, `leaderboard.top`, `chat.report`, `score.submit`. Sproto Duel: `sproto.room_create`, `sproto.room_join`, `sproto.online_count`. PB: `pb.worlds`. New ids are prefixed by their owner (`hub.`, `chat.`, `sproto.`, `pb.`). |
 | Migrations | hub `0011`–`0012`, peoples-bitcoin `0013`–`0019`, sproto `0020`–`0024` |
 
 ## SDK (`@metaverse/hub-sdk` 0.5.0)
@@ -47,6 +47,8 @@ Then, only between the game's markers in `InitModule` (`server/modules/src/main.
   initializer.registerMatch("sproto_arena", { matchInit: sprotoArenaInit, matchJoinAttempt: sprotoArenaJoinAttempt, matchJoin: sprotoArenaJoin, matchLeave: sprotoArenaLeave, matchLoop: sprotoArenaLoop, matchTerminate: sprotoArenaTerminate, matchSignal: sprotoArenaSignal });
   initializer.registerRpc("sproto.room_create", rpcSprotoRoomCreate);
   initializer.registerRpc("sproto.room_join", rpcSprotoRoomJoin);
+  initializer.registerRpc("sproto.online_count", rpcSprotoOnlineCount);
+  initializer.registerRtBefore("MatchmakerRemove", rtBeforeSprotoMatchmakerRemove);
   // <<< game: sproto
 ```
 
@@ -85,7 +87,7 @@ Every authoritative label is JSON with `game` and `kind`:
 | Match | Label |
 | --- | --- |
 | Hub | `{"game":"hub","kind":"hub","shard":N,"players":n,"max":100,"open":bool}` |
-| Sproto Duel | `{"game":"sproto","kind":"sproto_arena","v":"<NET_VERSION>","open":bool,"code":"ABC234"|""}` |
+| Sproto Duel | `{"game":"sproto","kind":"sproto_arena","v":"2","open":bool,"code":"ABC234"|""}` |
 | PB | `{"game":"peoples-bitcoin","kind":"pb_world","world":N,"players":n,"max":100,"open":bool,"sim":"<PB_SIM_VERSION>"}` |
 
 - Query booleans as `+label.open:T` (`:true` matches nothing). Numeric ranges work (`+label.players:<90`). Query by `+label.kind:<kind>`.

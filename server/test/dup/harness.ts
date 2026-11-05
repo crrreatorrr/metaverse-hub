@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -71,6 +71,7 @@ export interface RpcBody {
   sessionId?: string;
   balance?: number;
   capped?: boolean;
+  tickets?: number;
   verse?: number;
   ticketsLeft?: number;
   receiptId?: string;
@@ -211,6 +212,51 @@ export function mints(userId: string, relicId: string): number {
   return num(
     `SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}' AND item_id = '${relicId}' AND op = 'grant_relic'`,
   );
+}
+
+const SLUG = /^[a-z0-9_]+$/;
+
+/**
+ * 0033 stores a held Relic in `game.relic_claim_pending` (PK user_id, relic_id).
+ * There is no `game.grant_pending` and no status column: the row's presence is
+ * status held. `game.promote_pending_grant` deletes it and writes the live claim.
+ */
+export function pendingRelics(userId: string, relicId: string): number {
+  if (!SLUG.test(relicId)) throw new Error(`bad relic ${relicId}`);
+  return num(
+    `SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(userId)}' AND relic_id = '${relicId}'`,
+  );
+}
+
+/** Held cosmetic items. Same earn-once PK, no status column. Presence is held. */
+export function pendingItems(userId: string, itemId: string): number {
+  if (!SLUG.test(itemId)) throw new Error(`bad item ${itemId}`);
+  return num(
+    `SELECT count(*) FROM game.item_owned_pending WHERE user_id = '${sqlId(userId)}' AND item_id = '${itemId}'`,
+  );
+}
+
+export function psqlAsync(sql: string, database = 'nakama'): Promise<string> {
+  if (!/^[a-z_]+$/.test(database)) return Promise.reject(new Error(`bad database name ${database}`));
+  return new Promise((resolve, reject) => {
+    execFile(
+      'docker',
+      composeArgs([
+        'exec', '-T', 'postgres',
+        'psql', '-U', 'postgres', '-d', database,
+        '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A',
+        '-c', sql,
+      ]),
+      { cwd: ROOT, encoding: 'utf8', timeout: 30_000 },
+      (error, stdout, stderr) => {
+        if (error) {
+          reject(new Error(`${stderr ?? ''}\n${error.message}`));
+          return;
+        }
+        resolve(String(stdout).trim());
+      },
+    );
+  });
 }
 
 export function ticketBalance(userId: string, game: string): number {
@@ -499,6 +545,61 @@ export async function earn(token: string, amount: number, reason: string, key: s
     throw new Error(`tickets.earn ${result.status} ${JSON.stringify(result.body)}`);
   }
   return result;
+}
+
+/** 0031 sets these ceilings to 0. tickets.earn of any positive amount is amount_over_rule. */
+const ZEROED_EARN_REASONS = new Set(['win', 'duel_win', 'fighter_win', 'srv_pvp_win']);
+
+export function isZeroedEarn(reason: string): boolean {
+  return ZEROED_EARN_REASONS.has(reason);
+}
+
+/** Bosses that pay 20 and do not grant Tinubu's Crown. Obama grants a pet; the crown boss is excluded. */
+const STORY_FUND: Record<string, { eventId: string; bosses: string[] }> = {
+  sproto: {
+    eventId: 'sproto.boss_defeated',
+    bosses: ['sahil', 'broccoli', 'agent', 'obama'],
+  },
+  'sproto-fighter': {
+    eventId: 'fighter.boss_defeated',
+    bosses: ['sproto3215', 'sproto2616', 'sproto3152', 'rivet', 'sproto865', 'sproto943', 'nick', 'guest07', 'vela', 'vaudream'],
+  },
+};
+
+/**
+ * Fund `amount` Tickets. Zeroed win reasons go through story-boss grants (20 each, once per boss).
+ * Other reasons stay on tickets.earn.
+ */
+export async function fundLegal(
+  token: string,
+  game: string,
+  amount: number,
+  reason: string,
+  key: string,
+  from = 0,
+): Promise<RpcResult> {
+  if (!isZeroedEarn(reason)) return earn(token, amount, reason, key);
+  const spec = STORY_FUND[game];
+  if (!spec) throw new Error(`${game} has no story-boss fund for zeroed reason ${reason}`);
+  if (amount <= 0 || amount % 20 !== 0) throw new Error(`boss fund ${amount} is not a multiple of 20`);
+  const steps = amount / 20;
+  if (from < 0 || from + steps > spec.bosses.length) {
+    throw new Error(`${game} story bosses cover ${spec.bosses.length * 20} from index ${from}, not ${amount}`);
+  }
+  let last: RpcResult | undefined;
+  for (let i = 0; i < steps; i += 1) {
+    const boss = spec.bosses[from + i]!;
+    last = await call('session.event', {
+      eventId: spec.eventId,
+      data: { boss },
+      key: `${key}-${boss}`,
+    }, token);
+    if (last.body.error || last.body.tickets !== 20) {
+      throw new Error(`boss fund ${game} ${boss}: ${last.status} ${JSON.stringify(last.body)}`);
+    }
+  }
+  if (!last) throw new Error(`boss fund ${game} produced no grant`);
+  return last;
 }
 
 export function snapshotEconomy(userId: string, game: string): string {

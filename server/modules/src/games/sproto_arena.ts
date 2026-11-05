@@ -3,9 +3,9 @@
 // The duel's simulation needs Rapier WASM and three.js, which goja cannot run, so
 // one client (the host, picked at random) runs the fight and this match relays and
 // referees: guest INPUT goes only to the host, host SNAPSHOTs only to the guest,
-// the host reports each ROUND, and both clients report a RESULT. Tickets are paid
-// only when both RESULTs agree and fit the recorded rounds and the elapsed time,
-// or on a forfeit after at least one finished round and MIN_PLAY. A modified host
+// the host reports each ROUND, and both clients report a RESULT. A verified win or
+// a forfeit after at least one finished round and MIN_PLAY is recorded, including
+// on sproto_wins. It does not mint Tickets (migration 0031). A modified host
 // can still lie; the exposure is bounded by the random host pick and the pair and
 // daily caps below. Opcodes match src/net/protocol.ts in the sproto-duel repo.
 
@@ -14,7 +14,7 @@ namespace SprotoArena {
   export var MATCH_NAME = "sproto_arena";
   export var KIND = "sproto_arena";
   /** Must equal NET_VERSION in sproto-duel src/net/protocol.ts. */
-  export var NET_VERSION = "1";
+  export var NET_VERSION = "2";
 
   export var OP_HELLO = 1;     // c->s {v, staff}
   export var OP_START = 2;     // s->c {seat, hostSeat, names, staffs, rules, seed}
@@ -28,6 +28,17 @@ namespace SprotoArena {
   export var OP_PEER = 16;     // s->c {seat, present, graceS}
   export var OP_PING = 17;     // c->s->c {c} -> {c, s}
   export var OP_FORFEIT = 18;  // c->s {}
+  export var OP_ACCEPT = 19;   // c->s {v, staff?} during the accept window (v optional after HELLO)
+  export var OP_DECLINE = 20;  // c->s {} declines the accept window
+  export var OP_FOUND = 21;    // s->c {acceptS, seat, accepted, names}
+  export var OP_ACCEPT_END = 22; // s->c {status, bySeat, next}
+  export var OP_REMATCH = 23;  // c->s {yes}
+  export var OP_REMATCH_STATE = 24; // s->c {phase, waitS, seat?, matchId?, reason?, next?}
+
+  /** Both seats must ACCEPT within this many seconds of the matchmaker pair. */
+  export var ACCEPT_S = 10;
+  /** Rematch offer, and the other seat's answer, each get this many seconds. */
+  export var REMATCH_S = 15;
 
   export var TICK_RATE = 30;
   export var JOIN_TIMEOUT_S = 30;
@@ -47,7 +58,8 @@ namespace SprotoArena {
   export var MAX_SNAPSHOT_BYTES = 8192;
   export var ROUNDS_TO_WIN = 2;
 
-  export var PVP_WIN_TICKETS = 20;
+  /** Online wins mint no Tickets. Migration 0031 also sets srv_pvp_win max_amount to 0. */
+  export var PVP_WIN_TICKETS = 0;
   export var PVP_REASON = "srv_pvp_win";
   /** Paid wins per unordered pair of players per UTC day, and per winner per day. */
   export var PVP_PAIR_DAILY = 5;
@@ -65,12 +77,28 @@ namespace SprotoArena {
     players: string[];
     names: { [userId: string]: string };
     sids: { [userId: string]: string };
+    /** Session var ranked captured at join. Only the explicit marker "1" pays Tickets. */
+    ranked: { [userId: string]: string };
     staffs: { [userId: string]: string };
     hostSeat: number;
     isPrivate: boolean;
     code: string;
     v: string;
-    phase: string; // joining | playing | done
+    /** joining (private / rematch) | accept (quick match) | playing | done */
+    phase: string;
+    /** Quick-match pairs wait for ACCEPT. Private rooms and rematches skip it. */
+    skipAccept: boolean;
+    /** Matchmaker idempotency token. Empty for private rooms and rematches. */
+    mmToken: string;
+    accepted: { [userId: string]: boolean };
+    /** Set when the accept window ends the match: declined | accept_timeout. */
+    endReason: string;
+    rematchOpen: boolean;
+    /** Seat that offered a rematch, or -1. */
+    rematchOffer: number;
+    rematchSince: number;
+    rematchClosed: number;
+    rematchMatchId: string;
     present: { [userId: string]: nkruntime.Presence | null };
     leftTick: { [userId: string]: number };
     hello: { [userId: string]: boolean };
@@ -175,39 +203,32 @@ namespace SprotoArena {
   }
 
   /**
-   * Deterministic per match and winner, so a retry or a repeat RESULT reuses it (game.idempotency).
-   * HubEconomy caps keys at 80 characters: the match's uuid (without ".<node>") and the winner's
-   * first 8 characters fit in 56.
-   */
-  export function earnKey(matchId: string, winner: string): string {
-    return "sproto:pvp:" + matchId.split(".")[0] + ":" + winner.slice(0, 8);
-  }
-
-  /**
-   * Record a paid-or-not result row and pay the winner when the pair and daily caps allow
-   * (decided in one statement; the match id key makes it idempotent), then count the win
-   * on sproto_wins. Returns the Tickets paid (0 when capped, closed or failed).
+   * Record the result row (the match id makes a repeat a no-op) and count the win
+   * on sproto_wins. Online wins do not mint Tickets: there is no HubEconomy.earn
+   * here, and migration 0031 sets srv_pvp_win max_amount to 0.
    */
   export function payout(nk: nkruntime.Nakama, logger: nkruntime.Logger, matchId: string, state: State, winnerSeat: number, status: string, out: Outcome): void {
     var winner = state.players[winnerSeat], loser = state.players[1 - winnerSeat];
     if (!winner || !loser) return;
-    var paid = false;
+    // Pay only when ranked is the explicit marker "1". Missing, empty, "0", or
+    // anything else is no-pay: skip the paid-cap insert and HubEconomy.earn.
+    // sproto_wins still records. Nothing sets "1" until the server Duel sim ships.
+    if (!state.ranked || state.ranked[winner] !== "1") {
+      try {
+        HubBoards.recordWin(nk, winner, WINS_BOARD, matchId);
+      } catch (e) {
+        logger.warn("sproto_arena recordWin " + matchId + ": " + String(e));
+      }
+      return;
+    }
+    var recorded = false;
     try {
       var rows = nk.sqlQuery(PAY_SQL, [matchId, winner, loser, status, PVP_PAIR_DAILY, PVP_DAILY_PAID_WINS]);
-      paid = !!rows && rows.length > 0 && (rows[0].paid === true || rows[0].paid === "true" || rows[0].paid === "t");
+      recorded = !!rows && rows.length > 0;
     } catch (e) {
       logger.error("sproto_arena payout row failed " + matchId + ": " + String(e));
     }
-    if (paid) {
-      var key = earnKey(matchId, winner);
-      var res = HubEconomy.earn(nk, { userId: winner, sid: state.sids[winner] || "", game: GAME_ID }, PVP_WIN_TICKETS, PVP_REASON, key);
-      if (res && res.error) {
-        logger.warn("sproto_arena earn " + matchId + " " + winner + ": " + String(res.error));
-      } else {
-        out.paid[winner] = PVP_WIN_TICKETS;
-        if (res && typeof res.balance === "number") out.balances[winner] = res.balance as number;
-      }
-    }
+    if (!recorded) logger.warn("sproto_arena " + matchId + " " + PVP_REASON + " result row missing; mint stays " + String(PVP_WIN_TICKETS));
     try {
       HubBoards.recordWin(nk, winner, WINS_BOARD, matchId);
     } catch (e) {
@@ -235,6 +256,8 @@ namespace SprotoArena {
     if (winnerSeat !== null && (status === "verified" || status === "forfeit")) {
       if (pays) payout(nk, logger, ctx.matchId || "", state, winnerSeat, status, out);
       else {
+        // Same board path when the win is unpaid (cap, or a guest). Accept-window
+        // endings never reach here, so they post nothing.
         try {
           HubBoards.recordWin(nk, state.players[winnerSeat], WINS_BOARD, ctx.matchId || "");
         } catch (e) {
@@ -247,14 +270,107 @@ namespace SprotoArena {
     state.doneTick = tick;
     broadcast(d, state, OP_OUTCOME, out);
     d.matchLabelUpdate(label(state));
+    // A shutdown is not a rematch. Any other finish with both sockets still here
+    // opens the offer. Guests post to sproto_wins on the same recordWin path above.
+    if (status !== "server_shutdown" && bothHere(state)) openRematch(d, tick, state);
+    else releasePlayers(nk, state, ctx.matchId || "");
     logger.info("sproto_arena " + (ctx.matchId || "") + " " + status + " " + reason + " winner " + String(winnerSeat));
   }
 
-  function cancel(d: nkruntime.MatchDispatcher, tick: number, state: State, reason: string, seat?: number): void {
+  function cancel(ctx: nkruntime.Context, nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, reason: string, seat?: number): void {
+    if (state.phase === "done") return;
     broadcast(d, state, OP_CANCEL, seat === undefined ? { reason: reason } : { reason: reason, seat: seat });
     state.phase = "done";
     state.doneTick = tick;
     d.matchLabelUpdate(label(state));
+    releasePlayers(nk, state, ctx.matchId || "");
+  }
+
+  function bothHere(state: State): boolean {
+    return state.players.length >= 2 && !!state.present[state.players[0]] && !!state.present[state.players[1]];
+  }
+
+  function releasePlayers(nk: nkruntime.Nakama, state: State, matchId: string): void {
+    for (var i = 0; i < state.players.length; i++) SprotoMm.clearLive(nk, state.players[i], matchId);
+    if (state.mmToken) SprotoMm.forgetPair(nk, state.mmToken);
+  }
+
+  function sendFound(d: nkruntime.MatchDispatcher, state: State, seat: number): void {
+    var names: string[] = [];
+    var accepted: boolean[] = [];
+    for (var i = 0; i < 2; i++) {
+      var uid = state.players[i] || "";
+      names.push(uid ? (state.names[uid] || ("Player " + (i + 1))) : "");
+      accepted.push(!!(uid && state.accepted[uid]));
+    }
+    sendTo(d, state, seat, OP_FOUND, { acceptS: ACCEPT_S, seat: seat, accepted: accepted, names: names });
+  }
+
+  /** Accept window ended. No payout, no sproto_pvp_result row, no sproto_wins. */
+  function endAccept(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, status: string, bySeat: number | null): void {
+    if (state.phase === "done") return;
+    state.phase = "done";
+    state.doneTick = tick;
+    state.endReason = status;
+    for (var seat = 0; seat < state.players.length; seat++) {
+      var next = "lobby";
+      if (status === "declined") next = seat === bySeat ? "lobby" : "queue";
+      else if (state.accepted[state.players[seat]]) next = "queue";
+      sendTo(d, state, seat, OP_ACCEPT_END, { status: status, bySeat: bySeat, next: next });
+    }
+    d.matchLabelUpdate(label(state));
+    releasePlayers(nk, state, ctx.matchId || "");
+    logger.info("sproto_arena " + (ctx.matchId || "") + " " + status + " by " + String(bySeat));
+  }
+
+  function openRematch(d: nkruntime.MatchDispatcher, tick: number, state: State): void {
+    state.rematchOpen = true;
+    state.rematchOffer = -1;
+    state.rematchSince = tick;
+    state.rematchClosed = -1;
+    state.rematchMatchId = "";
+    broadcast(d, state, OP_REMATCH_STATE, { phase: "open", waitS: REMATCH_S });
+  }
+
+  function closeRematch(ctx: nkruntime.Context, nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, reason: string): void {
+    if (state.rematchClosed >= 0) return;
+    state.rematchClosed = tick;
+    // "started" already told both clients the new match id. Decline and timeout send them to the lobby.
+    if (reason !== "started") broadcast(d, state, OP_REMATCH_STATE, { phase: "closed", reason: reason, next: "lobby", waitS: 0 });
+    releasePlayers(nk, state, ctx.matchId || "");
+  }
+
+  /** One new match for this pair. A second yes re-sends the same id and creates nothing. */
+  function startRematch(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State): void {
+    if (!state.rematchMatchId) {
+      state.rematchMatchId = nk.matchCreate(MATCH_NAME, {
+        players: JSON.stringify(state.players.slice(0, 2)),
+        names: JSON.stringify(state.names),
+        v: NET_VERSION,
+        private: "0",
+        rematch: "1",
+      });
+      // Seat them on the new match before the old one releases, so a queue add cannot sneak in.
+      for (var s = 0; s < state.players.length; s++) SprotoMm.setLive(nk, state.players[s], state.rematchMatchId);
+      logger.info("sproto_arena rematch " + state.rematchMatchId + " from " + (ctx.matchId || ""));
+    }
+    broadcast(d, state, OP_REMATCH_STATE, { phase: "started", matchId: state.rematchMatchId, waitS: 0 });
+    closeRematch(ctx, nk, d, tick, state, "started");
+  }
+
+  function onRematchYes(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, seat: number): void {
+    if (state.rematchMatchId) {
+      broadcast(d, state, OP_REMATCH_STATE, { phase: "started", matchId: state.rematchMatchId, waitS: 0 });
+      return;
+    }
+    if (state.rematchOffer < 0) {
+      state.rematchOffer = seat;
+      state.rematchSince = tick;
+      broadcast(d, state, OP_REMATCH_STATE, { phase: "offered", seat: seat, waitS: REMATCH_S });
+      return;
+    }
+    if (state.rematchOffer === seat) return;
+    startRematch(ctx, logger, nk, d, tick, state);
   }
 
   /** Both RESULTs in: verified when equal, a decisive 2 wins, consistent with the ROUNDs and long enough. */
@@ -281,16 +397,28 @@ namespace SprotoArena {
         players = [];
       }
       var isPrivate = String(params["private"] || "0") === "1";
+      // Private rooms and rematches already chose each other, so they skip ACCEPT.
+      var skipAccept = isPrivate || String(params["rematch"] || "") === "1";
       var state: State = {
         players: players.slice(0, 2),
         names: names,
         sids: {},
+        ranked: {},
         staffs: {},
         hostSeat: Math.random() < 0.5 ? 0 : 1,
         isPrivate: isPrivate,
         code: isPrivate ? String(params["code"] || "") : "",
         v: String(params["v"] || NET_VERSION),
-        phase: "joining",
+        phase: skipAccept ? "joining" : "accept",
+        skipAccept: skipAccept,
+        mmToken: String(params["token"] || ""),
+        accepted: {},
+        endReason: "",
+        rematchOpen: false,
+        rematchOffer: -1,
+        rematchSince: -1,
+        rematchClosed: -1,
+        rematchMatchId: "",
         present: {},
         leftTick: {},
         hello: {},
@@ -309,11 +437,13 @@ namespace SprotoArena {
       return { state: state, tickRate: TICK_RATE, label: label(state) };
     },
 
-    matchJoinAttempt: function (ctx, _logger, _nk, _d, _tick, state, presence, _metadata) {
-      if (state.phase === "done") return { state: state, accept: false, rejectMessage: "match_over" };
+    matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, _metadata) {
+      if (state.phase === "done") return { state: state, accept: false, rejectMessage: state.endReason || "match_over" };
       var vars = ctx.vars || null;
       if (!vars || vars["scope"] !== "game" || vars["game"] !== GAME_ID) return { state: state, accept: false, rejectMessage: "wrong_scope" };
       var uid = presence.userId;
+      var busy = SprotoMm.liveMatch(nk, uid);
+      if (busy && ctx.matchId && busy !== ctx.matchId) return { state: state, accept: false, rejectMessage: "already_in_match" };
       var seat = state.players.indexOf(uid);
       if (seat < 0) {
         if (!state.isPrivate || state.players.length >= 2 || state.phase !== "joining") return { state: state, accept: false, rejectMessage: "match_full" };
@@ -325,10 +455,12 @@ namespace SprotoArena {
       }
       // The joiner's game session id (ctx.vars are the joining user's here): Tickets need it open.
       if (vars["sid"]) state.sids[uid] = vars["sid"];
+      // Captured as sent. Payout treats only "1" as paid; missing, empty, "0", or any other value is no-pay.
+      state.ranked[uid] = typeof vars["ranked"] === "string" ? vars["ranked"] : "";
       return { state: state, accept: true };
     },
 
-    matchJoin: function (_ctx, _logger, _nk, d, _tick, state, presences) {
+    matchJoin: function (ctx, _logger, nk, d, _tick, state, presences) {
       for (var i = 0; i < presences.length; i++) {
         var p = presences[i];
         var seat = state.players.indexOf(p.userId);
@@ -337,6 +469,9 @@ namespace SprotoArena {
         state.present[p.userId] = p;
         delete state.leftTick[p.userId];
         if (!state.names[p.userId]) state.names[p.userId] = String(p.username || "").slice(0, 32);
+        SprotoMm.setLive(nk, p.userId, ctx.matchId || "");
+        SprotoMm.clearQueue(nk, p.userId);
+        if (state.phase === "accept") sendFound(d, state, seat);
         if (back && state.phase === "playing") {
           sendTo(d, state, 1 - seat, OP_PEER, { seat: seat, present: true, graceS: 0 });
           sendStart(d, state, seat);
@@ -346,7 +481,7 @@ namespace SprotoArena {
       return { state: state };
     },
 
-    matchLeave: function (_ctx, _logger, _nk, d, tick, state, presences) {
+    matchLeave: function (ctx, logger, nk, d, tick, state, presences) {
       for (var i = 0; i < presences.length; i++) {
         var p = presences[i];
         var cur = state.present[p.userId];
@@ -354,11 +489,16 @@ namespace SprotoArena {
         var seat = state.players.indexOf(p.userId);
         state.present[p.userId] = null;
         state.leftTick[p.userId] = tick;
-        if (state.phase === "joining") {
+        if (state.phase === "accept") {
+          // Leaving the accept window is a decline: the stayer can re-queue.
+          endAccept(ctx, logger, nk, d, tick, state, "declined", seat);
+        } else if (state.phase === "joining") {
           // Before START: whoever is still here is told, and the match closes.
-          cancel(d, tick, state, "opponent_left", seat);
+          cancel(ctx, nk, d, tick, state, "opponent_left", seat);
         } else if (state.phase === "playing") {
           sendTo(d, state, 1 - seat, OP_PEER, { seat: seat, present: false, graceS: RECONNECT_S });
+        } else if (state.phase === "done" && state.rematchOpen && state.rematchClosed < 0) {
+          closeRematch(ctx, nk, d, tick, state, "declined");
         }
       }
       return { state: state };
@@ -366,7 +506,35 @@ namespace SprotoArena {
 
     matchLoop: function (ctx, logger, nk, d, tick, state, messages) {
       var T = TICK_RATE;
-      if (state.phase === "done") return tick - state.doneTick >= LINGER_S * T ? null : { state: state };
+      if (state.phase === "done") {
+        if (state.rematchOpen && state.rematchClosed < 0) {
+          for (var ri = 0; ri < messages.length; ri++) {
+            var rm = messages[ri];
+            var rseat = state.players.indexOf(rm.sender.userId);
+            if (rseat < 0) continue;
+            if (rm.opCode === OP_PING) {
+              var rpg = parse(text(nk, rm.data));
+              if (isObj(rpg) && typeof rpg["c"] === "number") sendTo(d, state, rseat, OP_PING, { c: rpg["c"], s: tick });
+            } else if (rm.opCode === OP_REMATCH) {
+              var ry = parse(text(nk, rm.data));
+              if (!isObj(ry) || typeof ry["yes"] !== "boolean") continue;
+              if (ry["yes"]) onRematchYes(ctx, logger, nk, d, tick, state, rseat);
+              else closeRematch(ctx, nk, d, tick, state, "declined");
+            }
+            if (state.rematchClosed >= 0) break;
+          }
+          if (state.rematchClosed < 0 && state.rematchSince >= 0 && tick - state.rematchSince > REMATCH_S * T) {
+            closeRematch(ctx, nk, d, tick, state, "rematch_timeout");
+          }
+          return { state: state };
+        }
+        var anchor = state.rematchClosed >= 0 ? state.rematchClosed : state.doneTick;
+        if (tick - anchor >= LINGER_S * T) {
+          releasePlayers(nk, state, ctx.matchId || "");
+          return null;
+        }
+        return { state: state };
+      }
       var counts: { [userId: string]: number } = {};
       for (var i = 0; i < messages.length; i++) {
         var m = messages[i];
@@ -380,7 +548,7 @@ namespace SprotoArena {
           case OP_HELLO: {
             var h = parse(raw);
             if (!isObj(h) || String(h["v"]) !== state.v || state.v !== NET_VERSION) {
-              cancel(d, tick, state, "version_mismatch", seat);
+              cancel(ctx, nk, d, tick, state, "version_mismatch", seat);
               return { state: state };
             }
             state.hello[uid] = true;
@@ -438,17 +606,43 @@ namespace SprotoArena {
           case OP_FORFEIT:
             if (state.phase === "playing") finish(ctx, logger, nk, d, tick, state, "forfeit", 1 - seat, "forfeit");
             break;
+          case OP_ACCEPT: {
+            if (state.phase !== "accept") break;
+            var acc = parse(raw);
+            if (!isObj(acc)) break;
+            if (!state.hello[uid]) {
+              if (String(acc["v"]) !== state.v || state.v !== NET_VERSION) {
+                cancel(ctx, nk, d, tick, state, "version_mismatch", seat);
+                return { state: state };
+              }
+              state.hello[uid] = true;
+              state.staffs[uid] = normalizeStaff(acc["staff"]);
+            } else if (acc["staff"] !== undefined) {
+              state.staffs[uid] = normalizeStaff(acc["staff"]);
+            }
+            state.accepted[uid] = true;
+            sendFound(d, state, 0);
+            sendFound(d, state, 1);
+            break;
+          }
+          case OP_DECLINE:
+            if (state.phase === "accept") {
+              endAccept(ctx, logger, nk, d, tick, state, "declined", seat);
+              return { state: state };
+            }
+            break;
           default:
             break;
         }
         if (state.phase === "done") return { state: state };
       }
 
-      if (state.phase === "joining") {
+      if (state.phase === "accept" || state.phase === "joining") {
         var ready = state.players.length === 2;
         for (var k = 0; k < state.players.length; k++) {
           var pid = state.players[k];
           if (!state.present[pid] || !state.hello[pid]) ready = false;
+          if (state.phase === "accept" && !state.accepted[pid]) ready = false;
         }
         if (ready) {
           state.phase = "playing";
@@ -456,9 +650,11 @@ namespace SprotoArena {
           sendStart(d, state, 0);
           sendStart(d, state, 1);
           d.matchLabelUpdate(label(state));
+        } else if (state.phase === "accept") {
+          if (tick - state.createdTick > ACCEPT_S * T) endAccept(ctx, logger, nk, d, tick, state, "accept_timeout", null);
         } else {
           var limit = state.isPrivate && state.players.length < 2 ? ROOM_TIMEOUT_S : JOIN_TIMEOUT_S;
-          if (tick - state.createdTick > limit * T) cancel(d, tick, state, state.players.length < 2 ? "room_expired" : "join_timeout");
+          if (tick - state.createdTick > limit * T) cancel(ctx, nk, d, tick, state, state.players.length < 2 ? "room_expired" : "join_timeout");
         }
         return { state: state };
       }
@@ -487,6 +683,7 @@ namespace SprotoArena {
 
     matchTerminate: function (ctx, logger, nk, d, tick, state, _grace) {
       if (state.phase === "playing") finish(ctx, logger, nk, d, tick, state, "server_shutdown", null, "server_shutdown");
+      releasePlayers(nk, state, ctx.matchId || "");
       return { state: state };
     },
 
@@ -495,19 +692,41 @@ namespace SprotoArena {
     },
   };
 
-  /** Matchmaker: two "sproto" tickets of the same protocol version, different users. */
+  /**
+   * Matchmaker: two "sproto" tickets of the same protocol version, different users.
+   * One sproto_arena match per pair token. A repeat call returns that match id.
+   */
   export function onMatched(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
     if (matches.length !== 2) return;
     var a = matches[0], b = matches[1];
-    for (var i = 0; i < 2; i++) if (matches[i].properties["game"] !== GAME_ID) return;
+    if (!a.presence || !b.presence) return;
+    // Nakama has already dropped these tickets. Clear our rows even when we refuse the pair.
+    SprotoMm.clearQueue(nk, a.presence.userId);
+    SprotoMm.clearQueue(nk, b.presence.userId);
+    for (var i = 0; i < 2; i++) if (!matches[i].properties || matches[i].properties["game"] !== GAME_ID) return;
     if (String(a.properties["v"]) !== String(b.properties["v"]) || String(a.properties["v"]) !== NET_VERSION) return;
     if (a.presence.userId === b.presence.userId) return;
+    var token = SprotoMm.pairToken(matches);
+    var existing = SprotoMm.livePair(nk, token);
+    if (existing) {
+      SprotoMm.setLive(nk, a.presence.userId, existing);
+      SprotoMm.setLive(nk, b.presence.userId, existing);
+      logger.info("sproto_arena reuse " + existing);
+      return existing;
+    }
+    if (SprotoMm.liveMatch(nk, a.presence.userId) || SprotoMm.liveMatch(nk, b.presence.userId)) {
+      logger.info("sproto_arena skip, already in a match");
+      return;
+    }
     var names: { [userId: string]: string } = {};
     names[a.presence.userId] = String(a.presence.username || "").slice(0, 32);
     names[b.presence.userId] = String(b.presence.username || "").slice(0, 32);
     var id = nk.matchCreate(MATCH_NAME, {
-      players: JSON.stringify([a.presence.userId, b.presence.userId]), names: JSON.stringify(names), v: NET_VERSION, private: "0",
+      players: JSON.stringify([a.presence.userId, b.presence.userId]), names: JSON.stringify(names), v: NET_VERSION, private: "0", token: token,
     });
+    SprotoMm.rememberPair(nk, token, id);
+    SprotoMm.setLive(nk, a.presence.userId, id);
+    SprotoMm.setLive(nk, b.presence.userId, id);
     logger.info("sproto_arena created " + id);
     return id;
   }
@@ -537,6 +756,7 @@ namespace SprotoArena {
     var names: { [userId: string]: string } = {};
     names[ctx.userId!] = String(ctx.username || "").slice(0, 32);
     var matchId = nk.matchCreate(MATCH_NAME, { players: JSON.stringify([ctx.userId]), names: JSON.stringify(names), v: NET_VERSION, private: "1", code: code });
+    SprotoMm.setLive(nk, ctx.userId || "", matchId);
     logger.info("sproto_arena room " + code + " " + matchId);
     return JSON.stringify({ matchId: matchId, code: code });
   }
@@ -582,6 +802,9 @@ function rpcSprotoRoomCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, n
 }
 function rpcSprotoRoomJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return SprotoArena.rpcRoomJoin(ctx, logger, nk, payload);
+}
+function rpcSprotoStandaloneSession(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return SprotoStandalone.session(ctx, logger, nk, payload);
 }
 
 HubGames.register({ game: SprotoArena.GAME_ID, matchmaker: SprotoArena.onMatched });

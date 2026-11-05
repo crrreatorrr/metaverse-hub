@@ -27,6 +27,7 @@ import {
   canonical,
   disarm,
   earn,
+  fundLegal,
   ensureNakama,
   faulted,
   guest,
@@ -499,8 +500,7 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
     assert.equal(body.sessionCapLeft, cap);
     assert.equal(body.dailyCapLeft, TICKET_DAILY_CAP);
     assert.equal(cap % 20, 0, `session cap ${cap} is not a multiple of a sproto win of 20`);
-    await earn(session.gameToken, 20, 'win', 'bal-earn-a');
-    await earn(session.gameToken, 20, 'win', 'bal-earn-b');
+    await fundLegal(session.gameToken, 'sproto', 40, 'win', 'bal-earn');
     const afterEarn = await call('tickets.balance', { game: 'sproto', sessionCapLeft: 99999, dailyCapLeft: 99999 }, session.gameToken);
     const earned = afterEarn.body as Record<string, unknown>;
     assert.equal(earned.sessionCapLeft, cap - 40);
@@ -515,12 +515,6 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
     const rolled = await call('tickets.balance', { game: 'sproto' }, session.gameToken);
     const nextDay = rolled.body as Record<string, unknown>;
     assert.equal(nextDay.dailyCapLeft, TICKET_DAILY_CAP);
-    const room = cap - 40;
-    for (let i = 0; i < room / 20; i += 1) {
-      await earn(session.gameToken, 20, 'win', `bal-fill-${i}`);
-    }
-    const full = ticketBalance(session.hub.userId, 'sproto');
-    assert.equal(full, 30 + room);
     const tooMuch = await call('tickets.earn', {
       amount: 20,
       reason: 'win',
@@ -528,7 +522,7 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
       sessionCapLeft: 99999,
       dailyCapLeft: 99999,
     }, session.gameToken);
-    assert.equal(tooMuch.body.error, 'session_ticket_cap', JSON.stringify(tooMuch.body));
+    assert.equal(tooMuch.body.error, 'amount_over_rule', JSON.stringify(tooMuch.body));
     const liedAgain = await call('tickets.earn', {
       amount: 20,
       reason: 'win',
@@ -536,8 +530,8 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
       sessionCapLeft: 99999,
       dailyCapLeft: 99999,
     }, session.gameToken);
-    assert.equal(liedAgain.body.error, 'session_ticket_cap', JSON.stringify(liedAgain.body));
-    assert.equal(ticketBalance(session.hub.userId, 'sproto'), full);
+    assert.equal(liedAgain.body.error, 'amount_over_rule', JSON.stringify(liedAgain.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 30);
     assert.equal(idempotencyRows(session.hub.userId, 'bal-lie'), 0);
   });
 }
@@ -546,7 +540,7 @@ async function runPeoplesBitcoinHub(runner: GateRunner): Promise<void> {
   const names = [
     ['idempotency', 'peoples-bitcoin quest key pays once'],
     ['wallet', 'peoples-bitcoin earn reasons pb_drop pb_lobby pb_sell pb_quest'],
-    ['idempotency', 'peoples-bitcoin quest_complete with tick grants genesis_shard'],
+    ['idempotency', 'peoples-bitcoin quest_complete with tick holds genesis_shard'],
     ['forged', 'hub accepts game id peoples-bitcoin'],
   ] as const;
   if (!peoplesBitcoinHub()) {
@@ -579,27 +573,41 @@ async function runPeoplesBitcoinHub(runner: GateRunner): Promise<void> {
     assert.equal(ticketBalance(session.hub.userId, GAME), 10);
     assert.equal(num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(session.hub.userId)}' AND delta > 0`), 1);
   });
-  await runner.test('idempotency', 'peoples-bitcoin quest_complete with tick grants genesis_shard', async () => {
+  await runner.test('idempotency', 'peoples-bitcoin quest_complete with tick holds genesis_shard', async () => {
     const session = await login(GAME);
+    const user = session.hub.userId;
     const granted = await call('session.event', {
       eventId: 'pb.quest_complete',
       data: { questId: 'quest_tutorial', tick: 3 },
       key: 'pb-relic-key',
     }, session.gameToken);
-    assert.equal(granted.body.granted, 'genesis_shard', JSON.stringify(granted.body));
+    const detail = JSON.stringify(granted.body);
+    assert.equal(granted.body.error, undefined, detail);
+    assert.equal(granted.body.granted, undefined, detail);
+    assert.deepEqual((granted.body as { granted_items?: string[] }).granted_items ?? [], [], detail);
+    assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(user)}' AND relic_id = 'genesis_shard'`), 0);
+    assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(user)}' AND relic_id = 'genesis_shard'`), 1);
+    assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'genesis_shard'`), 0);
+    assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'peoples-bitcoin'`), 0);
+    assert.equal(ticketBalance(user, GAME), 0);
+    assert.equal(verseBalance(user), 0);
     const again = await call('session.event', {
       eventId: 'pb.quest_complete',
       data: { questId: 'quest_tutorial', tick: 9 },
       key: 'pb-relic-other',
     }, session.gameToken);
+    assert.equal(again.body.error, undefined, JSON.stringify(again.body));
     assert.equal(again.body.granted, undefined, JSON.stringify(again.body));
-    assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(session.hub.userId)}' AND item_id = 'genesis_shard' AND op = 'grant_relic'`), 1);
+    assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(user)}' AND relic_id = 'genesis_shard'`), 1);
+    assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'genesis_shard'`), 0);
     const wrong = await call('session.event', {
       eventId: 'pb.quest_complete',
       data: { questId: 'quest_other', tick: 3 },
       key: 'pb-relic-wrong',
     }, session.gameToken);
     assert.equal(wrong.body.granted, undefined, JSON.stringify(wrong.body));
+    assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(user)}' AND relic_id = 'genesis_shard'`), 1);
+    assert.equal(ticketBalance(user, GAME), 0);
   });
 }
 

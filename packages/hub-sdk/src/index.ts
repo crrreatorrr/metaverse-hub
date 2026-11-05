@@ -22,6 +22,7 @@ export type {
   EventResult,
   ExchangeResult,
   GameId,
+  HubGateView,
   HubSdk,
   HubSessionInfo,
   InitResult,
