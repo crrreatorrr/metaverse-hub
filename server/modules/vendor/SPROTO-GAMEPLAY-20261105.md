@@ -1,9 +1,10 @@
 # Sproto Fighter gameplay bundle refresh
 
-The generated verifier bundle matches Fighter simulation `7d0ce00ef52b567a`
-from the staged gameplay implementation ending at Fighter PR #29. This replaces
+The generated verifier bundle matches Fighter simulation `a4c7ddde49ec5a64`
+from the gameplay implementation merged through Fighter PR #30 at
+`b3499355922f85095e2409f7c170e264a5d3910c`. This replaces
 hub main's `dc3a64b592b94faf`; Fighter main was already at `af94139cc59e4dfd`.
-This is a reviewable source refresh, not a production deployment.
+The source merge is authorized; production deployment is separate.
 
 The client and verifier must be released as a matching pair. Optional local
 round rules remain disabled online; the bundle includes the same seeded CPU
@@ -17,5 +18,7 @@ rematch with Tickets conserved and experimental round flags disabled. Direct
 WebRTC was not established in this environment; no claim is made for TURN or a
 production hub. Test accounts and dev keys were local and were not committed.
 
-Roster fairness and story difficulty calibration are still draft criteria in
-the Fighter repository. No source SDK contract or hub economy rule was changed.
+Roster fairness and story difficulty acceptance remain unmet in the Fighter
+repository (12/7 Normal/Hard fighters outside 35–65%; opening 1/256 and finale
+131/256 CPU wins against the unchanged reference). Human playtesting, transformed
+boss difficulty/modifiers and direct WebRTC remain unverified. No source SDK contract or hub economy rule was changed.
