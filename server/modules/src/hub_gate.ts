@@ -72,6 +72,12 @@ namespace HubGate {
     gates: GateRow[];
   }
 
+  var SESSION_GATE_SQL = [
+    "SELECT COALESCE(json_agg(gate_id ORDER BY gate_id), '[]'::json)::text AS result",
+    "FROM game.hub_gate",
+    "WHERE action_type = 'session' AND target = $1",
+  ].join("\n");
+
   var SNAPSHOT_SQL = [
     "SELECT jsonb_build_object(",
     "  'owned', COALESCE(to_json(game.owned_item_ids($1::uuid)), '[]'::json),",
@@ -248,6 +254,22 @@ namespace HubGate {
   }
 
   /**
+   * Gate ids whose session target is this game id. `[]` means no session gate,
+   * so the caller leaves the game ungated. `null` is a read error: fail closed.
+   * This does not return missing item ids.
+   */
+  export function sessionGateIds(nk: nkruntime.Nakama, target: string): string[] | null {
+    if (!target) return [];
+    try {
+      var rows = nk.sqlQuery(SESSION_GATE_SQL, [target]);
+      if (!rows || !rows.length || rows[0].result === undefined || rows[0].result === null) return [];
+      return asStrings(rows[0].result);
+    } catch (_e) {
+      return null;
+    }
+  }
+
+  /**
    * Request-time check. Unknown gate, disabled gate, target not on the
    * allowlist, empty requirement, read error, bad user id, or guest → ok false.
    * missing is the unowned required ids when the gate itself is real and
@@ -307,4 +329,5 @@ namespace HubGate {
   }
 
   assertReadOnly(SNAPSHOT_SQL);
+  assertReadOnly(SESSION_GATE_SQL);
 }
