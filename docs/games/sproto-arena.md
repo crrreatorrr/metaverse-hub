@@ -29,19 +29,97 @@ client, the **host** (picked at random per match), runs the fight, and this matc
 | 16 | PEER | s→c | `{seat, present, graceS}` |
 | 17 | PING | c→s→c | `{c}` → `{c, s: tick}` |
 | 18 | FORFEIT | c→s | `{}` |
+| 19 | ACCEPT | c→s | `{v, staff?}`. Quick-match accept window only. `v` is required unless this seat already sent HELLO with the matching version; a bad `v` is CANCEL `version_mismatch`. `staff` is normalised the same way as HELLO. |
+| 20 | DECLINE | c→s | `{}`. Accept window only. Ends the match (see below). |
+| 21 | FOUND | s→one seat | `{acceptS: 10, seat, accepted: [boolean, boolean], names: [string, string]}`. Sent to a seat when it joins a quick match, and to both seats whenever one of them accepts. |
+| 22 | ACCEPT_END | s→each present seat | `{status: "declined" \| "accept_timeout", bySeat: number \| null, next: "queue" \| "lobby"}`. `next` is that seat's own next step. Nothing is paid and nothing is written to `sproto_wins` or `sproto_pvp_result`. |
+| 23 | REMATCH | c→s | `{yes: boolean}`. Only while a rematch window is open (see below). |
+| 24 | REMATCH_STATE | s→both | One of: `{phase: "open", waitS: 15}`, `{phase: "offered", seat, waitS: 15}`, `{phase: "started", matchId, waitS: 0}`, `{phase: "closed", reason: "declined" \| "rematch_timeout", next: "lobby", waitS: 0}`. |
 
-Opcodes are per match (C8). `NET_VERSION` here and in `sproto-duel/src/net/protocol.ts` must match.
+Opcodes are per match (C8). `NET_VERSION` is `"2"`. It must match `sproto-duel/src/net/protocol.ts`.
+
+## Accept window (quick match only)
+
+A matchmaker pair is created in phase `accept`, not `joining`. The 10 second clock (`ACCEPT_S`) starts when the match is created. Both seats must be present and must each send ACCEPT (and a matching version, via ACCEPT or an earlier HELLO) before the clock fires. When both have, the fight starts exactly as before: phase `playing`, and each seat gets START.
+
+Private rooms and rematch matches skip this window. Both players already chose each other, so those matches stay on the old path: phase `joining`, both HELLO, then START. They do not send or expect FOUND / ACCEPT / ACCEPT_END.
+
+| How it ends | `status` | Who gets `next: "queue"` | Who gets `next: "lobby"` |
+|---|---|---|---|
+| One seat sends DECLINE, or leaves | `declined` | the other seat | the seat that declined or left (`bySeat` is that seat) |
+| 10 s elapses | `accept_timeout` | each seat that sent ACCEPT | each seat that did not (`bySeat` is `null`) |
+
+A seat that never joined does not get ACCEPT_END. If it joins after the window, `matchJoinAttempt` rejects with `declined` or `accept_timeout` (not `match_over`). Treat `declined` as "re-queue if you did not send DECLINE". Treat `accept_timeout` as lobby if you never accepted.
+
+CANCEL is unchanged for `version_mismatch`, `join_timeout`, `opponent_left`, and `room_expired`. Those are not accept-window results.
+
+## Rematch
+
+After any finished outcome except `server_shutdown`, if both sockets are still in the match, the server sends REMATCH_STATE `{phase: "open", waitS: 15}`. Either seat may then:
+
+- `{yes: true}` with no offer yet: that seat offers. Both get `{phase: "offered", seat, waitS: 15}` and the 15 s clock restarts.
+- `{yes: true}` from the other seat: the server creates **one** new `sproto_arena` match (host rolled again, new seed, same two players, same seat order) and sends `{phase: "started", matchId, waitS: 0}`. A repeat yes sends the same `matchId` and does not create another match. The new match skips the accept window (`rematch: "1"`). Both join it and HELLO, then START, as a private room does. Creating the rematch mints no Tickets.
+- `{yes: false}`, or either seat leaving: `{phase: "closed", reason: "declined", next: "lobby", waitS: 0}`.
+- Nobody offers, or the offer is not accepted, within 15 s: `{phase: "closed", reason: "rematch_timeout", next: "lobby", waitS: 0}`.
+
+The old match then lingers 2 s and ends. A shutdown does not open a rematch window.
+
+## Queue leave and one match per pair
+
+Quick match is still `addMatchmaker` / `removeMatchmaker` on the socket (2 players, `+properties.game:sproto +properties.v:2`, string properties `{game: "sproto", v: "2"}`). Leaving the queue is Nakama's `MatchmakerRemove` with the ticket the add returned. The server's `MatchmakerRemove` before-hook drops that session's queue row so the same player can search again.
+
+`MatchmakerAdd` for `game: "sproto"` is rejected, after the usual scope check, with:
+
+- `already_queued` — this user already has a sproto queue row for a socket that is still connected. The same session is always rejected. A different session is rejected only while `streamUserGet` still finds it on the notifications stream (mode 0, subject = that user), which is the stream every socket joins and leaves when the socket drops. A row whose session is absent is replaced by this ticket. Two live sockets that add together are serialised by the storage version: one write wins, the other reads that row and is rejected. Nakama 3.41's JavaScript runtime has no session-end hook, so the row is cleared on the next add rather than at the instant of the disconnect. There is no timed hold.
+- `already_in_match` — this user is seated in a live `sproto_arena` match (quick match, private room, or a rematch that was just created).
+
+Nakama 3.41 does not pass the matchmaker ticket into the JavaScript matched hook. The pair key is `sha256` of the sorted `t:<ticket>` values when a ticket is present, otherwise `p:<userId>:<sessionId>`. A second matched call for that key, while the match still exists, returns the same match id and does not call `matchCreate` again. If either user is already seated in a different live match, the hook creates nothing.
+
+Joining a match while seated in a different live one is rejected with `already_in_match`.
+
+## Online count
+
+`sproto.online_count` with an empty payload. Caller must be a `sproto` game session (guests included); otherwise `wrong_scope`.
+
+Response: `{online: number, queued: number, ageMs: number}`.
+
+- `online` is the sum of `size` over at most 100 authoritative matches with `+label.kind:sproto_arena` (players already in a match, including the accept window).
+- `queued` is this node's count of sproto queue rows.
+- The handler recomputes at most once every 3 seconds per node. A call inside that window returns the cached counts and a non-zero `ageMs`. The RPC only reads.
 
 ## Joining
 
-- **Quick match:** `addMatchmaker({query: "+properties.game:sproto +properties.v:<V>", minCount: 2, maxCount: 2,
-  stringProperties: {game: "sproto", v}})`. `HubGames` routes `game: "sproto"` to `SprotoArena.onMatched`, which
-  pairs two different users of the same version.
+- **Quick match:** `addMatchmaker({query: "+properties.game:sproto +properties.v:2", minCount: 2, maxCount: 2,
+  stringProperties: {game: "sproto", v: "2"}})`. `HubGames` routes `game: "sproto"` to `SprotoArena.onMatched`, which
+  pairs two different users of the same version and starts the accept window above.
 - **Private room:** `sproto.room_create {v}` → `{matchId, code}` (6 characters from `23456789ABCDEFGHJKMNPQRSTUVWXYZ`).
   `sproto.room_join {code, v}` → `{matchId}` via `+label.kind:sproto_arena +label.code:<code> +label.open:T`, or
   `room_not_found` / `version_mismatch`. The creator joins its match id directly (listings lag about 1 s).
 - Only game-scope sessions of `sproto` may join (`wrong_scope` otherwise); `ctx.vars.sid` is kept per player
-  for Ticket grants. Label: `{"game":"sproto","kind":"sproto_arena","v":"1","open":bool,"code":""|"ABC234"}`.
+  for Ticket grants. Label: `{"game":"sproto","kind":"sproto_arena","v":"2","open":bool,"code":""|"ABC234"}`.
+  Private rooms do not use the accept window.
+
+## Standalone session (no portal ticket)
+
+A visitor who never entered the plaza portal still gets a session this match accepts, and only for 0-Ticket play. The portal `t:` custom-auth path is unchanged.
+
+1. Device or email auth, as today. `beforeAuthenticateDevice` / email auth forces `{scope:"hub"}` and drops client vars.
+2. That hub session calls `sproto.standalone_session` with `{"app":"sproto-duel"}`. `app` is a public marker, not a secret. Any other field is ignored. The client does not choose `scope`, `game`, `sid`, or `ranked`.
+3. The server mints a token with `nk.authenticateTokenGenerate`. Its vars are exactly `{scope:"game", game:"sproto", sid:<server uuid>, ranked:"0"}`. The reply is `{token, exp, sid}`. There is no refresh token; the access token lasts `token_expiry_sec` (7200). Open the socket with this token. Refreshing the original hub refresh token stays scope `hub`.
+
+Nakama stores those vars in the session JWT (`vrs`). Match join, `sproto.room_create`, `sproto.room_join`, and the matchmaker read `ctx.vars` from it, the same way they read a portal game token.
+
+Rate limits are storage counters (one row per bucket, claimed with the row version so concurrent calls cannot share a slot), counted only after the marker and the hub-scope check:
+
+| Bucket | Limit | Window |
+| --- | --- | --- |
+| user id | 10 | 10 minutes |
+| each linked device id | 10 | 10 minutes |
+| client IP (`ctx.clientIp`), when Nakama set one | 40 | 10 minutes |
+
+A full bucket answers `{error:"rate_limited"}` and does not mint. Other errors: `unauthorized`, `wrong_scope`, `bad_json`, `bad_app`, `mint_failed`.
+
+`ranked:"0"` does not wager and does not earn Tickets from this match: a verified or forfeit win still calls `HubBoards.recordWin` (`sproto_wins`) and skips `HubEconomy.earn` and the paid-cap row. The standalone `sid` is not a `game.game_session` row, so `tickets.earn`, `session.event`, `tickets.spend`, `tickets.sell`, and `tickets.exchange` come back `session_closed` from SQL. `save.put` does not mint Tickets, Relics, or items. Sproto Fighter wagers stay on the hub session. This token's game is `sproto`, so a Fighter matchmaker ticket is `wrong_game` and never reaches `sproto_wager_hold`.
 
 ## Referee
 
@@ -57,7 +135,7 @@ Opcodes are per match (C8). `NET_VERSION` here and in `sproto-duel/src/net/proto
 | Over 8 minutes | `timeout` | no |
 | matchTerminate | `server_shutdown` | no |
 
-Host gone means the match is over (no host migration in v1): the guest wins by forfeit under the same rules.
+Host gone ends the match without host migration: the guest wins by forfeit under the same rules. Online wins pay 0 Tickets for every ranked marker. Only an explicit `ranked: "1"` writes the legacy cap/result row; all markers still record eligible wins on `sproto_wins`.
 
 ## Tickets and the board
 
@@ -66,6 +144,7 @@ On a verified win, or a forfeit after at least one finished round and 15 seconds
 pair/daily cap decision (fewer than 5 paid rows for the pair today and fewer than 10 for the winner, UTC).
 It no longer causes a Ticket mint. `HubBoards.recordWin(winner, "sproto_wins", matchId)` still runs for every
 verified or forfeit win. `payout` does not call `HubEconomy.earn`.
+Guest wins use the same board path. Accept-window endings and rematch creation grant nothing.
 
 Migration `0020_sproto_pvp` created `('sproto','srv_pvp_win', max_amount 20)`. Migration `0031_story_boss_tickets`
 sets that `max_amount` to 0, so a leftover earn of any positive amount returns `amount_over_rule`. `tickets.earn`
@@ -79,9 +158,10 @@ win no longer mints Tickets, so that path does not add to the 1000/day game cap.
 
 ## Tuning (server constants)
 
-`TICK_RATE 30`, `JOIN_TIMEOUT_S 30`, `ROOM_TIMEOUT_S 300`, `RECONNECT_S 10`, `STALL_S 10`, `MAX_PLAY_S 480`,
-`MIN_PLAY_S 15`, `LINGER_S 2`, `RESULT_WAIT_S 5`, `MIN_ROUND_S 2`, `MAX_MSGS_PER_TICK 4`, `PVP_WIN_TICKETS 0`,
-`PVP_PAIR_DAILY 5`, `PVP_DAILY_PAID_WINS 10`.
+`TICK_RATE 30`, `ACCEPT_S 10`, `REMATCH_S 15`, `JOIN_TIMEOUT_S 30`, `ROOM_TIMEOUT_S 300`, `RECONNECT_S 10`,
+`STALL_S 10`, `MAX_PLAY_S 480`, `MIN_PLAY_S 15`, `LINGER_S 2`, `RESULT_WAIT_S 5`, `MIN_ROUND_S 2`,
+`MAX_MSGS_PER_TICK 4`, `PVP_WIN_TICKETS 0`, `PVP_PAIR_DAILY 5`, `PVP_DAILY_PAID_WINS 10`.
+The menu count is cached for `COUNT_CACHE_S` 3. A queue row is reusable as soon as its socket is gone from the notifications stream.
 
 ## Verified live (2026-11-04, before migration 0031)
 

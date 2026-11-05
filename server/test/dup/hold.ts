@@ -37,6 +37,7 @@ const HELD_IDS = [
   'pet_spiral_sproto',
   'pet_moon_sproto',
   'pet_sproto_pup',
+  'hub_life_medal',
 ] as const;
 
 const SLUG = /^[a-z0-9_]+$/;
@@ -359,8 +360,9 @@ export async function runHold(test: TestFn): Promise<void> {
         assert.equal(num(`SELECT count(*) FROM game.item_owned WHERE user_id = '${sqlId(user)}' AND item_id = '${pair.id}'`), 1, detail);
         assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = '${pair.id}' AND op = 'grant_item'`), 1, detail);
       }
-      const paid = typeof result.body.tickets === 'number' ? result.body.tickets : 0;
-      assert.equal(ticketBalance(user, pair.game), beforeTickets + paid, detail);
+      const bossTickets = pair.game === 'sproto' ? 20 : 0;
+      assert.equal((result.body as { tickets?: number }).tickets ?? 0, bossTickets, detail);
+      assert.equal(ticketBalance(user, pair.game), beforeTickets + bossTickets, detail);
       assert.equal(verseBalance(user), 0, detail);
     }
   });

@@ -87,6 +87,26 @@ node scripts/build-sim-bundle.mjs --out ../metaverse-hub/server/modules/vendor/s
 Clients with a different fingerprint never match each other, and a `HELLO` with
 a fingerprint other than the server's is cancelled (`sim_mismatch`).
 
+## Standalone Sproto Duel (0 Ticket, no portal ticket)
+
+This page's wager path is Sproto Fighter on a **hub** session. It is unchanged, including the `t:` portal custom-auth path (that path is not used for Fighter matchmaking).
+
+Sproto Duel (game id `sproto`, match `sproto_arena`) can also be played with no portal ticket. A hub session from device or email auth calls `sproto.standalone_session` with `{"app":"sproto-duel"}`. That `app` value is a public marker, not a secret, and it grants nothing beyond the session below. The client does not choose vars. Any other payload field is ignored.
+
+The server mints a token whose vars are exactly:
+
+```json
+{"scope":"game","game":"sproto","sid":"<server uuid>","ranked":"0"}
+```
+
+The reply is `{token, exp, sid}`. Use that token for the socket. It is an access token only (`token_expiry_sec`, 7200). Refreshing the hub refresh token stays `{scope:"hub"}`.
+
+`ranked:"0"` cannot wager, earn Tickets, or take a Fighter stake. The arena skips `HubEconomy.earn` for that var and still posts `sproto_wins`. The minted `sid` is not a `game.game_session` row, so `tickets.earn`, `session.event` / `apply_event`, `tickets.spend`, `tickets.sell`, and `tickets.exchange` return `session_closed`. `save.put` stores progress only and does not mint Tickets, Relics, or items. This token's game is `sproto`, so a Fighter matchmaker ticket is `wrong_game` and `sproto_wager_hold` does not run. Fighter stays hub-scope only.
+
+Rate limits on `sproto.standalone_session` (storage counters, 10-minute window, claimed with the row version): 10 per user id, 10 per linked device id, 40 per client IP when Nakama supplies `ctx.clientIp`. A count over the limit is rolled back and the call is `rate_limited`. A full bucket mints nothing.
+
+Details and the arena referee live in `docs/games/sproto-arena.md`.
+
 ## Local testing
 
 `sproto.dev_replay` replays a match log and answers only when Nakama runs with

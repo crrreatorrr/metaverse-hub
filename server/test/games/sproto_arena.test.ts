@@ -10,9 +10,9 @@ const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SID_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
 const SID_B = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
-const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18 };
+const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18, ACCEPT: 19, ACCEPT_END: 22 };
 const TICK = 30;
-const V = '1';
+const V = '2';
 
 const vars = (sid: string) => ({ scope: 'game', game: 'sproto', sid });
 
@@ -31,8 +31,14 @@ interface Arena {
   ticketSql: number;
 }
 
-/** A quick-match pair through the matchmaker, both joined and HELLO'd, START sent. */
-function start(opts: { paid?: boolean } = {}): Arena {
+/** A quick-match pair through the matchmaker, both joined, HELLO'd and ACCEPTed, START sent. */
+function sessionVars(sid: string, ranked?: string): Record<string, string> {
+  const v: Record<string, string> = { scope: 'game', game: 'sproto', sid };
+  if (ranked !== undefined) v.ranked = ranked;
+  return v;
+}
+
+function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
   const mod = loadModule();
   const earns: unknown[][] = [];
   const wins: unknown[][] = [];
@@ -57,9 +63,14 @@ function start(opts: { paid?: boolean } = {}): Arena {
   assert.ok(id, 'sproto pair creates a match');
   assert.equal(mod.nk.matches.get(id!)?.module, 'sproto_arena');
   const m = mod.driver(id!);
-  assert.deepEqual(m.join([pa], { vars: vars(SID_A) }).map((v) => v.accept), [true]);
-  assert.deepEqual(m.join([pb], { vars: vars(SID_B) }).map((v) => v.accept), [true]);
-  m.loop([{ sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_nobu' } }, { sender: pb, opCode: OP.HELLO, data: { v: V, staff: 'nope' } }]);
+  assert.deepEqual(m.join([pa], { vars: sessionVars(SID_A, opts.ranked) }).map((v) => v.accept), [true]);
+  assert.deepEqual(m.join([pb], { vars: sessionVars(SID_B, opts.ranked) }).map((v) => v.accept), [true]);
+  m.loop([
+    { sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_nobu' } },
+    { sender: pb, opCode: OP.HELLO, data: { v: V, staff: 'nope' } },
+    { sender: pa, opCode: OP.ACCEPT, data: { v: V } },
+    { sender: pb, opCode: OP.ACCEPT, data: { v: V } },
+  ]);
   const starts = m.dispatcher.sent<{ seat: number; hostSeat: number; names: string[]; staffs: string[] }>(OP.START);
   assert.equal(starts.length, 2);
   assert.deepEqual(starts.map((s) => s.body.seat).sort(), [0, 1]);
@@ -120,8 +131,8 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   ]);
   assert.equal(mod.nk.matches.get(fighter!)?.module, 'sproto_duel');
   // Mismatched versions or the same user never pair.
-  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: '1' } }, { presence: presence(B), properties: { game: 'sproto', v: '0' } }]), undefined);
-  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: '1' } }, { presence: presence(A, 'a2', 's2'), properties: { game: 'sproto', v: '1' } }]), undefined);
+  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(B), properties: { game: 'sproto', v: '1' } }]), undefined);
+  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(A, 'a2', 's2'), properties: { game: 'sproto', v: V } }]), undefined);
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
   const mig = HubSchema.all().find((x) => x.id === '0020_sproto_pvp');
   assert.ok(mig, 'migration 0020 registered');
@@ -148,14 +159,20 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   assert.equal(m.ticks(2 * TICK + 1), false, 'match ends after the linger');
 }
 
-// Join timeout: one player never shows up.
+// Quick match: one player joins and never accepts. The 10s window ends the match.
 {
   const mod = loadModule();
   const id = mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(B), properties: { game: 'sproto', v: V } }]);
   const m = mod.driver(id!);
   m.join([presence(A)], { vars: vars(SID_A) });
   m.ticks(31 * TICK);
-  assert.equal(m.dispatcher.sent<{ reason: string }>(OP.CANCEL)[0]?.body.reason, 'join_timeout');
+  const ended = m.dispatcher.sent<{ status: string; bySeat: number | null; next: string }>(OP.ACCEPT_END);
+  assert.equal(ended.length, 1, 'the seat that never joined is not present');
+  assert.equal(ended[0]?.body.status, 'accept_timeout');
+  assert.equal(ended[0]?.body.bySeat, null);
+  assert.equal(ended[0]?.body.next, 'lobby');
+  assert.equal(m.dispatcher.sent(OP.CANCEL).length, 0);
+  assert.equal(m.dispatcher.sent(OP.START).length, 0);
 }
 
 // Relay: guest INPUT only to the host, host SNAPSHOT only to the guest; the other directions are dropped.
@@ -188,7 +205,7 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
 
 // Agreed results → verified, no Ticket mint, the board updated.
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   const winner = a.hostSeat;
   const wins = winner === 0 ? [2, 0] : [0, 2];
   play(a, 10);
@@ -244,7 +261,7 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
 
 // A player leaves for good → forfeit after the grace (a round finished, past MIN_PLAY). No Ticket mint.
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   play(a, 16);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 1 - a.hostSeat, reason: 'ko', wins: a.hostSeat === 0 ? [0, 1] : [1, 0] } }]);
   a.m.leave([a.guest]);
@@ -298,9 +315,9 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   assert.equal(out.winnerSeat, a.hostSeat);
 }
 
-// Pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
+// ranked "1" only: pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
 {
-  const a = start({ paid: false });
+  const a = start({ paid: false, ranked: '1' });
   play(a, 10);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 0, reason: 'ko', wins: [1, 0] } }]);
   play(a, 10);
@@ -363,6 +380,48 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   play(a, 1);
   a.m.terminate(0);
   assert.equal(outcome(a)[0]?.body.status, 'server_shutdown');
+}
+
+/** Agreed 2-0 for seat 0, long enough to be a verified result. */
+function agreeSeat0(a: Arena): void {
+  play(a, 10);
+  a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 0, reason: 'ko', wins: [1, 0] } }]);
+  play(a, 10);
+  a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 2, winnerSeat: 0, reason: 'time', wins: [2, 0] } }]);
+  a.m.loop([
+    { sender: a.host, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+    { sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+  ]);
+}
+
+/** Missing, empty, "0", or any other value: 0 T, no cap row, the win recorded once. */
+function expectUnpaid(a: Arena, label: string): void {
+  const out = outcome(a);
+  assert.equal(out[0]?.body.status, 'verified', label);
+  assert.equal(out[0]?.body.winnerSeat, 0, label);
+  assert.deepEqual(plain(out[0]!.body.paid), {}, `${label} pays 0 T`);
+  assert.equal(a.payRows.length, 0, `${label} skips the sproto_pvp_result cap insert`);
+  assert.equal(a.earns.length, 0, `${label} does not call earn`);
+  assert.equal(a.wins.length, 1, `${label} records the win once`);
+  a.m.loop([
+    { sender: a.host, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+    { sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+  ]);
+  assert.equal(a.payRows.length, 0, label);
+  assert.equal(a.earns.length, 0, label);
+  assert.equal(a.wins.length, 1, `${label} replay does not record a second win or mint`);
+}
+
+// Pay only for ranked "1". Omitted, empty, "0", and any other value stay 0 T.
+{
+  const omitted = start();
+  agreeSeat0(omitted);
+  expectUnpaid(omitted, 'omitted ranked');
+  for (const ranked of ['', '0', '2']) {
+    const a = start({ ranked });
+    agreeSeat0(a);
+    expectUnpaid(a, `ranked ${JSON.stringify(ranked)}`);
+  }
 }
 
 console.log('sproto_arena tests ok');

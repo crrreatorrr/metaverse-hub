@@ -29,6 +29,7 @@
     "src/leaderboard.ts",
     "src/effects.ts",
     "src/fault.ts",
+    "src/hub_gate.ts",
     "src/rpcs.ts",
     "src/chat_words.ts",
     "src/chat_guard.ts",
