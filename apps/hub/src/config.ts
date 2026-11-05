@@ -1,4 +1,5 @@
 import type { GameId, RelicId } from '@metaverse/hub-sdk';
+import { MOVEMENT } from './core/movement';
 
 /**
  * Plaza layout. Each portal's page is `gameUrl` in `games.ts` (`GAME_URLS`).
@@ -54,22 +55,22 @@ export const PILLAR_HEIGHT = 3.05;
 export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
 /** 1.5× the previous 5.2 m/s walk. */
-export const WALK_SPEED = 7.8;
+export const WALK_SPEED = MOVEMENT.walk;
 /** Shift sprint: Ken's 16 m/s Sonic-style dash (P4). Explicit, not a multiple of walk. */
-export const SPRINT_SPEED = 16;
-export const CAMERA_ARM = 7.6;
-export const CAMERA_FOV = 78;
+export const SPRINT_SPEED = MOVEMENT.sprint;
+export const CAMERA_ARM = MOVEMENT.cameraArm;
+export const CAMERA_FOV = MOVEMENT.fov;
 /**
  * Body height the plaza used before the size bump. The baked staff is taller
  * than this and is not part of the fit.
  */
-export const AVATAR_BODY_REFERENCE = 1.75;
+export const AVATAR_BODY_REFERENCE = MOVEMENT.bodyReference;
 /** Ken's size bump, inside the 1.2–1.3 range. */
-export const AVATAR_SCALE = 1.25;
+export const AVATAR_SCALE = MOVEMENT.bodyScale;
 /** Fitted body height. Collider and camera use this, not the staff tip. */
 export const AVATAR_HEIGHT = AVATAR_BODY_REFERENCE * AVATAR_SCALE;
 /** Look target below the capsule origin, scaled with the body. */
-export const CAMERA_LOOK_DROP = 0.15 * (AVATAR_HEIGHT / AVATAR_BODY_REFERENCE);
+export const CAMERA_LOOK_DROP = MOVEMENT.lookDrop * (AVATAR_HEIGHT / AVATAR_BODY_REFERENCE);
 /**
  * Player model path under the site base. Remote players use this same file.
  * Sproto Duel's rigged `wizard_player.glb`: no baked staff, and a

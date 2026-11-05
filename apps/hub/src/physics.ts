@@ -1,16 +1,16 @@
 import { Box3, Line3, Vector3 } from 'three';
 import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from 'three-mesh-bvh';
-import { AVATAR_BODY_REFERENCE, AVATAR_HEIGHT } from './config';
+import { MOVEMENT } from './core/movement';
 
 /** Previous 0.34 / 1.08 capsule matched a 1.75 m body. Scale with that body, not the staff. */
-const BODY_SCALE = AVATAR_HEIGHT / AVATAR_BODY_REFERENCE;
-export const CAPSULE_RADIUS = 0.34 * BODY_SCALE;
-export const CAPSULE_LENGTH = 1.08 * BODY_SCALE;
+const BODY_SCALE = MOVEMENT.bodyScale;
+export const CAPSULE_RADIUS = MOVEMENT.capsuleRadius * BODY_SCALE;
+export const CAPSULE_LENGTH = MOVEMENT.capsuleLength * BODY_SCALE;
 /** Player origin is the top of the capsule segment. Feet rest on y = 0. */
-export const STAND_Y = CAPSULE_RADIUS + CAPSULE_LENGTH;
+export const STAND_Y = MOVEMENT.standHeight;
 
-const GRAVITY = -28;
-const JUMP_VELOCITY = 6.4;
+const GRAVITY = MOVEMENT.gravity;
+const JUMP_VELOCITY = MOVEMENT.jump;
 
 export interface MoveInput {
   forward: number;
@@ -64,7 +64,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
   function substep(dt: number, input: MoveInput, speeds: MoveSpeeds): void {
     if (grounded) velocity.y = dt * GRAVITY;
     else velocity.y += dt * GRAVITY;
-    velocity.y = Math.max(velocity.y, -40);
+    velocity.y = Math.max(velocity.y, MOVEMENT.terminal);
 
     position.addScaledVector(velocity, dt);
 

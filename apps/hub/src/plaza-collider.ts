@@ -4,7 +4,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Collider } from './collider';
 import { CLUB_COLLIDERS } from './v2/club-interior-colliders';
 import { BELT_PLINTH_BOX } from './v2/arcade-layout';
-import { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './v2/billboard';
+import { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './v2/billboard-layout';
 
 function positionsOnly(source: BufferGeometry): BufferGeometry {
   const geo = source.index ? source.toNonIndexed() : source.clone();

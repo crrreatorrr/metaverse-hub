@@ -1,3 +1,4 @@
+import { MOVEMENT } from './core/movement';
 import {
   HubSdkError,
   createNakamaClient,
@@ -48,8 +49,8 @@ import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalD
 
 const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
 const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
-const CAMERA_YAW_RATE = 1.8;
-const CAMERA_PITCH_RATE = 1.15;
+const CAMERA_YAW_RATE = MOVEMENT.yawRate;
+const CAMERA_PITCH_RATE = MOVEMENT.pitchRate;
 
 const appQuery = document.querySelector('#app');
 const hintQuery = document.querySelector('#hint');
@@ -97,7 +98,7 @@ if (petParam) void world.setPet(petParam);
 
 const keys = new Set<string>();
 let yaw = initial.yaw;
-let pitch = 0.28;
+let pitch: number = MOVEMENT.initialPitch;
 let dragging = false;
 let jumpQueued = false;
 let traveling = false;
@@ -280,9 +281,9 @@ window.addEventListener('pointerup', () => {
 window.addEventListener('pointermove', (event) => {
   if (menu.open) return;
   if (document.pointerLockElement !== canvas && !dragging) return;
-  yaw -= event.movementX * 0.0017;
-  pitch -= event.movementY * 0.0014;
-  pitch = MathUtils.clamp(pitch, -0.42, 1.05);
+  yaw -= event.movementX * MOVEMENT.mouseYaw;
+  pitch -= event.movementY * MOVEMENT.mousePitch;
+  pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
 });
 
 window.addEventListener('resize', () => {
@@ -373,7 +374,7 @@ function orbitCamera(dt: number): void {
   const pitchInput = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
   yaw += yawInput * CAMERA_YAW_RATE * dt;
   pitch += pitchInput * CAMERA_PITCH_RATE * dt;
-  pitch = MathUtils.clamp(pitch, -0.42, 1.05);
+  pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
 }
 
 function readInput(): MoveInput {
@@ -422,7 +423,7 @@ function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number,
     ray.direction.copy(rayDir);
     const hit = world.collider.bvh.raycastFirst(ray, DoubleSide);
     if (hit && hit.distance < len && hit.distance > 0.05) {
-      out.copy(target).addScaledVector(rayDir, Math.max(1.25, hit.distance - 0.28));
+      out.copy(target).addScaledVector(rayDir, Math.max(MOVEMENT.armMin, hit.distance - MOVEMENT.armOffset));
     }
   }
   return out;
