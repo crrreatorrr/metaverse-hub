@@ -535,35 +535,35 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(economyTotals(), before);
   });
 
-  await runner.test('hub-gate', 'v-cabinet session start without hub_v_coin is GATE_LOCKED', async () => {
+  await runner.test('hub-gate', 'vcoin session start without hub_v_coin is GATE_LOCKED', async () => {
     const who = await claimed();
     const body = await profileOf(who.token);
     assert.equal(gateOf(body, 'hub_arcade_vcoin_game').unlocked, false);
-    const before = purse(who.userId, PLACEHOLDER_GAME_ID);
-    const started = await call('portal.enter', { game: PLACEHOLDER_GAME_ID, ranked: false }, who.token);
+    const before = purse(who.userId, 'vcoin');
+    const started = await call('portal.enter', { game: 'vcoin', ranked: false }, who.token);
     assert.equal(
       started.body.error,
       'GATE_LOCKED',
-      `repro: claimed account with no hub_v_coin calls portal.enter {game:'${PLACEHOLDER_GAME_ID}'}. Expected GATE_LOCKED and no ticket. Got ${started.status} ${JSON.stringify(started.body)}`,
+      `repro: claimed account with no hub_v_coin calls portal.enter {game:'vcoin'}. Expected GATE_LOCKED and no ticket. Got ${started.status} ${JSON.stringify(started.body)}`,
     );
     assert.equal(started.body.ticket, undefined);
-    assert.deepEqual(purse(who.userId, PLACEHOLDER_GAME_ID), before);
+    assert.deepEqual(purse(who.userId, 'vcoin'), before);
   });
 
-  await runner.test('hub-gate', 'v-cabinet session start with hub_v_coin opens and debits nothing', async () => {
+  await runner.test('hub-gate', 'vcoin session start with hub_v_coin opens and debits nothing', async () => {
     const who = await claimed();
     seedOwned(who.userId, ['hub_v_coin']);
     const body = await profileOf(who.token);
     assert.equal(gateOf(body, 'hub_arcade_vcoin_game').unlocked, true);
-    const before = purse(who.userId, PLACEHOLDER_GAME_ID);
-    const started = await call('portal.enter', { game: PLACEHOLDER_GAME_ID, ranked: false }, who.token);
+    const before = purse(who.userId, 'vcoin');
+    const started = await call('portal.enter', { game: 'vcoin', ranked: false }, who.token);
     assert.equal(
       started.body.error,
       undefined,
-      `repro: claimed account owning hub_v_coin calls portal.enter {game:'${PLACEHOLDER_GAME_ID}'}. Expected a ticket and 0 T/0 V. Got ${started.status} ${JSON.stringify(started.body)}`,
+      `repro: claimed account owning hub_v_coin calls portal.enter {game:'vcoin'}. Expected a ticket and 0 T/0 V. Got ${started.status} ${JSON.stringify(started.body)}`,
     );
     assert.equal(typeof started.body.ticket, 'string');
-    assert.deepEqual(purse(who.userId, PLACEHOLDER_GAME_ID), before);
+    assert.deepEqual(purse(who.userId, 'vcoin'), before);
     assert.equal(ownedCount(who.userId, 'hub_v_coin'), 1);
     assert.equal(verseBalance(who.userId), 0);
   });
