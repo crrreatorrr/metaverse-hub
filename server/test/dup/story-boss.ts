@@ -2,7 +2,9 @@
  * Story-boss Ticket grants (migration 0031_story_boss_tickets).
  * A listed boss pays 20 Tickets once per player per boss per UTC day through session.event.
  * The day is PostgreSQL now(). A client clock does not open a new day.
- * An event with no matching event_rule is a silent 0: no error, no credit, no ledger row, no stored key.
+ * An event with no matching event_rule is a silent 0: no named error, no Ticket credit,
+ * no ledger row. apply_event may store the session.event idempotency row for that
+ * empty result; a replay returns it and still does not credit.
  * A relic is granted only when a relic rule matches. NULL Belt tickets add 0 and do not revoke.
  * audit.sql runs from the suite wrapper after every case.
  */
@@ -156,7 +158,7 @@ function assertUnpaid(result: RpcResult, label: string): void {
   assert.equal(paid.granted, undefined, `${label} granted ${paid.granted}`);
 }
 
-/** A boss with no matching event_rule. No named error, no credit, no ledger row, no stored key. */
+/** A boss with no matching event_rule. No named error, no credit, no ledger row. */
 async function assertSilentZero(
   session: GameLogin,
   spec: BossSpec,
@@ -172,8 +174,16 @@ async function assertSilentZero(
   assert.equal(paid.tickets, undefined, `${boss} credited ${String(paid.tickets)}`);
   assert.equal(paid.granted, undefined, `${boss} granted ${paid.granted}`);
   assertPurse(session.hub.userId, spec.game, before, boss);
-  assert.equal(storedKey(session.hub.userId, key), 0, `${boss} stored an idempotency key`);
   assert.equal(bossWindow(session.hub.userId, spec.game, boss), 'none', `${boss} opened a boss window`);
+  assert.equal(
+    num(`SELECT count(*) FROM game.idempotency WHERE user_id = '${sqlId(session.hub.userId)}' AND key = '${keyOf(key)}' AND rpc = 'tickets.earn'`),
+    0,
+    `${boss} stored a tickets.earn key`,
+  );
+  const replay = await defeat(session.gameToken, spec, boss, key, extra, fields);
+  assert.equal(canonical(replay.body), canonical(result.body), `${boss} replay`);
+  assert.equal(body(replay).tickets, undefined);
+  assertPurse(session.hub.userId, spec.game, before, `${boss} replay`);
   assert.equal(mints(session.hub.userId, 'tinubu_crown'), before.relics.includes('tinubu_crown') ? 1 : 0);
 }
 
@@ -433,12 +443,21 @@ async function leftoverEarn(reason: string, game: 'sproto' | 'sproto-fighter'): 
     const result = await call('tickets.earn', { amount, reason, key }, session.gameToken);
     assertPurse(user, game, before, `${reason} ${amount}`);
     assert.equal(storedKey(user, key), 0, `${reason} stored a key`);
-    assert.equal(body(result).error, 'amount_over_rule', `${reason} ${amount} ${JSON.stringify(result.body)}`);
+    assert.equal(body(result).error, reason === 'srv_pvp_win' ? 'server_reason' : 'amount_over_rule', `${reason} ${amount} ${JSON.stringify(result.body)}`);
     assert.equal(body(result).tickets, undefined);
     const replay = await call('tickets.earn', { amount, reason, key }, session.gameToken);
-    assert.equal(body(replay).error, 'amount_over_rule', JSON.stringify(replay.body));
+    assert.equal(body(replay).error, reason === 'srv_pvp_win' ? 'server_reason' : 'amount_over_rule', JSON.stringify(replay.body));
     assert.equal(storedKey(user, key), 0);
     assertPurse(user, game, before, `${reason} replay`);
+  }
+  if (reason === 'srv_pvp_win') {
+    const credits = creditCount(user, game);
+    const raw = psql(
+      `SELECT game.earn_tickets('${sqlId(user)}'::uuid, '${sqlId(session.sessionId)}'::uuid, '${game}', 20, 'srv_pvp_win', 'sql-srv-over', '${'ab'.repeat(32)}')::text`,
+    );
+    assert.match(raw, /amount_over_rule/, raw);
+    assert.equal(creditCount(user, game), credits);
+    assert.equal(storedKey(user, 'sql-srv-over'), 0);
   }
 }
 
@@ -461,7 +480,19 @@ async function unknownBoss(spec: BossSpec): Promise<void> {
   assert.equal(body(nameless).tickets, undefined);
   assert.equal(body(nameless).granted, undefined);
   assertPurse(session.hub.userId, spec.game, before, 'client amount without a boss');
-  assert.equal(storedKey(session.hub.userId, 'client-amount-only'), 0);
+  assert.equal(
+    num(`SELECT count(*) FROM game.idempotency WHERE user_id = '${sqlId(session.hub.userId)}' AND key = 'client-amount-only' AND rpc = 'tickets.earn'`),
+    0,
+  );
+  const replay = await call('session.event', {
+    eventId: spec.eventId,
+    data: { amount: 1000, itemId: 'tinubu_crown', relicId: 'tinubu_crown', tickets: PAY },
+    key: 'client-amount-only',
+  }, session.gameToken);
+  assert.equal(canonical(replay.body), canonical(nameless.body));
+  assert.equal(body(replay).tickets, undefined);
+  assert.equal(body(replay).granted, undefined);
+  assertPurse(session.hub.userId, spec.game, before, 'client amount replay');
   assert.equal(mints(session.hub.userId, 'tinubu_crown'), 0);
   assert.equal(relicClaims(session.hub.userId, 'tidebreaker_belt'), 0);
 }

@@ -314,10 +314,13 @@ async function sweepLeavesEconomy(): Promise<void> {
   const opened = await enter(who.token, 'sproto');
   const redeemed = await redeemPortalTicket(opened.ticket, 'sproto');
   assert.ok(redeemed.token, redeemed.body);
-  const earned = await call('tickets.earn', { amount: 20, reason: 'win', key: 'sweep-earn' }, redeemed.token);
+  const earned = await call('session.event', {
+    eventId: 'sproto.boss_defeated',
+    data: { boss: 'sahil' },
+    key: 'sweep-earn',
+  }, redeemed.token);
   assert.equal(earned.body.error, undefined, JSON.stringify(earned.body));
-  assert.equal(earned.body.capped, false, JSON.stringify(earned.body));
-  assert.equal(earned.body.balance, 20);
+  assert.equal(earned.body.tickets, 20);
   const crowned = await call('session.event', {
     eventId: 'sproto.boss_defeated',
     data: { boss: 'tinubu', elapsed: 12 },
@@ -339,7 +342,7 @@ async function sweepLeavesEconomy(): Promise<void> {
   await waitReady();
   assert.equal(staleTicketCount(staleHash), 1, 'restart deleted a ticket created 2 hours ago');
   assert.equal(economyRows(who.userId), before, 'restart changed the economy');
-  assert.equal(ticketLedger(who.userId), 20);
+  assert.equal(ticketLedger(who.userId), 40);
   assert.equal(
     psql(
       `SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.sessionId)}' AND ticket_hash <> decode('${staleHash}', 'hex')`,
@@ -357,16 +360,19 @@ async function sweepLeavesEconomy(): Promise<void> {
     0,
   );
   assert.equal(economyRows(who.userId), before, 'hourly sweep changed the economy');
-  assert.equal(ticketLedger(who.userId), 20);
+  assert.equal(ticketLedger(who.userId), 40);
   assert.equal(
     psql(`SELECT (used_at IS NOT NULL) FROM game.auth_ticket WHERE session_id = '${sqlId(opened.sessionId)}'`),
     't',
     'sweep cleared the redeemed ticket',
   );
-  const replayEarn = await call('tickets.earn', { amount: 20, reason: 'win', key: 'sweep-earn' }, redeemed.token);
-  assert.equal(replayEarn.body.error, undefined, JSON.stringify(replayEarn.body));
-  assert.equal(replayEarn.body.balance, 20);
-  assert.equal(ticketLedger(who.userId), 20);
+  const replayEarn = await call('session.event', {
+    eventId: 'sproto.boss_defeated',
+    data: { boss: 'sahil' },
+    key: 'sweep-earn',
+  }, redeemed.token);
+  assert.equal(replayEarn.body.tickets, 20, JSON.stringify(replayEarn.body));
+  assert.equal(ticketLedger(who.userId), 40);
   const usedAgain = await redeemPortalTicket(opened.ticket, 'sproto');
   assertRejected(usedAgain.status, usedAgain.token, usedAgain.body, 'used ticket after the sweep');
   const sweptAgain = await redeemPortalTicket(staleTicket, 'sproto');
