@@ -2748,8 +2748,7 @@ namespace HubSchema {
       // pb.quest_complete path, and only when pb_space_goggles is already on the owned union.
       // 0 Tickets / 0 Verse: no event_rule tickets row and no verse write. Earn-once is
       // item_owned's primary key plus ON CONFLICT DO NOTHING.
-      // apply_event is 0030's body plus the hub_v_coin predicate in eligible.
-      // Open PR #62 (0031_story_boss_tickets) also replaces apply_event; reconcile both edits.
+      // apply_event is 0031_story_boss_tickets' body plus the hub_v_coin predicate in eligible.
       id: "0035_hub_v_coin",
       statements: [
         `INSERT INTO game.item_rule (game_id, event_type, item_id, match)
@@ -2774,6 +2773,12 @@ namespace HubSchema {
            v_pay bigint;
            v_credit jsonb;
            v_items json;
+           v_day_limit integer;
+           v_rule_match jsonb;
+           v_boss text;
+           v_rule_bucket text;
+           v_rule_day date;
+           v_used bigint;
          BEGIN
            PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
            v_hash := decode(p_req_hash, 'hex');
@@ -2805,13 +2810,34 @@ namespace HubSchema {
                RETURN jsonb_build_object('error', 'seq_stale');
              END IF;
            END IF;
-           SELECT tickets INTO v_pay
+           -- Most specific match wins. Boss rows are disjoint; the extra order
+           -- keeps a broader row from beating a boss row if one is added later.
+           v_rule_bucket := NULL;
+           SELECT tickets, day_limit, match
+             INTO v_pay, v_day_limit, v_rule_match
            FROM game.event_rule
            WHERE game_id = p_game_id
              AND event_type = p_event_id
              AND tickets IS NOT NULL
+             AND tickets > 0
              AND match <@ COALESCE(p_data, '{}'::jsonb)
+           ORDER BY cardinality(ARRAY(SELECT jsonb_object_keys(match))) DESC
            LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 AND v_day_limit IS NOT NULL THEN
+             v_boss := v_rule_match->>'boss';
+             IF v_boss IS NULL OR v_boss = '' THEN
+               v_pay := NULL;
+             ELSE
+               v_rule_day := (now() AT TIME ZONE 'utc')::date;
+               v_rule_bucket := 'boss:' || p_game_id || ':' || v_boss;
+               SELECT amount INTO v_used FROM game.earn_window
+               WHERE user_id = p_user_id AND bucket = v_rule_bucket AND day = v_rule_day;
+               IF COALESCE(v_used, 0) >= v_day_limit THEN
+                 v_pay := NULL;
+                 v_rule_bucket := NULL;
+               END IF;
+             END IF;
+           END IF;
            IF v_pay IS NOT NULL AND v_pay > 0 THEN
              PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
              v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
@@ -2821,6 +2847,13 @@ namespace HubSchema {
                  RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
                END IF;
                RETURN v_credit;
+             END IF;
+             IF v_rule_bucket IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+               INSERT INTO game.earn_window (user_id, bucket, day, amount)
+               VALUES (p_user_id, v_rule_bucket, v_rule_day, 1)
+               ON CONFLICT (user_id, bucket, day) DO UPDATE
+                 SET amount = game.earn_window.amount + 1
+               WHERE game.earn_window.amount < v_day_limit;
              END IF;
            END IF;
            IF p_seq IS NOT NULL THEN
@@ -2837,7 +2870,6 @@ namespace HubSchema {
            -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
            -- idempotency insert, so a replay of this key returns the stored granted_items.
            -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
-           -- 0035: hub_v_coin also requires pb_space_goggles on game.owned_item_ids. 0 Tickets / 0 Verse.
            WITH sess AS (
              -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
              SELECT event_seq FROM game.game_session
@@ -2867,6 +2899,7 @@ namespace HubSchema {
                  'tidebreaker_belt', 'breakwater_coin',
                  'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
                )
+               -- 0035: hub_v_coin also requires pb_space_goggles on the owned union.
                AND (
                  r.item_id <> 'hub_v_coin'
                  OR 'pb_space_goggles' = ANY (game.owned_item_ids(p_user_id))
@@ -2915,11 +2948,11 @@ namespace HubSchema {
       // game.owned_item_ids). There is no item_def table; this item_rule is the definition.
       // grant_hold sends the insert to item_owned_pending (0033 trigger). A pending row is
       // excluded from owned_item_ids, so checkGate stays fail-closed until promotion.
-      id: "0036_hub_life_medal",
+      id: "0037_hub_life_medal",
       statements: [
-        `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, match, grant_hold)
-         VALUES ('hpos10i', 'hpos10i.boss_defeated', NULL, NULL, '{"boss":"deathbot"}'::jsonb, false)
-         ON CONFLICT (game_id, event_type) DO NOTHING`,
+        `INSERT INTO game.event_rule (game_id, event_type, relic_id, tickets, session_limit, day_limit, match, max_amount, rule_key, grant_hold)
+         VALUES ('hpos10i', 'hpos10i.boss_defeated', NULL, NULL, NULL, NULL, '{"boss":"deathbot"}'::jsonb, NULL, 'deathbot', false)
+         ON CONFLICT (game_id, event_type, rule_key) DO NOTHING`,
         `INSERT INTO game.item_rule (game_id, event_type, item_id, match, grant_hold)
          VALUES ('hpos10i', 'hpos10i.boss_defeated', 'hub_life_medal', '{"boss":"deathbot"}'::jsonb, true)
          ON CONFLICT (game_id, event_type, item_id) DO UPDATE SET grant_hold = EXCLUDED.grant_hold`,
@@ -2993,6 +3026,12 @@ namespace HubSchema {
            v_pay bigint;
            v_credit jsonb;
            v_items json;
+           v_day_limit integer;
+           v_rule_match jsonb;
+           v_boss text;
+           v_rule_bucket text;
+           v_rule_day date;
+           v_used bigint;
          BEGIN
            PERFORM pg_advisory_xact_lock(hashtextextended('event:' || p_user_id::text, 0));
            v_hash := decode(p_req_hash, 'hex');
@@ -3024,13 +3063,34 @@ namespace HubSchema {
                RETURN jsonb_build_object('error', 'seq_stale');
              END IF;
            END IF;
-           SELECT tickets INTO v_pay
+           -- Most specific match wins. Boss rows are disjoint; the extra order
+           -- keeps a broader row from beating a boss row if one is added later.
+           v_rule_bucket := NULL;
+           SELECT tickets, day_limit, match
+             INTO v_pay, v_day_limit, v_rule_match
            FROM game.event_rule
            WHERE game_id = p_game_id
              AND event_type = p_event_id
              AND tickets IS NOT NULL
+             AND tickets > 0
              AND match <@ COALESCE(p_data, '{}'::jsonb)
+           ORDER BY cardinality(ARRAY(SELECT jsonb_object_keys(match))) DESC
            LIMIT 1;
+           IF v_pay IS NOT NULL AND v_pay > 0 AND v_day_limit IS NOT NULL THEN
+             v_boss := v_rule_match->>'boss';
+             IF v_boss IS NULL OR v_boss = '' THEN
+               v_pay := NULL;
+             ELSE
+               v_rule_day := (now() AT TIME ZONE 'utc')::date;
+               v_rule_bucket := 'boss:' || p_game_id || ':' || v_boss;
+               SELECT amount INTO v_used FROM game.earn_window
+               WHERE user_id = p_user_id AND bucket = v_rule_bucket AND day = v_rule_day;
+               IF COALESCE(v_used, 0) >= v_day_limit THEN
+                 v_pay := NULL;
+                 v_rule_bucket := NULL;
+               END IF;
+             END IF;
+           END IF;
            IF v_pay IS NOT NULL AND v_pay > 0 THEN
              PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
              v_credit := game.take_ticket_credit(p_user_id, p_session_id, p_game_id, v_pay, p_event_id, 'earn', false);
@@ -3040,6 +3100,13 @@ namespace HubSchema {
                  RETURN v_credit || jsonb_build_object('relic_granted', v_relic IS NOT NULL);
                END IF;
                RETURN v_credit;
+             END IF;
+             IF v_rule_bucket IS NOT NULL AND COALESCE((v_credit->>'applied')::bigint, 0) > 0 THEN
+               INSERT INTO game.earn_window (user_id, bucket, day, amount)
+               VALUES (p_user_id, v_rule_bucket, v_rule_day, 1)
+               ON CONFLICT (user_id, bucket, day) DO UPDATE
+                 SET amount = game.earn_window.amount + 1
+               WHERE game.earn_window.amount < v_day_limit;
              END IF;
            END IF;
            IF p_seq IS NOT NULL THEN
@@ -3056,9 +3123,6 @@ namespace HubSchema {
            -- M6 item grant (docs/m6-server-prep.md). Same transaction as the relic claim, before the
            -- idempotency insert, so a replay of this key returns the stored granted_items.
            -- Keep the pairs, the excluded ids and the item_rule seeds in step with HubItems in item_grant.ts.
-           -- 0035: hub_v_coin also requires pb_space_goggles on game.owned_item_ids. 0 Tickets / 0 Verse.
-           -- 0036: hpos10i.boss_defeated can match hub_life_medal. That rule is grant_hold, so the
-           -- insert is diverted to item_owned_pending and granted_items stays empty.
            WITH sess AS (
              -- The relic session check above (already locked); item_grant.ts inlines the same predicate.
              SELECT event_seq FROM game.game_session
@@ -3078,6 +3142,7 @@ namespace HubSchema {
                  OR (p_game_id = 'nobu' AND p_event_id = 'nobu.boss_defeated')
                  OR (p_game_id = 'sproto' AND p_event_id = 'sproto.boss_defeated')
                  OR (p_game_id = 'peoples-bitcoin' AND p_event_id = 'pb.quest_complete')
+                 -- 0037: Deathbot can match hub_life_medal. grant_hold diverts that insert to pending.
                  OR (p_game_id = 'hpos10i' AND p_event_id = 'hpos10i.boss_defeated')
                )
                AND r.game_id = p_game_id AND r.event_type = p_event_id
@@ -3089,6 +3154,7 @@ namespace HubSchema {
                  'tidebreaker_belt', 'breakwater_coin',
                  'pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto'
                )
+               -- 0035: hub_v_coin also requires pb_space_goggles on the owned union.
                AND (
                  r.item_id <> 'hub_v_coin'
                  OR 'pb_space_goggles' = ANY (game.owned_item_ids(p_user_id))
@@ -3230,9 +3296,9 @@ namespace HubSchema {
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
-  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0036_hub_life_medal.
-  // 0031 and 0032 stay those ids. The runner refuses an unapplied id below the highest
-  // recorded one, so PRs merge and deploy in id order.
+  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
+  // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
+  // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
   /** Call at top level of a game file. apply() sorts every migration by numeric prefix and rejects duplicates. */

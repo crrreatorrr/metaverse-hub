@@ -7,7 +7,7 @@
 // is keepsake-derived from NOBU rematch pieces; those piece ids are not in this
 // repo, so the function does not derive it (an empty piece list is not "owned").
 // A quantum_cell row in item_owned still counts, because item_owned is part of
-// the union. From 0036, an id that is still in game.item_owned_pending is left
+// the union. From 0037, an id that is still in game.item_owned_pending is left
 // out of the union, so a held grant (hub_life_medal) does not open a gate and
 // does not show on the shelf. Promotion into item_owned is what makes it count.
 //
