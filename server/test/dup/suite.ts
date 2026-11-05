@@ -14,6 +14,7 @@ import {
   type RelicFlow,
 } from './cases.ts';
 import { runAccounts } from './accounts.ts';
+import { runStandalone } from './standalone.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runMigrations } from './migrations.ts';
@@ -84,6 +85,7 @@ function testBudget(name: string): number {
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
   if (name.includes('sweep')) return 180_000;
+  if (name.includes('arena result') || name.includes('rate limit')) return 180_000;
   if (name.includes('daily cap') || name.includes('verse cap') || name.includes('exchange steps') || name.includes('cross the session cap')) {
     return 180_000;
   }
@@ -1491,7 +1493,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1752,6 +1754,7 @@ export async function main(): Promise<void> {
     if (selected('pets')) await runPets(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
+    if (selected('standalone')) await runStandalone(test);
   } finally {
     failed = report();
   }

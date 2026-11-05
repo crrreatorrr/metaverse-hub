@@ -30,7 +30,13 @@ interface Arena {
 }
 
 /** A quick-match pair through the matchmaker, both joined and HELLO'd, START sent. */
-function start(opts: { paid?: boolean } = {}): Arena {
+function sessionVars(sid: string, ranked?: string): Record<string, string> {
+  const v: Record<string, string> = { scope: 'game', game: 'sproto', sid };
+  if (ranked !== undefined) v.ranked = ranked;
+  return v;
+}
+
+function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
   const mod = loadModule();
   const earns: unknown[][] = [];
   const wins: unknown[][] = [];
@@ -55,8 +61,8 @@ function start(opts: { paid?: boolean } = {}): Arena {
   assert.ok(id, 'sproto pair creates a match');
   assert.equal(mod.nk.matches.get(id!)?.module, 'sproto_arena');
   const m = mod.driver(id!);
-  assert.deepEqual(m.join([pa], { vars: vars(SID_A) }).map((v) => v.accept), [true]);
-  assert.deepEqual(m.join([pb], { vars: vars(SID_B) }).map((v) => v.accept), [true]);
+  assert.deepEqual(m.join([pa], { vars: sessionVars(SID_A, opts.ranked) }).map((v) => v.accept), [true]);
+  assert.deepEqual(m.join([pb], { vars: sessionVars(SID_B, opts.ranked) }).map((v) => v.accept), [true]);
   m.loop([{ sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_nobu' } }, { sender: pb, opCode: OP.HELLO, data: { v: V, staff: 'nope' } }]);
   const starts = m.dispatcher.sent<{ seat: number; hostSeat: number; names: string[]; staffs: string[] }>(OP.START);
   assert.equal(starts.length, 2);
@@ -166,9 +172,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.m.dispatcher.broadcasts.filter((b) => b.opCode === OP.INPUT).length, 4, 'MAX_MSGS_PER_TICK');
 }
 
-// Agreed results → verified, the winner paid exactly once (deterministic key), the board updated.
+// ranked "1" only: verified, the winner paid exactly once (deterministic key), the board updated.
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   const winner = a.hostSeat;
   const wins = winner === 0 ? [2, 0] : [0, 2];
   play(a, 10);
@@ -227,9 +233,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.earns.length, 0);
 }
 
-// A player leaves for good → forfeit after the grace, paid (a round finished, past MIN_PLAY).
+// ranked "1" only: forfeit after the grace is paid (a round finished, past MIN_PLAY).
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   play(a, 16);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 1 - a.hostSeat, reason: 'ko', wins: a.hostSeat === 0 ? [0, 1] : [1, 0] } }]);
   a.m.leave([a.guest]);
@@ -281,9 +287,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(out.winnerSeat, a.hostSeat);
 }
 
-// Pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
+// ranked "1" only: pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
 {
-  const a = start({ paid: false });
+  const a = start({ paid: false, ranked: '1' });
   play(a, 10);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 0, reason: 'ko', wins: [1, 0] } }]);
   play(a, 10);
@@ -346,6 +352,48 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   play(a, 1);
   a.m.terminate(0);
   assert.equal(outcome(a)[0]?.body.status, 'server_shutdown');
+}
+
+/** Agreed 2-0 for seat 0, long enough to be a verified result. */
+function agreeSeat0(a: Arena): void {
+  play(a, 10);
+  a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 0, reason: 'ko', wins: [1, 0] } }]);
+  play(a, 10);
+  a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 2, winnerSeat: 0, reason: 'time', wins: [2, 0] } }]);
+  a.m.loop([
+    { sender: a.host, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+    { sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+  ]);
+}
+
+/** Missing, empty, "0", or any other value: 0 T, no cap row, the win recorded once. */
+function expectUnpaid(a: Arena, label: string): void {
+  const out = outcome(a);
+  assert.equal(out[0]?.body.status, 'verified', label);
+  assert.equal(out[0]?.body.winnerSeat, 0, label);
+  assert.deepEqual(plain(out[0]!.body.paid), {}, `${label} pays 0 T`);
+  assert.equal(a.payRows.length, 0, `${label} skips the sproto_pvp_result cap insert`);
+  assert.equal(a.earns.length, 0, `${label} does not call earn`);
+  assert.equal(a.wins.length, 1, `${label} records the win once`);
+  a.m.loop([
+    { sender: a.host, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+    { sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
+  ]);
+  assert.equal(a.payRows.length, 0, label);
+  assert.equal(a.earns.length, 0, label);
+  assert.equal(a.wins.length, 1, `${label} replay does not record a second win or mint`);
+}
+
+// Pay only for ranked "1". Omitted, empty, "0", and any other value stay 0 T.
+{
+  const omitted = start();
+  agreeSeat0(omitted);
+  expectUnpaid(omitted, 'omitted ranked');
+  for (const ranked of ['', '0', '2']) {
+    const a = start({ ranked });
+    agreeSeat0(a);
+    expectUnpaid(a, `ranked ${JSON.stringify(ranked)}`);
+  }
 }
 
 console.log('sproto_arena tests ok');
