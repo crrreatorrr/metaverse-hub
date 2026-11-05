@@ -1207,7 +1207,7 @@ async function nobuRows(): Promise<void> {
       const top = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant }, session.hub.token);
       assert.equal((top.body.me as { value?: number } | null)?.value, floor);
     }
-    for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+    for (const variant of ['4v2', '5v2', '6v2', 'toString', 'constructor', '__proto__']) {
       const unknown = await call('score.submit', { boardId: 'nobu_trial_time', value: 100000, meta: { level: variant } }, session.gameToken);
       assert.equal(unknown.body.error, 'bad_variant');
     }
@@ -1216,6 +1216,35 @@ async function nobuRows(): Promise<void> {
     assert.equal((old.body.me as { value?: number } | null)?.value, 15000);
     assert.equal(ticketBalance(session.hub.userId, 'nobu'), 0);
     assert.equal(verseBalance(session.hub.userId), 0);
+  });
+
+  await test('score', 'nobu Chapter 2 variants preserve every board and grant nothing', async () => {
+    const session = await login('nobu');
+    const before = snapshotEconomy(session.hub.userId, 'nobu');
+    const ledger = earnLedgerCount(session.hub.userId);
+    for (const [variant, floor] of [['1', 15000], ['1v2', 25700], ['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+      for (const [value, code] of [[floor - 1, 'implausible_score'], [floor + .5, 'bad_score'], [1_800_001, 'implausible_score']] as const) {
+        const bad = await call('score.submit', { boardId: 'nobu_trial_time', value, meta: { level: variant } }, session.gameToken);
+        assert.equal(bad.body.error, code, JSON.stringify(bad.body));
+      }
+      const level = variant.endsWith('v2') ? variant : Number(variant);
+      const ok = await call('score.submit', { boardId: 'nobu_trial_time', value: floor, meta: { level } }, session.gameToken);
+      assert.deepEqual(ok.body, { accepted: true, posted: true, value: floor, order: 'asc' });
+    }
+    // Read every own row after every write, rather than just the most recent board.
+    for (const [variant, floor] of [['1', 15000], ['1v2', 25700], ['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+      const top = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant }, session.hub.token);
+      assert.equal(top.body.variant, variant);
+      assert.equal((top.body.me as { value?: number } | null)?.value, floor);
+    }
+    for (const variant of ['4v2', '5v2', '6v2', 'toString', 'constructor', '__proto__']) {
+      const submit = await call('score.submit', { boardId: 'nobu_trial_time', value: 100000, meta: { level: variant } }, session.gameToken);
+      const top = await call('leaderboard.top', { boardId: 'nobu_trial_time', variant }, session.hub.token);
+      assert.equal(submit.body.error, 'bad_variant'); assert.equal(top.body.error, 'bad_variant');
+    }
+    assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'nobu_trial_time'`), 5);
+    assert.equal(snapshotEconomy(session.hub.userId, 'nobu'), before);
+    assert.equal(earnLedgerCount(session.hub.userId), ledger);
   });
 
   await test('score', 'nobu_trial_time is per level, integer ms, unranked, and grants nothing', async () => {

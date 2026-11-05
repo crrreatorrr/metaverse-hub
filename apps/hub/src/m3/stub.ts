@@ -70,6 +70,12 @@ function scoreOf(person: Person, boardId: HubBoardId): number {
       return Math.round(person.nobu_trial_time * 1300 * 1.72);
     case 'nobu_trial_time:3v2':
       return Math.round(person.nobu_trial_time * 1700 * 1.72);
+    case 'nobu_trial_time:4':
+      return Math.round(person.nobu_trial_time * 2000);
+    case 'nobu_trial_time:6':
+      return Math.round(person.nobu_trial_time * 1600);
+    case 'nobu_trial_time:5':
+      return Math.round(person.nobu_trial_time * 2200);
     case 'pb_total_xp':
       return person.pb_total_xp;
     case 'sproto_wins':

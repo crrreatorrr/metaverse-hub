@@ -73,6 +73,7 @@ namespace HubMatch {
 
   export interface State {
     shard: number;
+    realm: HubRealms.Realm;
     slots: (Player | null)[];
     byUser: { [userId: string]: number };
     present: number;
@@ -97,15 +98,12 @@ namespace HubMatch {
   }
 
   /** plaza above y -50 m, the club interior below -250 m (its root is at -300 m). */
-  export function zoneOf(yCm: number): string {
-    if (yCm > -5000) return "plaza";
-    if (yCm < -25000) return "bar";
-    return "void";
+  export function zoneOf(yCm: number, realm?: HubRealms.Realm): string {
+    return HubRealms.zoneOf(realm || HubRealms.REALMS.plaza, yCm);
   }
 
-  function inBounds(x: number, y: number, z: number): boolean {
-    if (x < -14000 || x > 14000 || z < -14000 || z > 14000) return false;
-    return (y >= -400 && y <= 4000) || (y >= -32000 && y <= -26000);
+  function inBounds(x: number, y: number, z: number, realm?: HubRealms.Realm): boolean {
+    return HubRealms.inBounds(realm || HubRealms.REALMS.plaza, x, y, z);
   }
 
   function isInt(v: unknown): boolean {
@@ -142,7 +140,7 @@ namespace HubMatch {
   }
 
   function labelOf(state: State): string {
-    return JSON.stringify({ game: "hub", kind: "hub", shard: state.shard, players: state.present, max: MAX_PLAYERS, open: state.present < SOFT_CAP });
+    return JSON.stringify({ game: "hub", kind: state.realm.kind, shard: state.shard, players: state.present, max: MAX_PLAYERS, open: state.present < SOFT_CAP });
   }
 
   function recount(state: State): void {
@@ -166,7 +164,7 @@ namespace HubMatch {
     for (var i = 0; i < state.slots.length; i++) {
       var p = state.slots[i];
       if (!p || p.away || p.userId === except) continue;
-      if (zone !== null && zoneOf(p.y) !== zone) continue;
+      if (zone !== null && zoneOf(p.y, state.realm) !== zone) continue;
       out.push(p.presence);
     }
     return out;
@@ -233,15 +231,15 @@ namespace HubMatch {
   }
 
   /** Validates a POSE body; returns true when it moved the player. */
-  export function applyPose(p: Player, raw: string): boolean {
+  export function applyPose(p: Player, raw: string, realm?: HubRealms.Realm): boolean {
     if (!raw || raw.length > 64) return false;
     var data = parseJson(raw, 64);
     if (!data || Object.prototype.toString.call(data) !== "[object Array]") return false;
     var a = data as unknown[];
     if (a.length !== 5 || !isInt(a[0]) || !isInt(a[1]) || !isInt(a[2]) || !isInt(a[3]) || !isInt(a[4])) return false;
     var x = a[0] as number, y = a[1] as number, z = a[2] as number, yaw = a[3] as number, anim = a[4] as number;
-    if (!inBounds(x, y, z) || yaw < 0 || yaw > 255 || anim < 0 || anim >= ANIMS.length) return false;
-    if (p.placed && zoneOf(y) === zoneOf(p.y)) {
+    if (!inBounds(x, y, z, realm) || yaw < 0 || yaw > 255 || anim < 0 || anim >= ANIMS.length) return false;
+    if (p.placed && zoneOf(y, realm) === zoneOf(p.y, realm)) {
       var dx = x - p.x, dz = z - p.z, dy = y - p.y;
       if (dx * dx + dz * dz > MAX_H_STEP_CM * MAX_H_STEP_CM || dy > MAX_V_STEP_CM || dy < -MAX_V_STEP_CM) {
         p.rejects++;
@@ -277,10 +275,12 @@ namespace HubMatch {
   }
 
   export function matchInit(_ctx: nkruntime.Context, logger: nkruntime.Logger, _nk: nkruntime.Nakama, params: { [key: string]: unknown }): { state: State; tickRate: number; label: string } {
+    var realm = HubRealms.get(params && typeof params.realm === "string" ? params.realm : "plaza");
+    if (!realm) throw new Error("bad_realm");
     var shard = Math.max(1, Math.floor(Number(params && params.shard) || 1));
     var slots: (Player | null)[] = [];
     for (var i = 0; i < MAX_PLAYERS; i++) slots.push(null);
-    var state: State = { shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "" };
+    var state: State = { realm: realm, shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "" };
     state.label = labelOf(state);
     logger.info("hub shard " + String(shard) + " up, tick " + String(TICK_RATE) + " max " + String(MAX_PLAYERS));
     return { state: state, tickRate: TICK_RATE, label: state.label };
@@ -329,9 +329,9 @@ namespace HubMatch {
         userId: fresh[j].userId,
         presence: fresh[j],
         name: names[fresh[j].userId] || "player",
-        x: SPAWN[0],
-        y: SPAWN[1],
-        z: SPAWN[2],
+        x: state.realm.spawn[0],
+        y: state.realm.spawn[1],
+        z: state.realm.spawn[2],
         yaw: 0,
         anim: 0,
         relics: relics[fresh[j].userId] || [],
@@ -428,7 +428,7 @@ namespace HubMatch {
         var emote = parseJson(messageText(nk, m.data), 64) as { e?: unknown } | null;
         if (!emote || typeof emote.e !== "string" || !EMOTES[emote.e]) continue;
         p.lastEmoteTick = tick;
-        send(dispatcher, OP_EMOTE, { s: p.slot, e: emote.e }, presences(state, zoneOf(p.y), null));
+        send(dispatcher, OP_EMOTE, { s: p.slot, e: emote.e }, presences(state, zoneOf(p.y, state.realm), null));
       } else if (m.opCode === OP_TRAVEL) {
         var travel = parseJson(messageText(nk, m.data), 64) as { game?: unknown } | null;
         if (!travel || typeof travel.game !== "string") continue;
@@ -442,7 +442,7 @@ namespace HubMatch {
     var poseSlots = Object.keys(latest);
     for (var j = 0; j < poseSlots.length; j++) {
       var pp = state.slots[Number(poseSlots[j])];
-      if (pp) applyPose(pp, latest[poseSlots[j]]);
+      if (pp) applyPose(pp, latest[poseSlots[j]], state.realm);
     }
 
     // Grace expiry: away players past REJOIN_GRACE_TICKS leave the roster.
@@ -497,7 +497,7 @@ namespace HubMatch {
       if (!dp || !dp.dirty) continue;
       dp.dirty = false;
       if (dp.away) continue;
-      var zone = zoneOf(dp.y);
+      var zone = zoneOf(dp.y, state.realm);
       if (!byZone[zone]) byZone[zone] = [];
       byZone[zone].push(rowOf(dp));
     }
@@ -518,7 +518,7 @@ namespace HubMatch {
     for (var c = 0; c < state.slots.length; c++) if (state.slots[c]) occupied++;
     if (occupied === 0) {
       state.emptyTicks++;
-      if (state.shard !== 1 && state.emptyTicks >= EMPTY_CLOSE_TICKS) {
+      if ((!state.realm.alwaysOn || state.shard !== 1) && state.emptyTicks >= EMPTY_CLOSE_TICKS) {
         logger.info("hub shard " + String(state.shard) + " closed (empty)");
         return null;
       }

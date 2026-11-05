@@ -99,3 +99,8 @@ assert.throws(() => mod.rtBefore('ChannelMessageRemove', HUB, { channelMessageRe
 }
 
 console.log('chat guard tests ok');
+
+// Only rooms belonging to declared realms are allowed.
+assert.ok(join(HUB, 'hub.sandbox.1'), 'chat_accepts_realm_rooms');
+assert.throws(() => join(HUB, 'hub.other.1'), /room_not_allowed/);
+assert.throws(() => join(HUB, 'hub.sandbox.x'), /room_not_allowed/);

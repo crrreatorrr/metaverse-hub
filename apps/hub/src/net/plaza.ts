@@ -1,16 +1,22 @@
+import type { RealmId } from '../core/realm-id';
 // Plaza connection: realtime socket, hub.join placement, the shard's match and
 // its pose stream. Remote state goes into a RemoteWorld; rendering is remotes.ts.
 import { HubSdkError, createRealtime, type HubRealtime, type MatchHandle } from '@metaverse/hub-sdk';
 import { createRemoteWorld, type RemoteWorld } from './remoteWorld';
 import { OP, TICK_RATE, encodePose, parseDelta, parseRoster, parseSnapshot, samePose, type EmoteEvent } from './protocol';
 
-const LAST_MATCH_KEY = 'hub:plaza:match';
+export function sessionMatchKey(realm: RealmId): string {
+  return realm === 'plaza' ? 'hub:plaza:match' : `hub:plaza:match:${realm}`;
+}
 const SEND_EVERY_MS = 1000 / TICK_RATE;
 const KEEPALIVE_MS = 1000;
 
-export type PlazaStatus = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'elsewhere';
+export type PlazaStatus = 'connecting' | 'online' | 'reconnecting' | 'offline' | 'elsewhere' | 'waiting';
 
 export interface PlazaOptions {
+  realm: RealmId;
+  /** Injectable limit-window wait for deterministic tests. */
+  wait?: (ms: number) => Promise<void>;
   getToken: () => string | Promise<string>;
   serverUrl?: string;
   /** Injected realtime (tests, mock server). */
@@ -39,17 +45,17 @@ export interface Plaza {
   close(): void;
 }
 
-function readLast(): string | undefined {
+function readLast(realm: RealmId): string | undefined {
   try {
-    return sessionStorage.getItem(LAST_MATCH_KEY) ?? undefined;
+    return sessionStorage.getItem(sessionMatchKey(realm)) ?? undefined;
   } catch {
     return undefined;
   }
 }
 
-function writeLast(id: string): void {
+function writeLast(realm: RealmId, id: string): void {
   try {
-    sessionStorage.setItem(LAST_MATCH_KEY, id);
+    sessionStorage.setItem(sessionMatchKey(realm), id);
   } catch {
     // Private mode: the next visit is placed fresh.
   }
@@ -123,27 +129,34 @@ export async function connectPlaza(opts: PlazaOptions): Promise<Plaza> {
         return;
       }
       if (reason === 'left') return;
-      void place();
+      void place().catch(() => undefined);
     });
   }
 
   async function placeOnce(): Promise<void> {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const prefer = attempt === 0 ? readLast() : undefined;
+      const prefer = attempt === 0 ? readLast(opts.realm) : undefined;
       try {
-        const placed = await rt.rpc<{ matchId: string; shard: number; room: string }>('hub.join', prefer ? { prefer } : {});
+        const placed = await rt.rpc<{ matchId: string; shard: number; room: string }>('hub.join', { ...(prefer ? { prefer } : {}), ...(opts.realm === 'plaza' ? {} : { realm: opts.realm }) });
         const handle = await rt.joinMatch({ matchId: placed.matchId });
         match = handle;
         shard = placed.shard;
         room = placed.room;
-        writeLast(placed.matchId);
+        writeLast(opts.realm, placed.matchId);
         wire(handle);
         status('online', '');
         opts.onShard?.({ matchId: placed.matchId, shard, room });
         return;
       } catch (error) {
         lastError = error;
+        if (error instanceof HubSdkError && error.code === 'rate_limited') {
+          status('waiting', 'Traveling too quickly. Please wait a minute…');
+          await (opts.wait ?? (ms => new Promise<void>(resolve => setTimeout(resolve, ms))))(60000);
+          if (closed) return;
+          attempt -= 1;
+          continue;
+        }
         // A full or vanished shard: ask again without the preference.
         if (error instanceof HubSdkError && (error.code.startsWith('match_rejected') || error.code === 'match_not_found')) continue;
         throw error;

@@ -1,3 +1,4 @@
+import type { RealmId } from '../core/realm-id';
 // Plaza wire format, kept in sync with server/modules/src/hub_match.ts (a unit test
 // compares the constants against the built server module). Pure: no DOM, no three.
 
@@ -72,7 +73,8 @@ export function decodeRow(row: PoseRow): { slot: number } & Pose {
 }
 
 /** Same zones as the server: plaza above −50 m, the club interior below −250 m. */
-export function zoneOf(yMetres: number): 'plaza' | 'bar' | 'void' {
+export function zoneOf(yMetres: number, realm: RealmId = 'plaza'): 'plaza' | 'bar' | 'void' | 'sandbox' {
+  if (realm === 'sandbox') return 'sandbox';
   if (yMetres > -50) return 'plaza';
   if (yMetres < -250) return 'bar';
   return 'void';

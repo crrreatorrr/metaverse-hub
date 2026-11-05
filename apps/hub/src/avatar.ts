@@ -1,3 +1,4 @@
+import { RELICS } from './core/relics';
 import {
   AdditiveBlending,
   AnimationClip,
@@ -28,7 +29,6 @@ import {
   AVATAR_HEIGHT,
   CHARACTERS,
   DEFAULT_CHARACTER,
-  SOCKETS,
   SPRINT_SPEED,
   STAFFS,
   WALK_SPEED,
@@ -223,7 +223,7 @@ export function createAvatarRig(): AvatarRig {
     body.scale.setScalar(next.height);
     body.position.y = -STAND_Y * (1 - next.height);
     paint(next);
-    const socket = SOCKETS.find((entry) => entry.id === next.aura);
+    const socket = RELICS.find((entry) => entry.id === next.aura);
     aura.group.visible = Boolean(socket);
     if (socket) aura.setColor(socket.color);
   }

@@ -1,6 +1,3 @@
-import { part } from './core';
-import type { LOD } from 'three';
-
 /**
  * Roadside billboard for the HPOS10I Club (the Bar). Ken's one exception to
  * the zero-billboards rule, because bar signs are allowed. It stands past the
@@ -34,10 +31,3 @@ export const BAR_BILLBOARD_BOXES: readonly { x: number; y: number; z: number; sx
   { x: 2.55, y: 1.77, z: -1.47, sx: 0.16, sy: 4.08, sz: 0.2, rotX: 0.587 },
 ];
 
-export async function barBillboard(): Promise<LOD> {
-  const lod = await part('P3-billboard', { h: BAR_BILLBOARD.h * BAR_BILLBOARD.scale, glow: 0.35 });
-  lod.name = 'bar-billboard';
-  lod.position.set(BAR_BILLBOARD.x, 0, BAR_BILLBOARD.z);
-  lod.rotation.y = BAR_BILLBOARD.yaw;
-  return lod;
-}

@@ -32,7 +32,7 @@ const fresh = () => ({ userId: `00000000-0000-4000-8000-${String(++n).padStart(1
   assert.deepEqual(plain(args.slice(2)), [false, 'nobu', 'nobu_trial_time', 'asc', 41230, '{"level":2,"deaths":1}', '2']);
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 41230, meta: { level: '3' } }).accepted, true);
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 41230.5, meta: { level: 1 } }).error, 'bad_score');
-  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 41230, meta: { level: 4 } }).error, 'bad_variant');
+  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 41230, meta: { level: 9 } }).error, 'bad_variant');
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 41230, meta: {} }).error, 'bad_variant');
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 14999, meta: { level: 1 } }).error, 'implausible_score');
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 12000, meta: { level: 3 } }).accepted, true);
@@ -45,15 +45,30 @@ const fresh = () => ({ userId: `00000000-0000-4000-8000-${String(++n).padStart(1
 }
 
 // Layout 2 has separate rows/floors; Classic still accepts its original bounds.
-for (const [variant, floor] of [['1', 15000], ['2', 15000], ['3', 12000], ['1v2', 25700], ['2v2', 26000], ['3v2', 20600]] as const) {
+for (const [variant, floor] of [['1', 15000], ['2', 15000], ['3', 12000], ['1v2', 25700], ['2v2', 26000], ['3v2', 20600], ['4', 24000], ['6', 30000], ['5', 21000]] as const) {
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: floor, meta: { level: variant } }).accepted, true, variant);
   assert.equal(submitted.at(-1)![8], variant, 'SQL preserves the complete variant');
   const writes = submitted.length;
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: floor - 1, meta: { level: variant } }).error, 'implausible_score', variant);
   assert.equal(submitted.length, writes, 'below-floor values never reach SQL');
 }
-for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+for (const variant of ['4v2', '5v2', '6v2', 'toString', 'constructor', '__proto__']) {
   assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 100000, meta: { level: variant } }).error, 'bad_variant', variant);
+}
+
+// Chapter 2 floors/ceilings are inclusive; malformed inputs never reach SQL.
+for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as const) {
+  for (const level of [variant, Number(variant)]) {
+    assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: floor, meta: { level } }).accepted, true);
+    assert.equal(submitted.at(-1)![8], variant, 'numeric/string level use the same full SQL variant');
+  }
+  assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value: 1_800_000, meta: { level: variant } }).accepted, true);
+  for (const [value, code] of [[1_800_001, 'implausible_score'], [floor + .5, 'bad_score']] as const) {
+    const writes = submitted.length;
+    assert.equal(submit(fresh(), { boardId: 'nobu_trial_time', value, meta: { level: variant } }).error, code);
+    assert.equal(submitted.length, writes, 'invalid boundary never reaches SQL');
+  }
+  assert.deepEqual(submit(fresh(), { boardId: 'nobu_trial_time', value: floor, meta: { level: variant, godMode: true } }), { accepted: false, reason: 'god_mode' });
 }
 
 // Rate limit: 1 per (user, board, variant) per 5 s.
@@ -63,6 +78,10 @@ for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 1 } }).error, 'rate_limited');
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 2 } }).accepted, true, 'other level is its own window');
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 30000, meta: { level: '1v2' } }).accepted, true, 'new layout has its own window');
+  for (const [level, floor] of [[4, 24000], [6, 30000], [5, 21000]] as const) {
+    assert.equal(submit(who, { boardId: 'nobu_trial_time', value: floor, meta: { level } }).accepted, true, 'Chapter 2 variant has its own window');
+    assert.equal(submit(who, { boardId: 'nobu_trial_time', value: floor + 1, meta: { level: String(level) } }).error, 'rate_limited', 'number/string share one window');
+  }
   const key = [...mod.nk.localcache.keys()].find((k) => k.startsWith(`score:${who.userId}:nobu_trial_time:1`))!;
   mod.nk.localcache.set(key, Date.now() - 6000);
   assert.equal(submit(who, { boardId: 'nobu_trial_time', value: 19000, meta: { level: 1 } }).accepted, true);
@@ -87,11 +106,11 @@ for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
   const top = mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant: '3', limit: 500 });
   assert.equal(top.variant, '3');
   assert.deepEqual(plain(topArgs), ['nobu_trial_time', 'asc', U, '3', 50]);
-  for (const variant of ['1v2', '2v2', '3v2']) {
-    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant }).variant, variant);
-    assert.deepEqual(plain(topArgs), ['nobu_trial_time', 'asc', U, variant, 10]);
+  for (const variant of ['1v2', '2v2', '3v2', '4', '6', '5', 4, 6, 5]) {
+    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant }).variant, String(variant));
+    assert.deepEqual(plain(topArgs), ['nobu_trial_time', 'asc', U, String(variant), 10]);
   }
-  for (const variant of ['4v2', 'toString', 'constructor', '__proto__']) {
+  for (const variant of ['4v2', '5v2', '6v2', 'toString', 'constructor', '__proto__']) {
     assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time', variant }).error, 'bad_variant', variant);
   }
   assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'nobu_trial_time' }).error, 'bad_variant');

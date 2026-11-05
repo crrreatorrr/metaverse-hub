@@ -1,3 +1,5 @@
+@import "./core/theme.css";
+
 /* ==========================================================================
    Login gate: retro pixel
    Same look as the pixel Esc menu: the Higgsfield window frame (9-slice at
@@ -7,24 +9,7 @@
    ========================================================================== */
 
 .login {
-  --ink: #020a28;
-  --navy: #0a1f6b;
-  --blue: #08309e;
-  --blue-2: #1747c9;
-  --blue-3: #2f66e8;
-  --sky: #8cc4ff;
-  --red: #d0080b;
-  --red-2: #ff3a2e;
-  --red-dark: #6d0610;
-  --yellow: #faca07;
-  --yellow-2: #ffe766;
-  --gold: #b07a0c;
-  --cream: #fff4d6;
-  --green: #3dff6a;
-  --pixel-head: "Press Start 2P", ui-monospace, monospace;
-  --pixel-body: "VT323", ui-monospace, monospace;
   /* Notched pixel box: four offset shadows draw the outline, two insets the bevel. */
-  --px-edge: 0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink);
 
   position: fixed;
   inset: 0;
@@ -89,7 +74,7 @@ body.gated #hud {
   inset: 0;
   background:
     linear-gradient(90deg, rgba(2, 10, 40, 0.85) 0%, rgba(2, 10, 40, 0.4) 26%, rgba(2, 10, 40, 0) 40%),
-    url("/world/ui/login-art.png") right bottom / max(calc((100vw - 540px) * 1.5), 60vw) auto no-repeat,
+    var(--art-login-art) right bottom / max(calc((100vw - 540px) * 1.5), 60vw) auto no-repeat,
     #000735;
   animation: login-fade 480ms steps(6) both;
 }
@@ -111,7 +96,7 @@ body.gated #hud {
   box-sizing: border-box;
   padding: 12px 14px 10px;
   border: 40px solid transparent;
-  border-image: url("/world/ui/frame.png") 20 fill / 40px / 0 round;
+  border-image: var(--art-frame) 20 fill / 40px / 0 round;
   filter: drop-shadow(8px 8px 0 rgba(2, 10, 40, 0.6));
   animation: login-pop 260ms steps(5) both;
 }
@@ -145,7 +130,7 @@ body.gated #hud {
   margin: 0;
   padding-bottom: 10px;
   box-sizing: border-box;
-  background: url("/world/ui/banner.png") center / 348px 76px no-repeat;
+  background: var(--art-banner) center / 348px 76px no-repeat;
   font: 400 18px/1 var(--pixel-head);
   letter-spacing: 2px;
   text-transform: uppercase;
@@ -563,7 +548,7 @@ body.gated #hud {
   left: 0;
   width: 140px;
   height: 123px;
-  background: url("/world/ui/v-token-spin.png") 0 0 / 1680px 123px no-repeat;
+  background: var(--art-v-token-spin) 0 0 / 1680px 123px no-repeat;
   animation:
     login-coin-spin 960ms steps(12) infinite,
     login-coin-bob 1920ms steps(8) infinite;
