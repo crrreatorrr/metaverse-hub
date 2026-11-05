@@ -156,8 +156,12 @@ BEGIN
         SELECT u.user_id,
           (SELECT count(*) FROM game.tickets_ledger l
             WHERE l.user_id = u.user_id AND l.delta > 0 AND l.reason <> 'exchange' AND l.reason <> 'shop_sell') AS ledgers,
+          -- Story-boss pays are session.event credits. A positive ledger row still needs one key.
           (SELECT count(*) FROM game.idempotency i
-            WHERE i.user_id = u.user_id AND i.rpc = 'tickets.earn') AS keys
+            WHERE i.user_id = u.user_id AND (
+              i.rpc = 'tickets.earn'
+              OR (i.rpc = 'session.event' AND COALESCE((i.response->>'tickets')::bigint, 0) > 0)
+            )) AS keys
         FROM (SELECT DISTINCT user_id FROM game.tickets_ledger) u
       ) s
       WHERE s.ledgers > s.keys
