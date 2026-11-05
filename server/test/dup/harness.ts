@@ -71,6 +71,7 @@ export interface RpcBody {
   sessionId?: string;
   balance?: number;
   capped?: boolean;
+  tickets?: number;
   verse?: number;
   ticketsLeft?: number;
   receiptId?: string;
@@ -544,6 +545,61 @@ export async function earn(token: string, amount: number, reason: string, key: s
     throw new Error(`tickets.earn ${result.status} ${JSON.stringify(result.body)}`);
   }
   return result;
+}
+
+/** 0031 sets these ceilings to 0. tickets.earn of any positive amount is amount_over_rule. */
+const ZEROED_EARN_REASONS = new Set(['win', 'duel_win', 'fighter_win', 'srv_pvp_win']);
+
+export function isZeroedEarn(reason: string): boolean {
+  return ZEROED_EARN_REASONS.has(reason);
+}
+
+/** Bosses that pay 20 and do not grant Tinubu's Crown. Obama grants a pet; the crown boss is excluded. */
+const STORY_FUND: Record<string, { eventId: string; bosses: string[] }> = {
+  sproto: {
+    eventId: 'sproto.boss_defeated',
+    bosses: ['sahil', 'broccoli', 'agent', 'obama'],
+  },
+  'sproto-fighter': {
+    eventId: 'fighter.boss_defeated',
+    bosses: ['sproto3215', 'sproto2616', 'sproto3152', 'rivet', 'sproto865', 'sproto943', 'nick', 'guest07', 'vela', 'vaudream'],
+  },
+};
+
+/**
+ * Fund `amount` Tickets. Zeroed win reasons go through story-boss grants (20 each, once per boss).
+ * Other reasons stay on tickets.earn.
+ */
+export async function fundLegal(
+  token: string,
+  game: string,
+  amount: number,
+  reason: string,
+  key: string,
+  from = 0,
+): Promise<RpcResult> {
+  if (!isZeroedEarn(reason)) return earn(token, amount, reason, key);
+  const spec = STORY_FUND[game];
+  if (!spec) throw new Error(`${game} has no story-boss fund for zeroed reason ${reason}`);
+  if (amount <= 0 || amount % 20 !== 0) throw new Error(`boss fund ${amount} is not a multiple of 20`);
+  const steps = amount / 20;
+  if (from < 0 || from + steps > spec.bosses.length) {
+    throw new Error(`${game} story bosses cover ${spec.bosses.length * 20} from index ${from}, not ${amount}`);
+  }
+  let last: RpcResult | undefined;
+  for (let i = 0; i < steps; i += 1) {
+    const boss = spec.bosses[from + i]!;
+    last = await call('session.event', {
+      eventId: spec.eventId,
+      data: { boss },
+      key: `${key}-${boss}`,
+    }, token);
+    if (last.body.error || last.body.tickets !== 20) {
+      throw new Error(`boss fund ${game} ${boss}: ${last.status} ${JSON.stringify(last.body)}`);
+    }
+  }
+  if (!last) throw new Error(`boss fund ${game} produced no grant`);
+  return last;
 }
 
 export function snapshotEconomy(userId: string, game: string): string {

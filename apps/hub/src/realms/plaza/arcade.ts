@@ -10,9 +10,9 @@ import {
   SRGBColorSpace,
   TorusGeometry,
 } from 'three';
-import { animated, glow } from './core';
+import { animated, glow } from '../../v2/core';
 import { CLUB_MARKERS } from './club-interior-colliders';
-import { SIGN_FONT } from './signs';
+import { SIGN_FONT } from '../../v2/signs';
 import { BELT_PLINTH } from './arcade-layout';
 
 /** Cabinet marquee and the Tidebreaker Belt plinth inside the Bar. Layout is in arcade-layout.ts. */

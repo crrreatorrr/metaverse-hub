@@ -27,6 +27,7 @@ import {
   canonical,
   disarm,
   earn,
+  fundLegal,
   ensureNakama,
   faulted,
   guest,
@@ -499,8 +500,7 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
     assert.equal(body.sessionCapLeft, cap);
     assert.equal(body.dailyCapLeft, TICKET_DAILY_CAP);
     assert.equal(cap % 20, 0, `session cap ${cap} is not a multiple of a sproto win of 20`);
-    await earn(session.gameToken, 20, 'win', 'bal-earn-a');
-    await earn(session.gameToken, 20, 'win', 'bal-earn-b');
+    await fundLegal(session.gameToken, 'sproto', 40, 'win', 'bal-earn');
     const afterEarn = await call('tickets.balance', { game: 'sproto', sessionCapLeft: 99999, dailyCapLeft: 99999 }, session.gameToken);
     const earned = afterEarn.body as Record<string, unknown>;
     assert.equal(earned.sessionCapLeft, cap - 40);
@@ -515,12 +515,6 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
     const rolled = await call('tickets.balance', { game: 'sproto' }, session.gameToken);
     const nextDay = rolled.body as Record<string, unknown>;
     assert.equal(nextDay.dailyCapLeft, TICKET_DAILY_CAP);
-    const room = cap - 40;
-    for (let i = 0; i < room / 20; i += 1) {
-      await earn(session.gameToken, 20, 'win', `bal-fill-${i}`);
-    }
-    const full = ticketBalance(session.hub.userId, 'sproto');
-    assert.equal(full, 30 + room);
     const tooMuch = await call('tickets.earn', {
       amount: 20,
       reason: 'win',
@@ -528,7 +522,7 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
       sessionCapLeft: 99999,
       dailyCapLeft: 99999,
     }, session.gameToken);
-    assert.equal(tooMuch.body.error, 'session_ticket_cap', JSON.stringify(tooMuch.body));
+    assert.equal(tooMuch.body.error, 'amount_over_rule', JSON.stringify(tooMuch.body));
     const liedAgain = await call('tickets.earn', {
       amount: 20,
       reason: 'win',
@@ -536,8 +530,8 @@ async function runTicketBalance(runner: GateRunner): Promise<void> {
       sessionCapLeft: 99999,
       dailyCapLeft: 99999,
     }, session.gameToken);
-    assert.equal(liedAgain.body.error, 'session_ticket_cap', JSON.stringify(liedAgain.body));
-    assert.equal(ticketBalance(session.hub.userId, 'sproto'), full);
+    assert.equal(liedAgain.body.error, 'amount_over_rule', JSON.stringify(liedAgain.body));
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 30);
     assert.equal(idempotencyRows(session.hub.userId, 'bal-lie'), 0);
   });
 }

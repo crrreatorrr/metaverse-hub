@@ -18,7 +18,7 @@ namespace HubGames {
   }
 
   /** Plaza rooms: hub.<shard>. */
-  export var HUB_ROOM = /^hub\.[0-9]{1,4}$/;
+  export var HUB_ROOM = { test: HubRealms.isRoom };
 
   var regs: { [game: string]: GameReg } = {};
   var order: string[] = [];

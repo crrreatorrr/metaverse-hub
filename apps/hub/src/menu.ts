@@ -1,5 +1,6 @@
+import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
-import { ALL_RELICS, CHARACTERS, SOCKETS, STAFFS, type CharacterId, type StaffId } from './config';
+import { CHARACTERS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
@@ -164,7 +165,7 @@ export function createMenu(options: MenuOptions): Menu {
   const itemsPage = bodies.get('items') as HTMLElement;
   const wallet = el('div', 'menu-wallet');
   const verseLine = el('strong', 'menu-verse', 'Verse 0');
-  const relicCount = el('span', 'menu-sub', '0 of 4 Relics');
+  const relicCount = el('span', 'menu-sub', `0 of ${RELICS.length} Relics`);
   const walletText = el('div', 'menu-wallet-text');
   walletText.append(verseLine, relicCount);
   wallet.append(pixelIcon('coin', 'menu-wallet-coin'), walletText);
@@ -250,11 +251,11 @@ export function createMenu(options: MenuOptions): Menu {
   auraNone.addEventListener('click', () => update({ ...options.look(), aura: 'none' }));
   auraButtons.set('none', auraNone);
   auraRow.append(auraNone);
-  for (const socket of SOCKETS) {
+  for (const socket of RELICS) {
     const chip = el('button', 'chip aura');
     chip.type = 'button';
     chip.style.setProperty('--relic', socket.color);
-    chip.append(el('span', 'chip-dot'), el('span', '', socket.relic));
+    chip.append(el('span', 'chip-dot'), el('span', '', socket.name));
     chip.addEventListener('click', () => {
       if (!relics.has(socket.id)) return;
       update({ ...options.look(), aura: socket.id });
@@ -331,20 +332,20 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Relics
   const relicsPage = bodies.get('relics') as HTMLElement;
-  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. It lights its socket on the monument, orbits you as a gem and unlocks an aura in Edit avatar. The four Four Lights Relics each unlock a Sproto Fighter character, and all four unlock Error 333. Switch a Relic off to stop its gem orbiting you; you keep it either way.'));
+  relicsPage.append(el('p', 'menu-note', 'Each Relic is earned once, in its own game. It orbits you as a gem and unlocks an aura in Edit avatar. The four Four Lights Relics each unlock a Sproto Fighter character, and all four unlock Error 333. Switch a Relic off to stop its gem orbiting you; you keep it either way.'));
   const relicGrid = el('ul', 'menu-grid relics');
   const relicCards = new Map<string, HTMLElement>();
-  for (const socket of ALL_RELICS) {
+  for (const socket of RELICS) {
     const info = RELIC_INFO[socket.id];
     const card = el('li', 'relic-card');
     card.style.setProperty('--relic', socket.color);
     const gem = el('span', 'relic-gem');
     const text = el('div', 'relic-text');
     text.append(
-      el('strong', '', socket.relic),
+      el('strong', '', socket.name),
       el('span', 'relic-game', info.game),
       el('span', 'relic-how', info.how),
-      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.relic} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
+      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.name} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
     );
     const state = el('span', 'relic-badge', 'Locked');
     const toggle = el('button', 'relic-toggle');
@@ -432,9 +433,9 @@ export function createMenu(options: MenuOptions): Menu {
 
   function paintItems(): void {
     verseLine.textContent = `Verse ${verse.toLocaleString('en-US')}`;
-    relicCount.textContent = `${ALL_RELICS.filter((socket) => relics.has(socket.id)).length} of ${ALL_RELICS.length} Relics`;
+    relicCount.textContent = `${RELICS.filter((socket) => relics.has(socket.id)).length} of ${RELICS.length} Relics`;
     petGrid.replaceChildren();
-    const all = SOCKETS.every((socket) => relics.has(socket.id));
+    const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
       Boolean(serverPets?.has(pet.id)) ||
       (pet.relic ? relics.has(pet.relic) : false) ||

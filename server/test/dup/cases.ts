@@ -87,7 +87,7 @@ export const M1_FLOWS: DupFlow[] = [
     kind: 'exchange',
     id: 'sproto.tickets_to_verse',
     game: 'sproto',
-    // One sproto `win`. event_rule max_amount is 20, so a second exchange is funded by another earn.
+    // One sproto story boss pays 20. `win` max_amount is 0, so tickets.earn cannot fund this.
     earnAmount: 20,
     earnReason: 'win',
     tickets: 20,
@@ -154,7 +154,7 @@ export const M7_FLOWS: DupFlow[] = [];
 /**
  * Sproto Fighter (migration 0009). Payloads from the game client:
  * reportEvent('fighter.story_level_complete', {world, stage}, `fighter.story_level_complete:<matchId>`)
- * earnTickets(20, 'fighter_win', `fighter:win:<matchId>`). Only World 1 grants the Belt.
+ * earn path is story-boss grants. `fighter_win` max_amount is 0. Only World 1 grants the Belt.
  */
 export const FIGHTER_FLOWS: DupFlow[] = [
   {
