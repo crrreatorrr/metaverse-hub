@@ -40,6 +40,9 @@ export const HUB_BOARD_IDS = [
   'nobu_trial_time:1v2',
   'nobu_trial_time:2v2',
   'nobu_trial_time:3v2',
+  'nobu_trial_time:4',
+  'nobu_trial_time:6',
+  'nobu_trial_time:5',
   'nobu_trial_time:1',
   'nobu_trial_time:2',
   'nobu_trial_time:3',
@@ -59,6 +62,9 @@ export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'des
   'nobu_trial_time:1v2': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:2v2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:3v2': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:4': { title: 'NOBU · LEVEL 4', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:6': { title: 'NOBU · LEVEL 6', order: 'asc', unit: 'time trial' },
+  'nobu_trial_time:5': { title: 'NOBU · LEVEL 5', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:1': { title: 'NOBU · LEVEL 1 CLASSIC', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:2': { title: 'NOBU · LEVEL 2 CLASSIC', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:3': { title: 'NOBU · LEVEL 3 CLASSIC', order: 'asc', unit: 'time trial' },
@@ -112,6 +118,9 @@ export function gameForBoard(boardId: HubBoardId): GameId | null {
     case 'nobu_trial_time:1v2':
     case 'nobu_trial_time:2v2':
     case 'nobu_trial_time:3v2':
+    case 'nobu_trial_time:4':
+    case 'nobu_trial_time:6':
+    case 'nobu_trial_time:5':
     case 'verse_by_game_nobu':
       return 'nobu';
     case 'pb_total_xp':
