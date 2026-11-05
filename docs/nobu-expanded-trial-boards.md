@@ -1,9 +1,13 @@
 # NOBU Chapter 2 trial boards (H70 preparation)
 
 Preparatory Hub branch from `1c5ff75d8730d594147e0b8935ec0d23397472b1`. The coordinator confirms H40/H45
-are merged; H50 and client activation remain pending, and the owner has not confirmed deployment of
-this Hub capability. This branch does not enable Nobu uploads or change production. A merge alone is not
-proof that these variants are deployed.
+and H50 are merged. H50 PR54 merged at `e311f5f54b6c4ee684799788b0b87b500a63c672`; its PR CI passed,
+with exact merged-main CI still running at this update. The code dependency is satisfied, so this
+Hub PR is ready for coordinator creation/review and its own exact-head/merged-main CI. All product
+checks below apply to unchanged reviewed product3a; subsequent commits update documentation only.
+
+The owner has not confirmed deployment of this Hub capability or H35. This branch does not enable
+Nobu uploads or change production. A merge alone is not proof that these variants are deployed.
 
 | Exact variant | Inclusive minimum (integer ms) |
 | --- | ---: |
@@ -19,8 +23,10 @@ window. No SQL/schema, session, God-mode, economy or grant policy changes are in
 The SDK's shared floor allow-list changes because its mock submit/read paths use that table; live
 wire signatures/routing need no change. SDK version **0.6.1 is preserved**, including the newer
 outbox/pet/schema work on the base commit. Nobu is the required SDK consumer to re-sync after the Hub
-change is merged and owner-deployed; use `node scripts/vendor-sdk.mjs <fresh-nobu-worktree> --branch main`
-from exact merged Hub main, never hand-edit its vendor files. This branch does not vendor anything.
+change is merged; use `node scripts/vendor-sdk.mjs <fresh-nobu-worktree> --branch main` from exact
+merged Hub main, never hand-edit its vendor files. SDK/contract work may merge with public gates
+unchanged before deployment; enabling uploads still requires owner deployment confirmation. This
+branch does not vendor anything.
 Other games' boards do not need a functional re-sync for these NOBU-only variants.
 
 Plaza wall order is current `1v2`, `2v2`, `3v2`, `4`, `6`, `5`, then Classic `1`, `2`, `3`. Each new page
@@ -55,17 +61,19 @@ and merged-main CI must still validate them. Independent review approved immutab
 
 ## Gates and manual checks still outstanding
 
-H40/H45 are merged by coordinator confirmation. The Nobu follow-up must still wait for H50, the new
-Hub PR and **owner deployment confirmation**.
-Only then re-vendor the SDK and activate exact variants4/6/5 using existing config/queue/bridge gates;
-predeploy trials must remain local with no queued upload. This does not authorize changing the separate
+H40/H45/H50 are merged by coordinator confirmation; H50's exact merge is recorded above. Hub code
+review/PR/CI is now ready to proceed. After the Hub change merges, root can prepare the supported
+Nobu SDK re-vendor and contract tests with all public gates unchanged. **Activating exact variants4/6/5
+still requires owner confirmation of actual Hub H70 deployment**. Predeploy trials must remain local
+with no queued upload. This does not authorize changing the separate
 L1–3 `HUB_LAYOUT` deployment gates. Check floors against final merged physical gate/goal geometry,
 including raft current/chute speed bounds, in the later Nobu integration.
 
 Bounded phone/desktop wall-component rendering is checked below. Full-plaza natural-camera/mobile
 usability and one real **hub-launched** L4,L6,L5 trial posting/reading its own board remain unrun. Those runs also need to confirm gear-free/noDDA and no God/remix/rush
-upload behavior after deployment. No PR, push, merge, production deployment, permission change,
-leaderboard reset, new media or client gate change is performed by this preparatory branch.
+upload behavior after deployment. Root owns PR creation, push, CI and merge; none has been performed
+by this author. No production deployment, permission change, leaderboard reset, new media or client
+gate change is part of this Hub code PR.
 
 Sources: Nobu H70/H35 handoffs, gameplay plan10.2, new-levels wiring5.1 and level6§9 in the reviewed
 `/workspace/nobu-spec` source material, plus current Hub `AGENTS.md`.
@@ -97,5 +105,5 @@ Evidence: `/tmp/h70-wall-browser-results.json`, `/tmp/h70-wall-browser.log` and
 `/tmp/h70-wall-{desktop,phone}-{4,6,5,1v2,1}.png`. Separate fresh profile and strict ports5307/9407 were
 used; browser and Vite closed, both ports were confirmed closed and the exclusive GPU slot was
 released before this docs-only update. Product code remains identical to the independently reviewed
-and tested3a revision. H50, deployment confirmation, client vendoring/activation and exact CI gates
-remain outstanding.
+and tested3a revision. H50 is now merged; owner deployment confirmation, later client
+vendoring/activation and this Hub PR's exact CI gates remain outstanding.
