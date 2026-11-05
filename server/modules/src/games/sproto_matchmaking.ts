@@ -11,8 +11,8 @@ namespace SprotoMm {
   export var LIVE_KEY = "live";
   /** Menu count is recomputed at most this often, per node. */
   export var COUNT_CACHE_S = 3;
-  /** A queue row whose socket is gone is reusable after this. */
-  export var QUEUE_STALE_MS = 3 * 60 * 1000;
+  /** Every connected socket is tracked on this stream until it drops. Mode 0 is notifications. */
+  var NOTIFY_STREAM_MODE = 0;
   var QUEUE_N = "sproto:queue:n";
   var COUNT_CACHE = "sproto:counts";
 
@@ -25,15 +25,70 @@ namespace SprotoMm {
     return rows && rows.length ? rows[0] : null;
   }
 
-  function write(nk: nkruntime.Nakama, key: string, userId: string, value: { [k: string]: unknown }): void {
-    nk.storageWrite([{
+  function write(nk: nkruntime.Nakama, key: string, userId: string, value: { [k: string]: unknown }, version?: string): void {
+    var obj: nkruntime.StorageWrite = {
       collection: COLLECTION,
       key: key,
       userId: userId,
       value: value,
       permissionRead: 0,
       permissionWrite: 0,
-    }]);
+    };
+    if (version !== undefined) obj.version = version;
+    nk.storageWrite([obj]);
+  }
+
+  /**
+   * True when that socket is still on the notifications stream. A missing lookup
+   * (the unit harness) or a lookup error counts as live, so a second ticket is
+   * rejected instead of opening a double queue.
+   */
+  function sessionLive(nk: nkruntime.Nakama, userId: string, sessionId: string): boolean {
+    if (!sessionId) return false;
+    var probe = (nk as nkruntime.Nakama & {
+      streamUserGet?(userId: string, sessionId: string, stream: { mode: number; subject: string }): { [k: string]: unknown } | null;
+    }).streamUserGet;
+    if (typeof probe !== "function") return true;
+    try {
+      return probe(userId, sessionId, { mode: NOTIFY_STREAM_MODE, subject: userId }) != null;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /** The row belongs to this socket, or to another socket that is still connected. */
+  function queueHeld(nk: nkruntime.Nakama, userId: string, sessionId: string, row: nkruntime.StorageObject): boolean {
+    var sid = String(row.value["sessionId"] || "");
+    if (!sid) return false;
+    if (sid === sessionId) return true;
+    return sessionLive(nk, userId, sid);
+  }
+
+  /**
+   * One queue row per user. A dead socket's row is replaced. Two live sockets
+   * lose the storage-version race: the second sees the winner and is rejected.
+   */
+  function claimQueue(nk: nkruntime.Nakama, userId: string, sessionId: string): void {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      var row = read(nk, QUEUE_KEY, userId);
+      if (row) {
+        if (queueHeld(nk, userId, sessionId, row)) throw new Error("already_queued");
+        try {
+          write(nk, QUEUE_KEY, userId, { sessionId: sessionId, at: now() }, row.version);
+          return;
+        } catch (e) {
+          continue;
+        }
+      }
+      try {
+        write(nk, QUEUE_KEY, userId, { sessionId: sessionId, at: now() }, "*");
+        setQueueN(nk, queueN(nk) + 1);
+        return;
+      } catch (e) {
+        continue;
+      }
+    }
+    throw new Error("already_queued");
   }
 
   function queueN(nk: nkruntime.Nakama): number {
@@ -142,9 +197,9 @@ namespace SprotoMm {
   }
 
   /**
-   * Runs after the hub scope check on MatchmakerAdd. A second sproto ticket for
-   * this user, or a ticket while they sit in a live match, is rejected.
-   * No session id (the unit harness) skips the bookkeeping and allows the add.
+   * Runs after the hub scope check on MatchmakerAdd. A second sproto ticket is
+   * rejected while the socket that holds the row is still connected. A row whose
+   * socket has dropped is replaced. No session id (the unit harness) skips this.
    */
   export function noteAdd(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): void {
     var add = envelope.matchmakerAdd;
@@ -152,16 +207,7 @@ namespace SprotoMm {
     var props = add.stringProperties || {};
     if (props["game"] !== SprotoArena.GAME_ID) return;
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
-    var row = read(nk, QUEUE_KEY, ctx.userId);
-    if (row) {
-      var at = Number(row.value["at"] || 0);
-      var same = String(row.value["sessionId"] || "") === ctx.sessionId;
-      if (same || now() - at < QUEUE_STALE_MS) throw new Error("already_queued");
-      write(nk, QUEUE_KEY, ctx.userId, { sessionId: ctx.sessionId, at: now() });
-      return;
-    }
-    write(nk, QUEUE_KEY, ctx.userId, { sessionId: ctx.sessionId, at: now() });
-    setQueueN(nk, queueN(nk) + 1);
+    claimQueue(nk, ctx.userId, ctx.sessionId);
   }
 
   /**

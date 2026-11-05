@@ -70,7 +70,7 @@ Quick match is still `addMatchmaker` / `removeMatchmaker` on the socket (2 playe
 
 `MatchmakerAdd` for `game: "sproto"` is rejected, after the usual scope check, with:
 
-- `already_queued` — this user already has a sproto queue row on this socket (or a row newer than 3 minutes).
+- `already_queued` — this user already has a sproto queue row for a socket that is still connected. The same session is always rejected. A different session is rejected only while `streamUserGet` still finds it on the notifications stream (mode 0, subject = that user), which is the stream every socket joins and leaves when the socket drops. A row whose session is absent is replaced by this ticket. Two live sockets that add together are serialised by the storage version: one write wins, the other reads that row and is rejected. Nakama 3.41's JavaScript runtime has no session-end hook, so the row is cleared on the next add rather than at the instant of the disconnect. There is no timed hold.
 - `already_in_match` — this user is seated in a live `sproto_arena` match (quick match, private room, or a rematch that was just created).
 
 Nakama 3.41 does not pass the matchmaker ticket into the JavaScript matched hook. The pair key is `sha256` of the sorted `t:<ticket>` values when a ticket is present, otherwise `p:<userId>:<sessionId>`. A second matched call for that key, while the match still exists, returns the same match id and does not call `matchCreate` again. If either user is already seated in a different live match, the hook creates nothing.
@@ -142,7 +142,7 @@ half the time), 5 paid wins per pair per day, 10 paid wins (200 Tickets) per pla
 `TICK_RATE 30`, `ACCEPT_S 10`, `REMATCH_S 15`, `JOIN_TIMEOUT_S 30`, `ROOM_TIMEOUT_S 300`, `RECONNECT_S 10`,
 `STALL_S 10`, `MAX_PLAY_S 480`, `MIN_PLAY_S 15`, `LINGER_S 2`, `RESULT_WAIT_S 5`, `MIN_ROUND_S 2`,
 `MAX_MSGS_PER_TICK 4`, `PVP_WIN_TICKETS 20`, `PVP_PAIR_DAILY 5`, `PVP_DAILY_PAID_WINS 10`.
-The menu count is cached for `COUNT_CACHE_S` 3. A queue row from a dead socket is reusable after 3 minutes.
+The menu count is cached for `COUNT_CACHE_S` 3. A queue row is reusable as soon as its socket is gone from the notifications stream.
 
 ## Verified live (2026-11-04)
 
