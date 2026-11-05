@@ -2310,6 +2310,10 @@ namespace HubSchema {
       // 0010 is frozen. This replaces game.sproto_wager_hold with that body, plus a
       // guest refusal before the lock, and without the fighter_win qualifying count.
       // Any signed-in player may wager. game.user_is_guest matches HubChat.isGuest.
+      // Replay (schema_migrations row removed, objects still present): drop only the
+      // old 7-arg overload. The 6-arg function keeps the same argument names and
+      // jsonb return, so CREATE OR REPLACE replaces it. Dropping it first is not
+      // required and would not be, unless the return type or names changed.
       id: "0032_wager_online_qualify",
       statements: [
         `CREATE OR REPLACE FUNCTION game.user_is_guest(p_user uuid)
@@ -2320,7 +2324,7 @@ namespace HubSchema {
            )
          $fn$`,
         "DROP FUNCTION IF EXISTS game.sproto_wager_hold(text, uuid, uuid, bigint, int, int, bigint)",
-        `CREATE FUNCTION game.sproto_wager_hold(
+        `CREATE OR REPLACE FUNCTION game.sproto_wager_hold(
            p_match_id text, p_a uuid, p_b uuid, p_stake bigint,
            p_pair_limit int, p_daily_cap bigint
          ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
