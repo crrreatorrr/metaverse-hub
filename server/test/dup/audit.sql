@@ -149,6 +149,9 @@ BEGIN
       WHERE s.credits <> s.exchanges
 
       UNION ALL
+      -- A story-boss credit is a tickets_ledger earn whose idempotency row is
+      -- session.event (response.tickets > 0), not tickets.earn. Count that row
+      -- as keyed. Any other positive earn still needs a tickets.earn key.
       SELECT 'earn_ledger_exceeds_keys',
              s.user_id::text,
              'ledger=' || s.ledgers::text || ' keys=' || s.keys::text
@@ -157,7 +160,10 @@ BEGIN
           (SELECT count(*) FROM game.tickets_ledger l
             WHERE l.user_id = u.user_id AND l.delta > 0 AND l.reason <> 'exchange' AND l.reason <> 'shop_sell') AS ledgers,
           (SELECT count(*) FROM game.idempotency i
-            WHERE i.user_id = u.user_id AND i.rpc = 'tickets.earn') AS keys
+            WHERE i.user_id = u.user_id AND i.rpc = 'tickets.earn')
+          + (SELECT count(*) FROM game.idempotency i
+            WHERE i.user_id = u.user_id AND i.rpc = 'session.event'
+              AND COALESCE((i.response->>'tickets')::bigint, 0) > 0) AS keys
         FROM (SELECT DISTINCT user_id FROM game.tickets_ledger) u
       ) s
       WHERE s.ledgers > s.keys
