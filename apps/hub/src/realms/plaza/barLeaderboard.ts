@@ -1,5 +1,5 @@
 import { DoubleSide, Group, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, BoxGeometry } from 'three';
-import { fitText, paintedCanvas } from './canvas';
+import { fitText, paintedCanvas } from '../../m3/canvas';
 import {
   BOARD_META,
   HUB_BOARD_IDS,
@@ -9,7 +9,7 @@ import {
   type LeaderboardPage,
   type LeaderboardProvider,
   type NewNumberOneEvent,
-} from './types';
+} from '../../m3/types';
 
 /**
  * World pose of the bar's +X wall screen.

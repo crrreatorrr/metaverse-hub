@@ -16,9 +16,9 @@ import {
   TorusGeometry,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { STAND_Y } from '../physics';
-import { fitText, paintedCanvas } from './canvas';
-import { RELIC_GEMS, type ChampionEntry } from './types';
+import { STAND_Y } from '../../physics';
+import { fitText, paintedCanvas } from '../../m3/canvas';
+import { RELIC_GEMS, type ChampionEntry } from '../../m3/types';
 
 /** Club interior sits at y = -300. The hall is a separate room below that. */
 export const HALL_ROOM_ORIGIN = { x: 0, y: -600, z: 0 } as const;
