@@ -1,3 +1,4 @@
+import { REALM_IDS, type RealmId } from './core/realm-id';
 import { canonicalGameId, type GameId } from '@metaverse/hub-sdk';
 import { type PortalConfig } from './config';
 import { portalPosition } from './layout';
@@ -52,4 +53,15 @@ export function portalContaining(portals: readonly PortalConfig[], x: number, z:
     if (Math.hypot(x - at.x, z - at.z) <= portal.triggerRadius) return portal;
   }
   return null;
+}
+
+/** Realm crossings have their own hash; game returns always take precedence in the plaza. */
+export function parseRealmArrival(hash: string): RealmId | null {
+  const id = new URLSearchParams(hash.startsWith('#') ? hash.slice(1) : hash).get('realm');
+  return REALM_IDS.find(realm => realm === id) ?? null;
+}
+
+/** A renewed sign-in returns to this exact page, preserving its query and arrival hash. */
+export function loginReturnPath(location: { pathname: string; search: string; hash: string }): string {
+  return `${location.pathname}${location.search}${location.hash}`;
 }

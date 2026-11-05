@@ -1,3 +1,5 @@
+import { createRealmGate } from '../../core/gates';
+import { SANDBOX_GATE } from './layout';
 import { createArcadePicker } from '../../v2/arcade-picker';
 import { createLiveLeaderboardProvider } from '../../leaderboards';
 import { parseReturnGame } from '../../travel';
@@ -397,9 +399,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     return Math.hypot(tmp.x - x, tmp.z - z);
   }
 
-  function update(dt: number, _state: FrameState): void {
+  function update(dt: number, state: FrameState): void {
     for (const socket of sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
     elapsed += dt;
+    gate?.update(dt, state);
     const player = rig.position;
     for (const slot of slots) {
       const guess = slot.group?.position ?? tmp.set(Math.sin(slot.a) * 160, 0, -Math.cos(slot.a) * 160);
@@ -515,6 +518,9 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     ctx.releasePointer();
     arcadePicker.show(id => Boolean(ctx.pageFor(id)));
   }
+  const gate = import.meta.env.DEV && import.meta.env.VITE_REALM_GATE_SANDBOX === '1'
+    ? await createRealmGate(ctx, { x: SANDBOX_GATE.x, z: SANDBOX_GATE.z, destination: '/realm/sandbox/', label: 'the sandbox' })
+    : null;
   const interactions = [
     { active: () => zone === 'loading', showLook: false, prompt: () => 'Loading the bar…' },
     { active: () => zone === 'door', prompt: () => 'Walk into the door to enter the bar' },
@@ -527,6 +533,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
         for (const listener of openListeners) listener();
       }, prompt: () => storeOpen ? 'Sprotel Bitcoin · Verse store' : `Press E · ${interior?.sprotel?.prompt ?? SPROTEL_PROMPT}` },
   ];
+  if (gate) { outdoor.add(gate.root); interactions.push(gate.interaction); }
   if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
 
   type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';

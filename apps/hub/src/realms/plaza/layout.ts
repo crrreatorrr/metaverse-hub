@@ -1,3 +1,4 @@
+import { parseRealmArrival, parseReturnGame } from '../../travel';
 import type { PortalPlacement } from '../../m3/types';
 import { BOLLARD_RADIUS, CURB_RADIUS, PILLAR_HEIGHT, PILLAR_OFFSET, PILLAR_WIDTH, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, SPAWN_DISTANCE } from './config';
 import type { PortalConfig } from '../../config';
@@ -87,3 +88,11 @@ export function defaultPortalPlacements(): PortalPlacement[] {
   });
 }
 
+
+/** Away from the statue tiers, return portals, and Bar approach. */
+export const SANDBOX_GATE = { x: 32, z: 42, arrival: { x: 32, z: 48, yaw: 0 } } as const;
+export function spawnForArrival(hash: string): Spawn {
+  const game = parseReturnGame(hash);
+  if (game) return spawnFor(game);
+  return parseRealmArrival(hash) === 'sandbox' ? SANDBOX_GATE.arrival : spawnFor(null);
+}

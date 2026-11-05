@@ -124,3 +124,18 @@ from importing Vite renderer types. All four checks passed after that type-bound
 Task 9's first concurrent capture loaded one extra Inter font after briefly seeing a remote
 nameplate. The isolated final capture restored all six 40-asset counts; world asset URLs did
 not change. Signed-in behavior is tested separately against the local server.
+
+Task 10: the flag-off six-view capture remains 97/122/48/35/42/82 draws and 40 assets at
+all points; the signed-in light plaza walkthrough passed. Two local accounts with fixture
+Relics showed six local and six selected-peer gems in both plaza and sandbox. Browser gate
+crossings preserved accounts, separate-realm rosters/chat stayed isolated, and the sandbox
+requested no plaza world art. A positive expired-token fixture exercised the actual renewal
+branch and signed back in on `/realm/sandbox/`. Guest identity/tab state survived crossing;
+plaza gate arrivals and a full NOBU-return page load used the expected spawns. No page errors.
+Fixture Relic rows were seeded only in the disposable local database, outside realm code.
+
+The gate is enabled only in development with `VITE_REALM_GATE_SANDBOX=1`; production builds
+omit it. The shared portal implementation is unchanged. Vite now emits `realm-pages.txt` from
+its actual HTML inputs so Task 12 can validate a dist without requiring a source checkout or
+Node on the production host. All four required checks passed, and independent review found
+no blocking issue. Actual fetched-game gameplay remains outside this light walkthrough.

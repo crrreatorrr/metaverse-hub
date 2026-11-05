@@ -1,7 +1,6 @@
 import type { RealmDefinition } from '../../core/realm';
 import { STAND_Y } from '../../physics';
-import { parseReturnGame } from '../../travel';
-import { spawnFor } from './layout';
+import { spawnForArrival } from './layout';
 import { createPlazaContent, PLAZA_ENGINE_OPTIONS } from './content';
 
 export const plazaRealm: RealmDefinition = {
@@ -10,5 +9,5 @@ export const plazaRealm: RealmDefinition = {
   loadingText: 'Loading the plaza…',
   welcome: 'Welcome to the plaza. Press Enter to chat.',
   build: createPlazaContent,
-  spawn(hash) { return { ...spawnFor(parseReturnGame(hash)), y: STAND_Y }; },
+  spawn(hash) { return { ...spawnForArrival(hash), y: STAND_Y }; },
 };

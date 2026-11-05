@@ -31,7 +31,7 @@ import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
 import { gate } from '../login';
 import '../style.css';
-import { initialDwell, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from '../travel';
+import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from '../travel';
 
 import { createEngine } from './engine';
 import type { RealmDefinition, RealmContent } from './realm';
@@ -75,10 +75,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (page && !traveling && !menu.open) void travel(game, page);
     },
     releasePointer() { keys.clear(); releasePointer(); },
-    isBlocked: () => traveling || menu.open,
+    isBlocked: () => traveling || menu.open || chat.open,
   });
   const world = Object.defineProperties(Object.create(engine), Object.getOwnPropertyDescriptors(content)) as typeof engine & RealmContent;
   const PORTALS = content.portals ?? [];
+  engine.loadAvatar();
+  document.documentElement.dataset.realm = definition.id;
+  document.documentElement.dataset.realmReady = '1';
   hint.textContent = `Click to look  ·  ${CONTROLS_HINT}`;
   app.prepend(world.renderer.domElement);
 
@@ -786,6 +789,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (session.username) {
       const fresh = await resume();
       if (fresh) session.token = fresh.token;
+      else {
+        window.location.assign(loginReturnPath(window.location));
+        throw new HubSdkError('no_session', 'Sign in again to continue');
+      }
     } else {
       session.token = (await session.client.authenticateDevice(session.deviceId)).token;
     }
