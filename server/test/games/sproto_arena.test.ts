@@ -172,9 +172,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.m.dispatcher.broadcasts.filter((b) => b.opCode === OP.INPUT).length, 4, 'MAX_MSGS_PER_TICK');
 }
 
-// Agreed results → verified, the winner paid exactly once (deterministic key), the board updated.
+// ranked "1" only: verified, the winner paid exactly once (deterministic key), the board updated.
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   const winner = a.hostSeat;
   const wins = winner === 0 ? [2, 0] : [0, 2];
   play(a, 10);
@@ -233,9 +233,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.earns.length, 0);
 }
 
-// A player leaves for good → forfeit after the grace, paid (a round finished, past MIN_PLAY).
+// ranked "1" only: forfeit after the grace is paid (a round finished, past MIN_PLAY).
 {
-  const a = start();
+  const a = start({ ranked: '1' });
   play(a, 16);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 1 - a.hostSeat, reason: 'ko', wins: a.hostSeat === 0 ? [0, 1] : [1, 0] } }]);
   a.m.leave([a.guest]);
@@ -287,9 +287,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(out.winnerSeat, a.hostSeat);
 }
 
-// Pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
+// ranked "1" only: pair / daily caps reached → verified but paid:false, no earn; the board still counts it.
 {
-  const a = start({ paid: false });
+  const a = start({ paid: false, ranked: '1' });
   play(a, 10);
   a.m.loop([{ sender: a.host, opCode: OP.ROUND, data: { round: 1, winnerSeat: 0, reason: 'ko', wins: [1, 0] } }]);
   play(a, 10);
@@ -366,37 +366,34 @@ function agreeSeat0(a: Arena): void {
   ]);
 }
 
-// ranked "0" (standalone Duel, or an unranked portal session): one win, no cap row, no earn.
-{
-  const a = start({ ranked: '0' });
-  agreeSeat0(a);
+/** Missing, empty, "0", or any other value: 0 T, no cap row, the win recorded once. */
+function expectUnpaid(a: Arena, label: string): void {
   const out = outcome(a);
-  assert.equal(out[0]?.body.status, 'verified');
-  assert.equal(out[0]?.body.winnerSeat, 0);
-  assert.deepEqual(plain(out[0]!.body.paid), {}, 'ranked 0 pays 0 T');
-  assert.equal(a.payRows.length, 0, 'ranked 0 skips the sproto_pvp_result cap insert');
-  assert.equal(a.earns.length, 0, 'ranked 0 does not call earn');
-  assert.equal(a.wins.length, 1, 'the win is still recorded once');
+  assert.equal(out[0]?.body.status, 'verified', label);
+  assert.equal(out[0]?.body.winnerSeat, 0, label);
+  assert.deepEqual(plain(out[0]!.body.paid), {}, `${label} pays 0 T`);
+  assert.equal(a.payRows.length, 0, `${label} skips the sproto_pvp_result cap insert`);
+  assert.equal(a.earns.length, 0, `${label} does not call earn`);
+  assert.equal(a.wins.length, 1, `${label} records the win once`);
   a.m.loop([
     { sender: a.host, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
     { sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: 0, wins: [2, 0], rounds: 2 } },
   ]);
-  assert.equal(a.payRows.length, 0);
-  assert.equal(a.earns.length, 0);
-  assert.equal(a.wins.length, 1, 'a replayed RESULT does not record a second win or mint');
+  assert.equal(a.payRows.length, 0, label);
+  assert.equal(a.earns.length, 0, label);
+  assert.equal(a.wins.length, 1, `${label} replay does not record a second win or mint`);
 }
 
-// Flagged for Architect: omitting ranked still pays, while ranked "0" (online now) pays 0 T.
+// Pay only for ranked "1". Omitted, empty, "0", and any other value stay 0 T.
 {
-  const a = start();
-  agreeSeat0(a);
-  const out = outcome(a);
-  assert.equal(out[0]?.body.status, 'verified');
-  assert.deepEqual(plain(out[0]!.body.paid), { [A]: 20 }, 'a missing ranked var still pays');
-  assert.equal(a.payRows.length, 1, 'the cap insert still runs when ranked is absent');
-  assert.equal(a.earns.length, 1);
-  assert.equal(a.earns[0]?.[3], 20);
-  assert.equal(a.wins.length, 1);
+  const omitted = start();
+  agreeSeat0(omitted);
+  expectUnpaid(omitted, 'omitted ranked');
+  for (const ranked of ['', '0', '2']) {
+    const a = start({ ranked });
+    agreeSeat0(a);
+    expectUnpaid(a, `ranked ${JSON.stringify(ranked)}`);
+  }
 }
 
 console.log('sproto_arena tests ok');
