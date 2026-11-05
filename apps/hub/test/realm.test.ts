@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { buildSandboxCollider } from '../src/realms/sandbox/collider';
 import { createPlayerController, STAND_Y } from '../src/physics';
 import assert from 'node:assert/strict';
@@ -37,3 +38,14 @@ for (let side = 0; side < 4; side++) {
   assert.ok(Math.max(Math.abs(player.position.x), Math.abs(player.position.z)) > 130);
 }
 collider.geometry.dispose();
+
+// Exercise the actual build check on source fixtures without importing browser code.
+function assetViolations(realm: string, source: string): string[] {
+  const result = execFileSync(process.execPath, ['--input-type=module', '-e',
+    "import { checkRealmSource } from './scripts/check-realm-assets.mjs'; console.log(JSON.stringify(checkRealmSource(process.argv[1], process.argv[2])));", realm, source],
+    { cwd: new URL('../../../', import.meta.url), encoding: 'utf8' });
+  return JSON.parse(result) as string[];
+}
+assert.ok(assetViolations('sandbox', "const art = '/world/realms/other/floor.glb'").length > 0, 'realm_cannot_reference_other_realm');
+assert.ok(assetViolations('plaza', "const art = 'world/realms/sandbox/floor.glb'").length > 0, 'plaza cannot reference realm art');
+assert.deepEqual(assetViolations('sandbox', "const art = '/world/realms/sandbox/floor.glb'"), []);

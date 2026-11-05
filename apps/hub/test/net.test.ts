@@ -1,3 +1,4 @@
+import { REALM_IDS } from '../src/core/realm-id';
 // Hub client net layer: protocol quantisation, opcodes vs the server module,
 // interpolation, RemoteWorld, and connectPlaza against the SDK mock server.
 import assert from 'node:assert/strict';
@@ -250,4 +251,11 @@ console.log('hub net tests ok');
   for (const realm of ['plaza', 'sandbox'] as const) {
     for (const y of [-300, -250, -50, -4, 1.775, 40]) assert.equal(zoneOf(y, realm), table.zoneOf(table.get(realm), y * 100));
   }
+}
+
+// Every client route is backed by an allow-listed server realm.
+{
+  const mod = loadModule({ noInit: true });
+  const table = mod.global.HubRealms as { get(id: string): unknown };
+  for (const id of REALM_IDS) assert.ok(table.get(id), `client realm ${id} exists on server`);
 }
