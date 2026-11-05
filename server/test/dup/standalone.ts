@@ -88,6 +88,20 @@ function issue(token: string, payload: object = { app: APP }): Promise<RpcResult
 async function clearRateLimits(): Promise<void> {
   compose(['restart', 'nakama']);
   await waitReady();
+  // Device auth can 503 for a moment after the gateway is healthy (dial 7349 refused).
+  const deadline = Date.now() + 20_000;
+  let last = 'auth not attempted';
+  while (Date.now() < deadline) {
+    try {
+      await guest();
+      return;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+      if (!last.includes('503') && !last.includes('connection refused')) throw error;
+      await sleep(250);
+    }
+  }
+  throw new Error(`Nakama auth did not recover after restart: ${last}`);
 }
 
 function purse(userId: string): string {
