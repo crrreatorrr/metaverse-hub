@@ -65,6 +65,8 @@ namespace SprotoArena {
     players: string[];
     names: { [userId: string]: string };
     sids: { [userId: string]: string };
+    /** Session var ranked captured at join. "0" pays no Tickets. */
+    ranked: { [userId: string]: string };
     staffs: { [userId: string]: string };
     hostSeat: number;
     isPrivate: boolean;
@@ -191,6 +193,17 @@ namespace SprotoArena {
   export function payout(nk: nkruntime.Nakama, logger: nkruntime.Logger, matchId: string, state: State, winnerSeat: number, status: string, out: Outcome): void {
     var winner = state.players[winnerSeat], loser = state.players[1 - winnerSeat];
     if (!winner || !loser) return;
+    // ranked "0" (standalone Duel, or an unranked portal session) stays 0 T.
+    // The win still posts to sproto_wins. Skip the paid-cap row so a zero payout
+    // does not consume the pair or daily Ticket slots.
+    if (state.ranked && state.ranked[winner] === "0") {
+      try {
+        HubBoards.recordWin(nk, winner, WINS_BOARD, matchId);
+      } catch (e) {
+        logger.warn("sproto_arena recordWin " + matchId + ": " + String(e));
+      }
+      return;
+    }
     var paid = false;
     try {
       var rows = nk.sqlQuery(PAY_SQL, [matchId, winner, loser, status, PVP_PAIR_DAILY, PVP_DAILY_PAID_WINS]);
@@ -285,6 +298,7 @@ namespace SprotoArena {
         players: players.slice(0, 2),
         names: names,
         sids: {},
+        ranked: {},
         staffs: {},
         hostSeat: Math.random() < 0.5 ? 0 : 1,
         isPrivate: isPrivate,
@@ -325,6 +339,7 @@ namespace SprotoArena {
       }
       // The joiner's game session id (ctx.vars are the joining user's here): Tickets need it open.
       if (vars["sid"]) state.sids[uid] = vars["sid"];
+      state.ranked[uid] = typeof vars["ranked"] === "string" ? vars["ranked"] : "";
       return { state: state, accept: true };
     },
 
@@ -582,6 +597,9 @@ function rpcSprotoRoomCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, n
 }
 function rpcSprotoRoomJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return SprotoArena.rpcRoomJoin(ctx, logger, nk, payload);
+}
+function rpcSprotoStandaloneSession(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return SprotoStandalone.session(ctx, logger, nk, payload);
 }
 
 HubGames.register({ game: SprotoArena.GAME_ID, matchmaker: SprotoArena.onMatched });

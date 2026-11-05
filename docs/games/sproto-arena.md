@@ -41,7 +41,30 @@ Opcodes are per match (C8). `NET_VERSION` here and in `sproto-duel/src/net/proto
   `sproto.room_join {code, v}` → `{matchId}` via `+label.kind:sproto_arena +label.code:<code> +label.open:T`, or
   `room_not_found` / `version_mismatch`. The creator joins its match id directly (listings lag about 1 s).
 - Only game-scope sessions of `sproto` may join (`wrong_scope` otherwise); `ctx.vars.sid` is kept per player
-  for Ticket grants. Label: `{"game":"sproto","kind":"sproto_arena","v":"1","open":bool,"code":""|"ABC234"}`.
+  for Ticket grants, and `ctx.vars.ranked` is kept so a `"0"` session pays nothing. Label:
+  `{"game":"sproto","kind":"sproto_arena","v":"1","open":bool,"code":""|"ABC234"}`.
+
+## Standalone session (no portal ticket)
+
+A visitor who never entered the plaza portal still gets a session this match accepts, and only for 0-Ticket play. The portal `t:` custom-auth path is unchanged.
+
+1. Device or email auth, as today. `beforeAuthenticateDevice` / email auth forces `{scope:"hub"}` and drops client vars.
+2. That hub session calls `sproto.standalone_session` with `{"app":"sproto-duel"}`. `app` is a public marker, not a secret. Any other field is ignored. The client does not choose `scope`, `game`, `sid`, or `ranked`.
+3. The server mints a token with `nk.authenticateTokenGenerate`. Its vars are exactly `{scope:"game", game:"sproto", sid:<server uuid>, ranked:"0"}`. The reply is `{token, exp, sid}`. There is no refresh token; the access token lasts `token_expiry_sec` (7200). Open the socket with this token. Refreshing the original hub refresh token stays scope `hub`.
+
+Nakama stores those vars in the session JWT (`vrs`). Match join, `sproto.room_create`, `sproto.room_join`, and the matchmaker read `ctx.vars` from it, the same way they read a portal game token.
+
+Rate limits (Nakama localcache, per node, cleared on restart), counted only after the marker and the hub-scope check:
+
+| Bucket | Limit | Window |
+| --- | --- | --- |
+| user id | 10 | 10 minutes |
+| each linked device id | 10 | 10 minutes |
+| client IP (`ctx.clientIp`), when Nakama set one | 40 | 10 minutes |
+
+A full bucket answers `{error:"rate_limited"}` and does not mint. Other errors: `unauthorized`, `wrong_scope`, `bad_json`, `bad_app`, `mint_failed`.
+
+`ranked:"0"` does not wager and does not earn Tickets from this match: a verified or forfeit win still calls `HubBoards.recordWin` (`sproto_wins`) and skips `HubEconomy.earn` and the paid-cap row. The standalone `sid` is not a `game.game_session` row, so `tickets.earn`, `session.event`, `tickets.spend`, `tickets.sell`, and `tickets.exchange` come back `session_closed` from SQL. `save.put` does not mint Tickets, Relics, or items. Sproto Fighter wagers stay on the hub session. This token's game is `sproto`, so a Fighter matchmaker ticket is `wrong_game` and never reaches `sproto_wager_hold`.
 
 ## Referee
 
@@ -57,7 +80,7 @@ Opcodes are per match (C8). `NET_VERSION` here and in `sproto-duel/src/net/proto
 | Over 8 minutes | `timeout` | no |
 | matchTerminate | `server_shutdown` | no |
 
-Host gone means the match is over (no host migration in v1): the guest wins by forfeit under the same rules.
+Host gone means the match is over (no host migration in v1): the guest wins by forfeit under the same rules. "Paid" above is Tickets, and only when the winner's session var `ranked` is not `"0"`.
 
 ## Tickets and the board
 
@@ -67,6 +90,7 @@ advisory lock per winner serialises it, and the match id makes repeats no-ops. W
 `HubEconomy.earn(winner, sid, "sproto", 20, "srv_pvp_win", "sproto:pvp:<match uuid>:<winner[0:8]>")` (deterministic
 key, ≤ 80 characters, so retries never double-pay; `session_closed` is logged and nothing is paid).
 `HubBoards.recordWin(winner, "sproto_wins", matchId)` runs for every verified or forfeit win, paid or not.
+A joiner whose session var `ranked` is `"0"` (standalone Duel, or an unranked portal session) skips the paid-cap insert and `HubEconomy.earn`. The board post still runs. Online play for that session stays 0 T.
 
 Migration `0020_sproto_pvp` (registered from the game file) creates the table and the
 `('sproto','srv_pvp_win', max_amount 20)` `event_rule` row. `tickets.earn` refuses `srv_*` reasons from clients.
