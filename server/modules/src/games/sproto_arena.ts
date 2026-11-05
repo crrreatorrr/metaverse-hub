@@ -65,7 +65,7 @@ namespace SprotoArena {
     players: string[];
     names: { [userId: string]: string };
     sids: { [userId: string]: string };
-    /** Session var ranked captured at join. "0" pays no Tickets. */
+    /** Session var ranked captured at join. Only the explicit marker "1" pays Tickets. */
     ranked: { [userId: string]: string };
     staffs: { [userId: string]: string };
     hostSeat: number;
@@ -193,10 +193,10 @@ namespace SprotoArena {
   export function payout(nk: nkruntime.Nakama, logger: nkruntime.Logger, matchId: string, state: State, winnerSeat: number, status: string, out: Outcome): void {
     var winner = state.players[winnerSeat], loser = state.players[1 - winnerSeat];
     if (!winner || !loser) return;
-    // ranked "0" (standalone Duel, or an unranked portal session) stays 0 T.
-    // The win still posts to sproto_wins. Skip the paid-cap row so a zero payout
-    // does not consume the pair or daily Ticket slots.
-    if (state.ranked && state.ranked[winner] === "0") {
+    // Pay only when ranked is the explicit marker "1". Missing, empty, "0", or
+    // anything else is no-pay: skip the paid-cap insert and HubEconomy.earn.
+    // sproto_wins still records. Nothing sets "1" until the server Duel sim ships.
+    if (!state.ranked || state.ranked[winner] !== "1") {
       try {
         HubBoards.recordWin(nk, winner, WINS_BOARD, matchId);
       } catch (e) {
@@ -339,6 +339,7 @@ namespace SprotoArena {
       }
       // The joiner's game session id (ctx.vars are the joining user's here): Tickets need it open.
       if (vars["sid"]) state.sids[uid] = vars["sid"];
+      // Captured as sent. Payout treats only "1" as paid; missing, empty, "0", or any other value is no-pay.
       state.ranked[uid] = typeof vars["ranked"] === "string" ? vars["ranked"] : "";
       return { state: state, accept: true };
     },

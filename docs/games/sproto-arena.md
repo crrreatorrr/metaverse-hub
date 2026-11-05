@@ -80,7 +80,7 @@ A full bucket answers `{error:"rate_limited"}` and does not mint. Other errors: 
 | Over 8 minutes | `timeout` | no |
 | matchTerminate | `server_shutdown` | no |
 
-Host gone means the match is over (no host migration in v1): the guest wins by forfeit under the same rules. "Paid" above is Tickets, and only when the winner's session var `ranked` is not `"0"`.
+Host gone means the match is over (no host migration in v1): the guest wins by forfeit under the same rules. Tickets are paid only when the winner's session var `ranked` is the explicit marker `"1"`; missing, empty, `"0"`, or anything else pays 0 T.
 
 ## Tickets and the board
 
@@ -90,7 +90,7 @@ advisory lock per winner serialises it, and the match id makes repeats no-ops. W
 `HubEconomy.earn(winner, sid, "sproto", 20, "srv_pvp_win", "sproto:pvp:<match uuid>:<winner[0:8]>")` (deterministic
 key, ≤ 80 characters, so retries never double-pay; `session_closed` is logged and nothing is paid).
 `HubBoards.recordWin(winner, "sproto_wins", matchId)` runs for every verified or forfeit win, paid or not.
-A joiner whose session var `ranked` is `"0"` (standalone Duel, or an unranked portal session) skips the paid-cap insert and `HubEconomy.earn`. The board post still runs. Online play for that session stays 0 T.
+A joiner whose session var `ranked` is not the explicit marker `"1"` skips the paid-cap insert and `HubEconomy.earn`. The board post still runs. Until the server Duel sim sets `"1"`, online play stays 0 T.
 
 Migration `0020_sproto_pvp` (registered from the game file) creates the table and the
 `('sproto','srv_pvp_win', max_amount 20)` `event_rule` row. `tickets.earn` refuses `srv_*` reasons from clients.
