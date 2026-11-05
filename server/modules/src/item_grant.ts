@@ -3,6 +3,11 @@
 // game.apply_event by migration 0030_m6_item_grants (schema.ts); grantFromEvent is
 // not registered and session.event does not call it. Wiring is docs/m6-server-prep.md.
 // Keep CANONICAL, RULES and EXCLUDED in step with that migration.
+// 0033_hold_client_relic_grants does not change those seeds. Held item_rule rows
+// (grant_hold) are diverted by the item_owned BEFORE INSERT trigger into
+// item_owned_pending. This function is not called by session.event. A direct
+// call that inserts a held item without claim_event_relic's session context
+// fails closed (grant_hold_missing_session) instead of granting it live.
 //
 // A pet or any other cosmetic item is granted only by session.event plus a
 // matching game.item_rule row. The grant is one statement: insert item_owned,
@@ -204,6 +209,10 @@ namespace HubItems {
       "    AND r.match <> '{}'::jsonb",
       "    AND r.match <@ COALESCE($5::jsonb, '{}'::jsonb)",
       "    AND r.item_id NOT IN (" + excludedList() + ")",
+      "    AND (",
+      "      r.item_id <> 'hub_v_coin'",
+      "      OR 'pb_space_goggles' = ANY (game.owned_item_ids($1::uuid))",
+      "    )",
       "    AND EXISTS (",
       "      SELECT 1 FROM game.event_rule e",
       "      WHERE e.game_id = r.game_id AND e.event_type = r.event_type",

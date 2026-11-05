@@ -14,11 +14,14 @@ import {
   type RelicFlow,
 } from './cases.ts';
 import { runAccounts } from './accounts.ts';
-import { runStandalone } from './standalone.ts';
 import { runStoryBoss } from './story-boss.ts';
+import { runWagers } from './wagers.ts';
+import { runStandalone } from './standalone.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
+import { runHubGate } from './hub_gate.ts';
 import { runMigrations } from './migrations.ts';
+import { runHold } from './hold.ts';
 import { runPets } from './pets.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
@@ -46,6 +49,7 @@ import {
   mints,
   note,
   num,
+  pendingRelics,
   openGame,
   outboxSend,
   redeemPortalTicket,
@@ -170,33 +174,67 @@ function grantFailure(flow: RelicFlow, body: RpcBody | undefined): string | null
   return `expected ${flow.relicId}, got ${detail}`;
 }
 
+/** Architect hold (0033 grant_hold). Cone, Tinubu, and Breakwater stay live. */
+const HELD_RELICS = new Set(['hpos10i_core', 'genesis_shard', 'tidebreaker_belt']);
+
+function isHeldRelic(flow: RelicFlow): boolean {
+  return HELD_RELICS.has(flow.relicId);
+}
+
+/** No-op success: no granted id, no Tickets or Verse, one pending row, nothing live. */
+function assertHeldRelic(flow: RelicFlow, body: RpcBody | undefined, userId: string): void {
+  const detail = JSON.stringify(body);
+  assert.equal(body?.error, undefined, detail);
+  assert.equal(body?.granted, undefined, detail);
+  const items = (body as { granted_items?: unknown; tickets?: unknown } | undefined)?.granted_items;
+  assert.deepEqual(items ?? [], [], detail);
+  assert.equal((body as { tickets?: unknown } | undefined)?.tickets, undefined, detail);
+  assert.equal(ticketBalance(userId, flow.game), 0);
+  assert.equal(verseBalance(userId), 0);
+  assert.equal(relicClaims(userId, flow.relicId), 0);
+  assert.equal(mints(userId, flow.relicId), 0);
+  assert.equal(pendingRelics(userId, flow.relicId), 1);
+  assert.equal(
+    num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(userId)}' AND relic_id = '${flow.relicId}'`),
+    0,
+  );
+  assert.equal(
+    num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}' AND item_id = '${flow.relicId}'`),
+    0,
+  );
+}
+
+function expectRelic(flow: RelicFlow, body: RpcBody | undefined, userId: string): void {
+  if (isHeldRelic(flow)) {
+    assertHeldRelic(flow, body, userId);
+    return;
+  }
+  const why = grantFailure(flow, body);
+  if (why) throw new Error(why);
+  assert.equal(relicClaims(userId, flow.relicId), 1);
+  assert.equal(mints(userId, flow.relicId), 1);
+}
+
 async function idempotency(): Promise<void> {
   for (const flow of relicFlows()) {
     await test('idempotency', `${flow.id} same key x${repeatCount('sequential')} sequential`, async () => {
       const session = await login(flow.game);
       const results = await storm('session.event', relicBody(flow, 'grant-seq'), session.gameToken, repeatCount('sequential'), false);
       assertSame(results);
-      const why = grantFailure(flow, results[0]?.body);
-      if (why) throw new Error(why);
-      assert.equal(relicClaims(session.hub.userId, flow.relicId), 1);
-      assert.equal(mints(session.hub.userId, flow.relicId), 1);
+      expectRelic(flow, results[0]?.body, session.hub.userId);
     });
 
     await test('idempotency', `${flow.id} same key x${repeatCount('concurrent')} concurrent first claim`, async () => {
       const session = await login(flow.game);
       const results = await storm('session.event', relicBody(flow, 'grant-race'), session.gameToken, repeatCount('concurrent'), true);
       assertSame(results);
-      const why = grantFailure(flow, results[0]?.body);
-      if (why) throw new Error(why);
-      assert.equal(relicClaims(session.hub.userId, flow.relicId), 1);
-      assert.equal(mints(session.hub.userId, flow.relicId), 1);
+      expectRelic(flow, results[0]?.body, session.hub.userId);
     });
 
     await test('idempotency', `${flow.id} same key different body is a conflict`, async () => {
       const session = await login(flow.game);
       const first = await call('session.event', relicBody(flow, 'grant-body'), session.gameToken);
-      const why = grantFailure(flow, first.body);
-      if (why) throw new Error(why);
+      expectRelic(flow, first.body, session.hub.userId);
       const mismatch = await call('session.event', relicBody(flow, 'grant-body', flow.mismatchData), session.gameToken);
       assertConflict(mismatch);
       const replay = await call('session.event', relicBody(flow, 'grant-body'), session.gameToken);
@@ -204,19 +242,20 @@ async function idempotency(): Promise<void> {
       const freshMismatch = await call('session.event', relicBody(flow, 'grant-mismatch', flow.mismatchData), session.gameToken);
       assert.equal(freshMismatch.body.error, undefined, JSON.stringify(freshMismatch.body));
       assert.equal(freshMismatch.body.granted, undefined, JSON.stringify(freshMismatch.body));
-      assert.equal(mints(session.hub.userId, flow.relicId), 1);
+      assert.equal(mints(session.hub.userId, flow.relicId), isHeldRelic(flow) ? 0 : 1);
+      if (isHeldRelic(flow)) assert.equal(pendingRelics(session.hub.userId, flow.relicId), 1);
     });
 
     await test('idempotency', `${flow.id} new key cannot grant again`, async () => {
       const session = await login(flow.game);
       const first = await call('session.event', relicBody(flow, 'grant-once'), session.gameToken);
-      const why = grantFailure(flow, first.body);
-      if (why) throw new Error(why);
+      expectRelic(flow, first.body, session.hub.userId);
       const second = await call('session.event', relicBody(flow, 'grant-twice'), session.gameToken);
       assert.equal(second.body.error, undefined);
       assert.equal(second.body.granted, undefined);
-      assert.equal(relicClaims(session.hub.userId, flow.relicId), 1);
-      assert.equal(mints(session.hub.userId, flow.relicId), 1);
+      assert.equal(relicClaims(session.hub.userId, flow.relicId), isHeldRelic(flow) ? 0 : 1);
+      assert.equal(mints(session.hub.userId, flow.relicId), isHeldRelic(flow) ? 0 : 1);
+      if (isHeldRelic(flow)) assert.equal(pendingRelics(session.hub.userId, flow.relicId), 1);
     });
   }
 
@@ -329,20 +368,29 @@ async function idempotency(): Promise<void> {
       if (!relic) throw new Error(`no relic flow for ${flow.game}`);
       const session = await login(flow.game);
       const granted = await call('session.event', relicBody(relic, 'relic-key'), session.gameToken);
-      const why = grantFailure(relic, granted.body);
-      if (why) throw new Error(why);
+      if (isHeldRelic(relic)) assertHeldRelic(relic, granted.body, session.hub.userId);
+      else {
+        const why = grantFailure(relic, granted.body);
+        if (why) throw new Error(why);
+      }
       const crossed = await call('tickets.earn', { amount: flow.amount, reason: flow.reason, key: 'relic-key' }, session.gameToken);
       assert.equal(crossed.body.error, 'idempotency_mismatch', JSON.stringify(crossed.body));
       assert.equal(ticketBalance(session.hub.userId, flow.game), 0);
-      assert.equal(mints(session.hub.userId, relic.relicId), 1);
+      assert.equal(mints(session.hub.userId, relic.relicId), isHeldRelic(relic) ? 0 : 1);
       const earned = await call('tickets.earn', { amount: flow.amount, reason: flow.reason, key: 'earn-key' }, session.gameToken);
       assert.equal(earned.body.error, undefined, JSON.stringify(earned.body));
       assert.equal(earned.body.balance, flow.amount);
       const replayGrant = await call('session.event', relicBody(relic, 'relic-key'), session.gameToken);
-      assert.equal(replayGrant.body.granted, relic.relicId);
+      if (isHeldRelic(relic)) {
+        assert.equal(replayGrant.body.error, undefined, JSON.stringify(replayGrant.body));
+        assert.equal(replayGrant.body.granted, undefined, JSON.stringify(replayGrant.body));
+        assert.equal(pendingRelics(session.hub.userId, relic.relicId), 1);
+      } else {
+        assert.equal(replayGrant.body.granted, relic.relicId);
+      }
       assert.equal(ticketBalance(session.hub.userId, flow.game), flow.amount);
       assert.equal(earnLedgerCount(session.hub.userId), 1);
-      assert.equal(mints(session.hub.userId, relic.relicId), 1);
+      assert.equal(mints(session.hub.userId, relic.relicId), isHeldRelic(relic) ? 0 : 1);
       const replayEarn = await call('tickets.earn', { amount: flow.amount, reason: flow.reason, key: 'earn-key' }, session.gameToken);
       assert.equal(canonical(replayEarn.body), canonical(earned.body));
       assert.equal(earnLedgerCount(session.hub.userId), 1);
@@ -364,10 +412,22 @@ async function races(): Promise<void> {
           call('session.event', relicBody(flow, `tab-a-${i}`), session.gameToken),
           call('session.event', relicBody(flow, `tab-b-${i}`), session.gameToken),
         ]);
-        const granted = [a, b].filter((item) => item.body.granted === flow.relicId);
-        assert.equal(granted.length, 1, JSON.stringify([a.body, b.body]));
-        assert.equal(relicClaims(session.hub.userId, flow.relicId), 1);
-        assert.equal(mints(session.hub.userId, flow.relicId), 1);
+        if (isHeldRelic(flow)) {
+          assert.equal(a.body.error, undefined, JSON.stringify([a.body, b.body]));
+          assert.equal(b.body.error, undefined, JSON.stringify([a.body, b.body]));
+          assert.equal(a.body.granted, undefined, JSON.stringify(a.body));
+          assert.equal(b.body.granted, undefined, JSON.stringify(b.body));
+          assert.equal(relicClaims(session.hub.userId, flow.relicId), 0);
+          assert.equal(mints(session.hub.userId, flow.relicId), 0);
+          assert.equal(pendingRelics(session.hub.userId, flow.relicId), 1);
+          assert.equal(ticketBalance(session.hub.userId, flow.game), 0);
+          assert.equal(verseBalance(session.hub.userId), 0);
+        } else {
+          const granted = [a, b].filter((item) => item.body.granted === flow.relicId);
+          assert.equal(granted.length, 1, JSON.stringify([a.body, b.body]));
+          assert.equal(relicClaims(session.hub.userId, flow.relicId), 1);
+          assert.equal(mints(session.hub.userId, flow.relicId), 1);
+        }
       }
     });
 
@@ -388,8 +448,16 @@ async function races(): Promise<void> {
         await Promise.all(tokens.map((token, index) => (
           call('session.event', relicBody(flow, `portal-${i}-${index}`), token)
         )));
-        assert.equal(mints(who.userId, flow.relicId), 1);
-        assert.equal(relicClaims(who.userId, flow.relicId), 1);
+        if (isHeldRelic(flow)) {
+          assert.equal(mints(who.userId, flow.relicId), 0);
+          assert.equal(relicClaims(who.userId, flow.relicId), 0);
+          assert.equal(pendingRelics(who.userId, flow.relicId), 1);
+          assert.equal(ticketBalance(who.userId, flow.game), 0);
+          assert.equal(verseBalance(who.userId), 0);
+        } else {
+          assert.equal(mints(who.userId, flow.relicId), 1);
+          assert.equal(relicClaims(who.userId, flow.relicId), 1);
+        }
       }
     });
   }
@@ -456,8 +524,11 @@ async function forged(): Promise<void> {
   await test('forged', `${item.id} replay after session close does not mint`, async () => {
     const session = await login(item.game);
     const first = await call('session.event', relicBody(item, 'close-key'), session.gameToken);
-    const why = grantFailure(item, first.body);
-    if (why) throw new Error(why);
+    if (isHeldRelic(item)) assertHeldRelic(item, first.body, session.hub.userId);
+    else {
+      const why = grantFailure(item, first.body);
+      if (why) throw new Error(why);
+    }
     const closed = await call('session.close', {}, session.gameToken);
     assert.equal(closed.body.error, undefined);
     const replay = await call('session.event', relicBody(item, 'close-key'), session.gameToken);
@@ -466,7 +537,11 @@ async function forged(): Promise<void> {
     assert.ok(stored || rejected, JSON.stringify(replay.body));
     const fresh = await call('session.event', relicBody(item, 'close-new'), session.gameToken);
     assert.equal(fresh.body.error, 'session_closed');
-    assert.equal(mints(session.hub.userId, item.relicId), 1);
+    assert.equal(mints(session.hub.userId, item.relicId), isHeldRelic(item) ? 0 : 1);
+    if (isHeldRelic(item)) {
+      assert.equal(pendingRelics(session.hub.userId, item.relicId), 1);
+      assert.equal(relicClaims(session.hub.userId, item.relicId), 0);
+    }
   });
   }
 
@@ -1090,8 +1165,11 @@ async function hposExtras(): Promise<void> {
     assert.equal(ticketBalance(session.hub.userId, 'hpos10i'), 0);
     assert.equal(verseBalance(session.hub.userId), 0);
     const granted = await call('session.event', relicBody(relic, 'after-score'), session.gameToken);
-    const why = grantFailure(relic, granted.body);
-    if (why) throw new Error(why);
+    if (isHeldRelic(relic)) assertHeldRelic(relic, granted.body, session.hub.userId);
+    else {
+      const why = grantFailure(relic, granted.body);
+      if (why) throw new Error(why);
+    }
     assert.equal(
       num(`SELECT value FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'hpos10i_act_time'`),
       30,
@@ -1373,6 +1451,48 @@ function earnSpecs(): FaultSpec[] {
   ];
 }
 
+/** Live insert hooks never see a held grant. before_rpc and after_commit still do. */
+async function heldGrantFaults(flow: RelicFlow): Promise<void> {
+  const liveInsert = new Set(['grant.after_claim', 'grant.after_mint']);
+  for (const spec of grantSpecs()) {
+    await test('fault', `${flow.id} ${spec.id} x${spec.repeats}`, async () => {
+      if (liveInsert.has(spec.point)) {
+        await repeatFault(spec, async (index) => {
+          const session = await login(flow.game);
+          const key = `g-${spec.id}-${index}`;
+          const body = relicBody(flow, key);
+          arm(session.hub.userId, spec.point, spec.kind === 'sleep' ? 'sleep' : 'raise');
+          try {
+            const result = await call('session.event', body, session.gameToken);
+            assert.equal(faulted(result), false, JSON.stringify(result.body));
+            assertHeldRelic(flow, result.body, session.hub.userId);
+            const replay = await call('session.event', body, session.gameToken);
+            assert.equal(canonical(replay.body), canonical(result.body));
+            assert.equal(pendingRelics(session.hub.userId, flow.relicId), 1);
+            assert.equal(mints(session.hub.userId, flow.relicId), 0);
+          } finally {
+            disarm(session.hub.userId);
+          }
+        });
+        return;
+      }
+      await repeatFault(spec, async (index) => {
+        const session = await login(flow.game);
+        const key = `g-${spec.id}-${index}`;
+        const body = relicBody(flow, key);
+        const effect = () => pendingRelics(session.hub.userId, flow.relicId);
+        await fire(spec, session, body, effect, (result) => {
+          assert.equal(result.body.error, undefined, JSON.stringify(result.body));
+          assert.equal(result.body.granted, undefined, JSON.stringify(result.body));
+        });
+        assert.equal(mints(session.hub.userId, flow.relicId), 0);
+        assert.equal(relicClaims(session.hub.userId, flow.relicId), 0);
+        assert.equal(pendingRelics(session.hub.userId, flow.relicId), 1);
+      });
+    });
+  }
+}
+
 async function faults(): Promise<void> {
   installFaultHooks();
   const relic = relicFlows()[0];
@@ -1385,6 +1505,10 @@ async function faults(): Promise<void> {
     });
   }
   for (const flow of relicFlows()) {
+    if (isHeldRelic(flow)) {
+      await heldGrantFaults(flow);
+      continue;
+    }
     for (const spec of grantSpecs()) {
       await test('fault', `${flow.id} ${spec.id} x${spec.repeats}`, async () => {
         await repeatFault(spec, async (index) => {
@@ -1573,7 +1697,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts', 'story-boss', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1829,9 +1953,12 @@ export async function main(): Promise<void> {
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test);
     if (selected('pets')) await runPets(test);
+    if (selected('hold')) await runHold(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
+    if (selected('wager')) await runWagers(test);
+    if (selected('hub-gate')) await runHubGate({ test, pending });
     if (selected('standalone')) await runStandalone(test);
   } finally {
     failed = report();

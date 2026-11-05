@@ -60,6 +60,7 @@ import {
   login,
   mints,
   num,
+  pendingRelics,
   openGame,
   psql,
   relicClaims,
@@ -442,27 +443,33 @@ async function runSeq(runner: GateRunner): Promise<void> {
     await runner.test('seq', `${label} duplicate_seq_rejected`, async () => {
       const session = await login(event.game);
       const body = { eventId: event.eventId, data: event.data };
+      const held = event.relicId === 'hpos10i_core';
       const first = await call('session.event', { ...body, key: 'seq-1', seq: 1 }, session.gameToken);
-      assert.equal(first.body.granted, event.relicId, JSON.stringify(first.body));
+      assert.equal(first.body.error, undefined, JSON.stringify(first.body));
+      assert.equal(first.body.granted, held ? undefined : event.relicId, JSON.stringify(first.body));
       const again = await call('session.event', { ...body, key: 'seq-1b', seq: 1 }, session.gameToken);
       assert.equal(again.body.error, 'seq_duplicate', JSON.stringify(again.body));
       assert.equal(again.body.granted, undefined);
       const replay = await call('session.event', { ...body, key: 'seq-1', seq: 1 }, session.gameToken);
       assert.equal(replay.body.error, undefined, JSON.stringify(replay.body));
-      assert.equal(replay.body.granted, event.relicId);
-      assert.equal(mints(session.hub.userId, event.relicId), 1);
+      assert.equal(replay.body.granted, held ? undefined : event.relicId);
+      assert.equal(mints(session.hub.userId, event.relicId), held ? 0 : 1);
+      assert.equal(pendingRelics(session.hub.userId, event.relicId), held ? 1 : 0);
       assert.equal(verseBalance(session.hub.userId), 0);
       assert.equal(ticketBalance(session.hub.userId, event.game), event.game === 'sproto' ? 20 : 0);
     });
     await runner.test('seq', `${label} stale_seq_rejected`, async () => {
       const session = await login(event.game);
       const body = { eventId: event.eventId, data: event.data };
+      const held = event.relicId === 'hpos10i_core';
       const first = await call('session.event', { ...body, key: 'seq-ok', seq: 1 }, session.gameToken);
-      assert.equal(first.body.granted, event.relicId, JSON.stringify(first.body));
+      assert.equal(first.body.error, undefined, JSON.stringify(first.body));
+      assert.equal(first.body.granted, held ? undefined : event.relicId, JSON.stringify(first.body));
       const stale = await call('session.event', { ...body, key: 'seq-old', seq: 0 }, session.gameToken);
       assert.equal(stale.body.error, 'seq_stale', JSON.stringify(stale.body));
       assert.equal(stale.body.granted, undefined);
-      assert.equal(mints(session.hub.userId, event.relicId), 1);
+      assert.equal(mints(session.hub.userId, event.relicId), held ? 0 : 1);
+      assert.equal(pendingRelics(session.hub.userId, event.relicId), held ? 1 : 0);
       assert.equal(verseBalance(session.hub.userId), 0);
       assert.equal(ticketBalance(session.hub.userId, event.game), event.game === 'sproto' ? 20 : 0);
     });
@@ -473,12 +480,23 @@ async function runSeq(runner: GateRunner): Promise<void> {
         call('session.event', { ...body, key: 'seq-race-a', seq: 1 }, session.gameToken),
         call('session.event', { ...body, key: 'seq-race-b', seq: 1 }, session.gameToken),
       ]);
+      const held = event.relicId === 'hpos10i_core';
       const granted = [a, b].filter((item) => item.body.granted === event.relicId && !item.body.error);
+      const accepted = [a, b].filter((item) => !item.body.error);
       const rejected = [a, b].filter((item) => item.body.error === 'seq_duplicate');
-      assert.equal(granted.length, 1, JSON.stringify([a.body, b.body]));
       assert.equal(rejected.length, 1, JSON.stringify([a.body, b.body]));
-      assert.equal(mints(session.hub.userId, event.relicId), 1);
-      assert.equal(relicClaims(session.hub.userId, event.relicId), 1);
+      if (held) {
+        assert.equal(accepted.length, 1, JSON.stringify([a.body, b.body]));
+        assert.equal(granted.length, 0, JSON.stringify([a.body, b.body]));
+        assert.equal(mints(session.hub.userId, event.relicId), 0);
+        assert.equal(relicClaims(session.hub.userId, event.relicId), 0);
+        assert.equal(pendingRelics(session.hub.userId, event.relicId), 1);
+      } else {
+        assert.equal(granted.length, 1, JSON.stringify([a.body, b.body]));
+        assert.equal(mints(session.hub.userId, event.relicId), 1);
+        assert.equal(relicClaims(session.hub.userId, event.relicId), 1);
+        assert.equal(pendingRelics(session.hub.userId, event.relicId), 0);
+      }
     });
   }
 }

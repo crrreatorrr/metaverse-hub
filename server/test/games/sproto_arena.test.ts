@@ -10,9 +10,9 @@ const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SID_A = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1';
 const SID_B = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
-const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18 };
+const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, CANCEL: 15, PEER: 16, PING: 17, FORFEIT: 18, ACCEPT: 19, ACCEPT_END: 22 };
 const TICK = 30;
-const V = '1';
+const V = '2';
 
 const vars = (sid: string) => ({ scope: 'game', game: 'sproto', sid });
 
@@ -31,7 +31,7 @@ interface Arena {
   ticketSql: number;
 }
 
-/** A quick-match pair through the matchmaker, both joined and HELLO'd, START sent. */
+/** A quick-match pair through the matchmaker, both joined, HELLO'd and ACCEPTed, START sent. */
 function sessionVars(sid: string, ranked?: string): Record<string, string> {
   const v: Record<string, string> = { scope: 'game', game: 'sproto', sid };
   if (ranked !== undefined) v.ranked = ranked;
@@ -65,7 +65,12 @@ function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
   const m = mod.driver(id!);
   assert.deepEqual(m.join([pa], { vars: sessionVars(SID_A, opts.ranked) }).map((v) => v.accept), [true]);
   assert.deepEqual(m.join([pb], { vars: sessionVars(SID_B, opts.ranked) }).map((v) => v.accept), [true]);
-  m.loop([{ sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_nobu' } }, { sender: pb, opCode: OP.HELLO, data: { v: V, staff: 'nope' } }]);
+  m.loop([
+    { sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_nobu' } },
+    { sender: pb, opCode: OP.HELLO, data: { v: V, staff: 'nope' } },
+    { sender: pa, opCode: OP.ACCEPT, data: { v: V } },
+    { sender: pb, opCode: OP.ACCEPT, data: { v: V } },
+  ]);
   const starts = m.dispatcher.sent<{ seat: number; hostSeat: number; names: string[]; staffs: string[] }>(OP.START);
   assert.equal(starts.length, 2);
   assert.deepEqual(starts.map((s) => s.body.seat).sort(), [0, 1]);
@@ -126,8 +131,8 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   ]);
   assert.equal(mod.nk.matches.get(fighter!)?.module, 'sproto_duel');
   // Mismatched versions or the same user never pair.
-  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: '1' } }, { presence: presence(B), properties: { game: 'sproto', v: '0' } }]), undefined);
-  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: '1' } }, { presence: presence(A, 'a2', 's2'), properties: { game: 'sproto', v: '1' } }]), undefined);
+  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(B), properties: { game: 'sproto', v: '1' } }]), undefined);
+  assert.equal(mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(A, 'a2', 's2'), properties: { game: 'sproto', v: V } }]), undefined);
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
   const mig = HubSchema.all().find((x) => x.id === '0020_sproto_pvp');
   assert.ok(mig, 'migration 0020 registered');
@@ -154,14 +159,20 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   assert.equal(m.ticks(2 * TICK + 1), false, 'match ends after the linger');
 }
 
-// Join timeout: one player never shows up.
+// Quick match: one player joins and never accepts. The 10s window ends the match.
 {
   const mod = loadModule();
   const id = mod.matchmake([{ presence: presence(A), properties: { game: 'sproto', v: V } }, { presence: presence(B), properties: { game: 'sproto', v: V } }]);
   const m = mod.driver(id!);
   m.join([presence(A)], { vars: vars(SID_A) });
   m.ticks(31 * TICK);
-  assert.equal(m.dispatcher.sent<{ reason: string }>(OP.CANCEL)[0]?.body.reason, 'join_timeout');
+  const ended = m.dispatcher.sent<{ status: string; bySeat: number | null; next: string }>(OP.ACCEPT_END);
+  assert.equal(ended.length, 1, 'the seat that never joined is not present');
+  assert.equal(ended[0]?.body.status, 'accept_timeout');
+  assert.equal(ended[0]?.body.bySeat, null);
+  assert.equal(ended[0]?.body.next, 'lobby');
+  assert.equal(m.dispatcher.sent(OP.CANCEL).length, 0);
+  assert.equal(m.dispatcher.sent(OP.START).length, 0);
 }
 
 // Relay: guest INPUT only to the host, host SNAPSHOT only to the guest; the other directions are dropped.
@@ -192,7 +203,7 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   assert.equal(a.m.dispatcher.broadcasts.filter((b) => b.opCode === OP.INPUT).length, 4, 'MAX_MSGS_PER_TICK');
 }
 
-// ranked "1": verified, the result row is recorded, no Ticket mint, the board updated.
+// Agreed results → verified, no Ticket mint, the board updated.
 {
   const a = start({ ranked: '1' });
   const winner = a.hostSeat;
@@ -248,7 +259,7 @@ function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; bala
   assert.equal(a.earns.length, 0);
 }
 
-// ranked "1": forfeit after the grace (a round finished, past MIN_PLAY). No Ticket mint.
+// A player leaves for good → forfeit after the grace (a round finished, past MIN_PLAY). No Ticket mint.
 {
   const a = start({ ranked: '1' });
   play(a, 16);

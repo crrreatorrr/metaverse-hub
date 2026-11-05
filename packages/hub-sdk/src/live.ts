@@ -13,6 +13,7 @@ import {
   type GameId,
   type HubSdk,
   type HubSessionInfo,
+  type HubGateView,
   type InitResult,
   type LeaderboardTop,
   type ScoreResult,
@@ -244,6 +245,44 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     };
   }
 
+  let shownItems: string[] | undefined;
+  let shownGates: HubGateView[] | undefined;
+
+  /** Copy items and gates. Drop any missing-item list a payload might carry. */
+  function readInventory(profile: { items?: unknown; gates?: unknown }): void {
+    shownItems = undefined;
+    shownGates = undefined;
+    if (Array.isArray(profile.items)) {
+      const items: string[] = [];
+      for (const id of profile.items) {
+        if (typeof id === 'string' && id && !id.includes('://') && !id.includes('/')) items.push(id);
+      }
+      shownItems = items;
+    }
+    if (!Array.isArray(profile.gates)) return;
+    const gates: HubGateView[] = [];
+    for (const row of profile.gates) {
+      if (!row || typeof row !== 'object' || Array.isArray(row)) continue;
+      const gate = row as Record<string, unknown>;
+      if (typeof gate.gateId !== 'string' || !gate.gateId) continue;
+      const target = typeof gate.target === 'string' ? gate.target : null;
+      gates.push({
+        gateId: gate.gateId,
+        unlocked: gate.unlocked === true,
+        actionType: typeof gate.actionType === 'string' ? gate.actionType : '',
+        target: target && !target.includes('://') && !target.includes('/') ? target : null,
+        lockedHintPool: typeof gate.lockedHintPool === 'string' && gate.lockedHintPool ? gate.lockedHintPool : null,
+      });
+    }
+    shownGates = gates;
+  }
+
+  function withInventory(result: InitResult): InitResult {
+    if (shownItems) result.items = shownItems;
+    if (shownGates) result.gates = shownGates;
+    return result;
+  }
+
   function profileOf(session: LiveSession, serverTime: number): InitResult {
     return {
       playerId: session.playerId,
@@ -348,9 +387,12 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         effects?: unknown;
         ranked?: boolean;
         serverTime?: number;
+        items?: unknown;
+        gates?: unknown;
       }>('profile.get', {}, { token: auth.token });
       relics = asRelics(profile.relics);
       effects = flatEffects(profile.effects);
+      readInventory(profile);
       if (typeof profile.ticketsCapLeft === 'number') ticketsCapLeft = profile.ticketsCapLeft;
       if (profile.playerId) playerId = profile.playerId;
       if (profile.ranked === true) ranked = true;
@@ -396,6 +438,8 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       if (!game) throw new HubSdkError('bad_game', `Unknown game "${gameId}"`);
       const token = readTicketParam(resolved.readHash());
       let serverTime = 0;
+      shownItems = undefined;
+      shownGates = undefined;
       if (token) {
         resolved.writeHash(stripTicketParam(resolved.readHash()));
         const redeemed = await redeemCustom(game, token);
@@ -412,8 +456,11 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
               relics?: unknown;
               ticketsCapLeft?: number;
               serverTime?: number;
+              items?: unknown;
+              gates?: unknown;
             }>('profile.get', {}, { token: cached.token });
             cached.relics = asRelics(profile.relics);
+            readInventory(profile);
             if (profile.playerId) cached.playerId = profile.playerId;
             if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
             serverTime = clockMs(profile.serverTime);
@@ -424,7 +471,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         }
       }
       await drain();
-      return active ? profileOf(active, serverTime) : standalone(serverTime);
+      return withInventory(active ? profileOf(active, serverTime) : standalone(serverTime));
     },
 
     async reportEvent(eventId, data, key) {

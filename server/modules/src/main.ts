@@ -254,6 +254,8 @@ function InitModule(
   initializer.registerMatch("sproto_arena", { matchInit: sprotoArenaInit, matchJoinAttempt: sprotoArenaJoinAttempt, matchJoin: sprotoArenaJoin, matchLeave: sprotoArenaLeave, matchLoop: sprotoArenaLoop, matchTerminate: sprotoArenaTerminate, matchSignal: sprotoArenaSignal });
   initializer.registerRpc("sproto.room_create", rpcSprotoRoomCreate);
   initializer.registerRpc("sproto.room_join", rpcSprotoRoomJoin);
+  initializer.registerRpc("sproto.online_count", rpcSprotoOnlineCount);
+  initializer.registerRtBefore("MatchmakerRemove", rtBeforeSprotoMatchmakerRemove);
   initializer.registerRpc("sproto.standalone_session", rpcSprotoStandaloneSession);
   // <<< game: sproto
   // ----

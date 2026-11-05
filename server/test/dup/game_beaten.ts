@@ -15,6 +15,7 @@ import {
   login,
   mints,
   num,
+  pendingRelics,
   psql,
   relicClaims,
   sqlId,
@@ -34,6 +35,8 @@ interface Trigger {
   data: Record<string, unknown>;
   relicId: string;
 }
+
+const HELD_RELICS = new Set(['hpos10i_core', 'genesis_shard', 'tidebreaker_belt']);
 
 const TRIGGERS: Trigger[] = [
   {
@@ -67,7 +70,11 @@ function postedNames(): string[] {
 }
 
 function triggerNames(): string[] {
-  return TRIGGERS.map((trigger) => `${trigger.game} relic trigger grants once`);
+  return TRIGGERS.map((trigger) => (
+    HELD_RELICS.has(trigger.relicId)
+      ? `${trigger.game} relic trigger is held once`
+      : `${trigger.game} relic trigger grants once`
+  ));
 }
 
 export function openGameBeatenDropped(): boolean {
@@ -159,30 +166,43 @@ async function realTrigger(trigger: Trigger): Promise<void> {
       key: `relic-race-${index}`,
     }, session.gameToken)
   )));
+  const held = HELD_RELICS.has(trigger.relicId);
   const winners = raced.filter((item) => item.body.granted === trigger.relicId && !item.body.error);
-  assert.equal(winners.length, 1, JSON.stringify(raced.map((item) => item.body)));
-  assert.equal(relicClaims(session.hub.userId, trigger.relicId), 1);
-  assert.equal(mints(session.hub.userId, trigger.relicId), 1);
-  const flag = beaten(session.hub.userId, trigger.game);
-  assert.equal(flag.count, 1);
-  assert.equal(flag.relic, trigger.relicId);
-  const winIndex = raced.findIndex((item) => item.body.granted === trigger.relicId);
+  const user = session.hub.userId;
+  if (held) {
+    assert.equal(winners.length, 0, JSON.stringify(raced.map((item) => item.body)));
+    assert.ok(raced.every((item) => item.body.error === undefined), JSON.stringify(raced.map((item) => item.body)));
+    assert.equal(relicClaims(user, trigger.relicId), 0);
+    assert.equal(mints(user, trigger.relicId), 0);
+    assert.equal(pendingRelics(user, trigger.relicId), 1);
+    assert.equal(beaten(user, trigger.game).count, 0);
+  } else {
+    assert.equal(winners.length, 1, JSON.stringify(raced.map((item) => item.body)));
+    assert.equal(relicClaims(user, trigger.relicId), 1);
+    assert.equal(mints(user, trigger.relicId), 1);
+    const flag = beaten(user, trigger.game);
+    assert.equal(flag.count, 1);
+    assert.equal(flag.relic, trigger.relicId);
+  }
+  const winIndex = held ? 0 : raced.findIndex((item) => item.body.granted === trigger.relicId);
   const replay = await call('session.event', {
     eventId: trigger.eventId,
     data: trigger.data,
     key: `relic-race-${winIndex}`,
   }, session.gameToken);
   assert.equal(canonical(replay.body), canonical(raced[winIndex]?.body));
-  assert.equal(replay.body.granted, trigger.relicId);
+  assert.equal(replay.body.granted, held ? undefined : trigger.relicId);
   const again = await call('session.event', {
     eventId: trigger.eventId,
     data: trigger.data,
     key: 'relic-after',
   }, session.gameToken);
+  assert.equal(again.body.error, undefined, JSON.stringify(again.body));
   assert.equal(again.body.granted, undefined, JSON.stringify(again.body));
-  assert.equal(relicClaims(session.hub.userId, trigger.relicId), 1);
-  assert.equal(mints(session.hub.userId, trigger.relicId), 1);
-  assert.equal(beaten(session.hub.userId, trigger.game).count, 1);
+  assert.equal(relicClaims(user, trigger.relicId), held ? 0 : 1);
+  assert.equal(mints(user, trigger.relicId), held ? 0 : 1);
+  assert.equal(pendingRelics(user, trigger.relicId), held ? 1 : 0);
+  assert.equal(beaten(user, trigger.game).count, held ? 0 : 1);
 }
 
 export async function runGameBeaten(runner: GateRunner): Promise<void> {
@@ -210,6 +230,9 @@ export async function runGameBeaten(runner: GateRunner): Promise<void> {
     assert.equal(num(`SELECT count(*) FROM game.schema_migrations WHERE ${MIGRATION_MATCH}`), 1);
   });
   for (const trigger of TRIGGERS) {
-    await runner.test('idempotency', `${trigger.game} relic trigger grants once`, () => realTrigger(trigger));
+    const name = HELD_RELICS.has(trigger.relicId)
+      ? `${trigger.game} relic trigger is held once`
+      : `${trigger.game} relic trigger grants once`;
+    await runner.test('idempotency', name, () => realTrigger(trigger));
   }
 }

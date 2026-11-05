@@ -22,7 +22,7 @@ the winner takes the 20-Ticket pot. Tickets have no real-money value.
 2. `SprotoDuel.onMatched` creates a `sproto_duel` match for the pair and expires
    any escrow a crashed match left behind.
 3. Both join and send `HELLO {fighter, stage, sim}`. When both have, a wagered
-   match calls `game.sproto_wager_hold`; on any error both get `CANCEL {reason, seat}`
+   match calls `game.sproto_wager_hold`; a guest on either seat is `wager_guest` and the hold is not called. On any error both get `CANCEL {reason, seat}`
    and nothing is held. Otherwise each gets `START {seat, fighters, stage, names, wager}`.
 4. Peers connect over WebRTC; `SIGNAL` messages are relayed between them. If no
    direct connection forms, input packets travel as `RELAY` through the match.
@@ -53,7 +53,8 @@ the winner takes the 20-Ticket pot. Tickets have no real-money value.
 | A player's input stream stalls 10 s while the other's continues | Opponent paid (`forfeit`) |
 | Both leave | Refund (`both_left`) |
 | No result after 15 minutes of play | Refund (`timeout`) |
-| A player can't cover the stake, isn't eligible, or hits a limit | `CANCEL`, nothing held |
+| Either player is a guest | `CANCEL` `wager_guest`, nothing held |
+| A player can't cover the stake, or hits a limit | `CANCEL`, nothing held |
 | Server shutdown mid-match | Refund (`server_shutdown`) |
 | Escrow still held after 15 minutes | Refunded by `sproto_wager_expire` (`expired`) |
 
@@ -68,9 +69,10 @@ earn cap.
 
 Abuse limits, passed by the match (`SprotoDuel` constants):
 
+Wagers are open to any signed-in non-guest. A guest on either seat is refused with `wager_guest` before the escrow lock. Wins are not required.
+
 | Limit | Value |
 | --- | --- |
-| CPU wins (`fighter_win` earns) before a first wager | 3 |
 | Wagered matches per pair of players per UTC day | 5 |
 | Net Tickets won from wagers per player per UTC day | 200 |
 

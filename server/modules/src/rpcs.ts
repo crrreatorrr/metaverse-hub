@@ -1,5 +1,6 @@
 namespace HubRpc {
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true };
+  // vcoin is the coming-soon arcade session. It is not an alias of sproto-arcade.
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, vcoin: true };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   export function fail(code: string, message: string): string {
@@ -402,6 +403,11 @@ namespace HubRpc {
     }
     profileBody.serverTime = serverNowMs(nk);
     profileBody.pets = HubPets.profilePets(nk, userId);
+    // Same owned union as checkGate. gates carry unlocked bools only: no missing list,
+    // no required item ids. A read error leaves both empty, which locks every prompt.
+    var inventory = HubGate.forClient(nk, userId);
+    profileBody.items = inventory.items;
+    profileBody.gates = inventory.gates;
     return ok(profileBody);
   }
 
@@ -428,6 +434,13 @@ namespace HubRpc {
     var body = parse(payload);
     var game = text(body, "game");
     if (!GAMES[game]) return fail("bad_game", "Unknown game");
+    // A session gate for this game id must pass. Games with no such row are unchanged.
+    // The client answer is GATE_LOCKED only: checkGate's missing list is not sent.
+    var sessionGates = HubGate.sessionGateIds(nk, game);
+    if (sessionGates === null) return fail(HubGate.GATE_LOCKED, HubGate.GATE_LOCKED);
+    for (var g = 0; g < sessionGates.length; g++) {
+      if (!HubGate.checkGate(nk, userId, sessionGates[g]).ok) return fail(HubGate.GATE_LOCKED, HubGate.GATE_LOCKED);
+    }
     if (body.ranked !== undefined && typeof body.ranked !== "boolean") return fail("bad_json", "ranked must be boolean");
     var rate = queryJson(nk, "SELECT game.claim_portal_rate($1::uuid)::text AS result", [userId]);
     if (rate.error) return fail("rate_limited", "Too many portal entries. Try again in a minute.");
