@@ -1,4 +1,4 @@
-import { part } from './core';
+import { part } from '../../v2/core';
 import type { LOD } from 'three';
 import { BAR_BILLBOARD } from './billboard-layout';
 export { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './billboard-layout';

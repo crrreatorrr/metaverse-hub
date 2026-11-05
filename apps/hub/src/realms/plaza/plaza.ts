@@ -17,7 +17,7 @@ import {
   TorusGeometry,
   Vector3,
 } from 'three';
-import { WORLD_ROOT, animated, glow, loadGLTF, neonMat } from './core';
+import { WORLD_ROOT, animated, glow, loadGLTF, neonMat } from '../../v2/core';
 
 export const R = 110;
 /** Floor drawing space in px. The canvases are smaller and scale this down. */

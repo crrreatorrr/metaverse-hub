@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { MOVEMENT } from '../src/core/movement';
-import { buildPlazaCollider } from '../src/plaza-collider';
+import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_FOV, SPRINT_SPEED, WALK_SPEED } from '../src/config';
 

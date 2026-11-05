@@ -1,5 +1,5 @@
 import { AdditiveBlending, Box3, LOD, Mesh, MeshStandardMaterial, Vector3, type Object3D } from 'three';
-import { WORLD_ROOT, animated, glow, loadGLTF } from './core';
+import { WORLD_ROOT, animated, glow, loadGLTF } from '../../v2/core';
 
 /**
  * HarryPotterObamaSonic10Inu neon sign (I9-neon-sign.glb + -lod1).

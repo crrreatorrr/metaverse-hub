@@ -6,7 +6,7 @@ export {
   HALL_SPAWN,
   type HallOfChampions,
   type HallOfChampionsOptions,
-} from './hallOfChampions';
+} from '../realms/plaza/hallOfChampions';
 export {
   addLivingPortals,
   glowTierForCount,
@@ -24,7 +24,7 @@ export {
   createEmptyLeaderboardProvider,
   type BarLeaderboard,
   type BarLeaderboardOptions,
-} from './barLeaderboard';
+} from '../realms/plaza/barLeaderboard';
 export {
   createStubLeaderboardProvider,
   createStubOrbitAvatars,

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { PORTALS, MONUMENT_RADIUS, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTAL_TRIGGER_RADIUS, CURB_RADIUS } from '../apps/hub/src/realms/plaza/config';
-import { buildCollider } from '../apps/hub/src/collider';
+import { buildCollider } from '../apps/hub/src/realms/plaza/collider';
 import { spawnFor } from '../apps/hub/src/realms/plaza/layout';
 import { CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../apps/hub/src/physics';
 import { parseReturnGame, portalContaining, portalUrl } from '../apps/hub/src/travel';

@@ -33,7 +33,7 @@ import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { gate } from './login';
 import { createWorld } from './scene';
 import './style.css';
-import { ARCADE_PROMPT } from './v2/arcade-layout';
+import { ARCADE_PROMPT } from './realms/plaza/arcade-layout';
 import { createArcadePicker } from './v2/arcade-picker';
 import { initialDwell, parseReturnGame, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from './travel';
 

@@ -94,3 +94,9 @@ Task 4: repeated all six views; draws 97/122/48/35/42/82 and assets 40 at every 
 matching main. No uncaught browser errors. Plaza layout moved without changing its values.
 Task 4 also repeated the signed-in light walkthrough (return layout/parser, dwell, Bar loading,
 cabinet return, picker, Sprotel prompt, menu and local chat); no page errors.
+
+Task 5: six-view baseline repeated, with draws 97/122/48/35/42/82 and 40 loaded assets at
+each point, matching main. An initial extraction changed actor request timing (41 resources);
+deferring actor attachment until initial realm geometry is loaded restored the reference count.
+The signed-in light walkthrough passed again with no page errors. Independent review found no
+blocking issue; moved implementation files were identical after normalizing import paths.
