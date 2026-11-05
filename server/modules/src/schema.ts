@@ -2307,12 +2307,9 @@ namespace HubSchema {
       ],
     },
     {
-      // Wager gate. 0010 is frozen, so this replaces game.sproto_wager_hold in place.
-      // A guest on either seat returns wager_guest before any lock, debit, or escrow row.
-      // game.user_is_guest matches HubChat.isGuest: a user with no email is a guest.
-      // Eligibility is 3 server-recorded online wins (sproto_pvp_result status verified
-      // or forfeit, which is only written for a qualifying forfeit) against 3 different
-      // non-guest opponents. CPU fighter_win rows no longer count.
+      // 0010 is frozen. This replaces game.sproto_wager_hold with that body, plus a
+      // guest refusal before the lock, and without the fighter_win qualifying count.
+      // Any signed-in player may wager. game.user_is_guest matches HubChat.isGuest.
       id: "0032_wager_online_qualify",
       statements: [
         `CREATE OR REPLACE FUNCTION game.user_is_guest(p_user uuid)
@@ -2325,7 +2322,7 @@ namespace HubSchema {
         "DROP FUNCTION IF EXISTS game.sproto_wager_hold(text, uuid, uuid, bigint, int, int, bigint)",
         `CREATE FUNCTION game.sproto_wager_hold(
            p_match_id text, p_a uuid, p_b uuid, p_stake bigint,
-           p_min_wins int, p_pair_limit int, p_daily_cap bigint
+           p_pair_limit int, p_daily_cap bigint
          ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
          DECLARE
            v_existing game.sproto_wager%ROWTYPE;
@@ -2338,7 +2335,6 @@ namespace HubSchema {
            v_b bigint;
          BEGIN
            IF p_a = p_b THEN RETURN jsonb_build_object('error', 'same_player'); END IF;
-           -- Before the economy lock, any debit, or the escrow insert.
            IF game.user_is_guest(p_a) OR game.user_is_guest(p_b) THEN
              RETURN jsonb_build_object('error', 'wager_guest');
            END IF;
@@ -2349,14 +2345,6 @@ namespace HubSchema {
            END IF;
            v_day := date_trunc('day', now() AT TIME ZONE 'utc') AT TIME ZONE 'utc';
            FOREACH v_user IN ARRAY ARRAY[p_a, p_b] LOOP
-             SELECT count(DISTINCT r.loser) INTO v_count
-             FROM game.sproto_pvp_result r
-             WHERE r.winner = v_user
-               AND r.status IN ('verified', 'forfeit')
-               AND NOT game.user_is_guest(r.loser);
-             IF v_count < p_min_wins THEN
-               RETURN jsonb_build_object('error', 'not_eligible', 'user', v_user, 'needed', p_min_wins - v_count);
-             END IF;
              SELECT COALESCE(SUM(delta), 0) INTO v_net FROM game.tickets_ledger
              WHERE user_id = v_user AND game_id = 'sproto-fighter' AND created_at >= v_day
                AND kind IN ('duel_stake', 'duel_payout', 'duel_refund');
@@ -2374,6 +2362,7 @@ namespace HubSchema {
            IF v_a IS NULL THEN RETURN jsonb_build_object('error', 'insufficient_tickets', 'user', p_a); END IF;
            v_b := game.sproto_wager_move(p_b, -p_stake, 'duel_stake', v_wager);
            IF v_b IS NULL THEN
+             -- Undo player A's debit in this same transaction by raising; caller sees the error.
              RAISE EXCEPTION 'sproto_wager_insufficient_b';
            END IF;
            INSERT INTO game.sproto_wager (wager_id, match_id, stake, player_a, player_b, status)
