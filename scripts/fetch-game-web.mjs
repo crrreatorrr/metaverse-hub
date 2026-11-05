@@ -14,14 +14,21 @@
  *   node scripts/fetch-game-web.mjs sproto-arcade  (the cabinet's second game)
  *   node scripts/fetch-game-web.mjs --all
  *
+ * Games without a "Web build" artifact are cloned. A clone whose package.json
+ * has a build script is built with VITE_BASE=/play/<slug>/ and its dist/ is
+ * installed, because raw source (index.html pointing at src/main.ts) does not
+ * run in the browser. Only repos with no build script fall back to a committed
+ * static export or the repo root.
+ *
  * Requires `gh` with read access to the game repo (Cursor GitHub App must
- * include that private repo, or the repo must be public).
+ * include that private repo, or the repo must be public), plus npm for games
+ * that are built here.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -57,9 +64,62 @@ function run(cmd, args, opts = {}) {
     ...opts,
   });
   if (result.status !== 0) {
-    throw new Error(`${cmd} ${args.join(' ')}\n${result.stderr || result.stdout}`);
+    throw new Error(`${cmd} ${args.join(' ')}\n${result.stderr || result.stdout || `exit ${result.status}`}`);
   }
-  return result.stdout.trim();
+  return (result.stdout ?? '').trim();
+}
+
+/**
+ * How to install a cloned game repo:
+ * - `{ kind: 'build' }` when package.json has a build script,
+ * - `{ kind: 'static', dir }` for a committed export or a plain static repo root,
+ * - `null` when there is nothing to serve.
+ * @param {string} cloneDir
+ * @returns {{ kind: 'build' } | { kind: 'static'; dir: string } | null}
+ */
+export function planClone(cloneDir) {
+  const pkgPath = join(cloneDir, 'package.json');
+  if (existsSync(pkgPath)) {
+    const pkg = JSON.parse(readFileSync(pkgPath, 'utf8'));
+    if (pkg && pkg.scripts && typeof pkg.scripts.build === 'string') return { kind: 'build' };
+  }
+  for (const candidate of ['build/web', 'dist', 'web-build', 'public', 'export/web']) {
+    if (existsSync(join(cloneDir, candidate, 'index.html'))) return { kind: 'static', dir: candidate };
+  }
+  if (existsSync(join(cloneDir, 'index.html'))) return { kind: 'static', dir: '.' };
+  return null;
+}
+
+/** Folders a game build may write its page to: Vite's default, then HPOS10I's `build/web`, then other exports. */
+const BUILD_OUTPUTS = ['dist', 'build/web', 'web-build', 'export/web'];
+
+/**
+ * The first build output whose index.html was written at or after `sinceMs`, so a
+ * stale committed export is never mistaken for the fresh build.
+ * @param {string} cloneDir
+ * @param {number} sinceMs
+ * @returns {string | null}
+ */
+export function findBuildOutput(cloneDir, sinceMs) {
+  for (const candidate of BUILD_OUTPUTS) {
+    const page = join(cloneDir, candidate, 'index.html');
+    if (existsSync(page) && statSync(page).mtimeMs >= sinceMs) return join(cloneDir, candidate);
+  }
+  return null;
+}
+
+/** Install dependencies and build a cloned game for the dev hub's /play/<slug>/ path. */
+function buildClone(cloneDir, gameId) {
+  const install = existsSync(join(cloneDir, 'package-lock.json')) ? ['ci'] : ['install'];
+  const opts = { cwd: cloneDir, stdio: ['ignore', 'inherit', 'inherit'] };
+  console.log(`Installing ${gameId} dependencies…`);
+  run('npm', [...install, '--no-audit', '--no-fund'], opts);
+  console.log(`Building ${gameId} for /play/${gameId}/…`);
+  const started = Date.now() - 1000;
+  run('npm', ['run', 'build'], { ...opts, env: { ...process.env, VITE_BASE: `/play/${gameId}/` } });
+  const out = findBuildOutput(cloneDir, started);
+  if (!out) throw new Error(`${gameId} built, but no fresh index.html under ${BUILD_OUTPUTS.join(', ')}`);
+  return out;
 }
 
 function installFromDir(src, dest) {
@@ -129,42 +189,44 @@ function fetchArtifact(name) {
     return;
   }
 
-  // Fallback: shallow clone and look for a committed web export.
-  console.log(`No Web build artifact. Cloning ${game.repo} for a static export…`);
+  // Fallback: shallow clone, then build it or use a committed static export.
+  console.log(`No Web build artifact. Cloning ${game.repo}…`);
   const cloneDir = join(scratch, 'clone');
   run('gh', ['repo', 'clone', game.repo, cloneDir, '--', '--depth', '1']);
-  for (const candidate of ['build/web', 'dist', 'web-build', 'public', 'export/web']) {
-    const src = join(cloneDir, candidate);
-    if (existsSync(join(src, 'index.html'))) {
-      installFromDir(src, dest);
-      console.log(`Installed ${gameId} from ${candidate} at ${dest}`);
-      return;
-    }
+  const plan = planClone(cloneDir);
+  if (plan?.kind === 'build') {
+    installFromDir(buildClone(cloneDir, gameId), dest);
+    console.log(`Built and installed ${gameId} at ${dest}`);
+    return;
   }
-  if (existsSync(join(cloneDir, 'index.html'))) {
-    installFromDir(cloneDir, dest);
-    console.log(`Installed ${gameId} from repo root at ${dest}`);
+  if (plan?.kind === 'static') {
+    installFromDir(join(cloneDir, plan.dir), dest);
+    console.log(`Installed ${gameId} from ${plan.dir === '.' ? 'repo root' : plan.dir} at ${dest}`);
     return;
   }
   throw new Error(
-    `${game.repo} has no Web build artifact named "${game.artifact}" and no index.html under build/web, dist, web-build, public, or export/web.`,
+    `${game.repo} has no Web build artifact named "${game.artifact}", no build script, and no index.html under build/web, dist, web-build, public, export/web, or the repo root.`,
   );
 }
 
-const args = process.argv.slice(2);
-const ids = args.includes('--all') ? Object.keys(GAMES) : args;
-if (ids.length === 0) {
-  console.error(`Usage: node scripts/fetch-game-web.mjs <${Object.keys(GAMES).join('|')}|--all>`);
-  process.exit(1);
+function main() {
+  const args = process.argv.slice(2);
+  const ids = args.includes('--all') ? Object.keys(GAMES) : args;
+  if (ids.length === 0) {
+    console.error(`Usage: node scripts/fetch-game-web.mjs <${Object.keys(GAMES).join('|')}|--all>`);
+    process.exit(1);
+  }
+
+  let failed = 0;
+  for (const id of ids) {
+    try {
+      fetchArtifact(id);
+    } catch (error) {
+      failed += 1;
+      console.error(`\n[${id}] ${error instanceof Error ? error.message : error}\n`);
+    }
+  }
+  process.exit(failed === 0 ? 0 : 1);
 }
 
-let failed = 0;
-for (const id of ids) {
-  try {
-    fetchArtifact(id);
-  } catch (error) {
-    failed += 1;
-    console.error(`\n[${id}] ${error instanceof Error ? error.message : error}\n`);
-  }
-}
-process.exit(failed === 0 ? 0 : 1);
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
