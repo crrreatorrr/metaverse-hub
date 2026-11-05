@@ -1,8 +1,8 @@
 # NOBU Chapter 2 trial boards (H70 preparation)
 
-Preparatory Hub branch from `1c5ff75d8730d594147e0b8935ec0d23397472b1`. H45/H50 and client activation
-remain pending coordinator confirmation, and the owner has not confirmed deployment of this Hub
-capability. This branch does not enable Nobu uploads or change production. A merge alone is not
+Preparatory Hub branch from `1c5ff75d8730d594147e0b8935ec0d23397472b1`. The coordinator confirms H40/H45
+are merged; H50 and client activation remain pending, and the owner has not confirmed deployment of
+this Hub capability. This branch does not enable Nobu uploads or change production. A merge alone is not
 proof that these variants are deployed.
 
 | Exact variant | Inclusive minimum (integer ms) |
@@ -50,20 +50,52 @@ leaderboard submission adds no Ticket path.
 
 Logs are `/tmp/h70-{install,lint,typecheck,test,build,dup-nobu,economy-audit,compose-down}.log`.
 The full unfiltered real duplication matrix and realtime Docker suite were not run locally; exact PR
-and merged-main CI must still validate them. Independent agent review is pending.
+and merged-main CI must still validate them. Independent review approved immutable product `3a1ddb7f` with canonical server/SDK checks and
+54 additional grouped contract cases (`/workspace/nobu-spec/h70-independent-review.md`).
 
 ## Gates and manual checks still outstanding
 
-The Nobu follow-up must wait for merged H40/H45/H50, the new Hub PR and **owner deployment confirmation**.
+H40/H45 are merged by coordinator confirmation. The Nobu follow-up must still wait for H50, the new
+Hub PR and **owner deployment confirmation**.
 Only then re-vendor the SDK and activate exact variants4/6/5 using existing config/queue/bridge gates;
 predeploy trials must remain local with no queued upload. This does not authorize changing the separate
 L1–3 `HUB_LAYOUT` deployment gates. Check floors against final merged physical gate/goal geometry,
 including raft current/chute speed bounds, in the later Nobu integration.
 
-Manual phone/desktop plaza wall display and one real **hub-launched** L4,L6,L5 trial posting/reading
-its own board remain unrun. Those runs also need to confirm gear-free/noDDA and no God/remix/rush
+Bounded phone/desktop wall-component rendering is checked below. Full-plaza natural-camera/mobile
+usability and one real **hub-launched** L4,L6,L5 trial posting/reading its own board remain unrun. Those runs also need to confirm gear-free/noDDA and no God/remix/rush
 upload behavior after deployment. No PR, push, merge, production deployment, permission change,
 leaderboard reset, new media or client gate change is performed by this preparatory branch.
 
 Sources: Nobu H70/H35 handoffs, gameplay plan10.2, new-levels wiring5.1 and level6§9 in the reviewed
 `/workspace/nobu-spec` source material, plus current Hub `AGENTS.md`.
+
+## Bounded local wall browser check
+
+On immutable clean product `3a1ddb7f0b109cee098ef140aa48ea90aafe0f1e`, Chromium/SwiftShader rendered
+the actual `barLeaderboard.ts` mesh/canvas with the canonical stub/types and shared Three instance in
+a standalone local component harness. This deliberately avoids importing the app's automatic auth
+boot: no login, backend or live player session was used. Four served source modules matched exact Git
+bytes, registry/Three object identities matched, and no source edits or HMR occurred during the run.
+
+At desktop1280×800 and phone390×844, all **17 wall pages per viewport** were checked with actual
+painted titles, ten names/rows, `m:ss.cc` NOBU formatting and active page dots. The current/v2,4,6,5,
+Classic order matches the source contract. Representative current and Classic screenshots retain
+their labels/times. Default automatic controls stay unchanged: no advance at7.999seconds, advance
+after8seconds and wrap to the first board. The wall component has no separate previous/next buttons;
+clock advancement is assisted through its existing `update` method rather than real waiting.
+
+All six new-page desktop/phone screenshots were visually inspected. The fitted whole-wall phone
+view has small row text; this does **not** establish readability/usability in the full plaza's
+natural camera or mobile movement controls. No performance, human trial or live-board claim is made.
+Two early harness-only watermark expectations were corrected to respect the existing48-character
+`fitText` truncation on unchanged HPOS/Verse subtitles; no product fix was required. The final run
+passed with zero runtime/console errors, write attempts, backend/external requests or WebSockets.
+All non-read requests, backend paths and external URLs were blocked.
+
+Evidence: `/tmp/h70-wall-browser-results.json`, `/tmp/h70-wall-browser.log` and
+`/tmp/h70-wall-{desktop,phone}-{4,6,5,1v2,1}.png`. Separate fresh profile and strict ports5307/9407 were
+used; browser and Vite closed, both ports were confirmed closed and the exclusive GPU slot was
+released before this docs-only update. Product code remains identical to the independently reviewed
+and tested3a revision. H50, deployment confirmation, client vendoring/activation and exact CI gates
+remain outstanding.
