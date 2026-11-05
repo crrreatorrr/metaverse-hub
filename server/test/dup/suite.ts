@@ -14,6 +14,7 @@ import {
   type RelicFlow,
 } from './cases.ts';
 import { runAccounts } from './accounts.ts';
+import { runStoryBoss } from './story-boss.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runMigrations } from './migrations.ts';
@@ -1462,7 +1463,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts', 'story-boss'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1723,6 +1724,7 @@ export async function main(): Promise<void> {
     if (selected('pets')) await runPets(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
+    if (selected('story-boss')) await runStoryBoss(test);
   } finally {
     failed = report();
   }
