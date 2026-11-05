@@ -50,8 +50,8 @@ namespace SprotoDuel {
   export var OP_CANCEL = 7;   // server: {reason, seat?}
 
   export var STAKE = 10;
-  /** Verified CPU wins ("fighter_win" earns) before a first wager. */
-  export var MIN_CPU_WINS = 3;
+  /** Distinct non-guest opponents beaten online (sproto_pvp_result) before a first wager. */
+  export var MIN_ONLINE_WINS = 3;
   /** Wagered matches per pair of players per UTC day. */
   export var PAIR_LIMIT = 5;
   /** Net Tickets a player may win from wagers per UTC day. */
@@ -249,8 +249,15 @@ namespace SprotoDuel {
       if (state.phase === "joining") {
         if (state.hello[state.players[0]] && state.hello[state.players[1]] && state.present[state.players[0]] && state.present[state.players[1]]) {
           if (state.wager) {
+            var guestSeat = -1;
+            if (HubChat.isGuest(nk, logger, state.players[0])) guestSeat = 0;
+            else if (HubChat.isGuest(nk, logger, state.players[1])) guestSeat = 1;
+            if (guestSeat >= 0) {
+              cancel(nk, dispatcher, ctx, tick, state, "wager_guest", guestSeat);
+              return { state: state };
+            }
             var held = sql(nk, "SELECT game.sproto_wager_hold($1, $2::uuid, $3::uuid, $4, $5, $6, $7)::text AS r",
-              [ctx.matchId, state.players[0], state.players[1], STAKE, MIN_CPU_WINS, PAIR_LIMIT, DAILY_WIN_CAP]);
+              [ctx.matchId, state.players[0], state.players[1], STAKE, MIN_ONLINE_WINS, PAIR_LIMIT, DAILY_WIN_CAP]);
             if (!held || held["error"]) {
               var who = held && typeof held["user"] === "string" ? seatOf(state, String(held["user"])) : null;
               cancel(nk, dispatcher, ctx, tick, state, held ? String(held["error"]) : "hold_failed", who);
