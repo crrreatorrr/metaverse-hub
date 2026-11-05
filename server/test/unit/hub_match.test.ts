@@ -170,3 +170,34 @@ assert.deepEqual(JSON.parse(boot[0]!.label), { game: 'hub', kind: 'hub', shard: 
 }
 
 console.log('hub match tests ok');
+
+// Realm placement keeps the no-realm contract byte-for-byte and isolates pools.
+{
+  const realms = loadModule();
+  type Placed = { matchId: string; shard: number; room: string; error?: string };
+  const join = (n: number, body: object) => realms.call<Placed>('hub.join', { userId: uid(n), ...HUB }, body);
+  const plaza = join(8000, {});
+  assert.equal(plaza.room, 'hub.1', 'join_without_realm_is_plaza');
+  assert.equal(realms.nk.matches.get(plaza.matchId)!.label, '{"game":"hub","kind":"hub","shard":1,"players":0,"max":100,"open":true}', 'plaza label stays byte-identical');
+  const before = realms.nk.matches.size;
+  assert.equal(join(8001, { realm: 'nope' }).error, 'bad_realm', 'join_unknown_realm_fails');
+  assert.equal(realms.nk.matches.size, before, 'unknown realm creates no match');
+  const sandbox = join(8002, { realm: 'sandbox', prefer: plaza.matchId });
+  assert.equal(sandbox.room, 'hub.sandbox.1', 'join_sandbox_places_separately');
+  assert.notEqual(sandbox.matchId, plaza.matchId, 'prefer_from_other_realm_is_ignored');
+  assert.equal(JSON.parse(realms.nk.matches.get(sandbox.matchId)!.label).kind, 'hub_sandbox');
+  assert.equal(join(8003, { prefer: sandbox.matchId }).matchId, plaza.matchId, 'cross-realm prefer ignored in both directions');
+  const empty = realms.startMatch('hub', { shard: '1', realm: 'sandbox' });
+  assert.equal(empty.ticks(1199), true);
+  assert.equal(empty.loop([]), false, 'sandbox_shard_one_closes_when_empty');
+  const always = realms.startMatch('hub', { shard: '1' });
+  assert.equal(always.ticks(1300), true, 'plaza_shard_one_stays_open');
+  for (const id of ['plaza', 'sandbox']) {
+    const m = realms.startMatch('hub', { realm: id, shard: '3' });
+    m.join([P(8100)], HUB);
+    const state = m.state as { slots: { x: number; y: number; z: number }[] };
+    assert.deepEqual([state.slots[0]!.x, state.slots[0]!.y, state.slots[0]!.z], id === 'sandbox' ? [0, 178, 0] : [0, 178, 4200]);
+    m.loop([{ sender: P(8100), opCode: 1, data: [0, -30000, 0, 0, 0] }]);
+    assert.equal(state.slots[0]!.y, id === 'sandbox' ? 178 : -30000, 'sandbox_bounds_reject_interior_band');
+  }
+}
