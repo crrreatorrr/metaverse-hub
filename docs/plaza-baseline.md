@@ -89,3 +89,8 @@ The reference `?bots=99` browser run displayed 6 near + 93 far remotes, 177 scen
 uncaught page errors. This already exceeds the 150-draw warning threshold on main; it is an
 existing load-profile result, not a new realm regression. The six zero-bot comparison views
 remain below that threshold.
+
+Task 4: repeated all six views; draws 97/122/48/35/42/82 and assets 40 at every point,
+matching main. No uncaught browser errors. Plaza layout moved without changing its values.
+Task 4 also repeated the signed-in light walkthrough (return layout/parser, dwell, Bar loading,
+cabinet return, picker, Sprotel prompt, menu and local chat); no page errors.

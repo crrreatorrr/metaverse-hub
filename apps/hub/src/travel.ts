@@ -1,5 +1,5 @@
 import { canonicalGameId, type GameId } from '@metaverse/hub-sdk';
-import { PORTAL_DISTANCE, PORTAL_TRIGGER_RADIUS, PORTALS, type PortalConfig } from './config';
+import { type PortalConfig } from './config';
 import { portalPosition } from './layout';
 
 /** Seconds inside the ring before the hub opens the game. A shorter visit does not enter. */
@@ -46,10 +46,10 @@ export function portalUrl(page: string, ticket: string): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 
-export function portalContaining(x: number, z: number): PortalConfig | null {
-  for (const portal of PORTALS) {
-    const at = portalPosition(portal.angle, PORTAL_DISTANCE);
-    if (Math.hypot(x - at.x, z - at.z) <= PORTAL_TRIGGER_RADIUS) return portal;
+export function portalContaining(portals: readonly PortalConfig[], x: number, z: number): PortalConfig | null {
+  for (const portal of portals) {
+    const at = portalPosition(portal.angle, portal.distance);
+    if (Math.hypot(x - at.x, z - at.z) <= portal.triggerRadius) return portal;
   }
   return null;
 }

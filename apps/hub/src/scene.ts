@@ -35,13 +35,14 @@ import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappi
 import { FOUR_LIGHTS_RELIC_IDS, isRelicId, type RelicId } from '@metaverse/hub-sdk';
 import { createAvatarRig } from './avatar';
 import type { AvatarLook } from './look';
-import { CAMERA_FOV, PLAZA_SLOT, PLAZA_YAW, SOCKETS } from './config';
+import { CAMERA_FOV, SOCKETS } from './config';
+import { PLAZA_SLOT, PLAZA_YAW } from './realms/plaza/config';
 import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './m3/barLeaderboard';
 import { addHallOfChampions } from './m3/hallOfChampions';
 import { addLivingPortals } from './m3/livingPortals';
 import { addOrbitGems } from './m3/orbitGems';
 import type { LeaderboardProvider, OrbitAvatar } from './m3/types';
-import { spawnFor } from './layout';
+import { spawnFor, defaultPortalPlacements } from './realms/plaza/layout';
 import { STAND_Y } from './physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
@@ -344,7 +345,7 @@ export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
   const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
   const devPreview = import.meta.env.DEV;
-  const living = addLivingPortals(outdoor, { placeholder: devPreview });
+  const living = addLivingPortals(outdoor, { placeholder: devPreview, placements: defaultPortalPlacements() });
   const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
   outdoor.add(hall.door);
   let localRelics: RelicId[] = [];

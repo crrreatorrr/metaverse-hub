@@ -22,23 +22,13 @@ import { createRemoteWorld } from './net/remoteWorld';
 import { createRemotes } from './remotes';
 import { createOverheads } from './overheads';
 import { createLiveLeaderboardProvider } from './leaderboards';
-import {
-  ARCADE_GAMES,
-  AVATAR_SCALE,
-  CAMERA_ARM,
-  CAMERA_LOOK_DROP,
-  CHARACTERS,
-  PORTAL_DISTANCE,
-  ALL_RELICS,
-  PORTALS,
-  SPRINT_SPEED,
-  WALK_SPEED,
-  characterHeight,
-} from './config';
+import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, ALL_RELICS, SPRINT_SPEED, WALK_SPEED, characterHeight } from './config';
+import { ARCADE_GAMES, PORTAL_DISTANCE, PORTALS } from './realms/plaza/config';
 import { loadLook, saveLook, type AvatarLook } from './look';
 import { createMenu } from './menu';
 import { gameUrl, type GameUrlContext } from './games';
-import { portalPosition, spawnFor } from './layout';
+import { portalPosition } from './layout';
+import { spawnFor } from './realms/plaza/layout';
 import { STAND_Y, createPlayerController, type MoveInput } from './physics';
 import { gate } from './login';
 import { createWorld } from './scene';
@@ -492,7 +482,7 @@ function updateHint(): void {
   const look = document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
   const zone = world.zone();
   const near = world.inInterior() ? null : nearestPortal(player.position.x, player.position.z);
-  const inside = world.inInterior() ? null : portalContaining(player.position.x, player.position.z);
+  const inside = world.inInterior() ? null : portalContaining(PORTALS, player.position.x, player.position.z);
   if (!inside) portalError = '';
   const closed = near && !pageFor(near.id) ? near : null;
   const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
@@ -542,7 +532,7 @@ function considerPortal(dt: number): void {
     dwell = initialDwell();
     return;
   }
-  const hit = portalContaining(player.position.x, player.position.z);
+  const hit = portalContaining(PORTALS, player.position.x, player.position.z);
   const stepped = stepPortalDwell(dwell, hit?.id ?? null, dt);
   dwell = stepped.state;
   if (!stepped.ready || !hit) return;

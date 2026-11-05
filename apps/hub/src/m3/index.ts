@@ -9,7 +9,6 @@ export {
 } from './hallOfChampions';
 export {
   addLivingPortals,
-  defaultPortalPlacements,
   glowTierForCount,
   FINISHER_BANNER_S,
   FINISHER_FIREWORK_S,

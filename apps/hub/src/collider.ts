@@ -1,9 +1,10 @@
 import { BoxGeometry, BufferGeometry, CylinderGeometry, Matrix4, Quaternion, Vector3 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { MONUMENT_RADIUS, PEDESTAL_HEIGHT } from './config';
+import { MONUMENT_RADIUS, PEDESTAL_HEIGHT } from './realms/plaza/config';
 import { barBoxColliders, buildingBoxColliders, buildingCylinderColliders } from './blockouts';
-import { bollardPositions, curbBoxes, pillarBoxes, type BoxSpec } from './layout';
+import { type BoxSpec } from './layout';
+import { bollardPositions, curbBoxes, pillarBoxes } from './realms/plaza/layout';
 
 export interface Collider {
   bvh: MeshBVH;

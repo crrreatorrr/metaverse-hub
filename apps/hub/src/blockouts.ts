@@ -11,7 +11,8 @@ import {
   TorusGeometry,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PORTAL_DISTANCE, PORTALS, type PortalConfig } from './config';
+import { type PortalConfig } from './config';
+import { PORTAL_DISTANCE, PORTALS } from './realms/plaza/config';
 import { portalPosition, type BoxSpec } from './layout';
 
 /**
