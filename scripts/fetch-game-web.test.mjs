@@ -1,9 +1,9 @@
 // Which cloned game repos are built, and which are served as committed static files.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { planClone } from './fetch-game-web.mjs';
+import { findBuildOutput, planClone } from './fetch-game-web.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'fetch-game-web-test-'));
 function repo(name, files) {
@@ -31,6 +31,19 @@ try {
   assert.deepEqual(planClone(repo('plain', { 'index.html': page })), { kind: 'static', dir: '.' });
   // Nothing to serve.
   assert.equal(planClone(repo('empty', { 'README.md': '' })), null);
+
+  // Build output: Vite's default dist/, and HPOS10I's build/web/.
+  const since = Date.now() - 1000;
+  assert.equal(findBuildOutput(repo('out-dist', { 'dist/index.html': page }), since), join(root, 'out-dist', 'dist'));
+  assert.equal(findBuildOutput(repo('out-web', { 'build/web/index.html': page }), since), join(root, 'out-web', 'build', 'web'));
+  // A stale committed dist/ is skipped in favour of the fresh build/web/.
+  const mixed = repo('out-mixed', { 'dist/index.html': page, 'build/web/index.html': page });
+  utimesSync(join(mixed, 'dist/index.html'), new Date(0), new Date(0));
+  assert.equal(findBuildOutput(mixed, since), join(mixed, 'build', 'web'));
+  // A build that wrote no page.
+  const stale = repo('out-stale', { 'dist/index.html': page });
+  utimesSync(join(stale, 'dist/index.html'), new Date(0), new Date(0));
+  assert.equal(findBuildOutput(stale, since), null);
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

@@ -25,7 +25,7 @@
  * that are built here.
  */
 import { spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -90,6 +90,24 @@ export function planClone(cloneDir) {
   return null;
 }
 
+/** Folders a game build may write its page to: Vite's default, then HPOS10I's `build/web`, then other exports. */
+const BUILD_OUTPUTS = ['dist', 'build/web', 'web-build', 'export/web'];
+
+/**
+ * The first build output whose index.html was written at or after `sinceMs`, so a
+ * stale committed export is never mistaken for the fresh build.
+ * @param {string} cloneDir
+ * @param {number} sinceMs
+ * @returns {string | null}
+ */
+export function findBuildOutput(cloneDir, sinceMs) {
+  for (const candidate of BUILD_OUTPUTS) {
+    const page = join(cloneDir, candidate, 'index.html');
+    if (existsSync(page) && statSync(page).mtimeMs >= sinceMs) return join(cloneDir, candidate);
+  }
+  return null;
+}
+
 /** Install dependencies and build a cloned game for the dev hub's /play/<slug>/ path. */
 function buildClone(cloneDir, gameId) {
   const install = existsSync(join(cloneDir, 'package-lock.json')) ? ['ci'] : ['install'];
@@ -97,9 +115,10 @@ function buildClone(cloneDir, gameId) {
   console.log(`Installing ${gameId} dependencies…`);
   run('npm', [...install, '--no-audit', '--no-fund'], opts);
   console.log(`Building ${gameId} for /play/${gameId}/…`);
+  const started = Date.now() - 1000;
   run('npm', ['run', 'build'], { ...opts, env: { ...process.env, VITE_BASE: `/play/${gameId}/` } });
-  const out = join(cloneDir, 'dist');
-  if (!existsSync(join(out, 'index.html'))) throw new Error(`${gameId} built, but dist/index.html is missing`);
+  const out = findBuildOutput(cloneDir, started);
+  if (!out) throw new Error(`${gameId} built, but no fresh index.html under ${BUILD_OUTPUTS.join(', ')}`);
   return out;
 }
 
