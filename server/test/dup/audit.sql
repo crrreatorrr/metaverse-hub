@@ -158,7 +158,9 @@ BEGIN
       FROM (
         SELECT u.user_id,
           (SELECT count(*) FROM game.tickets_ledger l
-            WHERE l.user_id = u.user_id AND l.delta > 0 AND l.reason <> 'exchange' AND l.reason <> 'shop_sell') AS ledgers,
+            WHERE l.user_id = u.user_id AND l.delta > 0
+              AND l.reason <> 'exchange' AND l.reason <> 'shop_sell'
+              AND l.reason NOT IN ('duel_payout', 'duel_refund')) AS ledgers,
           (SELECT count(*) FROM game.idempotency i
             WHERE i.user_id = u.user_id AND i.rpc = 'tickets.earn')
           + (SELECT count(*) FROM game.idempotency i
