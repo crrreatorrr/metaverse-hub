@@ -338,6 +338,11 @@ export async function runStandalone(test: TestFn): Promise<void> {
     const roomA = await ra.joinMatch({ matchId: roomId });
     const roomB = await rb.joinMatch({ matchId: roomId });
     await Promise.all([roomA.leave(), roomB.leave()]);
+    // MatchLeave releases seats on the server tick after the leave acknowledgement.
+    await until('private room seats released', () => num(
+      `SELECT count(*) FROM storage WHERE collection = 'sproto_mm' AND key = 'live'
+       AND user_id IN ('${sqlId(a.userId)}', '${sqlId(b.userId)}')`,
+    ) === 0, 5000);
 
     const matched: { userId: string; matchId: string }[] = [];
     ra.onMatchmakerMatched((event) => { if (event.matchId) matched.push({ userId: a.userId, matchId: event.matchId }); });
