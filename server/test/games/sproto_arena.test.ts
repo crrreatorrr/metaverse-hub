@@ -27,6 +27,8 @@ interface Arena {
   earns: unknown[][];
   wins: unknown[][];
   payRows: unknown[][];
+  /** Ticket and idempotency SQL calls already recorded when the match starts. */
+  ticketSql: number;
 }
 
 /** A quick-match pair through the matchmaker, both joined and HELLO'd, START sent. */
@@ -73,7 +75,11 @@ function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
   for (const s of starts) assert.equal(s.to?.length, 1, 'START is per player');
   const host = hostSeat === 0 ? pa : pb, guest = hostSeat === 0 ? pb : pa;
   m.dispatcher.clear();
-  return { mod, m, pa, pb, host, guest, hostSeat, earns, wins, payRows };
+  return { mod, m, pa, pb, host, guest, hostSeat, earns, wins, payRows, ticketSql: ticketSqlCount(mod) };
+}
+
+function ticketSqlCount(mod: LoadedModule): number {
+  return mod.nk.sqlCalls.filter((call) => /earn_tickets|idempotency|tickets_ledger|tickets_balance/.test(call.sql)).length;
 }
 
 /** Run `seconds` of play with both sides streaming (no stall). */
@@ -86,7 +92,21 @@ function play(a: Arena, seconds: number): void {
   }
 }
 
-const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: number | null; reason: string; paid: Record<string, number> }>(OP.OUTCOME);
+const outcome = (a: Arena) => a.m.dispatcher.sent<{
+  status: string;
+  winnerSeat: number | null;
+  reason: string;
+  paid: Record<string, number>;
+  balances: Record<string, number>;
+}>(OP.OUTCOME);
+
+/** Online and qualifying forfeit wins record the board and mint nothing. */
+function assertNoOnlineMint(a: Arena, body: { paid: Record<string, number>; balances: Record<string, number> }, label: string): void {
+  assert.deepEqual(plain(body.paid), {}, `${label} paid Tickets`);
+  assert.deepEqual(plain(body.balances), {}, `${label} changed a balance`);
+  assert.equal(a.earns.length, 0, `${label} called game.earn_tickets`);
+  assert.equal(ticketSqlCount(a.mod), a.ticketSql, `${label} wrote a ledger row or idempotency key`);
+}
 
 // Registration shape, matchmaker routing and the migration.
 {
@@ -172,7 +192,7 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.m.dispatcher.broadcasts.filter((b) => b.opCode === OP.INPUT).length, 4, 'MAX_MSGS_PER_TICK');
 }
 
-// ranked "1" only: verified, the winner paid exactly once (deterministic key), the board updated.
+// ranked "1": verified, the result row is recorded, no Ticket mint, the board updated.
 {
   const a = start({ ranked: '1' });
   const winner = a.hostSeat;
@@ -189,21 +209,16 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(out.length, 1);
   assert.equal(out[0]!.body.status, 'verified');
   assert.equal(out[0]!.body.winnerSeat, winner);
-  assert.deepEqual(plain(out[0]!.body.paid), { [a.host.userId]: 20 });
-  assert.equal(a.earns.length, 1);
-  const args = a.earns[0]!;
-  assert.equal(args[0], a.host.userId);
-  assert.equal(args[1], a.host.userId === A ? SID_A : SID_B, 'the winner\'s own game session');
-  assert.equal(args[2], 'sproto');
-  assert.equal(args[3], 20);
-  assert.equal(args[4], 'srv_pvp_win');
-  assert.match(String(args[5]), /^sproto:pvp:[0-9a-f-]{36}:[0-9a-f]{8}$/);
-  assert.ok(String(args[5]).length <= 80);
+  assertNoOnlineMint(a, out[0]!.body, 'verified online win');
   assert.equal(a.wins.length, 1, 'sproto_wins recorded');
-  // A repeat RESULT after the outcome pays nothing more.
+  assert.equal(a.payRows.length, 1, 'the result row is still recorded');
+  // A repeat RESULT after the outcome pays nothing more and does not record a second win.
   a.m.loop([{ sender: a.guest, opCode: OP.RESULT, data: { winnerSeat: winner, wins, rounds: 2 } }]);
-  assert.equal(a.earns.length, 1);
+  assert.equal(a.earns.length, 0);
+  assert.equal(a.wins.length, 1);
+  assert.equal(a.payRows.length, 1);
   assert.equal(outcome(a).length, 1);
+  assertNoOnlineMint(a, outcome(a)[0]!.body, 'repeat RESULT');
 }
 
 // Results differ → disputed, no payout and no board.
@@ -233,7 +248,7 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   assert.equal(a.earns.length, 0);
 }
 
-// ranked "1" only: forfeit after the grace is paid (a round finished, past MIN_PLAY).
+// ranked "1": forfeit after the grace (a round finished, past MIN_PLAY). No Ticket mint.
 {
   const a = start({ ranked: '1' });
   play(a, 16);
@@ -249,7 +264,9 @@ const outcome = (a: Arena) => a.m.dispatcher.sent<{ status: string; winnerSeat: 
   const out = outcome(a)[0]!.body;
   assert.equal(out.status, 'forfeit');
   assert.equal(out.winnerSeat, a.hostSeat);
-  assert.deepEqual(plain(out.paid), { [a.host.userId]: 20 });
+  assertNoOnlineMint(a, out, 'qualifying forfeit');
+  assert.equal(a.wins.length, 1, 'sproto_wins recorded');
+  assert.equal(a.payRows.length, 1, 'the result row is still recorded');
 }
 
 // Back within the grace: no forfeit, START re-sent, the opponent told.

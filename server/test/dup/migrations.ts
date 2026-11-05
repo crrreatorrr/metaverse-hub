@@ -18,7 +18,7 @@
  * - game.tickets_ledger.game_id
  * - game.exchange_tx.game_id (distinct idem_key; unique key has no game_id)
  * - game.verse_earned.game_id (unique on user_id, game_id)
- * - game.event_rule.game_id (no user_id; unique on game_id, event_type)
+ * - game.event_rule.game_id (no user_id; unique on game_id, event_type, rule_key since 0031)
  * - game.earn_window.bucket (`tickets:pb` / `tickets:peoples-bitcoin` and
  *   `verse:pb` / `verse:peoples-bitcoin`)
  *
@@ -440,7 +440,7 @@ async function doPrepare(): Promise<Fixture> {
        ('peoples-bitcoin', 'game_beaten', 'genesis_shard', NULL, NULL, NULL, '{}'::jsonb),
        ('nobu', 'game_beaten', 'cones_tip', NULL, NULL, NULL, '{}'::jsonb),
        ('sproto', 'game_beaten', 'tinubu_crown', NULL, NULL, NULL, '{}'::jsonb)
-     ON CONFLICT (game_id, event_type) DO NOTHING`,
+     ON CONFLICT (game_id, event_type, rule_key) DO NOTHING`,
   );
   assertCatalogCoversSeed();
   seed(fix);
@@ -462,6 +462,21 @@ async function doPrepare(): Promise<Fixture> {
   // sproto-arcade and its Relic). A database
   // from before 0003 has none, and the 0003 replay re-adds its four-game checks, so those rows
   // wait outside the game schema during the boot. 0009 widens the checks again; then they return.
+  // 0031's key is (game_id, event_type, rule_key) and its win ceilings are 0.
+  // Replaying 0007/0009 still uses ON CONFLICT (game_id, event_type) and
+  // CHECK (max_amount > 0). Put that shape back; 0031 restores it on boot.
+  psql(
+    `DELETE FROM game.event_rule a
+     USING game.event_rule b
+     WHERE a.ctid <> b.ctid
+       AND a.game_id = b.game_id
+       AND a.event_type = b.event_type
+       AND a.rule_key > b.rule_key`,
+  );
+  psql(`UPDATE game.event_rule SET max_amount = NULL WHERE max_amount = 0`);
+  psql('ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_rule_key');
+  psql('ALTER TABLE game.event_rule DROP CONSTRAINT IF EXISTS event_rule_pkey');
+  psql('ALTER TABLE game.event_rule ADD PRIMARY KEY (game_id, event_type)');
   parkLaterGames();
   await bootAndReady();
   restoreLaterGames();

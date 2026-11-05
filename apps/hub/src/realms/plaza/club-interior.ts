@@ -3,7 +3,7 @@ import {
   TextureLoader, Vector3, type Material, type MeshStandardMaterial, type Texture,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { WORLD_ROOT, animated, glow, loadGLTF } from './core';
+import { WORLD_ROOT, animated, glow, loadGLTF } from '../../v2/core';
 import { INTERIOR_ORIGIN, makeLeaderboardTexture, type InteriorBuild } from './interior';
 import { loadNeonSign } from './neon-sign';
 import { CLUB_COLLIDERS, CLUB_MARKERS } from './club-interior-colliders';

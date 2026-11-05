@@ -5,7 +5,7 @@ import {
   SRGBColorSpace,
   Vector3,
 } from 'three';
-import { SIGN_FONT } from './signs';
+import { SIGN_FONT } from '../../v2/signs';
 
 export const INTERIOR_ORIGIN = new Vector3(0, -300, 0);
 
