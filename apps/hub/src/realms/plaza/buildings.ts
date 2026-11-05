@@ -23,8 +23,8 @@ import {
   TubeGeometry,
   Vector3,
 } from 'three';
-import { animated, bakeInstanceColors, glow, groundY, instanced, neonMat, part } from './core';
-import { SIGN_FONT, buildingSign } from './signs';
+import { animated, bakeInstanceColors, glow, groundY, instanced, neonMat, part } from '../../v2/core';
+import { SIGN_FONT, buildingSign } from '../../v2/signs';
 
 const Y = -Math.PI / 2;
 const at = <T extends { position: Vector3; rotation: Euler }>(obj: T, x: number, y: number, z: number, ry = 0): T => {

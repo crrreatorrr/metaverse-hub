@@ -11,8 +11,9 @@ import {
   TorusGeometry,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import { PORTAL_DISTANCE, PORTALS, type PortalConfig } from './config';
-import { portalPosition, type BoxSpec } from './layout';
+import { type PortalConfig } from '../../config';
+import { PORTAL_DISTANCE, PORTALS } from './config';
+import { portalPosition, type BoxSpec } from '../../layout';
 
 /**
  * Placeholder shells around the four portals. The ring stays on the plaza

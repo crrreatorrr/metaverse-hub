@@ -55,16 +55,19 @@ namespace HubRealtimeRpc {
     } catch (_e) {
       return fail("bad_json");
     }
+    var realm = body.realm === undefined ? HubRealms.get("plaza") : typeof body.realm === "string" ? HubRealms.get(body.realm) : null;
+    if (!realm) return fail("bad_realm");
     if (!allow(nk, "hubjoin:" + userId, JOIN_PER_MINUTE, 60000, Date.now())) return fail("rate_limited");
     var prefer = typeof body.prefer === "string" && MATCH_ID.test(body.prefer) ? body.prefer : "";
     var placed = HubShards.place(nk, logger, {
       module: HubMatch.MODULE,
-      kind: "hub",
+      kind: realm.kind,
+      params: realm.id === "plaza" ? undefined : { realm: realm.id },
       max: HubMatch.MAX_PLAYERS,
       softMax: HubMatch.SOFT_CAP,
       preferMatchId: prefer || undefined,
     });
-    return JSON.stringify({ matchId: placed.matchId, shard: placed.shard, room: "hub." + String(placed.shard) });
+    return JSON.stringify({ matchId: placed.matchId, shard: placed.shard, room: realm.roomPrefix + "." + String(placed.shard) });
   }
 
   /** {channelId, messageId, userId, text?, reason} → {ok}. Any signed-in hub user, 10 per hour. */

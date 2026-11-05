@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_REALM_GATE_SANDBOX?: string;
   /** Apex hostname. Production portals use `https://play.<domain>/<slug>/`. */
   readonly VITE_PLAY_DOMAIN?: string;
   readonly VITE_GAME_URL_HPOS10I?: string;

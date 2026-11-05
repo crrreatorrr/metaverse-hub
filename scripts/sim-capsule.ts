@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
-import { MONUMENT_RADIUS, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTAL_TRIGGER_RADIUS, CURB_RADIUS } from '../apps/hub/src/config';
-import { buildCollider } from '../apps/hub/src/collider';
-import { spawnFor } from '../apps/hub/src/layout';
+import { PORTALS, MONUMENT_RADIUS, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTAL_TRIGGER_RADIUS, CURB_RADIUS } from '../apps/hub/src/realms/plaza/config';
+import { buildCollider } from '../apps/hub/src/realms/plaza/collider';
+import { spawnFor } from '../apps/hub/src/realms/plaza/layout';
 import { CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../apps/hub/src/physics';
 import { parseReturnGame, portalContaining, portalUrl } from '../apps/hub/src/travel';
 import type { GameId } from '@metaverse/hub-sdk';
@@ -59,7 +59,7 @@ for (let i = 0; i < 8; i += 1) {
 const games: (GameId | null)[] = [null, 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'];
 for (const game of games) {
   const spawn = spawnFor(game);
-  assert.equal(portalContaining(spawn.x, spawn.z), null, `${game ?? 'default'} spawn is inside a portal`);
+  assert.equal(portalContaining(PORTALS, spawn.x, spawn.z), null, `${game ?? 'default'} spawn is inside a portal`);
   if (game) {
     const radius = Math.hypot(spawn.x, spawn.z);
     assert.ok(Math.abs(radius - (PORTAL_DISTANCE - PORTAL_STANDOFF)) < 0.001);
@@ -68,7 +68,7 @@ for (const game of games) {
     const outward = Math.hypot(spawn.x, spawn.z);
     const dot = (forwardX * spawn.x + forwardZ * spawn.z) / outward;
     assert.ok(dot > 0.99, `${game} should face its portal`);
-    const portal = portalContaining(
+    const portal = portalContaining(PORTALS,
       Math.sin(Math.atan2(spawn.x, -spawn.z)) * PORTAL_DISTANCE,
       -Math.cos(Math.atan2(spawn.x, -spawn.z)) * PORTAL_DISTANCE,
     );
@@ -85,6 +85,6 @@ assert.equal(parseReturnGame('#from=sproto&extra=1'), 'sproto');
 assert.equal(parseReturnGame('#from=nope'), null);
 assert.equal(parseReturnGame(''), null);
 assert.equal(portalUrl('/play/hpos10i/', 'abc-def_012.sig'), '/play/hpos10i/#t=abc-def_012.sig');
-assert.equal(portalContaining(0, -PORTAL_DISTANCE)?.id, 'hpos10i');
+assert.equal(portalContaining(PORTALS, 0, -PORTAL_DISTANCE)?.id, 'hpos10i');
 
 console.log('capsule sim ok', { restY: restY.toFixed(3), jump: (peak - restY).toFixed(3) });

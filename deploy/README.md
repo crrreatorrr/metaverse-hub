@@ -30,7 +30,7 @@ Files and secrets, created by you and kept out of git:
 
 Builds you produce elsewhere and copy to the VPS:
 
-- Hub: the Vite `dist` directory (`hub/index.html` and `assets/`).
+- Hub: the complete Vite `dist` directory (`hub/index.html`, `realm/<id>/index.html`, `realm-pages.txt`, and `assets/`).
 - One directory per game, with `index.html` at its root. Asset URLs have to resolve under `/<game-id>/`. A relative base (`./`) does that. An absolute base has to be `/<game-id>/`.
 
 | Public URL | Directory | Nakama game id in this repo |
@@ -130,7 +130,7 @@ On the server:
    deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade
    ```
 
-   `rsync` the trees to the VPS, then publish. `deploy-hub.sh` and `deploy-game.sh` run the same check again and refuse the swap when it fails.
+   `rsync` the complete trees to the VPS, including the hub’s `realm-pages.txt` and every listed realm page, then publish only when authorized. `deploy-hub.sh` and `deploy-game.sh` run the same check again and refuse the swap when it fails.
 
    ```bash
    /opt/metaverse/deploy/scripts/deploy-hub.sh /tmp/hub-dist
@@ -275,3 +275,25 @@ curl -fsSI -H 'Accept-Encoding: br' https://play.<domain>/hpos10i/index.<hash>.w
 ```
 
 `index.html` is `no-cache`. The fingerprinted wasm is `application/wasm`, `immutable`, and `content-encoding: br` when the `.br` sibling exists and the client asks for brotli.
+
+
+## Realm pages (prepared; deploy only when the owner asks)
+
+The hub build includes `/realm/sandbox/` as a separate HTML input. Its plaza gate is disabled
+in production and requires `VITE_REALM_GATE_SANDBOX=1` in development. This preparation does not
+launch the second world or authorize a deployment.
+
+Caddy redirects bare `/realm/<id>` paths to their trailing-slash pages and preserves query
+parameters. Realm pages, `/hub/`, and `.html` responses use `Cache-Control: no-cache`; hashed
+assets keep their existing immutable caching. Do not add a production gate flag or change
+Cloudflare rules until the owner approves launch.
+
+Vite emits `realm-pages.txt` from its configured HTML inputs. Include that file when transferring
+the complete dist. `deploy-hub.sh` checks `hub/index.html`, the manifest, and every listed realm
+`index.html` before creating a release. Missing pages, a missing manifest, or paths outside
+`realm/<id>/index.html` fail. The existing dist-secrets check still runs before release staging.
+No Node runtime is required on the server for this check. A pre-realm build must be rebuilt to
+produce the manifest before using the updated deploy script.
+
+Validation for this change is local only: page-guard fixtures and Caddy validation use a
+disposable container, test certificates and a dummy domain. No production config is reloaded.

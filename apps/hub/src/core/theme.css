@@ -1,0 +1,77 @@
+/* Shared UI palette and art defaults. Realm overrides do not change plaza defaults. */
+:root {
+  --font: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --bg: #07060f;
+  --cyan: #3de1ff;
+  --violet: #8d7dff;
+  --gold: #f5b942;
+  --pink: #ff2ea6;
+  --green: #4ade80;
+  --text: #eef3ff;
+  --text-2: #a8b4ca;
+  --text-3: #6e7a92;
+  --glass: rgba(10, 11, 26, 0.68);
+  --glass-strong: rgba(10, 11, 26, 0.88);
+  --fill: rgba(255, 255, 255, 0.045);
+  --fill-hover: rgba(255, 255, 255, 0.08);
+  --line: rgba(255, 255, 255, 0.09);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --field: rgba(4, 5, 14, 0.6);
+  --r-s: 8px;
+  --r-m: 12px;
+  --r-l: 16px;
+  --r-pill: 999px;
+  --blur: blur(16px) saturate(150%);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35), 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+  --ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--cyan);
+  --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --hud-gap: 20px;
+  --ink: #020a28;
+  --navy: #0a1f6b;
+  --blue: #08309e;
+  --blue-2: #1747c9;
+  --blue-3: #2f66e8;
+  --sky: #8cc4ff;
+  --red: #d0080b;
+  --red-2: #ff3a2e;
+  --red-dark: #6d0610;
+  --yellow: #faca07;
+  --yellow-2: #ffe766;
+  --gold-dk: #b07a0c;
+  --cream: #fff4d6;
+  --pixel-head: "Press Start 2P", ui-monospace, monospace;
+  --pixel-body: "VT323", ui-monospace, monospace;
+  --px-edge: 0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink);
+  --px-blue: var(--px-edge), inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 var(--navy);
+  --px-blue-hover: var(--px-edge), inset 4px 4px 0 0 var(--blue-3), inset -4px -4px 0 0 var(--blue);
+  --px-red: var(--px-edge), inset 4px 4px 0 0 var(--red-2), inset -4px -4px 0 0 var(--red-dark);
+  --px-yellow: var(--px-edge), inset 4px 4px 0 0 var(--yellow-2), inset -4px -4px 0 0 var(--gold-dk);
+  --px-gold-frame: 0 -4px 0 0 var(--yellow), 0 4px 0 0 var(--yellow), -4px 0 0 0 var(--yellow), 4px 0 0 0 var(--yellow),
+    0 -8px 0 0 var(--ink), 0 8px 0 0 var(--ink), -8px 0 0 0 var(--ink), 8px 0 0 0 var(--ink),
+    -4px -4px 0 0 var(--ink), 4px -4px 0 0 var(--ink), -4px 4px 0 0 var(--ink), 4px 4px 0 0 var(--ink);
+
+  --art-banner: url("/world/ui/banner.png");
+  --art-frame: url("/world/ui/frame.png");
+  --art-icon-coin: url("/world/ui/icon-coin.png");
+  --art-icon-helmet: url("/world/ui/icon-helmet.png");
+  --art-icon-lock: url("/world/ui/icon-lock.png");
+  --art-icon-star: url("/world/ui/icon-star.png");
+  --art-login-art: url("/world/ui/login-art.png");
+  --art-v-token-spin: url("/world/ui/v-token-spin.png");
+}
+
+.menu, .login {
+  --gold: var(--gold-dk);
+}
+.menu { --px: 4px; }
+.login { --green: #3dff6a; }
+
+/* A few gray tokens prove the sandbox can reskin the same UI. */
+[data-realm="sandbox"] {
+  --navy: #303030;
+  --blue: #505050;
+  --blue-2: #6b6b6b;
+  --blue-3: #888888;
+  --sky: #d0d0d0;
+}

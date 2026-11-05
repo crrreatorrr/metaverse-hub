@@ -6,10 +6,9 @@ export {
   HALL_SPAWN,
   type HallOfChampions,
   type HallOfChampionsOptions,
-} from './hallOfChampions';
+} from '../realms/plaza/hallOfChampions';
 export {
   addLivingPortals,
-  defaultPortalPlacements,
   glowTierForCount,
   FINISHER_BANNER_S,
   FINISHER_FIREWORK_S,
@@ -25,7 +24,7 @@ export {
   createEmptyLeaderboardProvider,
   type BarLeaderboard,
   type BarLeaderboardOptions,
-} from './barLeaderboard';
+} from '../realms/plaza/barLeaderboard';
 export {
   createStubLeaderboardProvider,
   createStubOrbitAvatars,
