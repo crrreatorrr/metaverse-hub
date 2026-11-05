@@ -1,24 +1,25 @@
-import type { RelicId } from '@metaverse/hub-sdk';
-import type { Group, PerspectiveCamera, Scene, Vector3, WebGLRenderer } from 'three';
+import type { GameId, NakamaClient, RelicId } from '@metaverse/hub-sdk';
+import type { Sprite, Vector3 } from 'three';
+import type { Engine, EngineOptions } from './engine';
 import type { Collider } from '../collider';
 import type { PortalConfig } from '../config';
-import type { AvatarLook } from '../look';
 
 export const REALM_IDS = ['plaza', 'sandbox'] as const;
 export type RealmId = (typeof REALM_IDS)[number];
 export interface SpawnPoint { x: number; y: number; z: number; yaw: number }
 export interface FrameState { moving: boolean; sprint: boolean; position: Vector3 }
 export interface RealmContext {
-  scene: Scene;
-  camera: PerspectiveCamera;
-  renderer: WebGLRenderer;
-  rig: Group;
-  initialLook?: AvatarLook;
+  engine: Engine;
+  pageFor(id: GameId): string | null;
+  travel(game: { id: GameId; label: string; color: string }): void;
+  releasePointer(): void;
+  isBlocked(): boolean;
 }
 export interface Interaction {
   /** Evaluated in realm order; the first active prompt wins. */
   active(): boolean;
   prompt(): string;
+  showLook?: boolean;
   key?: string;
   interact?(): void;
 }
@@ -29,9 +30,18 @@ export interface RealmContent {
   onRelicsChanged?(relics: readonly RelicId[]): void;
   interactions?: readonly Interaction[];
   portals?: readonly PortalConfig[];
+  portalsEnabled?(): boolean;
+  labels?: readonly Sprite[];
+  groundHeight?(position: Vector3): number;
+  consumeWarp?(): SpawnPoint | null;
+  handleKey?(event: KeyboardEvent): boolean;
+  onSession?(session: { client: NakamaClient; token: string }): Promise<void>;
 }
 export interface RealmDefinition {
   id: RealmId;
+  engine: EngineOptions;
+  loadingText: string;
+  welcome: string;
   build(ctx: RealmContext): Promise<RealmContent>;
   spawn(hash: string): SpawnPoint;
 }

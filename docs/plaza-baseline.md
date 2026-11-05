@@ -100,3 +100,9 @@ each point, matching main. An initial extraction changed actor request timing (4
 deferring actor attachment until initial realm geometry is loaded restored the reference count.
 The signed-in light walkthrough passed again with no page errors. Independent review found no
 blocking issue; moved implementation files were identical after normalizing import paths.
+
+Task 6: all six fixed views again match 97/122/48/35/42/82 draws and 40 loaded assets;
+no uncaught page errors. The signed-in light walkthrough passed (Bar return, arcade picker,
+Sprotel prompt, menu, chat and return/dwell checks). Adversarial review found one loading-hint
+copy regression; the interaction contract now preserves the original unprefixed loading text.
+All four checks passed after that correction. Shared core imports no realm implementation.

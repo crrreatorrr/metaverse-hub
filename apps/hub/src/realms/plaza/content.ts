@@ -1,5 +1,10 @@
-import { createEngine, type Engine, type EngineOptions } from '../../core/engine';
-import type { RealmContent, FrameState } from '../../core/realm';
+import { createArcadePicker } from '../../v2/arcade-picker';
+import { createLiveLeaderboardProvider } from '../../leaderboards';
+import { parseReturnGame } from '../../travel';
+import { ARCADE_GAMES, PORTALS } from './config';
+import { ARCADE_PROMPT } from './arcade-layout';
+import type { EngineOptions } from '../../core/engine';
+import type { RealmContent, FrameState, RealmContext } from '../../core/realm';
 import { Box3, BoxGeometry, CanvasTexture, Euler, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PerspectiveCamera, Quaternion, RepeatWrapping, Scene, SphereGeometry, Sprite, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
 
 import { FOUR_LIGHTS_RELIC_IDS } from '@metaverse/hub-sdk';
@@ -128,14 +133,8 @@ export const PLAZA_ENGINE_OPTIONS: EngineOptions = {
   bloom: 1.6,
 };
 
-export async function createWorld(initialLook?: AvatarLook): Promise<HubWorld> {
-  const engine = await createEngine(PLAZA_ENGINE_OPTIONS, initialLook);
-  const content = await createPlazaContent(engine);
-  const update = content.update;
-  return Object.assign(content, { update: (dt: number, moving: boolean, sprint: boolean) => update(dt, { moving, sprint, position: engine.rig.position }) });
-}
-
-export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld, 'update'> & RealmContent> {
+export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWorld, 'update'> & RealmContent> {
+  const engine = ctx.engine;
   const { scene, camera, renderer, hemi, sun } = engine;
   await loadSignFont();
   const outdoor = new Group();
@@ -233,7 +232,7 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
   let buildingCount = 0;
   let drawsMarked = false;
   let sceneDraws = 0;
-  let boardRows: readonly (readonly [string, string])[] = [];
+  let wallBoardRows: readonly (readonly [string, string])[] = [];
   const storeListeners: ((anchor: Object3D) => void)[] = [];
   let storeAnchor: Object3D | null = null;
   let storeOpen = false;
@@ -282,7 +281,7 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
 
   function applyBoard(): void {
     const draw = interior?.leaderboard.userData.draw as ((rows: readonly (readonly [string, string])[]) => void) | undefined;
-    draw?.(boardRows.slice(0, 5));
+    draw?.(wallBoardRows.slice(0, 5));
   }
 
   function ensureInterior(): void {
@@ -399,9 +398,9 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
     return Math.hypot(tmp.x - x, tmp.z - z);
   }
 
-  function update(dt: number, state: FrameState): void {
+  function update(dt: number, _state: FrameState): void {
+    for (const socket of sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
     elapsed += dt;
-    engine.update(dt, state.moving, state.sprint);
     const player = rig.position;
     for (const slot of slots) {
       const guess = slot.group?.position ?? tmp.set(Math.sin(slot.a) * 160, 0, -Math.cos(slot.a) * 160);
@@ -480,6 +479,7 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
     hall.update(elapsed);
     bar.root.visible = liveBoards && inside;
     bar.update(elapsed);
+    if (barTabs) barTabs.hidden = !inside || liveBoards;
   }
 
   function render(): void {
@@ -508,6 +508,95 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
   engine.loadAvatar();
 
   const sockets = pedestal.rings.map((mesh) => ({ mesh, on: false }));
+
+  const arcadePicker = createArcadePicker(ARCADE_GAMES, game => ctx.travel(game));
+  function playArcade(): void {
+    if (ctx.isBlocked() || arcadePicker.open) return;
+    if (!ARCADE_GAMES.some(game => ctx.pageFor(game.id))) return;
+    ctx.releasePointer();
+    arcadePicker.show(id => Boolean(ctx.pageFor(id)));
+  }
+  const interactions = [
+    { active: () => zone === 'loading', showLook: false, prompt: () => 'Loading the bar…' },
+    { active: () => zone === 'door', prompt: () => 'Walk into the door to enter the bar' },
+    { active: () => zone === 'exit', prompt: () => 'Walk through the exit to return to the plaza' },
+    { active: () => zone === 'arcade', key: 'KeyE', interact: playArcade,
+      prompt: () => arcadePicker.open ? 'Arcade · pick a game' : ARCADE_GAMES.some(game => ctx.pageFor(game.id)) ? ARCADE_PROMPT : 'Arcade · Coming soon' },
+    { active: () => zone === 'store', key: 'KeyE', interact() {
+        if (storeOpen) return;
+        storeOpen = true;
+        for (const listener of openListeners) listener();
+      }, prompt: () => storeOpen ? 'Sprotel Bitcoin · Verse store' : `Press E · ${interior?.sprotel?.prompt ?? SPROTEL_PROMPT}` },
+  ];
+  if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
+
+  type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
+  interface EarnedRow { name?: string; gameId?: string; lifetime?: number }
+
+  const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
+    hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
+    nobu: [['cone-kid', 30], ['morelight', 12]],
+    'peoples-bitcoin': [['morelight', 50], ['cone-kid', 20]],
+    sproto: [['sproto', 36], ['morelight', 14]],
+    total: [['morelight', 116], ['cone-kid', 50], ['sproto', 36], ['guest-17', 18], ['dusk-walker', 6]],
+  };
+  const TAB_TITLE: Record<BoardTab, string> = {
+    hpos10i: 'HPOS10I',
+    nobu: 'NOBU',
+    'peoples-bitcoin': "PEOPLE'S BITCOIN",
+    sproto: 'SPROTO DUEL',
+    total: 'TOTAL',
+  };
+  let boardRows: EarnedRow[] = [];
+  let boardTab: BoardTab = 'total';
+  const barTabs = document.querySelector<HTMLElement>('#bar-tabs');
+
+  function formatVerse(value: number): string {
+    return value.toLocaleString('en-US');
+  }
+
+  function paintBar(tab: BoardTab = boardTab): void {
+    boardTab = tab;
+    const real = tab === 'total'
+      ? totals(boardRows)
+      : boardRows
+        .filter((row) => row.gameId === tab && typeof row.lifetime === 'number' && row.name)
+        .map((row) => [row.name as string, row.lifetime as number] as const);
+    const sample = real.length === 0;
+    const rows = (sample ? SAMPLE[tab] : real)
+      .slice()
+      .sort((a, b) => b[1] - a[1])
+      .map((row) => [row[0], formatVerse(row[1])] as const);
+    setBoard(TAB_TITLE[tab], rows, sample);
+    for (const button of document.querySelectorAll<HTMLButtonElement>('#bar-tabs button')) {
+      button.classList.toggle('on', button.dataset.tab === tab);
+    }
+  }
+
+  function totals(rows: EarnedRow[]): (readonly [string, number])[] {
+    const sums = new Map<string, number>();
+    for (const row of rows) {
+      if (!row.name || typeof row.lifetime !== 'number' || !row.gameId) continue;
+      sums.set(row.name, (sums.get(row.name) ?? 0) + row.lifetime);
+    }
+    return [...sums.entries()];
+  }
+
+  if (barTabs instanceof HTMLElement) {
+    barTabs.addEventListener('click', (event) => {
+      const button = event.target;
+      if (!(button instanceof HTMLButtonElement) || !button.dataset.tab) return;
+      paintBar(button.dataset.tab as BoardTab);
+    });
+  }
+  paintBar('total');
+
+  function setBoard(title: string, rows: readonly (readonly [string, string])[], sample: boolean): void {
+    void title; void sample;
+    wallBoardRows = rows;
+    applyBoard();
+  }
+
   return {
     scene,
     camera,
@@ -552,12 +641,7 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
     },
     get liveBoards() { return liveBoards; },
     setRemoteOrbit: engine.setRemoteOrbit,
-    setBoard(title, rows, sample) {
-      void title;
-      void sample;
-      boardRows = rows;
-      applyBoard();
-    },
+    setBoard,
     verseStoreUi: {
       get anchor() { return storeAnchor; },
       whenReady(listener) {
@@ -586,7 +670,22 @@ export async function createPlazaContent(engine: Engine): Promise<Omit<HubWorld,
       return pending;
     },
     render,
-    cameraFloor: () => inside ? -299.55 : 0.45,
+    cameraFloor: () => inside ? -Infinity : 0.45,
+    groundHeight: () => inside ? -300 : 0,
+    portals: PORTALS,
+    portalsEnabled: () => !inside,
+    interactions,
+    handleKey: event => arcadePicker.handleKey(event),
+    async onSession(session) {
+      const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
+      boardRows = board.rows ?? [];
+      paintBar(boardTab);
+      if (!devPreview) {
+        innerBoards = createLiveLeaderboardProvider(session.client, () => session.token);
+        liveBoards = true;
+        hideWallScreen();
+      }
+    },
     resize: engine.resize,
   };
 }

@@ -1,1 +1,1 @@
-export { createWorld, type HubWorld } from './realms/plaza/content';
+export { createPlazaContent } from './realms/plaza/content';

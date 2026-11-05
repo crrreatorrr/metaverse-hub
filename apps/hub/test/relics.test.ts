@@ -13,6 +13,7 @@ console.log('Relic ids ok');
 // Shared engine code must never reach into a particular realm.
 const core = new URL('../src/core/', import.meta.url);
 assert.ok(existsSync(new URL('engine.ts', core)), 'shared engine exists');
+assert.ok(existsSync(new URL('shell.ts', core)), 'shared shell exists');
 for (const file of readdirSync(core, { recursive: true })) {
   if (typeof file !== 'string' || !file.endsWith('.ts')) continue;
   const source = readFileSync(new URL(file, core), 'utf8');
