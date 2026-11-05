@@ -9,7 +9,6 @@ import { createRealtime, HubSdkError, type HubRealtime, type MatchData, type Mat
 import {
   SERVER_KEY,
   call,
-  compose,
   guest,
   login,
   num,
@@ -19,7 +18,6 @@ import {
   sqlId,
   ticketBalance,
   verseBalance,
-  waitReady,
   type Guest,
   type RpcResult,
 } from './harness.ts';
@@ -88,25 +86,9 @@ function issue(token: string, payload: object = { app: APP }): Promise<RpcResult
 }
 
 async function clearRateLimits(): Promise<void> {
-  // The production counter persists in storage across runtime restarts.
-  // Reset only this isolated test database's bucket fixtures.
-  psql("DELETE FROM storage WHERE collection = 'sproto_sa_rl'");
-  compose(['restart', 'nakama']);
-  await waitReady();
-  // Device auth can 503 for a moment after the gateway is healthy (dial 7349 refused).
-  const deadline = Date.now() + 20_000;
-  let last = 'auth not attempted';
-  while (Date.now() < deadline) {
-    try {
-      await guest();
-      return;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-      if (!last.includes('503') && !last.includes('connection refused')) throw error;
-      await sleep(250);
-    }
-  }
-  throw new Error(`Nakama auth did not recover after restart: ${last}`);
+  // Counters live in Nakama storage. Deleting the rows is enough; restarting
+  // Nakama does not clear them and the gateway can 503 while it comes back.
+  psql(`DELETE FROM storage WHERE collection = 'sproto_sa_rl'`);
 }
 
 function purse(userId: string): string {
