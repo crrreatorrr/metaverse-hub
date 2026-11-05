@@ -14,6 +14,7 @@ import {
   login,
   num,
   openGame,
+  psql,
   sleep,
   sqlId,
   ticketBalance,
@@ -27,7 +28,8 @@ const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const APP = 'sproto-duel';
 const RPC = 'sproto.standalone_session';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14 };
+const OP = { HELLO: 1, START: 2, INPUT: 10, SNAPSHOT: 11, ROUND: 12, RESULT: 13, OUTCOME: 14, ACCEPT: 19 };
+const NET_VERSION = '2';
 const BASIC = `Basic ${Buffer.from(`${SERVER_KEY}:`).toString('base64')}`;
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
@@ -86,6 +88,9 @@ function issue(token: string, payload: object = { app: APP }): Promise<RpcResult
 }
 
 async function clearRateLimits(): Promise<void> {
+  // The production counter persists in storage across runtime restarts.
+  // Reset only this isolated test database's bucket fixtures.
+  psql("DELETE FROM storage WHERE collection = 'sproto_sa_rl'");
   compose(['restart', 'nakama']);
   await waitReady();
   // Device auth can 503 for a moment after the gateway is healthy (dial 7349 refused).
@@ -187,6 +192,7 @@ async function fill(token: string, count: number): Promise<RpcResult[]> {
 }
 
 export async function runStandalone(test: TestFn): Promise<void> {
+  await clearRateLimits();
   await test('standalone', 'marker is required, extra fields cannot inject vars, and expiry is 7200s', async () => {
     const who = await guest();
     const injected = '11111111-1111-4111-8111-111111111111';
@@ -292,10 +298,10 @@ export async function runStandalone(test: TestFn): Promise<void> {
       const beforeOther = purse(other.hub.userId);
       await assert.rejects(
         otherRt.addMatchmaker({
-          query: '+properties.game:sproto +properties.v:1',
+          query: '+properties.game:sproto +properties.v:2',
           minCount: 2,
           maxCount: 2,
-          stringProperties: { game: 'sproto', v: '1' },
+          stringProperties: { game: 'sproto', v: NET_VERSION },
         }),
         (error: unknown) => error instanceof HubSdkError && error.code === 'wrong_game',
       );
@@ -313,16 +319,16 @@ export async function runStandalone(test: TestFn): Promise<void> {
     assert.equal(sessionClaims(tokenA).vrs?.ranked, '0');
     assert.equal(sessionClaims(tokenB).vrs?.ranked, '0');
 
-    const created = await call('sproto.room_create', { v: '1' }, tokenA);
+    const created = await call('sproto.room_create', { v: NET_VERSION }, tokenA);
     assert.equal(created.status < 400 && !bodyOf(created).error, true, JSON.stringify(created.body));
     const code = bodyOf(created).code ?? '';
     const roomId = bodyOf(created).matchId ?? '';
     assert.match(code, /^[23456789ABCDEFGHJKMNPQRSTUVWXYZ]{6}$/);
-    let joined = await call('sproto.room_join', { code, v: '1' }, tokenB);
+    let joined = await call('sproto.room_join', { code, v: NET_VERSION }, tokenB);
     const joinDeadline = Date.now() + 5000;
     while (errorCode(joined) === 'room_not_found' && Date.now() < joinDeadline) {
       await sleep(200);
-      joined = await call('sproto.room_join', { code, v: '1' }, tokenB);
+      joined = await call('sproto.room_join', { code, v: NET_VERSION }, tokenB);
     }
     assert.equal(bodyOf(joined).matchId, roomId, JSON.stringify(joined.body));
 
@@ -337,10 +343,10 @@ export async function runStandalone(test: TestFn): Promise<void> {
     ra.onMatchmakerMatched((event) => { if (event.matchId) matched.push({ userId: a.userId, matchId: event.matchId }); });
     rb.onMatchmakerMatched((event) => { if (event.matchId) matched.push({ userId: b.userId, matchId: event.matchId }); });
     const ticket = {
-      query: '+properties.game:sproto +properties.v:1',
+      query: '+properties.game:sproto +properties.v:2',
       minCount: 2,
       maxCount: 2,
-      stringProperties: { game: 'sproto', v: '1' },
+      stringProperties: { game: 'sproto', v: NET_VERSION },
     };
     const addedA = await ra.addMatchmaker(ticket);
     const addedB = await rb.addMatchmaker(ticket);
@@ -354,7 +360,8 @@ export async function runStandalone(test: TestFn): Promise<void> {
       inbox.set(userId, box);
       const handle = await rt.joinMatch({ matchId });
       handle.onMessage((msg) => box.push(msg));
-      handle.send(OP.HELLO, { v: '1', staff: 'duel_staff_sproto' });
+      handle.send(OP.HELLO, { v: NET_VERSION, staff: 'duel_staff_sproto' });
+      handle.send(OP.ACCEPT, { v: NET_VERSION });
       return handle;
     }
     const [matchA, matchB] = await Promise.all([enter(ra, a.userId), enter(rb, b.userId)]);

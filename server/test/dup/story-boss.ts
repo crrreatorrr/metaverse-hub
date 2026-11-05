@@ -653,6 +653,8 @@ async function nullBeltTickets(): Promise<void> {
   const session = await login('sproto-fighter');
   const user = session.hub.userId;
   seedTickets(session, 40, 40);
+  // An already-live Belt remains owned when the newly held rule is reported.
+  plantRelic(user, session.sessionId, 'tidebreaker_belt', 'sproto-fighter');
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40);
   const granted = await call('session.event', {
     eventId: 'fighter.story_level_complete',
@@ -660,7 +662,8 @@ async function nullBeltTickets(): Promise<void> {
     key: 'belt-once',
   }, session.gameToken);
   assert.equal(body(granted).error, undefined, JSON.stringify(granted.body));
-  assert.equal(body(granted).granted, 'tidebreaker_belt', JSON.stringify(granted.body));
+  assert.equal(body(granted).granted, undefined, JSON.stringify(granted.body));
+  assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE user_id = '${sqlId(user)}' AND relic_id = 'tidebreaker_belt'`), 0, 'a live Belt has no pending shadow');
   assert.equal(body(granted).tickets, undefined, JSON.stringify(granted.body));
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40, 'NULL Belt tickets changed the balance');
   assert.equal(creditCount(user, 'sproto-fighter'), 1, 'NULL Belt tickets wrote a ledger row');
