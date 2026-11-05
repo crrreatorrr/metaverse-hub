@@ -359,7 +359,8 @@ export async function runHold(test: TestFn): Promise<void> {
         assert.equal(num(`SELECT count(*) FROM game.item_owned WHERE user_id = '${sqlId(user)}' AND item_id = '${pair.id}'`), 1, detail);
         assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = '${pair.id}' AND op = 'grant_item'`), 1, detail);
       }
-      assert.equal(ticketBalance(user, pair.game), beforeTickets, detail);
+      const paid = typeof result.body.tickets === 'number' ? result.body.tickets : 0;
+      assert.equal(ticketBalance(user, pair.game), beforeTickets + paid, detail);
       assert.equal(verseBalance(user), 0, detail);
     }
   });

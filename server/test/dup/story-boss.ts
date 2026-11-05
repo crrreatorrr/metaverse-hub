@@ -24,6 +24,7 @@ import {
   num,
   openGame,
   outboxSend,
+  pendingRelics,
   psql,
   relicClaims,
   serverDay,
@@ -660,13 +661,15 @@ async function nullBeltTickets(): Promise<void> {
     key: 'belt-once',
   }, session.gameToken);
   assert.equal(body(granted).error, undefined, JSON.stringify(granted.body));
-  assert.equal(body(granted).granted, 'tidebreaker_belt', JSON.stringify(granted.body));
+  // 0033 holds the client-reported Belt. NULL tickets still pay nothing.
+  assert.equal(body(granted).granted, undefined, JSON.stringify(granted.body));
   assert.equal(body(granted).tickets, undefined, JSON.stringify(granted.body));
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40, 'NULL Belt tickets changed the balance');
   assert.equal(creditCount(user, 'sproto-fighter'), 1, 'NULL Belt tickets wrote a ledger row');
   assert.equal(creditSum(user, 'sproto-fighter'), 40);
-  assert.equal(relicClaims(user, 'tidebreaker_belt'), 1);
-  assert.equal(mints(user, 'tidebreaker_belt'), 1);
+  assert.equal(relicClaims(user, 'tidebreaker_belt'), 0);
+  assert.equal(mints(user, 'tidebreaker_belt'), 0);
+  assert.equal(pendingRelics(user, 'tidebreaker_belt'), 1);
   const replay = await call('session.event', {
     eventId: 'fighter.story_level_complete',
     data: { world: 1, stage: 'yacht' },
@@ -674,8 +677,9 @@ async function nullBeltTickets(): Promise<void> {
   }, session.gameToken);
   assert.equal(body(replay).granted, undefined, JSON.stringify(replay.body));
   assert.equal(body(replay).tickets, undefined);
-  assert.equal(relicClaims(user, 'tidebreaker_belt'), 1);
-  assert.equal(mints(user, 'tidebreaker_belt'), 1);
+  assert.equal(relicClaims(user, 'tidebreaker_belt'), 0);
+  assert.equal(mints(user, 'tidebreaker_belt'), 0);
+  assert.equal(pendingRelics(user, 'tidebreaker_belt'), 1);
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40);
 
   const sproto = await openGame(session.hub.token, 'sproto');
@@ -688,8 +692,9 @@ async function nullBeltTickets(): Promise<void> {
   assert.equal(body(silent).tickets, undefined, JSON.stringify(silent.body));
   assert.equal(body(silent).granted, undefined, JSON.stringify(silent.body));
   assertPurse(user, 'sproto', before, 'silent boss after a live Belt and Crown');
-  assert.equal(relicClaims(user, 'tidebreaker_belt'), 1, 'a silent boss event revoked the Belt');
-  assert.equal(mints(user, 'tidebreaker_belt'), 1);
+  assert.equal(relicClaims(user, 'tidebreaker_belt'), 0, 'a silent boss event promoted the held Belt');
+  assert.equal(mints(user, 'tidebreaker_belt'), 0);
+  assert.equal(pendingRelics(user, 'tidebreaker_belt'), 1, 'a silent boss event dropped the held Belt');
   assert.equal(relicClaims(user, 'tinubu_crown'), 1, 'a silent boss event revoked the Crown');
   assert.equal(mints(user, 'tinubu_crown'), 1);
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40);
@@ -708,7 +713,7 @@ export async function runStoryBoss(test: TestFn): Promise<void> {
     await test('story-boss', `${spec.game} unknown boss is a silent 0 and a client amount or item writes nothing`, () => unknownBoss(spec));
   }
   await test('story-boss', 'another user token or session writes nothing', otherUser);
-  await test('story-boss', 'NULL Belt tickets add 0 and a live Belt or Crown stays owned', nullBeltTickets);
+  await test('story-boss', 'NULL Belt tickets add 0 and a held Belt or live Crown stays owned', nullBeltTickets);
   await test('story-boss', 'tinubu_crown still grants on session_ticket_cap exactly once', () => capPath('session_ticket_cap'));
   await test('story-boss', 'tinubu_crown still grants on daily_ticket_cap exactly once', () => capPath('daily_ticket_cap'));
   for (const spec of BOSSES) {
