@@ -15,6 +15,7 @@ import {
 } from './cases.ts';
 import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
+import { runWagers } from './wagers.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runMigrations } from './migrations.ts';
@@ -1571,7 +1572,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts', 'story-boss'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'migration', 'accounts', 'story-boss', 'wager'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1830,6 +1831,7 @@ export async function main(): Promise<void> {
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
+    if (selected('wager')) await runWagers(test);
   } finally {
     failed = report();
   }
