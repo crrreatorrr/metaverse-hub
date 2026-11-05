@@ -31,6 +31,7 @@ import {
   guest,
   mints,
   num,
+  pendingRelics,
   outboxSend,
   psql,
   redeemPortalTicket,
@@ -677,12 +678,14 @@ async function backButton(test: TestFn): Promise<void> {
       const cached = readCached(session, spec.game);
       assert.ok(cached);
       await fillSession(spec, cached.token, `back-${spec.game}`);
+      const held = spec.relicId === 'hpos10i_core';
       const granted = await call('session.event', {
         eventId: spec.eventId,
         data: spec.data,
         key: `back-relic-${spec.game}`,
       }, cached.token);
-      assert.equal(granted.body.granted, spec.relicId, JSON.stringify(granted.body));
+      assert.equal(granted.body.error, undefined, JSON.stringify(granted.body));
+      assert.equal(granted.body.granted, held ? undefined : spec.relicId, JSON.stringify(granted.body));
       page.sdk.exit('menu');
       await Promise.all(closes);
       assert.equal(page.assigned.at(-1), `/hub/#from=${spec.game}`);
@@ -712,7 +715,9 @@ async function backButton(test: TestFn): Promise<void> {
         data: spec.data,
         key: `back-relic-${spec.game}`,
       }, cached.token);
-      const stored = relicReplay.body.granted === spec.relicId && !relicReplay.body.error;
+      const stored = (held
+        ? relicReplay.body.granted === undefined
+        : relicReplay.body.granted === spec.relicId) && !relicReplay.body.error;
       const rejected = relicReplay.body.error === 'session_closed';
       assert.ok(stored || rejected, JSON.stringify(relicReplay.body));
       const freshRelic = await call('session.event', {
@@ -721,7 +726,8 @@ async function backButton(test: TestFn): Promise<void> {
         key: `back-relic-new-${spec.game}`,
       }, cached.token);
       assert.equal(freshRelic.body.granted, undefined, JSON.stringify(freshRelic.body));
-      assert.equal(mints(who.userId, spec.relicId), 1);
+      assert.equal(mints(who.userId, spec.relicId), held ? 0 : 1);
+      assert.equal(pendingRelics(who.userId, spec.relicId), held ? 1 : 0);
       assertCredit(who.userId, spec.game, SESSION_CAP);
       assert.equal(earnSessions(who.userId, spec.game), 1);
     }
