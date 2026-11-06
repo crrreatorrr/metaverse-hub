@@ -519,7 +519,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     arcadePicker.show(id => Boolean(ctx.pageFor(id)));
   }
   const gate = import.meta.env.DEV && import.meta.env.VITE_REALM_GATE_SANDBOX === '1'
-    ? await createRealmGate(ctx, { x: SANDBOX_GATE.x, z: SANDBOX_GATE.z, destination: '/realm/sandbox/', label: 'the sandbox' })
+    ? await createRealmGate(ctx, { x: SANDBOX_GATE.x, z: SANDBOX_GATE.z, destination: '/realm/sandbox/', label: 'the sandbox', tint: '#000000', beam: false, core: false })
     : null;
   const interactions = [
     { active: () => zone === 'loading', showLook: false, prompt: () => 'Loading the bar…' },

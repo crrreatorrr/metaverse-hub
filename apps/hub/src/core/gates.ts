@@ -2,8 +2,8 @@ import type { FrameState, RealmContext } from './realm';
 import { buildPortal } from './portal';
 
 /** Full-page crossing frees the departed realm's assets and keeps tab/account storage. */
-export async function createRealmGate(ctx: RealmContext, opts: { x: number; z: number; destination: string; label: string }) {
-  const root = await buildPortal('#a5a5a5', 5);
+export async function createRealmGate(ctx: RealmContext, opts: { x: number; z: number; destination: string; label: string; tint?: string; beam?: boolean; core?: boolean }) {
+  const root = await buildPortal(opts.tint ?? '#a5a5a5', 5, { beam: opts.beam, core: opts.core });
   root.position.set(opts.x, 0, opts.z);
   ctx.engine.scene.add(root);
   let near = false;

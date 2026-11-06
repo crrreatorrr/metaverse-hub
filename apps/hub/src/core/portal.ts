@@ -1,7 +1,7 @@
 import { AdditiveBlending, Box3, Color, CylinderGeometry, DoubleSide, Group, Mesh, MeshStandardMaterial, PlaneGeometry, ShaderMaterial, TorusGeometry, Vector3 } from 'three';
 import { WORLD_ROOT, animated, glow, loadGLTF, neonMat } from '../v2/core';
 
-export async function buildPortal(tint: string, h = 8): Promise<Group> {
+export async function buildPortal(tint: string, h = 8, opts: { beam?: boolean; core?: boolean } = {}): Promise<Group> {
   const src = (await loadGLTF(`${WORLD_ROOT}assets/portal-gate.glb`)).scene.clone(true);
   const g = new Group();
   g.name = 'portal';
@@ -36,14 +36,14 @@ export async function buildPortal(tint: string, h = 8): Promise<Group> {
     transparent: true,
     depthWrite: false,
     side: DoubleSide,
-    uniforms: { t: { value: 0 }, tint: { value: tc }, aspect: { value: W / H } },
+    uniforms: { t: { value: 0 }, tint: { value: tc }, aspect: { value: W / H }, coreGlow: { value: opts.core === false ? 0 : 0.9 }, armLight: { value: opts.core === false ? 1 : 0 } },
     vertexShader: `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.); }`,
-    fragmentShader: `uniform float t; uniform vec3 tint; uniform float aspect; varying vec2 vUv;
+    fragmentShader: `uniform float t; uniform vec3 tint; uniform float aspect; uniform float coreGlow; uniform float armLight; varying vec2 vUv;
       void main(){ vec2 q = vUv; vec2 p = vec2((q.x-.5)*2.*aspect, q.y*2.-1.);
         float inside = q.y < .62 ? step(abs(q.x-.5), .5) : step(length(vec2((q.x-.5)*2.*aspect, (q.y-.62)/.38*aspect)), aspect);
         vec2 c = vec2(0., .05); vec2 d = p-c; float r = length(d); float a = atan(d.y,d.x);
         float sw = sin(a*5. + r*10. - t*4.)*.5+.5; float core = exp(-r*2.2);
-        vec3 col = tint*(0.55+1.2*sw*(1.-r*.45)) + vec3(1.)*core*.9;
+        vec3 col = tint*(0.55+1.2*sw*(1.-r*.45)) + vec3(1.)*core*coreGlow + vec3(1.)*pow(sw, 8.)*(1.-r*.5)*armLight;
         float alpha = inside*(0.78 + 0.22*sw);
         gl_FragColor = vec4(col*1.6, alpha); }`,
   });
@@ -64,9 +64,11 @@ export async function buildPortal(tint: string, h = 8): Promise<Group> {
     vertexShader: `varying vec2 vUv; void main(){vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.);}`,
     fragmentShader: `uniform vec3 tint; varying vec2 vUv; void main(){ float a = (1.-vUv.y)*0.35*(0.6+0.4*sin(vUv.x*6.2831*3.)); gl_FragColor = vec4(tint*a, a); }`,
   });
-  const beam = new Mesh(new CylinderGeometry(W * 0.35, W * 0.55, 70, 24, 1, true), beamMat);
-  beam.position.y = 35 + h;
-  g.add(beam);
+  if (opts.beam !== false) {
+    const beam = new Mesh(new CylinderGeometry(W * 0.35, W * 0.55, 70, 24, 1, true), beamMat);
+    beam.position.y = 35 + h;
+    g.add(beam);
+  }
   animated.push((t) => {
     swirl.uniforms.t.value = t;
   });
