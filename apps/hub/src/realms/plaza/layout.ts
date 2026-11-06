@@ -1,6 +1,6 @@
 import { parseRealmArrival, parseReturnGame } from '../../travel';
 import type { PortalPlacement } from '../../m3/types';
-import { BOLLARD_RADIUS, CURB_RADIUS, PILLAR_HEIGHT, PILLAR_OFFSET, PILLAR_WIDTH, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, SPAWN_DISTANCE } from './config';
+import { BOLLARD_RADIUS, CURB_RADIUS, PLAZA_YAW, PILLAR_HEIGHT, PILLAR_OFFSET, PILLAR_WIDTH, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, SPAWN_DISTANCE } from './config';
 import type { PortalConfig } from '../../config';
 import type { GameId } from '@metaverse/hub-sdk';
 import { portalPosition, type Spawn, type BoxSpec } from '../../layout';
@@ -89,8 +89,25 @@ export function defaultPortalPlacements(): PortalPlacement[] {
 }
 
 
-/** Away from the statue tiers, return portals, and Bar approach. */
-export const SANDBOX_GATE = { x: 32, z: 42, arrival: { x: 32, z: 48, yaw: 0 } } as const;
+/**
+ * Ground floor in the middle of the castle. `placeBuilding` puts the castle origin at
+ * front 112 + reach 60 (its depth is capped) along the castle slot. Arrival is 6 m toward
+ * the plaza, facing the gate like the old spot, so a returning player is clear of the 2.4 m
+ * trigger and the camera is not inside the arch.
+ */
+const CASTLE_CENTER_DISTANCE = 172;
+const CASTLE_X = Math.sin(PLAZA_YAW) * CASTLE_CENTER_DISTANCE;
+const CASTLE_Z = -Math.cos(PLAZA_YAW) * CASTLE_CENTER_DISTANCE;
+const ARRIVAL_STEP = 6;
+export const SANDBOX_GATE = {
+  x: CASTLE_X,
+  z: CASTLE_Z,
+  arrival: {
+    x: Math.sin(PLAZA_YAW) * (CASTLE_CENTER_DISTANCE - ARRIVAL_STEP),
+    z: -Math.cos(PLAZA_YAW) * (CASTLE_CENTER_DISTANCE - ARRIVAL_STEP),
+    yaw: PLAZA_YAW,
+  },
+} as const;
 export function spawnForArrival(hash: string): Spawn {
   const game = parseReturnGame(hash);
   if (game) return spawnFor(game);
