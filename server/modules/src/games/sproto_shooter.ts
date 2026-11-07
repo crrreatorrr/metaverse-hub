@@ -1,7 +1,6 @@
 // Sproto Shooter (crrreatorrr/sproto-shooter).
 //
-// Dark registration. The plaza ring is not placed in this phase. No Relic, no Ticket
-// earn, and no leaderboard. The client may redeem a portal ticket and read a balance.
+// No Relic, no Ticket earn, and no leaderboard. The client may redeem a portal ticket and read a balance.
 // Online play is not registered here.
 //
 // One migration covers both new ids. 0036 stays reserved for NOBU. 0038 stays

@@ -1,5 +1,5 @@
-// H0: sproto-shooter and sproto-coop-battle are registered dark.
-// Coop Battle is a Bar cabinet game (no plaza portal). Shooter is a ring id with no ring placed.
+// H0: sproto-shooter and sproto-coop-battle are registered with no earn, Relic, or leaderboard.
+// Coop Battle is a Bar cabinet game (no plaza portal). Shooter is the empty-slot plaza ring.
 // Neither id can mint Tickets, Relics, or scores. vcoin stays on the session and ticket checks.
 // server/test/unit/run.ts globs this file; it does not need its own runner entry.
 import assert from 'node:assert/strict';
@@ -122,7 +122,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   assert.equal(listed.filter((id) => id === 'sproto-coop-battle').length, 1);
 }
 
-// Cabinet vs ring in the URL contract. The plaza menu and portals are unchanged.
+// Cabinet vs ring in the URL contract. Shooter uses the empty slot. Coop is a cabinet choice.
 {
   const games = readFileSync(join(repoRoot, 'apps/hub/src/games.ts'), 'utf8');
   assert.match(games, /id: 'sproto-shooter',\s*slug: 'sproto-shooter',\s*env: 'VITE_GAME_URL_SPROTO_SHOOTER',\s*entry: 'ring'/);
@@ -130,10 +130,15 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   assert.match(games, /id: 'sproto-fighter',\s*slug: 'sproto-fighter',\s*env: 'VITE_GAME_URL_SPROTO_FIGHTER',\s*entry: 'cabinet'/);
   assert.match(games, /id: 'sproto-arcade',\s*slug: 'sproto-arcade',\s*env: 'VITE_GAME_URL_SPROTO_ARCADE',\s*entry: 'cabinet'/);
   const plaza = readFileSync(join(repoRoot, 'apps/hub/src/realms/plaza/config.ts'), 'utf8');
-  assert.equal(plaza.includes('sproto-shooter'), false);
-  assert.equal(plaza.includes('sproto-coop-battle'), false);
+  assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 1);
+  assert.equal(plaza.split("id: 'sproto-coop-battle'").length - 1, 1);
+  assert.match(plaza, /id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 \* PLAZA_SLOT \+ PLAZA_YAW/);
+  assert.match(plaza, /id: 'sproto-coop-battle', label: 'Sproto Coop Battle'/);
   assert.match(plaza, /id: 'sproto-arcade'/);
   assert.match(plaza, /id: 'sproto-fighter'/);
+  assert.equal(plaza.includes("id: 'sproto-coop-battle'"), true);
+  const menu = plaza.slice(plaza.indexOf('export const ARCADE_GAMES'));
+  assert.match(menu, /ARCADE_STORY_GAME[\s\S]*ARCADE_GAME[\s\S]*ARCADE_COOP_GAME/);
 }
 
 // Portal tickets open for the new ids and for vcoin. Unknown ids still fail.

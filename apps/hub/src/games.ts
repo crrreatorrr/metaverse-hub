@@ -80,15 +80,15 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     entry: 'cabinet',
   },
   {
-    // Plaza ring id. Dark until a later phase places the ring. No Relic and no Ticket earn.
+    // Fifth plaza ring, on the empty artist slot in front of the Bar. No Relic and no Ticket earn.
     id: 'sproto-shooter',
     slug: 'sproto-shooter',
     env: 'VITE_GAME_URL_SPROTO_SHOOTER',
     entry: 'ring',
   },
   {
-    // Bar cabinet game, same kind as Sproto Fighter and Sproto Arcade. No plaza portal.
-    // The machine menu does not list it until a later phase.
+    // Bar cabinet choice, alongside Sproto Fighter and Sproto Arcade. No plaza portal.
+    // No Relic and no Ticket earn.
     id: 'sproto-coop-battle',
     slug: 'sproto-coop-battle',
     env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE',
@@ -120,11 +120,28 @@ export function playOrigin(domain: string | undefined): string | null {
   return `https://play.${host}`;
 }
 
+/**
+ * Page override. An own property, including `''`, wins. Shooter and Coop Battle are not listed in
+ * the shell's override map, so a missing key reads their `VITE_GAME_URL_*` variable. Empty means
+ * Coming soon. Other games stay on the map the shell passes.
+ */
+function pageOverride(id: GameId, ctx: GameUrlContext): string | undefined {
+  if (ctx.overrides && Object.prototype.hasOwnProperty.call(ctx.overrides, id)) return ctx.overrides[id];
+  const env = import.meta.env;
+  if (!env) return undefined;
+  const value = id === 'sproto-shooter'
+    ? import.meta.env.VITE_GAME_URL_SPROTO_SHOOTER
+    : id === 'sproto-coop-battle'
+      ? import.meta.env.VITE_GAME_URL_SPROTO_COOP_BATTLE
+      : undefined;
+  return typeof value === 'string' ? value : undefined;
+}
+
 /** Hub page for this game, or null when the portal should say Coming soon. */
 export function gameUrl(id: GameId, ctx: GameUrlContext): string | null {
   const entry = gameById(id);
   if (!entry) return null;
-  const override = ctx.overrides?.[id];
+  const override = pageOverride(id, ctx);
   if (typeof override === 'string') return acceptPage(override);
   if (!ctx.dev) {
     const origin = playOrigin(ctx.playDomain);
