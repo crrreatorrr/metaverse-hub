@@ -22,8 +22,8 @@ interface Person {
   nobu_trial_time: number;
   pb_total_xp: number;
   sproto_wins: number;
-  /** Sample rows cover the four ring games. Sproto Fighter and Sproto Arcade have no board yet. */
-  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade'>, number>;
+  /** Sample rows cover the four ring games that already have Verse figures. */
+  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade' | 'sproto-shooter' | 'sproto-coop-battle'>, number>;
 }
 
 const PEOPLE: readonly Person[] = [

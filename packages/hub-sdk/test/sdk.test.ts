@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import {
+  GAME_IDS,
   HubEvent,
   HubSdkError,
   LOCAL_NAKAMA,
+  RELIC_BY_GAME,
   VERSE_DAILY_CAP,
   createHubSdk,
   createNakamaClient,
@@ -104,7 +106,37 @@ async function arcadeAndSaves(): Promise<void> {
   assert.equal(encodeSave({ a: 1 }), '{"a":1}');
 }
 
+async function darkGames(): Promise<void> {
+  assert.deepEqual(GAME_IDS.slice(0, 6), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade']);
+  assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle']);
+  assert.equal(RELIC_BY_GAME['sproto-shooter'], undefined);
+  assert.equal(RELIC_BY_GAME['sproto-coop-battle'], undefined);
+  assert.equal(RELIC_BY_GAME.sproto, 'tinubu_crown');
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.SprotoBossDefeated, { boss: 'sahil' }), undefined);
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), undefined);
+  assert.equal(relicForEvent('sproto', HubEvent.SprotoBossDefeated, { boss: 'tinubu' }), 'tinubu_crown');
+
+  for (const game of ['sproto-shooter', 'sproto-coop-battle'] as const) {
+    const h = harness(game);
+    const standalone = await h.sdk.init(game);
+    assert.equal(standalone.ranked, false);
+    assert.ok(standalone.playerId.length > 0);
+    assert.deepEqual(standalone.relics, []);
+    h.sdk.exit('return');
+    assert.equal(h.assigned.length, 0);
+    h.setHash(`#t=${await ticket(game)}`);
+    const session = await h.sdk.init(game);
+    assert.equal(session.playerId, 'player-1');
+    assert.deepEqual(session.relics, []);
+    const reported = await h.sdk.reportEvent(HubEvent.GameBeaten, { boss: 'sahil' }, `${game}:none`);
+    assert.equal(reported.granted, undefined);
+    h.sdk.exit('return');
+    assert.equal(h.assigned.at(-1), `/hub/#from=${game}`);
+  }
+}
+
 async function main(): Promise<void> {
+  await darkGames();
   await arcadeAndSaves();
   const signed = await mintMockTicket({ game: 'hpos10i', playerId: 'p', now: NOW, jti: 'j1' });
   const claims = await verifyMockTicket(signed);

@@ -9,6 +9,7 @@ import { execFileSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { sourceHashes, writeIife } from './build-sdk-iife.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -55,10 +56,14 @@ function walk(dir) {
   }
 }
 walk(join(pkgDir, 'dist'));
+const iifeHash = writeIife(join(outDist, 'hub-sdk.iife.js'));
+manifest.push('dist/hub-sdk.iife.js');
 copyFileSync(join(pkgDir, 'package.json'), join(outDir, 'package.json'));
 copyFileSync(join(pkgDir, 'README.md'), join(outDir, 'README.md'));
-manifest.unshift('README.md', 'package.json');
+copyFileSync(join(pkgDir, 'SOURCE.pin.json'), join(outDir, 'SOURCE.pin.json'));
+manifest.unshift('README.md', 'package.json', 'SOURCE.pin.json');
 
+const sourceLines = Object.entries(sourceHashes()).map(([file, hash]) => `- source ${file}: ${hash}`);
 const header = [
   '# Vendored @metaverse/hub-sdk',
   '',
@@ -67,6 +72,9 @@ const header = [
   `- sha: ${sha}`,
   `- package: packages/hub-sdk @ ${pkg.version}`,
   '- built with: `node scripts/vendor-sdk.mjs`',
+  '- iife: dist/hub-sdk.iife.js (global HubSDK; classic script, not a CDN import)',
+  `- iife sha256: ${iifeHash}`,
+  ...sourceLines,
 ].join('\n');
 const vendorMd = join(outDir, 'VENDOR.md');
 let rest = '';

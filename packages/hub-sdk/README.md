@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.6.2 adds `sproto-shooter` and `sproto-coop-battle` to `GAME_IDS`. Neither has a Relic, an earn event, or a leaderboard. `RELIC_BY_GAME` is partial: a game id with no entry cannot grant a Relic. Coop Battle is a Bar cabinet game (same kind as Sproto Fighter and Sproto Arcade) and has no plaza portal. Shooter is a ring id; this version does not place the ring. A classic-script build is `dist/hub-sdk.iife.js` (`global HubSDK`), produced by `node scripts/build-sdk-iife.mjs` and pinned in `SOURCE.pin.json`. Load that file from the game's own origin. Do not import the SDK from a CDN.
+
 Version 0.6.1 fixes the outbox so one refused write cannot lock a game out of the hub. When the server answers a queued earn, event, exchange, spend, or sell with a final error in its reply body (for example `amount_over_rule`, `session_ticket_cap`, `daily_ticket_cap`, `idempotency_mismatch`, `unknown_reason`, or `bad_amount`), the SDK drops that row: the call that queued it still rejects with the error, and the next `init()` no longer rethrows it. Network failures and HTTP errors (5xx, or 401 for an expired token) stay queued and are retried, and a row on a closed session still waits for its own player's next session. `EventResult` gains an optional `granted_items` (pets the live server granted for that event). Nothing else changes.
 
 Version 0.6.0 added the `sproto-arcade` game id, the `breakwater_coin` Relic and its `arcade.boss_defeated` event, and optional cloud saves: `loadSave()` / `writeSave(data)` (RPCs `save.get` / `save.put`, one JSON object of at most 4096 bytes per player per game, no-op standalone). Games must re-vendor to see the new Relic, because the SDK drops relic ids it does not know.
@@ -136,7 +138,9 @@ getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapL
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `sproto-arcade`, `sproto-shooter`, `sproto-coop-battle`.
+
+`sproto-shooter` and `sproto-coop-battle` grant nothing from `reportEvent`. Coop Battle's id has no trailing dot; that dot belongs only to the GitHub repo name. Vendoring copies `dist/hub-sdk.iife.js` and writes each source sha256 into `VENDOR.md`. The pin file `SOURCE.pin.json` is the checksum to compare after a re-sync. Games that already vendor an older SDK keep working until they re-sync; they do not have to change to accept this version.
 
 | Event | Grants |
 | --- | --- |

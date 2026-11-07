@@ -3306,6 +3306,9 @@ namespace HubSchema {
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
   // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
   // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
+  // 0038 stays unregistered: an unmerged shooter patch proposed it, and this phase does not take it.
+  // 0039_sproto_shooter_coop is registered from src/games/sproto_shooter.ts. It widens game_session
+  // and auth_ticket only, and the new checks still list vcoin.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
