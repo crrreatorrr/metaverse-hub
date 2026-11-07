@@ -6,13 +6,13 @@
 
 namespace CoopMatch {
   /**
-   * Dark. Nakama 3.41 keeps match state across callbacks by a copy that turns a
-   * Set into an empty array, so sim hitDone.has throws on the next tick
-   * (meleeHit). Node preserves the Set, which is why the offline tests pass.
-   * A live fight is not offered until an authenticated Node worker holds the
-   * session in-process. Do not point this at the old unauthenticated relay.
+   * Live once the per-callback export/import keeps hitDone sets intact.
+   * Nakama copies match state between callbacks and turns a Set into an empty
+   * array. The returned state therefore holds Sim.exportState (plain JSON)
+   * and the next callback imports it before any sim step. The vendored bundle
+   * is not modified.
    */
-  export var ENABLED = false;
+  export var ENABLED = true;
 
   export function open(ctx: nkruntime.Context): boolean {
     var env = ctx.env || null;
@@ -57,6 +57,14 @@ namespace CoopMatch {
     snapBytes: number;
     snapCount: number;
     loopCount: number;
+    /** Plain restart blob. Present only while the live sim is not in `session.state`. */
+    simPacked: CoopExport | null;
+    cold: boolean;
+    /** Server-driven seed-3 six-seat fight. Empty in normal matches. */
+    golden: string;
+    goldenSeq: number;
+    goldenPrimed: boolean;
+    stateHash: string;
   }
 
   function fail(code: string, message: string): string {
@@ -163,6 +171,12 @@ namespace CoopMatch {
       snapBytes: 0,
       snapCount: 0,
       loopCount: 0,
+      simPacked: null,
+      cold: false,
+      golden: "",
+      goldenSeq: 1,
+      goldenPrimed: false,
+      stateHash: "",
     };
   }
 
@@ -583,13 +597,20 @@ namespace CoopMatch {
     }
     msg["accountId"] = account.userId;
     msg["generation"] = account.generation;
-    var key = String(frame);
-    var bucket = state.inbox[key];
-    if (!bucket) {
-      bucket = {};
-      state.inbox[key] = bucket;
-    }
-    bucket[account.userId] = msg;
+    putInbox(state, String(frame), account.userId, msg);
+  }
+
+  /** Nakama's restored inbox ignores in-place writes. Replace the object. */
+  function putInbox(state: State, frame: string, accountId: string, msg: { [key: string]: unknown }): void {
+    var prev = state.inbox || {};
+    var inbox: State["inbox"] = {};
+    for (var key in prev) if (key !== frame) inbox[key] = prev[key];
+    var bucket: { [accountId: string]: { [key: string]: unknown } } = {};
+    var old = prev[frame];
+    if (old) for (var id in old) bucket[id] = old[id];
+    bucket[accountId] = msg;
+    inbox[frame] = bucket;
+    state.inbox = inbox;
   }
 
   function onCommand(d: nkruntime.MatchDispatcher, presence: nkruntime.Presence): void {
@@ -700,15 +721,18 @@ namespace CoopMatch {
   function takeGroups(state: State): { [key: string]: unknown }[][] {
     var session = state.session!;
     var tick = session.state.t;
+    var prev = state.inbox || {};
     var groups: { [key: string]: unknown }[][] = [[], [], []];
-    for (var i = 0; i < 3; i++) {
-      var key = String(tick + 1 + i);
-      var bucket = state.inbox[key];
-      if (!bucket) continue;
-      for (var accountId in bucket) groups[i].push(bucket[accountId]);
-      delete state.inbox[key];
+    var keep: State["inbox"] = {};
+    for (var frame in prev) {
+      var n = Number(frame);
+      if (n === tick + 1 || n === tick + 2 || n === tick + 3) {
+        var index = n - tick - 1;
+        var bucket = prev[frame];
+        for (var accountId in bucket) groups[index].push(bucket[accountId]);
+      } else if (n > tick) keep[frame] = prev[frame];
     }
-    for (var frame in state.inbox) if (Number(frame) <= tick) delete state.inbox[frame];
+    state.inbox = keep;
     return groups;
   }
 
@@ -761,6 +785,9 @@ namespace CoopMatch {
       closedEncounter: session.closedEncounter ? JSON.parse(JSON.stringify(session.closedEncounter)) : null,
       exported: exported,
       rewards: 0,
+      stateHash: state.stateHash,
+      endReason: state.endReason,
+      simTick: session.state.t,
       savedAt: Date.now(),
     };
     if (JSON.stringify(value).length > 200000) {
@@ -785,10 +812,9 @@ namespace CoopMatch {
         logger.warn("sproto_coop encounter " + String(e));
       }
     }
-    saveCheckpoint(nk, logger, state, matchId, resumable, resumable ? storedPhase : "done");
+    state.endReason = reason;
     state.phase = "done";
     state.doneTick = tick;
-    state.endReason = reason;
     var terminal: { [key: string]: unknown } = { tickets: 0, scoreSubmitted: 0 };
     if (state.session) {
       var facts = CoopProtocol.terminalFacts(state.session);
@@ -804,6 +830,8 @@ namespace CoopMatch {
         scoreSubmitted: facts.scoreSubmitted,
       };
     }
+    state.stateHash = hashOf(nk, state);
+    saveCheckpoint(nk, logger, state, matchId, resumable, resumable ? storedPhase : "done");
     sendAll(d, state, CoopProto.OP_END, {
       t: "end",
       reason: reason,
@@ -816,6 +844,8 @@ namespace CoopMatch {
       terminal: terminal,
       facts: state.lastFacts,
       matchId: matchId,
+      stateHash: state.stateHash,
+      tick: state.session && state.session.state ? state.session.state.t : 0,
     });
     relabel(d, state);
   }
@@ -872,6 +902,147 @@ namespace CoopMatch {
       if (isObj(list[i]) && String((list[i] as { [key: string]: unknown })["userId"] || "") === userId) return true;
     }
     return false;
+  }
+
+  var GOLDEN_ACCOUNT = "00000000-0000-4000-8000-000000000000";
+
+  interface GoldenActor { x: number; y: number; dead?: boolean; st?: string; hp?: number; face?: number; w?: number; slot?: number; ctrl?: string; powers?: unknown[] }
+  interface GoldenSim {
+    t: number;
+    players: GoldenActor[];
+    enemies?: GoldenActor[];
+    items?: { x: number; y: number; kind: string; taken?: boolean }[];
+    projs?: { x: number; y: number; enemy?: boolean }[];
+    boss?: GoldenActor | null;
+  }
+
+  /** Same mask the seed-3 Node driver uses, so Nakama and Node step the same fight. */
+  function goldenMask(sim: GoldenSim, slot: number, tick: number): number {
+    var p = sim.players[slot];
+    if (!p || p.ctrl === "cpu" || p.st === "dead" || p.st === "down") return 0;
+    var foe: { x: number; y: number } | null = null;
+    var best = 1e9;
+    var enemies = sim.enemies || [];
+    for (var e = 0; e < enemies.length; e++) {
+      var enemy = enemies[e];
+      if (enemy.dead || enemy.st === "lying") continue;
+      var dist = Math.abs(enemy.x - p.x) + Math.abs(enemy.y - p.y) * 2;
+      if (dist < best) { best = dist; foe = enemy; }
+    }
+    var boss = sim.boss;
+    if (boss && (boss.hp || 0) > 0 && boss.st !== "enter" && boss.st !== "dead") {
+      var bossDist = Math.abs(boss.x - p.x) * 0.7 + 30;
+      if (!foe || bossDist < best) foe = { x: boss.x - (boss.face || 1) * ((boss.w || 0) * 0.45), y: boss.y };
+    }
+    var ufo: { x: number; y: number } | null = null;
+    var power: { x: number; y: number } | null = null;
+    var items = sim.items || [];
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].taken) continue;
+      if (!ufo && items[i].kind === "ufo") ufo = items[i];
+      if (!power && items[i].kind === "power") power = items[i];
+    }
+    var goal: { x: number; y: number } | null = null;
+    var chasingFoe = !ufo && !(power && (p.powers ? p.powers.length : 0) < 3 && p.slot === tick % 6);
+    if (ufo && slot === 0) goal = ufo;
+    else if (power && (p.powers ? p.powers.length : 0) < 3 && p.slot === tick % 6) goal = power;
+    else if (foe) goal = foe;
+    var l = 0, r = 0, u = 0, d = 0, a = 0, j = 0, special = 0;
+    if (!goal) r = 1;
+    else {
+      var dx = goal.x - p.x;
+      var dy = goal.y - p.y;
+      if (dx > 18) r = 1; else if (dx < -18) l = 1;
+      if (dy > 6) d = 1; else if (dy < -6) u = 1;
+      var near = Math.abs(dx) < (chasingFoe && goal === foe ? 54 : 16) && Math.abs(dy) < 16;
+      if (near && goal === foe && tick % 8 === slot % 8) a = 1;
+    }
+    if ((p.powers ? p.powers.length : 0) > 0 && tick % 240 === slot * 3) special = 1;
+    if (tick % 5 === 0) {
+      var projs = sim.projs || [];
+      for (var q = 0; q < projs.length; q++) {
+        if (projs[q].enemy && Math.abs(projs[q].y - p.y) < 12 && Math.abs(projs[q].x - p.x) < 40) { j = 1; break; }
+      }
+    }
+    return l | (r << 1) | (u << 2) | (d << 3) | (a << 4) | (j << 5) | (special << 7);
+  }
+
+  function queueGolden(state: State): void {
+    if (state.golden !== "human-seed3" || !state.goldenPrimed || !state.session) return;
+    var session = state.session;
+    var base = session.state.t;
+    var account = state.accounts[GOLDEN_ACCOUNT];
+    if (!account) return;
+    for (var offset = 0; offset < 3; offset++) {
+      var seats: { [key: string]: unknown }[] = [];
+      for (var slot = 0; slot < CoopProto.DEVICES.length; slot++) {
+        seats.push({
+          slot: slot,
+          device: CoopProto.DEVICES[slot],
+          mask: goldenMask(session.state as unknown as GoldenSim, slot, base + offset),
+        });
+      }
+      putInbox(state, String(base + 1 + offset), GOLDEN_ACCOUNT, {
+        t: "input",
+        accountId: GOLDEN_ACCOUNT,
+        generation: account.generation,
+        seq: state.goldenSeq,
+        frame: base + 1 + offset,
+        seats: seats,
+      });
+      state.goldenSeq++;
+    }
+  }
+
+  function adopt(stored: CoopSession, sim: CoopSimState): CoopSession {
+    var next = {} as CoopSession & { [key: string]: unknown };
+    var source = stored as CoopSession & { [key: string]: unknown };
+    for (var key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key) && key !== "state") next[key] = source[key];
+    }
+    next.state = sim;
+    return next;
+  }
+
+  function thaw(state: State): void {
+    if (!state.cold || !state.simPacked || !state.session) return;
+    // Replace the whole session. Writing .state on the object Nakama restored
+    // copies the sim and turns each Set into an empty array. A session object
+    // created in this callback keeps its Sets, and assigning that session
+    // keeps the reference.
+    state.session = adopt(state.session, Sim.importState(state.simPacked));
+    state.cold = false;
+  }
+
+  /** Drop the live sim (Sets, target refs) before Nakama copies the match state. */
+  function freeze(state: State): void {
+    var session = state.session;
+    if (!session || !session.state || state.cold) return;
+    if (!session.state.players || session.state.players.length !== 6) return;
+    var events = session.state.events;
+    if (events && events.length) events.length = 0;
+    var packed: CoopExport;
+    try {
+      packed = Sim.exportState(session.state);
+    } catch (e) {
+      return;
+    }
+    state.simPacked = packed;
+    var packedState = packed.state as { t?: number; mode?: string; stageIdx?: number; god?: boolean };
+    state.session = adopt(session, {
+      t: typeof packedState.t === "number" ? packedState.t : 0,
+      mode: typeof packedState.mode === "string" ? packedState.mode : "play",
+      stageIdx: typeof packedState.stageIdx === "number" ? packedState.stageIdx : 0,
+      god: packedState.god === true,
+      events: [],
+      players: [],
+    });
+    state.cold = true;
+  }
+
+  function ret(state: State): { state: State } {
+    freeze(state);
+    return { state: state };
   }
 
   function copyRow(value: { [key: string]: unknown }): { [key: string]: unknown } {
@@ -936,28 +1107,50 @@ namespace CoopMatch {
         }
         for (var accountId in state.accounts) CoopMm.setLive(nk, accountId, ctx.matchId || "");
       }
+      if (!resumeId && String(params["golden"] || "") === "human-seed3") {
+        state.golden = "human-seed3";
+        var goldenAccount: AccountRec = { userId: GOLDEN_ACCOUNT, sessionId: "golden", generation: 1, ready: true, leftTick: -1, devices: [] };
+        state.accounts[GOLDEN_ACCOUNT] = goldenAccount;
+        state.names[GOLDEN_ACCOUNT] = "ada";
+        for (var g = 0; g < CoopProto.DEVICES.length; g++) {
+          var device = CoopProto.DEVICES[g];
+          var assigned = CoopProtocol.assignSeat(state.session, { slot: g, accountId: GOLDEN_ACCOUNT, device: device, generation: 1 });
+          if (!assigned.ok) throw new Error("sim_fault");
+          goldenAccount.devices.push(device);
+          state.session.state.players[g].name = "ada";
+        }
+        state.accounts[GOLDEN_ACCOUNT] = goldenAccount;
+        var begunGolden = CoopProtocol.beginEncounter(state.session);
+        if (!begunGolden.ok) throw new Error("sim_fault");
+        state.phase = "playing";
+        state.playTick = 0;
+        state.forceCheckpoint = true;
+      }
       logger.info("sproto_coop init " + (ctx.matchId || "") + (resumeId ? " resume" : ""));
+      freeze(state);
       return { state: state, tickRate: CoopProto.TICK_RATE, label: labelFor(state) };
     },
 
     matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, metadata) {
-      if (!open(ctx)) return { state: state, accept: false, rejectMessage: "capacity_dark" };
-      if (state.phase === "done" || state.broken) return { state: state, accept: false, rejectMessage: "match_ended" };
-      if (!scopeOk(ctx)) return { state: state, accept: false, rejectMessage: "wrong_scope" };
+      thaw(state);
+      if (!open(ctx)) return { state: ret(state).state, accept: false, rejectMessage: "capacity_dark" };
+      if (state.phase === "done" || state.broken) return { state: ret(state).state, accept: false, rejectMessage: "match_ended" };
+      if (!scopeOk(ctx)) return { state: ret(state).state, accept: false, rejectMessage: "wrong_scope" };
       if (metadata) {
         var protocol = metadata["protocol"] !== undefined ? metadata["protocol"] : metadata["v"];
         var fingerprint = metadata["fingerprint"] !== undefined ? metadata["fingerprint"] : metadata["sim"];
-        if (fingerprint !== undefined && !CoopProto.versionsMatch(protocol, fingerprint)) return { state: state, accept: false, rejectMessage: "version_mismatch" };
-        if (fingerprint === undefined && protocol !== undefined && Number(protocol) !== CoopProto.PROTOCOL) return { state: state, accept: false, rejectMessage: "version_mismatch" };
+        if (fingerprint !== undefined && !CoopProto.versionsMatch(protocol, fingerprint)) return { state: ret(state).state, accept: false, rejectMessage: "version_mismatch" };
+        if (fingerprint === undefined && protocol !== undefined && Number(protocol) !== CoopProto.PROTOCOL) return { state: ret(state).state, accept: false, rejectMessage: "version_mismatch" };
       }
       var live = CoopMm.liveMatch(nk, presence.userId);
-      if (live && live !== (ctx.matchId || "")) return { state: state, accept: false, rejectMessage: "already_in_match" };
-      if (!rosterAllows(state, presence.userId)) return { state: state, accept: false, rejectMessage: "not_in_roster" };
-      if (!state.accounts[presence.userId] && countHuman(state) >= 6) return { state: state, accept: false, rejectMessage: "match_full" };
-      return { state: state, accept: true };
+      if (live && live !== (ctx.matchId || "")) return { state: ret(state).state, accept: false, rejectMessage: "already_in_match" };
+      if (!rosterAllows(state, presence.userId)) return { state: ret(state).state, accept: false, rejectMessage: "not_in_roster" };
+      if (!state.accounts[presence.userId] && countHuman(state) >= 6) return { state: ret(state).state, accept: false, rejectMessage: "match_full" };
+      return { state: ret(state).state, accept: true };
     },
 
     matchJoin: function (_ctx, _logger, nk, d, _tick, state, presences) {
+      thaw(state);
       for (var i = 0; i < presences.length; i++) {
         var presence = presences[i];
         var account = state.accounts[presence.userId];
@@ -971,10 +1164,11 @@ namespace CoopMatch {
         if (!state.names[presence.userId]) state.names[presence.userId] = String(presence.username || "").slice(0, 16);
         CoopMm.setLive(nk, presence.userId, _ctx.matchId || "");
       }
-      return { state: state };
+      return ret(state);
     },
 
     matchLeave: function (_ctx, _logger, _nk, d, tick, state, presences) {
+      thaw(state);
       for (var i = 0; i < presences.length; i++) {
         var presence = presences[i];
         var account = state.accounts[presence.userId];
@@ -992,27 +1186,29 @@ namespace CoopMatch {
         }
       }
       broadcastSeats(d, state);
-      return { state: state };
+      return ret(state);
     },
 
     matchLoop: function (ctx, logger, nk, d, tick, state, messages) {
       var started = Date.now();
+      thaw(state);
       var matchId = ctx.matchId || "";
       if (state.broken && state.phase !== "done") finish(nk, logger, d, state, tick, "sim_fault", matchId);
       if (state.phase === "ending") finish(nk, logger, d, state, tick, state.endReason || "room_expired", matchId);
       if (state.phase === "done") {
         if (tick - state.doneTick > CoopProto.LINGER_S * CoopProto.TICK_RATE) {
           cleanup(nk, state, matchId);
+          freeze(state);
           return null;
         }
-        return { state: state };
+        return ret(state);
       }
       ingest(d, logger, nk, state, messages, tick);
       if (state.broken && state.phase !== "done") finish(nk, logger, d, state, tick, "sim_fault", matchId);
-      if (state.phase === "done") return { state: state };
+      if (state.phase === "done") return ret(state);
       if (state.phase === "lobby") tryStart(d, logger, state, tick);
       if (state.phase === "ending") finish(nk, logger, d, state, tick, state.endReason || "room_expired", matchId);
-      if (state.phase !== "playing" || !state.session) return { state: state };
+      if (state.phase !== "playing" || !state.session) return ret(state);
       var stepped = false;
       var released = false;
       for (var id in state.accounts) {
@@ -1028,11 +1224,15 @@ namespace CoopMatch {
       if (released) broadcastSeats(d, state);
       if (countHuman(state) === 0 && countGrace(state) === 0) {
         finish(nk, logger, d, state, tick, "abandoned", matchId);
-        return { state: state };
+        return ret(state);
       }
       if (tick - state.playTick >= CoopProto.MAX_PLAY_S * CoopProto.TICK_RATE) {
         finish(nk, logger, d, state, tick, "max_play", matchId);
-        return { state: state };
+        return ret(state);
+      }
+      if (state.golden === "human-seed3") {
+        if (!state.goldenPrimed) state.goldenPrimed = true;
+        else queueGolden(state);
       }
       var beforeStage = state.session.state.stageIdx;
       var beforeMode = state.session.state.mode;
@@ -1042,7 +1242,7 @@ namespace CoopMatch {
         if (!advanced.ok) {
           logger.error("sproto_coop step " + advanced.reason);
           finish(nk, logger, d, state, tick, "sim_fault", matchId);
-          return { state: state };
+          return ret(state);
         }
         for (var r = 0; r < advanced.rejected.length; r++) {
           var who = state.present[advanced.rejected[r].accountId];
@@ -1059,7 +1259,7 @@ namespace CoopMatch {
       } catch (e) {
         logger.error("sproto_coop step " + String(e));
         finish(nk, logger, d, state, tick, "sim_fault", matchId);
-        return { state: state };
+        return ret(state);
       }
       if (state.session.state.mode === "gameover") finish(nk, logger, d, state, tick, "gameover", matchId);
       else if (state.session.state.mode === "victory") finish(nk, logger, d, state, tick, "victory", matchId);
@@ -1068,6 +1268,7 @@ namespace CoopMatch {
         state.forceCheckpoint = false;
         state.lastCheckpointTick = tick;
       }
+      if (stepped) freeze(state);
       if (stepped) {
         var dt = Date.now() - started;
         state.samples.push(dt);
@@ -1075,30 +1276,50 @@ namespace CoopMatch {
         if (dt >= 25) state.sampleOver++;
         state.loopCount++;
       }
-      return { state: state };
+      return ret(state);
     },
 
     matchTerminate: function (ctx, logger, nk, d, tick, state, _grace) {
+      thaw(state);
       var matchId = ctx.matchId || "";
       if (state.phase !== "done") finish(nk, logger, d, state, tick, "server_shutdown", matchId);
       else saveCheckpoint(nk, logger, state, matchId, false, "done");
       cleanup(nk, state, matchId);
-      return { state: state };
+      return ret(state);
     },
 
-    matchSignal: function (_ctx, _logger, _nk, _d, _tick, state, data) {
+    matchSignal: function (_ctx, _logger, nk, _d, _tick, state, data) {
+      thaw(state);
       if (data === "reset-metrics") {
         state.samples = [];
         state.sampleOver = 0;
         state.snapBytes = 0;
         state.snapCount = 0;
         state.loopCount = 0;
-        return { state: state, data: "{\"ok\":true}" };
+        return { state: ret(state).state, data: "{\"ok\":true}" };
       }
-      if (data === "metrics") return { state: state, data: JSON.stringify(metricsOf(state)) };
-      return { state: state, data: data };
+      if (data === "hash" || data === "metrics") {
+        var body = data === "hash" ? JSON.stringify({ stateHash: state.stateHash, tick: state.session ? state.session.state.t : 0, phase: state.phase, mode: state.session ? state.session.state.mode : "", endReason: state.endReason, rewards: 0 }) : JSON.stringify(metricsOf(state));
+        return { state: ret(state).state, data: body };
+      }
+      return { state: ret(state).state, data: data };
     },
   };
+
+  function hashOf(nk: nkruntime.Nakama, state: State): string {
+    var packed = state.simPacked;
+    if (!state.cold && state.session && state.session.state && state.session.state.players.length === 6) {
+      try {
+        var events = state.session.state.events;
+        if (events && events.length) events.length = 0;
+        packed = Sim.exportState(state.session.state);
+      } catch (e) {
+        packed = state.simPacked;
+      }
+    }
+    if (!packed) return "";
+    return nk.sha256Hash(JSON.stringify(packed));
+  }
 
   function percentile(samples: number[], p: number): number {
     if (!samples.length) return 0;
@@ -1121,8 +1342,11 @@ namespace CoopMatch {
       snapCount: state.snapCount,
       loops: state.loopCount,
       tick: state.session ? state.session.state.t : 0,
+      mode: state.session ? state.session.state.mode : "",
       seats: countHuman(state),
       phase: state.phase,
+      endReason: state.endReason,
+      stateHash: state.stateHash,
       rewards: 0,
       hostTakeover: 0,
     };
@@ -1303,6 +1527,21 @@ namespace CoopMatch {
     return JSON.stringify({ matchId: created, rewards: 0, hostTakeover: 0, protocol: CoopProto.PROTOCOL, fingerprint: CoopProto.FINGERPRINT });
   }
 
+  /** Fault-inject only. Starts the seed-3 six-seat fight the offline test drives. */
+  export function rpcGolden(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var denied = gate(ctx);
+    if (denied) return denied;
+    var env = ctx.env || null;
+    if (!env || env["HUB_FAULT_INJECT"] !== "1") return fail("not_found", "Not available");
+    if (!open(ctx)) return fail("capacity_dark", "Authoritative coop is dark");
+    var sim = ensureSim(nk, logger);
+    if (sim) return sim;
+    var req = bodyOf(payload);
+    if (!req || req["id"] !== "human-seed3") return fail("bad_json", "Unknown golden");
+    var matchId = nk.matchCreate(CoopProto.MATCH_NAME, { private: "1", seed: "3", seedSource: "server", golden: "human-seed3" });
+    return JSON.stringify({ matchId: matchId, rewards: 0, hostTakeover: 0, protocol: CoopProto.PROTOCOL, fingerprint: CoopProto.FINGERPRINT });
+  }
+
   export function rpcMetrics(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var denied = gate(ctx);
     if (denied) return denied;
@@ -1310,7 +1549,25 @@ namespace CoopMatch {
     var req = bodyOf(payload);
     if (!req) return fail("bad_json", "Bad request");
     var id = String(req["matchId"] || "");
-    if (!id || !nk.matchGet(id)) return fail("match_missing", "No match");
+    if (!id) return fail("match_missing", "No match");
+    if (!nk.matchGet(id)) {
+      var saved = CoopMm.readCheckpoint(nk, id);
+      if (!saved || !saved.value["stateHash"]) return fail("match_missing", "No match");
+      return JSON.stringify({
+        phase: "done",
+        endReason: String(saved.value["endReason"] || ""),
+        tick: Number(saved.value["simTick"] || 0),
+        mode: "",
+        stateHash: String(saved.value["stateHash"]),
+        rewards: 0,
+        hostTakeover: 0,
+        n: 0,
+        p50: 0,
+        p95: 0,
+        max: 0,
+        over25: 0,
+      });
+    }
     var raw = nk.matchSignal(id, req["reset"] === true ? "reset-metrics" : "metrics");
     return raw || "{}";
   }
@@ -1355,4 +1612,7 @@ function rpcCoopResume(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
 }
 function rpcCoopMetrics(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return CoopMatch.rpcMetrics(ctx, logger, nk, payload);
+}
+function rpcCoopGolden(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return CoopMatch.rpcGolden(ctx, logger, nk, payload);
 }

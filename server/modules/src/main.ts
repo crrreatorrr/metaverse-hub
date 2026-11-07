@@ -273,6 +273,7 @@ function InitModule(
   initializer.registerRpc("coop.queue_cancel", rpcCoopQueueCancel);
   initializer.registerRpc("coop.resume", rpcCoopResume);
   initializer.registerRpc("coop.metrics", rpcCoopMetrics);
+  initializer.registerRpc("coop.golden", rpcCoopGolden);
   // <<< game: sproto-coop-battle
   // ----
   // >>> game: peoples-bitcoin registrations

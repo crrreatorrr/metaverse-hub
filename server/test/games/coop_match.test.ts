@@ -18,6 +18,10 @@ function loadCoop() {
   return loadModule({ env: { COOP_AUTHORITATIVE: '1' } });
 }
 
+function loadCoopFault() {
+  return loadModule({ env: { COOP_AUTHORITATIVE: '1', HUB_FAULT_INJECT: '1' } });
+}
+
 function game(userId: string, sessionId = `s-${userId}`) {
   return { userId, sessionId, username: 'ada', vars: { scope: 'game', game: 'sproto-coop-battle', sid: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc' } };
 }
@@ -72,6 +76,17 @@ interface CoopState {
 
 function stateOf(m: MatchDriver): CoopState {
   return m.state as CoopState;
+}
+
+/** Nakama returns a packed sim. Rebuild it the way the next callback does, so assertions see players. */
+function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
+  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string };
+  if (st.cold && st.simPacked && st.session) {
+    const Sim = mod.global.Sim as { importState(data: unknown): NonNullable<CoopState['session']>['state'] };
+    st.session.state = Sim.importState(st.simPacked);
+    st.cold = false;
+  }
+  return st;
 }
 
 interface StageActor { x: number; y: number; dead?: boolean; st?: string; hp?: number; face?: number; w?: number; slot?: number; ctrl?: string; powers?: unknown[] }
@@ -142,7 +157,7 @@ function assertNoLedger(room: Room, label: string): void {
   const { issues } = checkRegistrations(mod.source);
   assert.deepEqual(issues, [], JSON.stringify(issues));
   assert.ok(mod.registered.matches.has('sproto_coop'));
-  for (const id of ['coop.version', 'coop.room_create', 'coop.room_join', 'coop.queue_cancel', 'coop.resume', 'coop.metrics']) {
+  for (const id of ['coop.version', 'coop.room_create', 'coop.room_join', 'coop.queue_cancel', 'coop.resume', 'coop.metrics', 'coop.golden']) {
     assert.ok(mod.registered.rpcs.has(id), id);
   }
   const version = mod.call<{ protocol: number; fingerprint: string; rewards: number; hostTakeover: number; match: string; snapshotHz: number; error?: string }>(
@@ -156,6 +171,13 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(version.hostTakeover, 0);
   assert.equal(version.match, 'sproto_coop');
   assert.equal(version.snapshotHz, 10);
+  assert.equal((mod.call<{ error?: string }>('coop.golden', game(USERS[0]!), { id: 'human-seed3' })).error, 'not_found');
+  const faulted = loadCoopFault();
+  const golden = faulted.call<{ matchId?: string; rewards?: number; error?: string }>('coop.golden', game(USERS[0]!), { id: 'human-seed3' });
+  assert.equal(golden.error, undefined, JSON.stringify(golden));
+  assert.equal(golden.rewards, 0);
+  assert.equal(typeof golden.matchId, 'string');
+  assert.equal((faulted.call<{ error?: string }>('coop.golden', game(USERS[0]!), { id: 'other' })).error, 'bad_json');
   assert.equal((mod.call<{ error?: string }>('coop.room_create', { userId: USERS[0]!, vars: { scope: 'hub' } }, {})).error, 'wrong_scope');
   assert.equal((mod.call<{ error?: string }>('coop.room_create', { userId: USERS[0]!, vars: { scope: 'game', game: 'sproto', sid: 'x' } }, {})).error, 'wrong_scope');
   assert.equal((mod.call<{ error?: string }>('coop.room_create', game(USERS[0]!), { seed: 3, stage: 4 })).error, 'rejected');
@@ -298,40 +320,41 @@ function assertNoLedger(room: Room, label: string): void {
 {
   const run = room();
   hello(run.m, run.p, ['k1', 'k2']);
-  const players = stateOf(run.m).session!.state.players;
-  players[0]!.lives = 1;
-  players[0]!.hp = 40;
-  players[1]!.lives = 1;
+  const seated = hydrate(run.mod, run.m).session!.state.players;
+  seated[0]!.lives = 1;
+  seated[0]!.hp = 40;
+  seated[1]!.lives = 1;
   const next = presence(USERS[0]!, 'ada', 's-next');
   assert.equal(run.m.join([next], game(USERS[0]!, 's-next'))[0]?.accept, true);
   run.m.loop([{ sender: run.p, opCode: OP.INPUT, data: { t: 'input', seq: 1, frame: 1, seats: [{ slot: 0, device: 'k1', mask: 1 }] } }]);
   assert.equal(run.m.dispatcher.sent<{ reason: string }>(OP.REJECT).at(-1)?.body.reason, 'stale-socket');
-  assert.equal(players[0]!.lives, 1);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
   hello(run.m, next);
   assert.equal(run.m.dispatcher.sent<{ generation: number; rewards: number; hostTakeover: number; acceptClientState: number }>(OP.RESUME).at(-1)?.body.generation, 2);
   assert.equal(run.m.dispatcher.sent<{ acceptClientState: number }>(OP.RESUME).at(-1)?.body.acceptClientState, 0);
-  assert.equal(players[0]!.lives, 1);
-  assert.equal(players[1]!.lives, 1);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[1]?.lives, 1);
   assert.equal(stateOf(run.m).broken, '');
   ready(run.m, next);
   run.m.leave([next]);
-  assert.equal(stateOf(run.m).session?.state.players[0]?.ctrl, 'cpu');
-  assert.equal(players[0]!.lives, 1);
+  assert.equal(hydrate(run.mod, run.m).session?.state.players[0]?.ctrl, 'cpu');
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
   const back = presence(USERS[0]!, 'ada', 's-back');
   run.m.join([back], game(USERS[0]!, 's-back'));
   hello(run.m, back);
-  assert.equal(players[0]!.lives, 1);
-  assert.notEqual(players[0]!.lives, 2);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
+  assert.notEqual(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 2);
   run.m.leave([back]);
   const leftAt = stateOf(run.m).accounts[USERS[0]!]!.leftTick;
   run.m.ticks(15 * 20 - 1);
   assert.equal(stateOf(run.m).session?.seats[0]?.human, true);
-  players[0]!.lives = 1;
-  players[0]!.hp = 40;
+  const held = hydrate(run.mod, run.m).session!.state.players[0]!;
+  held.lives = 1;
+  held.hp = 40;
   run.m.loop([]);
   assert.ok(stateOf(run.m).phase === 'done' || stateOf(run.m).session?.seats[0]?.human === false);
-  assert.equal(players[0]!.lives, 1);
-  assert.equal(players[0]!.hp, 40);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
+  assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.hp, 40);
   assert.ok(stateOf(run.m).accounts[USERS[0]!]!.leftTick !== leftAt || stateOf(run.m).phase === 'done');
   assertNoLedger(run, 'reconnect');
 }
@@ -360,8 +383,9 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(snap?.body.restart, 0);
   assert.equal(snap?.body.protocol, PROTO);
   const tick = stateOf(run.m).session!.state.t;
-  stateOf(run.m).session!.state.players[0]!.lives = 1;
-  stateOf(run.m).session!.state.players[0]!.hp = 40;
+  const wounded = hydrate(run.mod, run.m).session!.state.players[0]!;
+  wounded.lives = 1;
+  wounded.hp = 40;
   run.m.terminate(1);
   const shutdown = run.m.dispatcher.sent<{ reason: string; hostTakeover: number; rewards: number; resume: string; acceptClientState: number }>(OP.END).at(-1);
   assert.equal(shutdown?.body.reason, 'server_shutdown');
@@ -379,8 +403,8 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(again.matchId, resumed.matchId);
   const next = run.mod.driver(resumed.matchId);
   assert.equal(stateOf(next).session?.state.t, tick);
-  assert.equal(stateOf(next).session?.state.players[0]?.lives, 1);
-  assert.equal(stateOf(next).session?.state.players[0]?.hp, 40);
+  assert.equal(hydrate(run.mod, next).session?.state.players[0]?.lives, 1);
+  assert.equal(hydrate(run.mod, next).session?.state.players[0]?.hp, 40);
   assert.equal(stateOf(next).session?.state.god, false);
   assertNoLedger(run, 'resume');
 }
@@ -401,7 +425,7 @@ function assertNoLedger(room: Room, label: string): void {
   let mode = 'play';
   const started = Date.now();
   for (let i = 0; i < 5000 && mode === 'play'; i += 1) {
-    const sim = stateOf(m).session!.state as StageSim;
+    const sim = hydrate(mod, m).session!.state as StageSim;
     const base = sim.t;
     const seatsFor = (tick: number) => DEVICES.map((device, slot) => ({ slot, device, mask: policyMask(sim, slot, tick) }));
     m.loop([0, 1, 2].map((offset) => ({
@@ -414,13 +438,38 @@ function assertNoLedger(room: Room, label: string): void {
   }
   const finalMode = stateOf(m).session?.state.mode || stateOf(m).endReason;
   const facts = stateOf(m).lastFacts;
-  console.log(`six-seat stage mode=${finalMode} tick=${stateOf(m).session?.state.t} ms=${Date.now() - started}`);
-  assert.ok(finalMode === 'clear' || finalMode === 'gameover' || finalMode === 'victory', finalMode);
+  const externalTick = stateOf(m).session?.state.t;
+  const externalHash = (stateOf(m) as { stateHash?: string }).stateHash || '';
+  console.log(`six-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
+  assert.equal(finalMode, 'gameover');
+  assert.equal(externalTick, 7734);
+  assert.equal(externalHash, '3ec543448ecd6aafb53de3056c2425955733d2002ef65bfc117b11d531255494');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
   assert.equal(facts?.accounts?.[0]?.slots?.length, 6);
   assert.equal(ledgerCount(mod), ledger);
+
+  const packed = loadCoop();
+  const packedLedger = ledgerCount(packed);
+  const packedId = (packed.nk.matchCreate as (name: string, params: Record<string, string>) => string)('sproto_coop', {
+    private: '1', seed: '3', seedSource: 'server', golden: 'human-seed3',
+  });
+  const packedMatch = packed.driver(packedId);
+  let packedMode = 'play';
+  const packedStarted = Date.now();
+  for (let i = 0; i < 5000 && packedMode === 'play'; i += 1) {
+    packedMatch.loop([]);
+    packedMode = stateOf(packedMatch).session?.state.mode || stateOf(packedMatch).phase;
+    if (stateOf(packedMatch).phase === 'done') break;
+  }
+  const packedTick = stateOf(packedMatch).session?.state.t;
+  const packedHash = (stateOf(packedMatch) as { stateHash?: string }).stateHash || '';
+  console.log(`golden driver mode=${stateOf(packedMatch).endReason} tick=${packedTick} hash=${packedHash} ms=${Date.now() - packedStarted}`);
+  assert.equal(packedTick, 7734);
+  assert.equal(stateOf(packedMatch).endReason, 'gameover');
+  assert.equal(packedHash, externalHash);
+  assert.equal(ledgerCount(packed), packedLedger);
 }
 
 // AFK and downed facts stay unpaid. Two accounts can input the same frame.
@@ -431,20 +480,20 @@ function assertNoLedger(room: Room, label: string): void {
   run.m.ticks(200);
   const afk = stateOf(run.m).lastFacts;
   const CoopProtocol = run.mod.global.CoopProtocol as { participationFacts(session: unknown): { tickets: number; accounts: { afk: number; presentAtStart: number; downTicks: number }[] } };
-  const live = CoopProtocol.participationFacts(stateOf(run.m).session);
-  assert.equal(live.tickets, 0);
-  assert.equal(live.accounts[0]?.presentAtStart, 1);
-  assert.equal(live.accounts[0]?.afk, 1);
+  const afkFacts = CoopProtocol.participationFacts(hydrate(run.mod, run.m).session);
+  assert.equal(afkFacts.tickets, 0);
+  assert.equal(afkFacts.accounts[0]?.presentAtStart, 1);
+  assert.equal(afkFacts.accounts[0]?.afk, 1);
   assert.equal(afk?.tickets ?? 0, 0);
 
   const down = room();
   hello(down.m, down.p, ['k1']);
   ready(down.m, down.p);
   for (let i = 0; i < 200; i += 1) {
-    stateOf(down.m).session!.state.players[0]!.st = 'down';
+    hydrate(down.mod, down.m).session!.state.players[0]!.st = 'down';
     down.m.loop([]);
   }
-  const downFacts = CoopProtocol.participationFacts(stateOf(down.m).session);
+  const downFacts = CoopProtocol.participationFacts(hydrate(down.mod, down.m).session);
   assert.equal(downFacts.accounts[0]?.afk, 0);
   assert.ok((downFacts.accounts[0]?.downTicks ?? 0) > 0);
   assert.equal(downFacts.tickets, 0);
@@ -464,7 +513,7 @@ function assertNoLedger(room: Room, label: string): void {
     { sender: a, opCode: OP.INPUT, data: { t: 'input', seq: 1, frame: 1, seats: [{ slot: 0, device: 'k1', mask: 2 }] } },
     { sender: b, opCode: OP.INPUT, data: { t: 'input', seq: 1, frame: 1, seats: [{ slot: 1, device: 'k1', mask: 1 }] } },
   ]);
-  const both = (mod.global.CoopProtocol as { participationFacts(session: unknown): { tickets: number; accounts: unknown[] } }).participationFacts(stateOf(m).session);
+  const both = (mod.global.CoopProtocol as { participationFacts(session: unknown): { tickets: number; accounts: unknown[] } }).participationFacts(hydrate(mod, m).session);
   assert.equal(both.accounts.length, 2);
   assert.equal(both.tickets, 0);
   assert.equal(stateOf(m).session?.state.god, false);
