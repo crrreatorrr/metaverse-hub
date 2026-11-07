@@ -15,7 +15,7 @@ const SPOT = CLUB_MARKERS.arcade_spot.pos;
 export const ARCADE_WALKUP = { x: SPOT[0] + 0.25, z: SPOT[2] - 1.25 } as const;
 /** Horizontal metres from the walk-up spot that still count as "at the machine". */
 export const ARCADE_RADIUS = 1.15;
-/** Return spawn from `#from=sproto-fighter` or `#from=sproto-arcade`: at the machine, facing back into the room (hub yaw 0 walks -Z). */
+/** Return spawn from a Bar cabinet game (`#from=sproto-fighter`, `#from=sproto-arcade`, or `#from=sproto-coop-battle`): at the machine, facing back into the room (hub yaw 0 walks -Z). */
 export const ARCADE_RETURN = { x: ARCADE_WALKUP.x, z: ARCADE_WALKUP.z - 0.6, yaw: 0 } as const;
 
 /** Belt plinth, beside the cabinet toward the bar gate. Footprint and height in metres. */
@@ -26,7 +26,7 @@ export const BELT_PLINTH_BOX = {
   max: [BELT_PLINTH.x + BELT_PLINTH.size / 2, BELT_PLINTH.height + 0.45, BELT_PLINTH.z + BELT_PLINTH.size / 2] as const,
 };
 
-export const ARCADE_PROMPT = 'Press E · Choose Sproto Arcade or Sproto Fighter';
+export const ARCADE_PROMPT = 'Press E · Choose Sproto Arcade, Sproto Fighter or Sproto Coop Battle';
 
 export function atArcade(localX: number, localZ: number): boolean {
   return Math.hypot(localX - ARCADE_WALKUP.x, localZ - ARCADE_WALKUP.z) <= ARCADE_RADIUS;

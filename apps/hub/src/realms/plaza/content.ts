@@ -42,7 +42,7 @@ export interface Warp {
   yaw: number;
 }
 
-/** `arcade`: at the Bar's arcade cabinet, where E opens Sproto Fighter. */
+/** `arcade`: at the Bar's arcade cabinet, where E opens the game picker. */
 /** Metres in front of the Bar's street door where leaving puts the player (the door trigger is 2.6 m). */
 const CLUB_EXIT_STEP = 4;
 
@@ -95,7 +95,8 @@ export interface HubWorld {
   zone: () => PlazaZone;
   /**
    * Put the player inside the Bar at the arcade cabinet once the room has loaded
-   * (return from Sproto Fighter, `#from=sproto-fighter`). Delivered through `consumeWarp`.
+   * (return from a Bar cabinet game: `#from=sproto-fighter`, `#from=sproto-arcade`, or
+   * `#from=sproto-coop-battle`). Delivered through `consumeWarp`.
    */
   returnToArcade: () => void;
   update: (dt: number, moving: boolean, sprint: boolean) => void;

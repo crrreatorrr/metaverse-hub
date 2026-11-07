@@ -5,7 +5,7 @@ import { SOCKETS } from '../src/realms/plaza/config';
 import { ARCADE_GAMES } from '../src/realms/plaza/config';
 import { GAME_URLS, gameUrl } from '../src/games';
 import { parseReturnGame } from '../src/travel';
-import { PICKER_CLOSED, pickerKey } from '../src/v2/arcade-picker';
+import { PICKER_CLOSED, pickerHelp, pickerKey } from '../src/v2/arcade-picker';
 
 // Picker keys.
 {
@@ -21,14 +21,24 @@ import { PICKER_CLOSED, pickerKey } from '../src/v2/arcade-picker';
   assert.deepEqual(closed.action, { type: 'close' });
   assert.equal(closed.state.open, false);
   assert.deepEqual(pickerKey(open, 'KeyZ', 2), { state: open, action: { type: 'none' } });
+  assert.equal(pickerHelp(2), '1 / 2 or ↑ ↓ · Enter to play · Esc to step away');
+  assert.equal(pickerHelp(3), '1 / 2 / 3 or ↑ ↓ · Enter to play · Esc to step away');
+  assert.deepEqual(pickerKey(open, 'Digit3', 3).action, { type: 'choose', index: 2 });
+  assert.deepEqual(pickerKey(open, 'Digit4', 3).action, { type: 'none' });
+  assert.equal(pickerKey({ open: true, index: 2 }, 'ArrowDown', 3).state.index, 0);
+  assert.deepEqual(pickerKey({ open: true, index: 2 }, 'Numpad3', 3).action, { type: 'choose', index: 2 });
+  assert.deepEqual(pickerKey({ open: true, index: 1 }, 'Space', 3).action, { type: 'choose', index: 1 });
+  assert.deepEqual(pickerKey(open, 'ArrowRight', 3).state.index, 1);
+  assert.deepEqual(pickerKey(open, 'KeyQ', 3).action, { type: 'close' });
 }
 
-// Cabinet choices: Sproto Arcade first, then Sproto Fighter, both real game ids with a URL entry.
+// Cabinet choices: Sproto Arcade, Sproto Fighter, then Sproto Coop Battle. Keys 1 and 2 stay put.
 {
   assert.deepEqual(
     ARCADE_GAMES.map((game) => game.id),
-    ['sproto-arcade', 'sproto-fighter'],
+    ['sproto-arcade', 'sproto-fighter', 'sproto-coop-battle'],
   );
+  assert.equal(new Set(ARCADE_GAMES.map((game) => game.id)).size, ARCADE_GAMES.length);
   for (const game of ARCADE_GAMES) {
     assert.equal(canonicalGameId(game.id), game.id);
     assert.ok(GAME_URLS.some((entry) => entry.id === game.id));
