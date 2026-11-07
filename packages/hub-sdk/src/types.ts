@@ -1,6 +1,22 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade'] as const;
+export const GAME_IDS = [
+  'hpos10i',
+  'nobu',
+  'peoples-bitcoin',
+  'sproto',
+  'sproto-fighter',
+  'sproto-arcade',
+  'sproto-shooter',
+  'sproto-coop-battle',
+] as const;
 export type GameId = (typeof GAME_IDS)[number];
+
+/**
+ * Registered for a portal ticket and a game session only.
+ * No Relic, no Ticket earn, no leaderboard, and no plaza or cabinet entry.
+ */
+export const DARK_GAME_IDS = ['sproto-shooter', 'sproto-coop-battle'] as const satisfies readonly GameId[];
+export type DarkGameId = (typeof DARK_GAME_IDS)[number];
 
 /** Earn-once relics. The primary key on the server is (user, relic). */
 export const RELIC_IDS = [
@@ -20,7 +36,10 @@ export type RelicId = (typeof RELIC_IDS)[number];
  */
 export const FOUR_LIGHTS_RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'] as const;
 
-export const RELIC_BY_GAME: Record<GameId, RelicId> = {
+/** Games already shipping a Relic. A dark game id is absent and grants nothing. */
+type RelicGameId = Exclude<GameId, DarkGameId>;
+
+export const RELIC_BY_GAME: { [K in GameId]?: RelicId } & Record<RelicGameId, RelicId> = {
   hpos10i: 'hpos10i_core',
   'peoples-bitcoin': 'genesis_shard',
   nobu: 'cones_tip',

@@ -23,6 +23,8 @@ The games live in their own repos. Game ids are used in code and in `#from=`; sl
 | Sproto Fighter (Bar arcade cabinet) | `sproto-fighter` | `sproto-fighter` | [crrreatorrr/Sproto-Fighter](https://github.com/crrreatorrr/Sproto-Fighter) |
 | Sproto Arcade (Bar arcade cabinet) | `sproto-arcade` | `sproto-arcade` | [crrreatorrr/Sproto-Arcade](https://github.com/crrreatorrr/Sproto-Arcade) |
 
+Sproto Shooter (`sproto-shooter`) and Sproto Coop Battle (`sproto-coop-battle`, repo [crrreatorrr/Sproto-Coop-Battle.](https://github.com/crrreatorrr/Sproto-Coop-Battle.)) are registered for a portal ticket and a game session. They are dark: no plaza ring, no cabinet entry, no Relic, no Ticket earn, and no leaderboard. The Coop repo name keeps its trailing dot; the game id does not.
+
 ## Run the plaza
 
 Requires Node 22+.

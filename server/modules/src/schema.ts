@@ -3306,6 +3306,9 @@ namespace HubSchema {
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
   // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
   // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
+  // 0038 is reserved for the in-flight sproto-shooter proposal and is not registered here.
+  // 0039_dark_game_ids (src/games/sproto_shooter.ts) widens game_session and auth_ticket
+  // for sproto-shooter and sproto-coop-battle. It grants no Relic, Ticket, or score.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

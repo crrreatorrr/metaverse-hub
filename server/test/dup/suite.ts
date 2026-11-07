@@ -17,6 +17,7 @@ import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
 import { runWagers } from './wagers.ts';
 import { runStandalone } from './standalone.ts';
+import { runDarkGames } from './dark_games.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
 import { runHubGate } from './hub_gate.ts';
@@ -1966,6 +1967,7 @@ export async function main(): Promise<void> {
     if (selected('wager')) await runWagers(test);
     if (selected('hub-gate')) await runHubGate({ test, pending });
     if (selected('standalone')) await runStandalone(test);
+    if (selected('dark-games')) await runDarkGames(test);
   } finally {
     failed = report();
   }

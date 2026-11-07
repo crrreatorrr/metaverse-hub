@@ -1,6 +1,7 @@
 export {
   BOARD_IDS,
   BoardId,
+  DARK_GAME_IDS,
   FOUR_LIGHTS_RELIC_IDS,
   GAME_IDS,
   MOCK_TICKET_EARN_CAP,
@@ -18,6 +19,7 @@ export {
   isRelicId,
 } from './types';
 export type {
+  DarkGameId,
   EarnResult,
   EventResult,
   ExchangeResult,

@@ -1,9 +1,11 @@
 // Which cloned game repos are built, and which are served as committed static files.
+// Also checks the pinned classic-script SDK build used by games with no bundler.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findBuildOutput, planClone } from './fetch-game-web.mjs';
+import { GAMES, findBuildOutput, planClone } from './fetch-game-web.mjs';
+import { buildBrowserIife, sdkSourcePin } from './vendor-sdk.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'fetch-game-web-test-'));
 function repo(name, files) {
@@ -44,7 +46,40 @@ try {
   const stale = repo('out-stale', { 'dist/index.html': page });
   utimesSync(join(stale, 'dist/index.html'), new Date(0), new Date(0));
   assert.equal(findBuildOutput(stale, since), null);
+
+  assert.equal(GAMES['sproto-shooter'].repo, 'crrreatorrr/sproto-shooter');
+  assert.equal(GAMES['sproto-coop-battle'].repo, 'crrreatorrr/Sproto-Coop-Battle.');
+  assert.equal(GAMES['sproto-arcade'].repo, 'crrreatorrr/Sproto-Arcade');
+  assert.equal(GAMES.vcoin, undefined);
 } finally {
   rmSync(root, { recursive: true, force: true });
+}
+
+const pin = JSON.parse(readFileSync(new URL('../packages/hub-sdk/sdk-pin.json', import.meta.url), 'utf8'));
+assert.equal(pin.format, 'iife');
+assert.equal(pin.globalName, 'HubSdk');
+assert.equal(pin.packageVersion, '0.6.2');
+assert.deepEqual(pin.sources, sdkSourcePin());
+const iifeDir = mkdtempSync(join(tmpdir(), 'hub-sdk-iife-'));
+try {
+  const first = await buildBrowserIife(join(iifeDir, 'a.js'));
+  const second = await buildBrowserIife(join(iifeDir, 'b.js'));
+  assert.equal(first.sha256, second.sha256);
+  assert.equal(first.bytes, second.bytes);
+  const text = readFileSync(join(iifeDir, 'a.js'), 'utf8');
+  assert.match(text, /sproto-shooter/);
+  assert.match(text, /sproto-coop-battle/);
+  assert.match(text, /createHubSdk/);
+  assert.doesNotMatch(text, /NAKAMA_HTTP_KEY|defaulthttpkey/);
+  const vm = await import('node:vm');
+  const sandbox = { console, crypto, TextEncoder, TextDecoder, URL, URLSearchParams, indexedDB: undefined };
+  vm.runInNewContext(text, sandbox, { filename: 'hub-sdk.iife.js' });
+  assert.equal(typeof sandbox.HubSdk.createHubSdk, 'function');
+  assert.equal(sandbox.HubSdk.isGameId('sproto-shooter'), true);
+  assert.equal(sandbox.HubSdk.isGameId('sproto-coop-battle'), true);
+  assert.equal(sandbox.HubSdk.RELIC_BY_GAME['sproto-shooter'], undefined);
+  assert.equal(sandbox.HubSdk.RELIC_BY_GAME.sproto, 'tinubu_crown');
+} finally {
+  rmSync(iifeDir, { recursive: true, force: true });
 }
 console.log('fetch-game-web: ok');

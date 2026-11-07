@@ -1,0 +1,80 @@
+{
+  "packageVersion": "0.6.2",
+  "format": "iife",
+  "globalName": "HubSdk",
+  "entry": "src/index.ts",
+  "sources": [
+    {
+      "path": "src/createHubSdk.ts",
+      "sha256": "9f7e0ba81d728cf011fe996ec424b38c882717b4883e5032031e34a22940a655"
+    },
+    {
+      "path": "src/env.ts",
+      "sha256": "c3a8eb38ea73539fa4d971da705e004355bed8258079a73a2ecbda912c35ef46"
+    },
+    {
+      "path": "src/errors.ts",
+      "sha256": "4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541"
+    },
+    {
+      "path": "src/events.ts",
+      "sha256": "982ae3376590c85933f9e54b2b93edef11a7cf68ab4b072c9a69838ad92d74b8"
+    },
+    {
+      "path": "src/index.ts",
+      "sha256": "2dbeb4e84dbb7324b287b4f14a5f1487fdd6ec4fc3c93ec73722e576781f4276"
+    },
+    {
+      "path": "src/live.ts",
+      "sha256": "1d0bc573ddbb442a85e3e7b28403f91402cc13e9143c27d4cd0d7540fae79e13"
+    },
+    {
+      "path": "src/nakama.ts",
+      "sha256": "dcd3ee39456b06c66878cdc03349a9a3ac9e15b03db6c11fdd88c944e1f2d968"
+    },
+    {
+      "path": "src/pbShop.ts",
+      "sha256": "0233bbe424a2991dc6e370ae0ca05987165f5eb64a66926e357acb185c088b3e"
+    },
+    {
+      "path": "src/realtime/chatRules.ts",
+      "sha256": "26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e"
+    },
+    {
+      "path": "src/realtime/client.ts",
+      "sha256": "423baa83f1bd0c7c759469a424484988b30a5dfafecfa48a2f843b5502dab80b"
+    },
+    {
+      "path": "src/realtime/friends.ts",
+      "sha256": "d2b309fca509ab6e46def7d4be20e470d7d932f6eacef63287ce7697225f86ef"
+    },
+    {
+      "path": "src/realtime/mock.ts",
+      "sha256": "e476f22d8c78c0b1e0dc5cb0e7fc553bfd3534dd22d45920aeb903c8dfa049a7"
+    },
+    {
+      "path": "src/realtime/protocol.ts",
+      "sha256": "9f25c52103c82110eb518043395fed92a71f5c713f70c6e7369072ce988ea14e"
+    },
+    {
+      "path": "src/realtime/types.ts",
+      "sha256": "dc8a6a5f62c5e0f2874819a79dd473b5b41b3cbdb29aad8bfd2a0fc4687734cf"
+    },
+    {
+      "path": "src/save.ts",
+      "sha256": "098fb0a6834e43bdad620c2729b0abf28a9551b8c4ab8cc7cb3428ebba8aea98"
+    },
+    {
+      "path": "src/storage.ts",
+      "sha256": "7a1f52e2f432026590ed99e85c318ea21ef10c6fe83b9e0c1ebe8c173ced5344"
+    },
+    {
+      "path": "src/ticket.ts",
+      "sha256": "b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033"
+    },
+    {
+      "path": "src/types.ts",
+      "sha256": "072c8dbac4a007b15d2cf3bc50981ffab707f97018c162d5837b4a375bdc53f2"
+    }
+  ]
+}

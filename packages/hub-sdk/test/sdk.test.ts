@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict';
 import {
+  DARK_GAME_IDS,
   HubEvent,
   HubSdkError,
   LOCAL_NAKAMA,
+  RELIC_BY_GAME,
   VERSE_DAILY_CAP,
+  canonicalGameId,
   createHubSdk,
   createNakamaClient,
+  isGameId,
   memoryKeyValue,
   mintMockTicket,
   relicForEvent,
@@ -104,8 +108,29 @@ async function arcadeAndSaves(): Promise<void> {
   assert.equal(encodeSave({ a: 1 }), '{"a":1}');
 }
 
+async function darkGames(): Promise<void> {
+  const payload = { boss: 'tinubu', world: 1, zone: 'z1_retro_rush_hills', act: 1, questId: 'quest_tutorial' };
+  for (const id of DARK_GAME_IDS) {
+    assert.equal(isGameId(id), true);
+    assert.equal(canonicalGameId(id), id);
+    assert.equal(RELIC_BY_GAME[id], undefined);
+    for (const eventId of Object.values(HubEvent)) {
+      assert.equal(relicForEvent(id, eventId, payload), undefined, `${id} ${eventId}`);
+    }
+    const h = harness(id);
+    const profile = await h.sdk.init(id);
+    assert.equal(profile.ranked, false);
+    assert.deepEqual(profile.relics, []);
+    assert.equal(profile.playerId.length > 0, true);
+  }
+  assert.equal(RELIC_BY_GAME.sproto, 'tinubu_crown');
+  assert.equal(RELIC_BY_GAME['sproto-arcade'], 'breakwater_coin');
+  assert.equal(canonicalGameId('sproto'), 'sproto');
+}
+
 async function main(): Promise<void> {
   await arcadeAndSaves();
+  await darkGames();
   const signed = await mintMockTicket({ game: 'hpos10i', playerId: 'p', now: NOW, jti: 'j1' });
   const claims = await verifyMockTicket(signed);
   assert.equal(claims?.game, 'hpos10i');

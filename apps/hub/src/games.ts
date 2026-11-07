@@ -24,7 +24,9 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_PEOPLES_BITCOIN'
     | 'VITE_GAME_URL_SPROTO_DUEL'
     | 'VITE_GAME_URL_SPROTO_FIGHTER'
-    | 'VITE_GAME_URL_SPROTO_ARCADE';
+    | 'VITE_GAME_URL_SPROTO_ARCADE'
+    | 'VITE_GAME_URL_SPROTO_SHOOTER'
+    | 'VITE_GAME_URL_SPROTO_COOP_BATTLE';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -65,6 +67,19 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'sproto-arcade',
     slug: 'sproto-arcade',
     env: 'VITE_GAME_URL_SPROTO_ARCADE',
+  },
+  {
+    // Registered dark. No plaza ring until an approved entrance exists.
+    id: 'sproto-shooter',
+    slug: 'sproto-shooter',
+    env: 'VITE_GAME_URL_SPROTO_SHOOTER',
+  },
+  {
+    // Registered dark. No Bar cabinet entry until an approved entrance exists.
+    // The GitHub repo name keeps a trailing dot; the slug does not.
+    id: 'sproto-coop-battle',
+    slug: 'sproto-coop-battle',
+    env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE',
   },
 ];
 
