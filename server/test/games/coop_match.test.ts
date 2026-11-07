@@ -425,7 +425,7 @@ function assertNoLedger(room: Room, label: string): void {
   let mode = 'play';
   const started = Date.now();
   for (let i = 0; i < 5000 && mode === 'play'; i += 1) {
-    const sim = hydrate(mod, m).session!.state as StageSim;
+    const sim = hydrate(mod, m).session!.state as unknown as StageSim;
     const base = sim.t;
     const seatsFor = (tick: number) => DEVICES.map((device, slot) => ({ slot, device, mask: policyMask(sim, slot, tick) }));
     m.loop([0, 1, 2].map((offset) => ({
