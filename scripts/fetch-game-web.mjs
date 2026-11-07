@@ -12,6 +12,8 @@
  *   node scripts/fetch-game-web.mjs sproto-duel   (or: sproto)
  *   node scripts/fetch-game-web.mjs sproto-fighter (the Bar's arcade cabinet)
  *   node scripts/fetch-game-web.mjs sproto-arcade  (the cabinet's second game)
+ *   node scripts/fetch-game-web.mjs sproto-shooter (dark ring; no plaza placement in H0)
+ *   node scripts/fetch-game-web.mjs sproto-coop-battle (Bar cabinet game; no separate portal)
  *   node scripts/fetch-game-web.mjs --all
  *
  * Games without a "Web build" artifact are cloned. A clone whose package.json
@@ -32,18 +34,24 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Keyed by URL slug. @type {Record<string, { repo: string; artifact?: string; pages?: string }>} */
-const GAMES = {
+/** Keyed by URL slug. @type {Record<string, { repo: string; artifact?: string; pages?: string; entry: 'ring' | 'cabinet' }>} */
+export const GAMES = {
   hpos10i: {
     repo: 'crrreatorrr/HPOS10I',
     artifact: 'web-build',
     pages: 'https://crrreatorrr.github.io/HPOS10I/',
+    entry: 'ring',
   },
-  nobu: { repo: 'crrreatorrr/nobu', artifact: 'web-build' },
-  'peoples-bitcoin': { repo: 'crrreatorrr/peoples-bitcoin', artifact: 'web-build' },
-  'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
-  'sproto-fighter': { repo: 'crrreatorrr/Sproto-Fighter', artifact: 'web-build' },
-  'sproto-arcade': { repo: 'crrreatorrr/Sproto-Arcade', artifact: 'web-build' },
+  nobu: { repo: 'crrreatorrr/nobu', artifact: 'web-build', entry: 'ring' },
+  'peoples-bitcoin': { repo: 'crrreatorrr/peoples-bitcoin', artifact: 'web-build', entry: 'ring' },
+  'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build', entry: 'ring' },
+  'sproto-fighter': { repo: 'crrreatorrr/Sproto-Fighter', artifact: 'web-build', entry: 'cabinet' },
+  'sproto-arcade': { repo: 'crrreatorrr/Sproto-Arcade', artifact: 'web-build', entry: 'cabinet' },
+  // Cloned and built from source. No web-build artifact and no CDN SDK.
+  'sproto-shooter': { repo: 'crrreatorrr/sproto-shooter', entry: 'ring' },
+  // The trailing dot is part of the GitHub repo name. The public slug has no dot.
+  // Cabinet game: the fetch path is /play/sproto-coop-battle/, not a plaza ring.
+  'sproto-coop-battle': { repo: 'crrreatorrr/Sproto-Coop-Battle.', entry: 'cabinet' },
 };
 
 /** Nakama game ids that differ from their slug. */

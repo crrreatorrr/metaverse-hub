@@ -24,7 +24,14 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_PEOPLES_BITCOIN'
     | 'VITE_GAME_URL_SPROTO_DUEL'
     | 'VITE_GAME_URL_SPROTO_FIGHTER'
-    | 'VITE_GAME_URL_SPROTO_ARCADE';
+    | 'VITE_GAME_URL_SPROTO_ARCADE'
+    | 'VITE_GAME_URL_SPROTO_SHOOTER'
+    | 'VITE_GAME_URL_SPROTO_COOP_BATTLE';
+  /**
+   * `ring` is a plaza portal. `cabinet` is a Bar arcade-machine choice and has no ring.
+   * Registering the URL does not add a ring or a menu row.
+   */
+  entry: 'ring' | 'cabinet';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -37,34 +44,55 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'hpos10i',
     slug: 'hpos10i',
     env: 'VITE_GAME_URL_HPOS10I',
+    entry: 'ring',
     current: 'https://crrreatorrr.github.io/HPOS10I/',
   },
   {
     id: 'nobu',
     slug: 'nobu',
     env: 'VITE_GAME_URL_NOBU',
+    entry: 'ring',
   },
   {
     id: 'peoples-bitcoin',
     slug: 'peoples-bitcoin',
     env: 'VITE_GAME_URL_PEOPLES_BITCOIN',
+    entry: 'ring',
   },
   {
     id: 'sproto',
     slug: 'sproto-duel',
     env: 'VITE_GAME_URL_SPROTO_DUEL',
+    entry: 'ring',
   },
   {
     // Entered from the Bar's arcade cabinet, not a plaza ring. Id and slug are the same.
     id: 'sproto-fighter',
     slug: 'sproto-fighter',
     env: 'VITE_GAME_URL_SPROTO_FIGHTER',
+    entry: 'cabinet',
   },
   {
     // The Bar cabinet's second game. Static classic-script build; the page is the repo root.
     id: 'sproto-arcade',
     slug: 'sproto-arcade',
     env: 'VITE_GAME_URL_SPROTO_ARCADE',
+    entry: 'cabinet',
+  },
+  {
+    // Plaza ring id. Dark until a later phase places the ring. No Relic and no Ticket earn.
+    id: 'sproto-shooter',
+    slug: 'sproto-shooter',
+    env: 'VITE_GAME_URL_SPROTO_SHOOTER',
+    entry: 'ring',
+  },
+  {
+    // Bar cabinet game, same kind as Sproto Fighter and Sproto Arcade. No plaza portal.
+    // The machine menu does not list it until a later phase.
+    id: 'sproto-coop-battle',
+    slug: 'sproto-coop-battle',
+    env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE',
+    entry: 'cabinet',
   },
 ];
 

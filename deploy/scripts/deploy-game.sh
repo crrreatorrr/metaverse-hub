@@ -9,13 +9,18 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 require_root
 
 if [ "$#" -ne 2 ]; then
-  echo "usage: deploy-game.sh <hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade> <build-dir>" >&2
+  echo "usage: deploy-game.sh <hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade|sproto-shooter|sproto-coop-battle> <build-dir>" >&2
   exit 2
 fi
 
 id="$1"
 src="$2"
-assert_game_id "$id"
+# Shooter and Coop Battle are dark registrations. lib.sh still names the older ids;
+# these two are accepted here so a build can be published without a public flag change.
+case "$id" in
+  sproto-shooter|sproto-coop-battle) ;;
+  *) assert_game_id "$id" ;;
+esac
 
 base="/srv/play/${id}"
 install -d -m 755 "$base"
