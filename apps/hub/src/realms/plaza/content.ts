@@ -146,7 +146,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     { key: 'castle', a: 0 * PLAZA_SLOT + PLAZA_YAW, front: 112, sc: 1.45, tint: '#7b5cff', phase: 'idle', build: async () => castle() },
     { key: 'whitehouse', a: 1 * PLAZA_SLOT + PLAZA_YAW, front: 116, sc: 1.3, tint: '#ffc233', phase: 'idle', build: async () => whiteHouse() },
     { key: 'hills', a: 2 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.25, tint: '#39ff6a', phase: 'idle', build: async () => greenHill() },
-    { key: 'club', a: 3 * PLAZA_SLOT + PLAZA_YAW, front: 113, sc: 1.25, tint: '#ff3bd4', phase: 'idle', build: async () => club() },
+    // Same angle as the Sproto Shooter portal. The arch is that gate; the Bar door is further out.
+    { key: 'club', a: 3 * PLAZA_SLOT + PLAZA_YAW, front: 113, sc: 1.25, tint: '#ff5ec4', phase: 'idle', build: async () => club() },
     { key: 'kennel', a: 4 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.2, tint: '#ff8a1f', phase: 'idle', build: async () => kennel() },
   ];
   buildFloor(outdoor, slots.map((slot) => ({ a: slot.a, tint: slot.tint, paws: slot.key === 'kennel' })));

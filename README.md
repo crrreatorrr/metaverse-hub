@@ -22,6 +22,7 @@ The games live in their own repos. Game ids are used in code and in `#from=`; sl
 | Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
 | Sproto Fighter (Bar arcade cabinet) | `sproto-fighter` | `sproto-fighter` | [crrreatorrr/Sproto-Fighter](https://github.com/crrreatorrr/Sproto-Fighter) |
 | Sproto Arcade (Bar arcade cabinet) | `sproto-arcade` | `sproto-arcade` | [crrreatorrr/Sproto-Arcade](https://github.com/crrreatorrr/Sproto-Arcade) |
+| Sproto Shooter | `sproto-shooter` | `sproto-shooter` | [crrreatorrr/sproto-shooter](https://github.com/crrreatorrr/sproto-shooter) |
 
 ## Run the plaza
 
@@ -58,7 +59,7 @@ Coming back from a game, open the hub with the game id in the hash. The avatar s
 http://127.0.0.1:5173/hub/#from=sproto
 ```
 
-`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, or `sproto-arcade`. `#from=sproto-fighter` and `#from=sproto-arcade` load the Bar and put the avatar at the arcade cabinet.
+`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `sproto-arcade`, or `sproto-shooter`. `#from=sproto-fighter` and `#from=sproto-arcade` load the Bar and put the avatar at the arcade cabinet. `#from=sproto-shooter` stands the avatar at the fifth ring, the portal on the Bahamas club avenue. Walking into that ring opens Sproto Shooter. The Bar door further along the avenue is unchanged.
 
 **The Bar cabinet** holds two games. Press **E** at it to pick **Sproto Arcade** (story mode, `/play/sproto-arcade/`) or **Sproto Fighter** with 1/2 or the arrows and Enter; Esc steps away. Each choice mints its own portal ticket. Sproto Arcade is a static classic-script game. Its `Web build` workflow uploads a trimmed `web-build` artifact (`tools/build-web.mjs`, about 140 MB of the repo's 200 MB, most of it scrolling level scenery). `npm run fetch:sproto-arcade` installs it at `/play/sproto-arcade/` for dev, or symlink a Sproto-Arcade checkout there, or set `VITE_GAME_URL_SPROTO_ARCADE`. Production serves it at `play.<domain>/sproto-arcade/` (`deploy-game.sh sproto-arcade <dist>`). Its build takes the client server key from the `NAKAMA_SERVER_KEY` secret in the Sproto-Arcade repo.
 
@@ -93,7 +94,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the 
 A round neon plaza, about 60 m across, built from primitives and emissive materials. No downloaded art.
 
 - **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
-- **Four gates** on the ring, each in a labelled placeholder building: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). Blockouts only; the portal ring and the return spawn are unchanged.
+- **Five gates** on the ring: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), the Castle (Sproto Duel), and the portal on the Bahamas club avenue (Sproto Shooter). The Bar door on that avenue still opens the interior.
 - **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard screen on the inside wall cycles the public boards: HPOS10I act time, NOBU time trials (one page per level, `m:ss.cc`), People's Bitcoin XP, Sproto Duel wins, and lifetime Verse per game and in total.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.
 
@@ -130,7 +131,7 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).
 
-Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.1; see its README for the realtime API and the mock server for game tests.
+Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.2; see its README for the realtime API and the mock server for game tests. Sproto Shooter (`sproto-shooter`) redeems a portal ticket and reads the Ticket balance. It grants no Relic and earns no Tickets.
 
 `installHubSdk()` sets `window.hubSdk` for HPOS10I's JavaScriptBridge. The plaza does not install it.
 

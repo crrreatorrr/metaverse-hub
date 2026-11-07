@@ -9,7 +9,7 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 require_root
 
 if [ "$#" -ne 2 ]; then
-  echo "usage: deploy-game.sh <hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade> <build-dir>" >&2
+  echo "usage: deploy-game.sh <hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade|sproto-shooter> <build-dir>" >&2
   exit 2
 fi
 

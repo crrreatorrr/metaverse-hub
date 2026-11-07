@@ -16,7 +16,7 @@ import { PORTAL_DISTANCE, PORTALS } from './config';
 import { portalPosition, type BoxSpec } from '../../layout';
 
 /**
- * Placeholder shells around the four portals. The ring stays on the plaza
+ * Placeholder shells around the plaza portals. The ring stays on the plaza
  * side of every building, and nothing solid sits inside the trigger.
  * Final models replace these primitives later.
  *
@@ -63,6 +63,10 @@ function piecesFor(portal: PortalConfig): Piece[] {
   if (portal.id === 'hpos10i') return greenHill();
   if (portal.id === 'nobu') return kennel();
   if (portal.id === 'peoples-bitcoin') return whiteHouse();
+  // The fifth ring is the Bahamas club avenue. These blockouts are collision
+  // only, and castle() would put an invisible wall on the way to the Bar door.
+  // The shooter gate is the neon portal already built for that slot.
+  if (portal.id === 'sproto-shooter') return [];
   return castle();
 }
 

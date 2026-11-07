@@ -12,6 +12,7 @@
  *   node scripts/fetch-game-web.mjs sproto-duel   (or: sproto)
  *   node scripts/fetch-game-web.mjs sproto-fighter (the Bar's arcade cabinet)
  *   node scripts/fetch-game-web.mjs sproto-arcade  (the cabinet's second game)
+ *   node scripts/fetch-game-web.mjs sproto-shooter (the fifth plaza ring)
  *   node scripts/fetch-game-web.mjs --all
  *
  * Games without a "Web build" artifact are cloned. A clone whose package.json
@@ -44,6 +45,7 @@ const GAMES = {
   'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build' },
   'sproto-fighter': { repo: 'crrreatorrr/Sproto-Fighter', artifact: 'web-build' },
   'sproto-arcade': { repo: 'crrreatorrr/Sproto-Arcade', artifact: 'web-build' },
+  'sproto-shooter': { repo: 'crrreatorrr/sproto-shooter', artifact: 'web-build' },
 };
 
 /** Nakama game ids that differ from their slug. */

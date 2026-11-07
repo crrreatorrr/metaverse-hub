@@ -21,6 +21,7 @@ const PLAY_GAMES = [
   { slug: 'sproto-duel', env: 'VITE_GAME_URL_SPROTO_DUEL' },
   { slug: 'sproto-fighter', env: 'VITE_GAME_URL_SPROTO_FIGHTER' },
   { slug: 'sproto-arcade', env: 'VITE_GAME_URL_SPROTO_ARCADE' },
+  { slug: 'sproto-shooter', env: 'VITE_GAME_URL_SPROTO_SHOOTER' },
 ] as const;
 
 function fetchedBuild(slug: string): boolean {

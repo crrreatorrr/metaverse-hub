@@ -23,7 +23,7 @@ interface Person {
   pb_total_xp: number;
   sproto_wins: number;
   /** Sample rows cover the four ring games. Sproto Fighter and Sproto Arcade have no board yet. */
-  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade'>, number>;
+  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade' | 'sproto-shooter'>, number>;
 }
 
 const PEOPLE: readonly Person[] = [

@@ -39,6 +39,15 @@ import { PICKER_CLOSED, pickerKey } from '../src/v2/arcade-picker';
   assert.equal(gameUrl('sproto-arcade', { dev: false, overrides: { 'sproto-arcade': 'http://127.0.0.1:8765/legacy.html' } }), 'http://127.0.0.1:8765/legacy.html');
 }
 
+// Sproto Shooter is a plaza ring, not a cabinet game.
+{
+  assert.equal(canonicalGameId('sproto-shooter'), 'sproto-shooter');
+  assert.equal(parseReturnGame('#from=sproto-shooter'), 'sproto-shooter');
+  assert.equal(gameUrl('sproto-shooter', { dev: true }), '/play/sproto-shooter/');
+  assert.equal(gameUrl('sproto-shooter', { dev: false, playDomain: 'example.com' }), 'https://play.example.com/sproto-shooter/');
+  assert.deepEqual(ARCADE_GAMES.map((game) => game.id), ['sproto-arcade', 'sproto-fighter']);
+}
+
 // The Breakwater Coin has a monument socket.
 {
   const coin = SOCKETS.find((socket) => socket.id === 'breakwater_coin');

@@ -1,5 +1,7 @@
 # @metaverse/hub-sdk
 
+Version 0.6.2 adds the `sproto-shooter` game id. It has no Relic. Games must re-vendor to redeem a Sproto Shooter portal ticket.
+
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
 Version 0.6.1 fixes the outbox so one refused write cannot lock a game out of the hub. When the server answers a queued earn, event, exchange, spend, or sell with a final error in its reply body (for example `amount_over_rule`, `session_ticket_cap`, `daily_ticket_cap`, `idempotency_mismatch`, `unknown_reason`, or `bad_amount`), the SDK drops that row: the call that queued it still rejects with the error, and the next `init()` no longer rethrows it. Network failures and HTTP errors (5xx, or 401 for an expired token) stay queued and are retried, and a row on a closed session still waits for its own player's next session. `EventResult` gains an optional `granted_items` (pets the live server granted for that event). Nothing else changes.
@@ -136,7 +138,7 @@ getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapL
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `sproto-arcade`, `sproto-shooter`.
 
 | Event | Grants |
 | --- | --- |

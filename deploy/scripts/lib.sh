@@ -41,10 +41,10 @@ read_env() {
 
 assert_game_id() {
   case "$1" in
-    hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade) ;;
+    hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade|sproto-shooter) ;;
     *)
       echo "unknown game id: $1" >&2
-      echo "expected hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-fighter, or sproto-arcade" >&2
+      echo "expected hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-fighter, sproto-arcade, or sproto-shooter" >&2
       return 1
       ;;
   esac

@@ -24,7 +24,8 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_PEOPLES_BITCOIN'
     | 'VITE_GAME_URL_SPROTO_DUEL'
     | 'VITE_GAME_URL_SPROTO_FIGHTER'
-    | 'VITE_GAME_URL_SPROTO_ARCADE';
+    | 'VITE_GAME_URL_SPROTO_ARCADE'
+    | 'VITE_GAME_URL_SPROTO_SHOOTER';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -65,6 +66,12 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'sproto-arcade',
     slug: 'sproto-arcade',
     env: 'VITE_GAME_URL_SPROTO_ARCADE',
+  },
+  {
+    // Fifth plaza ring, on the Bahamas club avenue. Same ticket handoff as the other rings.
+    id: 'sproto-shooter',
+    slug: 'sproto-shooter',
+    env: 'VITE_GAME_URL_SPROTO_SHOOTER',
   },
 ];
 

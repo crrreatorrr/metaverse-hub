@@ -25,6 +25,7 @@
     "fetch:sproto-duel": "node scripts/fetch-game-web.mjs sproto-duel",
     "fetch:sproto-fighter": "node scripts/fetch-game-web.mjs sproto-fighter",
     "fetch:sproto-arcade": "node scripts/fetch-game-web.mjs sproto-arcade",
+    "fetch:sproto-shooter": "node scripts/fetch-game-web.mjs sproto-shooter",
     "preview": "npm run preview -w @metaverse/hub"
   },
   "devDependencies": {

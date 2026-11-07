@@ -12,6 +12,7 @@ export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'nobu', label: 'NOBU: Saviour Dog', place: 'The Kennel', angle: 4 * PLAZA_SLOT + PLAZA_YAW, color: '#ff8a1f' },
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'peoples-bitcoin', label: "The People's Bitcoin", place: 'The White House', angle: 1 * PLAZA_SLOT + PLAZA_YAW, color: '#ffc233', mature: true },
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto', label: 'Sproto Duel', place: 'The Castle', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
+  { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 * PLAZA_SLOT + PLAZA_YAW, color: '#ff5ec4' },
 ];
 
 /**
