@@ -17,10 +17,14 @@ import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-/** Shooter's campaign bundle is large. Leave it unexecuted until a Shooter RPC. */
+/**
+ * Shooter's campaign bundle is large. Leave it unexecuted until a Shooter RPC.
+ * Nakama seals the global after module init, so the properties the bundle
+ * assigns must already exist or that later assignment throws.
+ */
 export function vendorChunk(name, source) {
   if (name !== 'shooter-sim.js') return `\n${source}`;
-  return `\nfunction __loadSprotoShooterSim() {\nif (typeof globalThis.SprotoShooterSim !== "undefined" && globalThis.SprotoShooterSim) return;\n${source}\n}\n`;
+  return `\nglobalThis.__SPROTO_VERIFY_BUNDLE = false;\nif (typeof globalThis.SprotoShooterSim === "undefined") globalThis.SprotoShooterSim = undefined;\nif (typeof globalThis.structuredClone === "undefined") globalThis.structuredClone = undefined;\nfunction __loadSprotoShooterSim() {\nif (globalThis.SprotoShooterSim) return;\n${source}\n}\n`;
 }
 
 const dir = dirname(fileURLToPath(import.meta.url));

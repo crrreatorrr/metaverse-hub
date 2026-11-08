@@ -1712,7 +1712,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {

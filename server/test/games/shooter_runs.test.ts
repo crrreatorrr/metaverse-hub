@@ -202,6 +202,7 @@ if (!gojaReceipt.skipped) {
 }
 
 const mod = loadModule();
+Object.preventExtensions(mod.global);
 const mark = () => mod.nk.sqlCalls.length;
 let at = mark();
 const earned = mod.call('tickets.earn', session, { key: 'k1', amount: 20, reason: 'srv_shooter_boss_clear' }) as { error?: string; balance?: number };
