@@ -19,8 +19,10 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * Shooter's campaign bundle is large. Leave it unexecuted until a Shooter RPC.
- * Nakama freezes the global after module init, so the bundle must not assign
- * new or read-only globals. It fills a mutable box created here instead.
+ * Nakama 3.41 freezes the global and every object created during init, so a
+ * later write to either throws. The API and pureClone live in let bindings,
+ * which stay writable. The bundle's own global assignments are rewritten to
+ * those bindings; the pin still hashes the untouched vendor file.
  */
 export function vendorChunk(name, source) {
   if (name !== 'shooter-sim.js') return `\n${source}`;
@@ -32,9 +34,9 @@ export function vendorChunk(name, source) {
   }
   const patched = source
     .replace(flag, 'void 0;')
-    .replace(clone, 'globalThis.__shooterSimBox.clone = pureClone;')
-    .replace(publish, 'globalThis.__shooterSimBox.api = SprotoShooterSim;');
-  return `\nglobalThis.__SPROTO_VERIFY_BUNDLE = true;\nglobalThis.__shooterSimBox = { api: null, clone: null };\nglobalThis.structuredClone = function (value) {\n  var clone = globalThis.__shooterSimBox && globalThis.__shooterSimBox.clone;\n  if (typeof clone === "function") return clone(value);\n  throw new TypeError("structuredClone");\n};\nfunction __loadSprotoShooterSim() {\nif (globalThis.__shooterSimBox && globalThis.__shooterSimBox.api) return;\n${patched}\n}\nfunction __sprotoShooterSim() {\n__loadSprotoShooterSim();\nreturn globalThis.__shooterSimBox.api;\n}\n`;
+    .replace(clone, '__shooterSimClone = pureClone;')
+    .replace(publish, '__shooterSimApi = SprotoShooterSim;');
+  return `\nglobalThis.__SPROTO_VERIFY_BUNDLE = true;\nlet __shooterSimApi = null;\nlet __shooterSimClone = null;\nglobalThis.structuredClone = function (value) {\n  if (typeof __shooterSimClone === "function") return __shooterSimClone(value);\n  throw new TypeError("structuredClone");\n};\nfunction __loadSprotoShooterSim() {\nif (__shooterSimApi) return;\n${patched}\n}\nfunction __sprotoShooterSim() {\n__loadSprotoShooterSim();\nreturn __shooterSimApi;\n}\n`;
 }
 
 const dir = dirname(fileURLToPath(import.meta.url));
