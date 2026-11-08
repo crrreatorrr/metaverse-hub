@@ -1,7 +1,11 @@
 // Feature flags (plan R.12.2, migration 0042_server_flags). Launch work merges with
 // its flag off; turning a flag off is the first rollback, with no deploy.
 //
-//   if (Flags.on(nk, "shooter_pvp", ctx.userId)) { ... }
+//   if (Flags.on(nk, "shooter_pvp", ctx.userId, logger)) { ... }
+//   if (Flags.on(nk, "maint", ctx.userId, logger, { onReadError: true })) { ... }  // maint: pass the safe default
+//
+// Each key buckets users on its own, so a nested rollout (shooter_pvp_wager inside
+// shooter_pvp) must gate on both flags: a wager cohort is not a subset of the pvp cohort.
 //
 // Rows are changed by the owner in SQL; this module never writes game.server_flags:
 //   UPDATE game.server_flags SET state = 'allowlist', allowlist = '{<uuid>}', updated_at = now() WHERE key = 'shooter_pvp';
@@ -36,6 +40,21 @@ namespace Flags {
   }
 
   var OFF: FlagRow = { state: "off", allowlist: [], percent: 0 };
+
+  export interface OnOptions {
+    /**
+     * The answer when the row cannot be read (DB error). Default false. A flag whose
+     * safe state is "on", like `maint`, must pass true so a DB outage fails closed.
+     */
+    onReadError?: boolean;
+  }
+
+  var clock: () => number = function () { return Date.now(); };
+
+  /** Tests only: replace the cache clock (null restores Date.now). */
+  export function _setClockForTest(now: (() => number) | null): void {
+    clock = now || function () { return Date.now(); };
+  }
 
   /**
    * Stable rollout bucket 0..99 for this key and user: FNV-1a (32-bit) of "<key>:<userId>"
@@ -96,13 +115,13 @@ namespace Flags {
 
   /**
    * Is the flag on for this user? off: no. on: yes. allowlist: userId is listed.
-   * percent: listed, or bucket(key, userId) < percent. An unknown key, a missing row,
-   * an unknown state or a failed read is off. `nowMs` is for tests.
+   * percent: listed, or bucket(key, userId) < percent. An unknown key, a missing row
+   * or an unknown state is off. A failed read returns opts.onReadError (default false).
    */
-  export function on(nk: nkruntime.Nakama, key: string, userId: string, nowMs?: number, logger?: nkruntime.Logger): boolean {
+  export function on(nk: nkruntime.Nakama, key: string, userId: string, logger?: nkruntime.Logger, opts?: OnOptions): boolean {
     if (typeof key !== "string" || !KEY_RE.test(key)) return false;
-    var row = read(nk, logger || null, key, typeof nowMs === "number" ? nowMs : Date.now());
-    if (!row) return false;
+    var row = read(nk, logger || null, key, clock());
+    if (!row) return !!(opts && opts.onReadError);
     if (row.state === "on") return true;
     if (row.state !== "allowlist" && row.state !== "percent") return false;
     var uid = String(userId || "").toLowerCase();
