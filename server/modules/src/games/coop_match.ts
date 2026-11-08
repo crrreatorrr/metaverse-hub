@@ -1060,6 +1060,8 @@ namespace CoopMatch {
   }
 
   function cleanup(nk: nkruntime.Nakama, state: State, matchId: string): void {
+    releaseLive(matchId);
+    if (state.matchId) releaseLive(state.matchId);
     if (state.cleaned) return;
     state.cleaned = true;
     if (state.code) CoopMm.releaseCode(nk, state.code);
@@ -1220,6 +1222,11 @@ namespace CoopMatch {
     return matchId && liveSessions[matchId] ? liveSessions[matchId] : null;
   }
 
+  /** Drop the in-VM sim. Every match end goes through here, including a handler that returns null. */
+  export function releaseLive(matchId: string): void {
+    if (matchId) delete liveSessions[matchId];
+  }
+
   function liveSim(session: CoopSession | null): session is CoopSession {
     return !!(session && session.state && session.state.players && session.state.players.length === 6);
   }
@@ -1266,11 +1273,8 @@ namespace CoopMatch {
 
   function ret(state: State): { state: State } {
     var session = state.session;
-    if (state.cleaned) {
-      if (state.matchId) delete liveSessions[state.matchId];
-    } else if (liveSim(session) && state.matchId) {
-      liveSessions[state.matchId] = session;
-    }
+    if (state.cleaned) releaseLive(state.matchId);
+    else if (liveSim(session) && state.matchId) liveSessions[state.matchId] = session;
     if (liveSim(session)) {
       state.session = adopt(session, {
         t: session.state.t,
@@ -1452,6 +1456,7 @@ namespace CoopMatch {
         if (tick - state.doneTick > CoopProto.LINGER_S * CoopProto.TICK_RATE) {
           cleanup(nk, state, matchId);
           freeze(state);
+          releaseLive(matchId);
           return null;
         }
         return ret(state);
