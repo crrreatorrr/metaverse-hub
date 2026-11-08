@@ -2,9 +2,9 @@
 // file (build/index.js); each vendor file defines a global the module uses.
 // Every vendor/*.js is appended in alphabetical order (Contract C3), e.g.
 //   vendor/shooter-pvp-sim.js  Sproto Shooter free 1v1 (sproto-shooter
-//                               build/shooter-pvp-sim.js). Global SprotoShooterPvp.
-//                               It does not stake or mint Tickets. Loaded at init;
-//                               the campaign verifier stays lazy and separate.
+//                               build/shooter-pvp-sim.js). It does not stake or
+//                               mint Tickets. Wrapped so the arena graph is built
+//                               on the first Shooter match, not while Coop ticks.
 //   vendor/shooter-sim.js Sproto Shooter campaign verifier (sproto-shooter
 //                          scripts/build-server-sim.mjs). It never mints Tickets.
 //                          Wrapped so the campaign graph is built on the first
@@ -28,7 +28,17 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
  * which stay writable. The bundle's own global assignments are rewritten to
  * those bindings; the pin still hashes the untouched vendor file.
  */
+function lazyPvp(source) {
+  const publish = 'globalThis.SprotoShooterPvp = SprotoShooterPvp;';
+  if (!source.includes(publish)) {
+    throw new Error('shooter-pvp-sim.js no longer publishes SprotoShooterPvp');
+  }
+  const patched = source.replace(publish, '__shooterPvpApi = SprotoShooterPvp;');
+  return `\nlet __shooterPvpApi = null;\nfunction __loadSprotoShooterPvp() {\nif (__shooterPvpApi) return;\n${patched}\n}\nfunction __sprotoShooterPvp() {\n__loadSprotoShooterPvp();\nreturn __shooterPvpApi;\n}\n`;
+}
+
 export function vendorChunk(name, source) {
+  if (name === 'shooter-pvp-sim.js') return lazyPvp(source);
   if (name !== 'shooter-sim.js') return `\n${source}`;
   const flag = 'globalThis.__SPROTO_VERIFY_BUNDLE = true;';
   const clone = 'globalThis.structuredClone = pureClone;';

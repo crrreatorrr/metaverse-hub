@@ -74,7 +74,10 @@ function game(userId: string, sessionId: string, sid = SID, scope = 'game', game
 }
 
 function apiOf(mod: LoadedModule): PvpApi {
-  return mod.global.SprotoShooterPvp as PvpApi;
+  const global = mod.global as { __sprotoShooterPvp?: () => PvpApi | null; SprotoShooterPvp?: PvpApi };
+  const loaded = global.__sprotoShooterPvp ? global.__sprotoShooterPvp() : global.SprotoShooterPvp;
+  if (!loaded) throw new Error('pvp sim missing');
+  return loaded;
 }
 
 function packet(api: PvpApi, wish: { [key: string]: unknown }): string {

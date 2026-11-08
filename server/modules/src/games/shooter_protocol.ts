@@ -79,22 +79,30 @@ namespace ShooterProto {
 
   export var QUERY = "+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1";
 
+  /** The arena bundle, loaded on first use. Null when the wrapper is absent. */
+  export function api(): ShooterPvpApi | null {
+    if (typeof __sprotoShooterPvp !== "function") return null;
+    var loaded = __sprotoShooterPvp();
+    return loaded && typeof loaded.createDirector === "function" ? loaded : null;
+  }
+
   /** Null when the loaded arena bundle matches this pin. */
   export function verifyRuntime(): string | null {
-    if (typeof SprotoShooterPvp === "undefined" || !SprotoShooterPvp || typeof SprotoShooterPvp.createDirector !== "function") return "sim_missing";
-    if (typeof SprotoShooterPvp.replayJSON !== "function") return "entry_missing";
-    if (SprotoShooterPvp.PVP_PROTOCOL_VERSION !== PROTOCOL) return "protocol_mismatch";
-    if (SprotoShooterPvp.PVP_SIM_VERSION !== SIM) return "sim_mismatch";
-    if (SprotoShooterPvp.CONTENT_FINGERPRINT !== FINGERPRINT) return "fingerprint_mismatch";
-    if (SprotoShooterPvp.LOADOUT_HASH !== LOADOUT_HASH) return "loadout_mismatch";
-    if (SprotoShooterPvp.SOURCE_COMMIT !== COMMIT) return "commit_mismatch";
-    var economy = SprotoShooterPvp.ECONOMY;
+    var sim = api();
+    if (!sim) return "sim_missing";
+    if (typeof sim.replayJSON !== "function") return "entry_missing";
+    if (sim.PVP_PROTOCOL_VERSION !== PROTOCOL) return "protocol_mismatch";
+    if (sim.PVP_SIM_VERSION !== SIM) return "sim_mismatch";
+    if (sim.CONTENT_FINGERPRINT !== FINGERPRINT) return "fingerprint_mismatch";
+    if (sim.LOADOUT_HASH !== LOADOUT_HASH) return "loadout_mismatch";
+    if (sim.SOURCE_COMMIT !== COMMIT) return "commit_mismatch";
+    var economy = sim.ECONOMY;
     if (!economy || economy.mintsTickets !== false || economy.stakes !== false || economy.wagerMayCreateTickets !== false) return "economy_mismatch";
     if (economy.ticketsMintedByArtifact !== 0) return "economy_mismatch";
-    var op = SprotoShooterPvp.OP;
+    var op = sim.OP;
     if (!op || op.HELLO !== OP_HELLO || op.WELCOME !== OP_WELCOME || op.REJECT !== OP_REJECT || op.READY !== OP_READY) return "opcode_mismatch";
     if (op.PHASE !== OP_PHASE || op.INPUT !== OP_INPUT || op.SNAPSHOT !== OP_SNAPSHOT || op.RESULT !== OP_RESULT || op.RESYNC !== OP_RESYNC) return "opcode_mismatch";
-    var limits = SprotoShooterPvp.INPUT_LIMITS;
+    var limits = sim.INPUT_LIMITS;
     if (!limits || limits.frameBytes !== FRAME_BYTES || limits.maxInputsPerSecond !== 60 || limits.futureFrames !== 4) return "limits_mismatch";
     return null;
   }

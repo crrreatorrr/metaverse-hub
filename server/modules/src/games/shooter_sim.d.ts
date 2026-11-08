@@ -121,4 +121,5 @@ interface ShooterPvpApi {
   decodeInput(buf: Uint8Array): { [key: string]: unknown };
 }
 
-declare const SprotoShooterPvp: ShooterPvpApi;
+/** Defined by append-vendor around shooter-pvp-sim.js. Loads the arena on first use. */
+declare function __sprotoShooterPvp(): ShooterPvpApi | null;

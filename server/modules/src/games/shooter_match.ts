@@ -360,7 +360,11 @@ namespace ShooterMatch {
         state.broken = mismatch;
         logger.error("sproto_shooter_free pin " + mismatch);
       } else {
-        directorBag()[matchId] = SprotoShooterPvp.createDirector({ seed: state.seed, matchId: matchId });
+        var sim = ShooterProto.api();
+        if (!sim) {
+          state.broken = "sim_missing";
+          logger.error("sproto_shooter_free pin sim_missing");
+        } else directorBag()[matchId] = sim.createDirector({ seed: state.seed, matchId: matchId });
       }
       logger.info("sproto_shooter_free init " + matchId);
       return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor() };
