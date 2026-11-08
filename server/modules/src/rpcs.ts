@@ -424,6 +424,7 @@ namespace HubRpc {
       _logger.warn("verse board query failed " + String(e));
       rows = [];
     }
+    for (var i = 0; i < rows.length; i++) HubBoards.cleanRowName(rows[i]);
     return ok({ rows: rows });
   }
 

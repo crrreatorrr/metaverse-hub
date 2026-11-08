@@ -300,7 +300,18 @@ namespace HubBoards {
     if (limit < 1) limit = 1;
     if (limit > 50) limit = 50;
     var order = boardId === "meta" || BOARD_MODE[boardId] !== "asc" ? "desc" : "asc";
-    return JSON.stringify(queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]));
+    var result = queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]);
+    var rows = result.rows;
+    if (Object.prototype.toString.call(rows) === "[object Array]") for (var i = 0; i < (rows as unknown[]).length; i++) cleanRowName((rows as unknown[])[i]);
+    cleanRowName(result.me);
+    return JSON.stringify(result);
+  }
+
+  /** Board names are usernames: clean them for display (HubMatch.cleanName; accounts are never renamed). */
+  export function cleanRowName(row: unknown): void {
+    if (!isObject(row)) return;
+    var r = row as { [key: string]: unknown };
+    if (r.name !== undefined) r.name = HubMatch.cleanName(r.name);
   }
 
   /**
