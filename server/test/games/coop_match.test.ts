@@ -80,7 +80,14 @@ function stateOf(m: MatchDriver): CoopState {
 
 /** Nakama returns a packed sim. Rebuild it the way the next callback does, so assertions see players. */
 function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
-  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string };
+  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string; matchId?: string };
+  const bag = mod.global.CoopMatch as { liveSession?(id: string): NonNullable<CoopState['session']> | null };
+  const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
+  if (held && held.state.players && held.state.players.length === 6) {
+    st.session = held;
+    st.cold = false;
+    return st;
+  }
   if (st.cold && st.simPacked && st.session) {
     const Sim = mod.global.Sim as { importState(data: unknown): NonNullable<CoopState['session']>['state'] };
     st.session.state = Sim.importState(st.simPacked);

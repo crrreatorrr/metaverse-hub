@@ -8,11 +8,10 @@
 
 namespace CoopMatch {
   /**
-   * Live once the per-callback export/import keeps hitDone sets intact.
-   * Nakama copies match state between callbacks and turns a Set into an empty
-   * array. The returned state therefore holds Sim.exportState (plain JSON)
-   * and the next callback imports it before any sim step. The vendored bundle
-   * is not modified.
+   * Live. The sim stays in this VM: Nakama's between-callback copy turns a Set
+   * into an empty array and JSON-encodes the returned state, so packing the
+   * world on every tick was the handler. Checkpoints still use exportState.
+   * The vendored bundle is not modified.
    */
   export var ENABLED = true;
 
@@ -34,6 +33,8 @@ namespace CoopMatch {
 
   export interface State {
     phase: string;
+    /** Nakama match id. The live sim is keyed by this, not carried in the copied state. */
+    matchId: string;
     privateRoom: boolean;
     code: string;
     token: string;
@@ -173,6 +174,7 @@ namespace CoopMatch {
   function blankState(): State {
     return {
       phase: "lobby",
+      matchId: "",
       privateRoom: false,
       code: "",
       token: "",
@@ -1211,14 +1213,29 @@ namespace CoopMatch {
     return next;
   }
 
+  /** Live sims for this VM. A per-tick export made the copied state carry the world. */
+  var liveSessions: { [matchId: string]: CoopSession } = {};
+
+  export function liveSession(matchId: string): CoopSession | null {
+    return matchId && liveSessions[matchId] ? liveSessions[matchId] : null;
+  }
+
+  function liveSim(session: CoopSession | null): session is CoopSession {
+    return !!(session && session.state && session.state.players && session.state.players.length === 6);
+  }
+
   function thaw(state: State): void {
+    var held = state.matchId ? liveSessions[state.matchId] : null;
+    if (liveSim(held)) {
+      state.session = held;
+      state.cold = false;
+      return;
+    }
     if (!state.cold || !state.simPacked || !state.session) return;
-    // Replace the whole session. Writing .state on the object Nakama restored
-    // copies the sim and turns each Set into an empty array. A session object
-    // created in this callback keeps its Sets, and assigning that session
-    // keeps the reference.
+    // A resumed or restarted match has only the packed checkpoint. Import once.
     state.session = adopt(state.session, Sim.importState(state.simPacked));
     state.cold = false;
+    if (state.matchId) liveSessions[state.matchId] = state.session;
   }
 
   /** Drop the live sim (Sets, target refs) before Nakama copies the match state. */
@@ -1248,6 +1265,25 @@ namespace CoopMatch {
   }
 
   function ret(state: State): { state: State } {
+    var session = state.session;
+    if (state.cleaned) {
+      if (state.matchId) delete liveSessions[state.matchId];
+    } else if (liveSim(session) && state.matchId) {
+      liveSessions[state.matchId] = session;
+    }
+    if (liveSim(session)) {
+      state.session = adopt(session, {
+        t: session.state.t,
+        mode: session.state.mode,
+        stageIdx: session.state.stageIdx,
+        god: session.state.god === true,
+        events: [],
+        players: [],
+      });
+      state.simPacked = null;
+      state.cold = true;
+      return { state: state };
+    }
     freeze(state);
     return { state: state };
   }
@@ -1271,6 +1307,7 @@ namespace CoopMatch {
         throw new Error("version_mismatch");
       }
       var state = blankState();
+      state.matchId = ctx.matchId || "";
       var resumeId = String(params["resume"] || "");
       var seed = CoopProto.serverSeed();
       if (!resumeId && String(params["seedSource"] || "") === "server") {
@@ -1340,8 +1377,7 @@ namespace CoopMatch {
         state.forceCheckpoint = true;
       }
       logger.info("sproto_coop init " + (ctx.matchId || "") + (resumeId ? " resume" : ""));
-      freeze(state);
-      return { state: state, tickRate: CoopProto.TICK_RATE, label: labelFor(state) };
+      return { state: ret(state).state, tickRate: CoopProto.TICK_RATE, label: labelFor(state) };
     },
 
     matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, metadata) {
@@ -1494,7 +1530,6 @@ namespace CoopMatch {
         state.forceCheckpoint = false;
         state.lastCheckpointTick = tick;
       }
-      if (stepped) freeze(state);
       if (stepped) {
         var dt = Date.now() - started;
         state.samples.push(dt);
