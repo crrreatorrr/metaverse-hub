@@ -174,10 +174,12 @@ function expiredToken(error: unknown): boolean {
 
 /**
  * The refresh itself was refused: the refresh token is expired or revoked, or the answer
- * had no token. A network failure or a 5xx is not a refusal.
+ * had no token. A network failure, a 5xx, a 408 or a 429 is not a refusal.
  */
 function refreshRefused(error: unknown): boolean {
   if (!(error instanceof HubSdkError)) return false;
+  // 408 (timeout) and 429 (throttled) say "try again later", not "this token is no good".
+  if (error.status === 408 || error.status === 429) return false;
   if (error.status !== undefined) return error.status >= 400 && error.status < 500;
   return error.code === 'auth_failed' || error.code === 'bad_token' || error.code === 'unauthorized';
 }
@@ -372,6 +374,32 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
   function dropActive(): void {
     if (active) resolved.session.removeItem(sessionKey(active.game));
     active = null;
+    shownItems = undefined;
+    shownGates = undefined;
+  }
+
+  /**
+   * One refresh in flight per refresh token, shared by init(), refreshSession() and the
+   * realtime getToken path (which calls refreshSession). Nakama may rotate refresh tokens,
+   * so sending the same one twice can get the second call refused.
+   */
+  let refreshing: { refreshToken: string; promise: Promise<{ token: string; refreshToken: string }> } | null = null;
+
+  function refreshShared(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
+    if (refreshing && refreshing.refreshToken === refreshToken) return refreshing.promise;
+    if (!client.sessionRefresh) return Promise.reject(new HubSdkError('auth_failed', 'Session refresh is unavailable'));
+    const promise = client.sessionRefresh(refreshToken).finally(() => {
+      if (refreshing && refreshing.promise === promise) refreshing = null;
+    });
+    refreshing = { refreshToken, promise };
+    return promise;
+  }
+
+  /** A session for this game holding a different token than `staleToken`: someone already refreshed. */
+  function newerSession(game: GameId, staleToken: string): LiveSession | null {
+    if (active && active.game === game && active.token !== staleToken) return active;
+    const cached = readCached(game);
+    return cached && cached.token !== staleToken ? cached : null;
   }
 
   function warnRow(what: string, error: unknown): void {
@@ -411,6 +439,11 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     let deadToken: string | null = null;
     for (const queued of rows) {
       const own = typeof queued.gameId === 'string' && canonicalGameId(queued.gameId) === game;
+      if (!own) {
+        // Another game's row on an expired token can only land through its own game's rebind.
+        const expiresAt = tokenExpiryMs(queued.token);
+        if (expiresAt && expiresAt <= resolved.now()) continue;
+      }
       let row = queued;
       try {
         if (own) row = await rebind(queued);
@@ -517,25 +550,36 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           const loadProfile = (sessionToken: string) => client.rpc<Profile>('profile.get', {}, { token: sessionToken });
           let profile: Profile | null = null;
           let dead = false;
+          let current = cached;
+          const retryProfile = async (): Promise<void> => {
+            try {
+              profile = await loadProfile(current.token);
+            } catch (retryError) {
+              dead = deadSession(retryError);
+            }
+          };
           try {
-            profile = await loadProfile(cached.token);
+            profile = await loadProfile(current.token);
           } catch (error) {
-            const sessionRefresh = client.sessionRefresh;
-            if (expiredToken(error) && cached.refreshToken && sessionRefresh) {
+            if (expiredToken(error) && current.refreshToken && client.sessionRefresh) {
               // The 2 h access token lapsed (a tab restored after sleep) while the refresh
               // token and the lease may still hold: refresh, keep it, and retry once.
+              const staleToken = current.token;
               try {
-                const fresh = await sessionRefresh(cached.refreshToken);
-                cached.token = fresh.token;
-                cached.refreshToken = fresh.refreshToken || cached.refreshToken;
-                writeCached(cached);
-                try {
-                  profile = await loadProfile(cached.token);
-                } catch (retryError) {
-                  dead = deadSession(retryError);
-                }
+                const fresh = await refreshShared(current.refreshToken);
+                current.token = fresh.token;
+                current.refreshToken = fresh.refreshToken || current.refreshToken;
+                writeCached(current);
+                await retryProfile();
               } catch (refreshError) {
-                dead = refreshRefused(refreshError);
+                // Another path may already have rotated the token: keep that session.
+                const newer = refreshRefused(refreshError) ? newerSession(game, staleToken) : null;
+                if (newer) {
+                  current = newer;
+                  await retryProfile();
+                } else {
+                  dead = refreshRefused(refreshError);
+                }
               }
             } else {
               dead = deadSession(error);
@@ -546,15 +590,16 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
             resolved.session.removeItem(sessionKey(game));
             active = null;
           } else if (profile) {
-            cached.relics = asRelics(profile.relics);
-            readInventory(profile);
-            if (profile.playerId) cached.playerId = profile.playerId;
-            if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
-            serverTime = clockMs(profile.serverTime);
-            writeCached(cached);
+            const loaded: Profile = profile;
+            current.relics = asRelics(loaded.relics);
+            readInventory(loaded);
+            if (loaded.playerId) current.playerId = loaded.playerId;
+            if (typeof loaded.ticketsCapLeft === 'number') current.ticketsCapLeft = loaded.ticketsCapLeft;
+            serverTime = clockMs(loaded.serverTime);
+            writeCached(current);
           } else {
             // Offline or a server hiccup: the token may still be good. The next init retries.
-            active = cached;
+            active = current;
           }
         }
       }
@@ -592,8 +637,18 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       const expiresAt = tokenExpiryMs(session.token);
       if (!expiresAt || expiresAt - resolved.now() > 300_000) return sessionInfo(session);
       if (!client.sessionRefresh || !session.refreshToken) return sessionInfo(session);
-      const fresh = await client.sessionRefresh(session.refreshToken);
+      const staleToken = session.token;
+      let fresh: { token: string; refreshToken: string };
+      try {
+        fresh = await refreshShared(session.refreshToken);
+      } catch (error) {
+        // init() or another instance already rotated the token: use that session.
+        const newer = active ? newerSession(active.game, staleToken) : null;
+        if (newer) return sessionInfo(newer);
+        throw error;
+      }
       if (active !== session) return active ? sessionInfo(active) : null;
+      if (session.token !== staleToken) return sessionInfo(session);
       session.token = fresh.token;
       session.refreshToken = fresh.refreshToken;
       writeCached(session);
