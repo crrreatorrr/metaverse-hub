@@ -3,7 +3,9 @@
 //   (game.sproto_wager_expire(interval '0')). Nakama is one node and no match
 //   survives a restart, so nothing held at boot can still be live.
 // - Periodic: hub shard loops call SprotoDuel.maybeSweepWagers, which runs
-//   sproto_wager_expire(interval '15 minutes') at most once per 5 minutes per node.
+//   sproto_wager_expire(interval '1200 seconds') at most once per 5 minutes per node.
+//   The age is MAX_PLAY (15 min) plus a 5 min margin, so loop lag cannot refund a live match
+//   (the stake is held right before startedTick).
 // - The lazy call in SprotoDuel.onMatched stays.
 // The real refund SQL (idempotent, locked) runs against Postgres in server/test/dup/wagers.ts.
 import assert from 'node:assert/strict';
@@ -18,6 +20,21 @@ function expireCalls(mod: LoadedModule): { sql: string; args: unknown[] }[] {
 interface Duel {
   maybeSweepWagers(nk: unknown, logger: unknown, nowMs: number): boolean;
   WAGER_SWEEP_EVERY_MS: number;
+  WAGER_EXPIRE_AGE: string;
+  MAX_PLAY_S: number;
+  WAGER_EXPIRE_MARGIN_S: number;
+}
+
+const AGE = /interval '1200 seconds'/;
+
+// Review fix: the sweep age is derived from MAX_PLAY plus a margin, never equal to it.
+{
+  const mod = loadModule();
+  const Duel = mod.global.SprotoDuel as Duel;
+  assert.equal(Duel.MAX_PLAY_S, 15 * 60, 'a duel runs at most 15 minutes');
+  assert.ok(Duel.WAGER_EXPIRE_MARGIN_S >= 5 * 60, 'at least 5 minutes of margin for loop lag');
+  assert.equal(Duel.WAGER_EXPIRE_AGE, String(Duel.MAX_PLAY_S + Duel.WAGER_EXPIRE_MARGIN_S) + ' seconds');
+  assert.equal(Duel.WAGER_EXPIRE_AGE, '1200 seconds', '20 minutes');
 }
 
 // Boot: one full expiry after the schema is applied.
@@ -43,7 +60,7 @@ interface Duel {
   assert.ok(mod.logger.lines.some((l) => l.level === 'error' && /wager/.test(l.message)), 'the failure is logged');
 }
 
-// Periodic sweep: 15 minutes old, at most once per 5 minutes on this node.
+// Periodic sweep: 20 minutes old, at most once per 5 minutes on this node.
 {
   const mod = loadModule();
   const Duel = mod.global.SprotoDuel as Duel;
@@ -55,7 +72,7 @@ interface Duel {
   assert.equal(Duel.maybeSweepWagers(mod.nk, mod.logger, t0 + 5 * 60 * 1000 + 1), true);
   const after = expireCalls(mod);
   assert.equal(after.length, boot + 1);
-  assert.match(after.at(-1)!.sql, /sproto_wager_expire\(interval '15 minutes'\)/);
+  assert.match(after.at(-1)!.sql, /sproto_wager_expire\(interval '1200 seconds'\)/);
   assert.equal(Duel.maybeSweepWagers(mod.nk, mod.logger, t0 + 5 * 60 * 1000 + 2), false, 'rate-limited');
   assert.equal(Duel.maybeSweepWagers(mod.nk, mod.logger, t0 + 9 * 60 * 1000), false, 'still inside the window');
   assert.equal(expireCalls(mod).length, boot + 1);
@@ -87,7 +104,7 @@ interface Duel {
   for (const key of [...mod.nk.localcache.keys()]) if (/wager/.test(key)) mod.nk.localcache.set(key, Date.now() - 6 * 60 * 1000);
   assert.equal(m.loop([]), true);
   assert.equal(expireCalls(mod).length, boot + 1, 'a stale stamp makes the shard loop sweep');
-  assert.match(expireCalls(mod).at(-1)!.sql, /interval '15 minutes'/);
+  assert.match(expireCalls(mod).at(-1)!.sql, AGE);
   assert.equal(m.loop([]), true);
   assert.equal(expireCalls(mod).length, boot + 1, 'one sweep per window');
   mod.nk.onSql(EXPIRE, () => { throw new Error('db down'); });
@@ -109,7 +126,7 @@ interface Duel {
   ]);
   assert.ok(id);
   assert.equal(expireCalls(mod).length, boot + 1);
-  assert.match(expireCalls(mod).at(-1)!.sql, /interval '15 minutes'/);
+  assert.match(expireCalls(mod).at(-1)!.sql, AGE);
 }
 
 console.log('wager sweep tests ok');

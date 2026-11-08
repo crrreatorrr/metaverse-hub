@@ -55,8 +55,16 @@ namespace SprotoDuel {
   /** Net Tickets a player may win from wagers per UTC day. */
   export var DAILY_WIN_CAP = 200;
 
-  /** Wager escrow sweep (plan R.9 step 5): held rows older than this are refunded by the periodic sweep. */
-  export var WAGER_EXPIRE_AGE = "15 minutes";
+  /** Longest duel, in seconds of play: the loop closes a match as "timeout" after this (MAX_PLAY). */
+  export var MAX_PLAY_S = 15 * 60;
+  /**
+   * Extra time before a held wager counts as abandoned. The stake is held right before
+   * startedTick and a slow loop stretches MAX_PLAY in wall time, so the sweep age must
+   * exceed MAX_PLAY_S or the sweep could refund a live match and the winner lose the pot.
+   */
+  export var WAGER_EXPIRE_MARGIN_S = 5 * 60;
+  /** Wager escrow sweep (plan R.9 step 5): held rows older than this are refunded (20 minutes). */
+  export var WAGER_EXPIRE_AGE = String(MAX_PLAY_S + WAGER_EXPIRE_MARGIN_S) + " seconds";
   /** At most one periodic sweep per this many ms on the node (node-wide localcache stamp). */
   export var WAGER_SWEEP_EVERY_MS = 5 * 60 * 1000;
   var WAGER_SWEEP_KEY = "sproto:wager_sweep:last";
@@ -112,7 +120,7 @@ namespace SprotoDuel {
   var RECONNECT = 10 * TICK_RATE;
   /** A player whose input stream stops this long while the other's continues forfeits. */
   var STALL = 10 * TICK_RATE;
-  var MAX_PLAY = 15 * 60 * TICK_RATE;
+  var MAX_PLAY = MAX_PLAY_S * TICK_RATE;
   var LINGER = 2 * TICK_RATE;
 
   export interface DuelState {
