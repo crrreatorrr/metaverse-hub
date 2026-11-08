@@ -80,6 +80,8 @@ namespace SprotoArena {
     /** Session var ranked captured at join. Only the explicit marker "1" pays Tickets. */
     ranked: { [userId: string]: string };
     staffs: { [userId: string]: string };
+    /** Staff ids each player owns, read once per match (ownedStaffs). Plain JSON. */
+    ownedStaffs: { [userId: string]: string[] };
     hostSeat: number;
     isPrivate: boolean;
     code: string;
@@ -151,6 +153,50 @@ namespace SprotoArena {
   export function normalizeStaff(s: unknown): string {
     var id = String(s === undefined || s === null ? "" : s);
     return STAFFS.indexOf(id) >= 0 ? id : STAFFS[0];
+  }
+
+  var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  // game.owned_item_ids is the hub's ownership union (starter, relic-derived, item_owned,
+  // minus held grants). Sproto Duel also gives the Nobu Staff for the Breakwater Coin
+  // (src/staff/loadout.ts STAFF_BY_RELIC), which that union keys only by Cone's Tip.
+  var OWNED_STAFF_SQL = "SELECT jsonb_build_object("
+    + "'owned', COALESCE(to_json(game.owned_item_ids($1::uuid)), '[]'::json),"
+    + " 'coin', EXISTS (SELECT 1 FROM game.relic_claim c WHERE c.user_id = $1::uuid AND c.relic_id = 'breakwater_coin')"
+    + ")::text AS result";
+
+  /** Staff ids this player owns. The starter always; a read error or bad id gives the starter only. */
+  export function readOwnedStaffs(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string): string[] {
+    var out = [STAFFS[0]];
+    if (!userId || !UUID_RE.test(userId)) return out;
+    try {
+      var rows = nk.sqlQuery(OWNED_STAFF_SQL, [userId]);
+      var raw = rows && rows.length ? rows[0].result : null;
+      var body = typeof raw === "string" ? JSON.parse(raw) : raw;
+      if (!isObj(body)) return out;
+      var owned = body["owned"];
+      var list = Object.prototype.toString.call(owned) === "[object Array]" ? owned as unknown[] : [];
+      for (var i = 0; i < list.length; i++) {
+        var id = String(list[i]);
+        if (STAFFS.indexOf(id) >= 0 && out.indexOf(id) < 0) out.push(id);
+      }
+      if (body["coin"] === true && out.indexOf("duel_staff_nobu") < 0) out.push("duel_staff_nobu");
+    } catch (e) {
+      logger.warn("sproto_arena staff ownership read failed " + String(e));
+      return [STAFFS[0]];
+    }
+    return out;
+  }
+
+  /** The staff a player asked for if it is listed and owned, otherwise the starter. Ownership is read once per match. */
+  export function acceptStaff(nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State, userId: string, requested: unknown): string {
+    var id = normalizeStaff(requested);
+    if (id === STAFFS[0]) return id;
+    if (!state.ownedStaffs) state.ownedStaffs = {};
+    if (!state.ownedStaffs[userId]) state.ownedStaffs[userId] = readOwnedStaffs(nk, logger, userId);
+    if (state.ownedStaffs[userId].indexOf(id) >= 0) return id;
+    logger.info("sproto_arena staff " + id + " not owned by " + userId + ", using " + STAFFS[0]);
+    return STAFFS[0];
   }
 
   export function roomCode(random?: () => number): string {
@@ -405,6 +451,7 @@ namespace SprotoArena {
         sids: {},
         ranked: {},
         staffs: {},
+        ownedStaffs: {},
         hostSeat: Math.random() < 0.5 ? 0 : 1,
         isPrivate: isPrivate,
         code: isPrivate ? String(params["code"] || "") : "",
@@ -552,7 +599,7 @@ namespace SprotoArena {
               return { state: state };
             }
             state.hello[uid] = true;
-            state.staffs[uid] = normalizeStaff(h["staff"]);
+            state.staffs[uid] = acceptStaff(nk, logger, state, uid, h["staff"]);
             break;
           }
           case OP_INPUT:
@@ -616,9 +663,9 @@ namespace SprotoArena {
                 return { state: state };
               }
               state.hello[uid] = true;
-              state.staffs[uid] = normalizeStaff(acc["staff"]);
+              state.staffs[uid] = acceptStaff(nk, logger, state, uid, acc["staff"]);
             } else if (acc["staff"] !== undefined) {
-              state.staffs[uid] = normalizeStaff(acc["staff"]);
+              state.staffs[uid] = acceptStaff(nk, logger, state, uid, acc["staff"]);
             }
             state.accepted[uid] = true;
             sendFound(d, state, 0);
