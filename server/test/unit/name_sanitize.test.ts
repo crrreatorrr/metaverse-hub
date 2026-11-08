@@ -11,6 +11,7 @@ const EVIL = '<img src=x onerror=1>';
 const EVIL_CLEAN = 'img srcx onerror1';
 const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+const C = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const COOP_SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 
 function safe(value: unknown, label: string): void {
@@ -172,11 +173,24 @@ function coopPlayers(mod: LoadedModule, m: MatchDriver): { name: string }[] {
     result: JSON.stringify({ boardId: args[0], variant: args[3], order: args[1], rows: [{ userId: A, name: EVIL, value: 3, rank: 1 }, { userId: B, name: '', value: 2, rank: 2 }], me: { userId: A, name: EVIL, value: 3, rank: 1 } }),
   }]);
   const top = mod.call<{ rows: { name: string }[]; me: { name: string } }>('leaderboard.top', { userId: A, vars: { scope: 'hub' } }, { boardId: 'sproto_wins' });
-  assert.deepEqual(top.rows.map((r) => r.name), [EVIL_CLEAN, ''], 'leaderboard rows');
+  assert.deepEqual(top.rows.map((r) => r.name), [EVIL_CLEAN, B.slice(0, 8)], 'leaderboard rows: an empty name shows the id prefix');
   assert.equal(top.me.name, EVIL_CLEAN, 'leaderboard me row');
   mod.nk.onSql('game.verse_earned', () => [{ result: JSON.stringify([{ name: EVIL, gameId: 'nobu', lifetime: 9 }, { name: 'ada', gameId: 'pb', lifetime: 3 }]) }]);
   const verse = mod.call<{ rows: { name: string }[] }>('verse.board', { userId: A, vars: { scope: 'hub' } }, {});
   assert.deepEqual(verse.rows.map((r) => r.name), [EVIL_CLEAN, 'ada'], 'verse board rows');
+}
+
+// Review fix: verse.board rows carry userId, so names that clean alike stay apart,
+// and a name that cleans to "" shows the 8-char id prefix instead of being dropped.
+{
+  const mod = loadModule();
+  mod.nk.onSql("'userId', user_id, 'name', name, 'gameId'", () => [{ result: JSON.stringify([
+    { userId: A, name: 'ada\u202e', gameId: 'nobu', lifetime: 9 },
+    { userId: B, name: 'ada', gameId: 'nobu', lifetime: 4 },
+    { userId: C, name: '\u738b\u5c0f\u660e', gameId: 'pb', lifetime: 3 },
+  ]) }]);
+  const verse = mod.call<{ rows: { name: string; userId: string }[] }>('verse.board', { userId: A, vars: { scope: 'hub' } }, {});
+  assert.deepEqual(verse.rows.map((r) => [r.userId, r.name]), [[A, 'ada'], [B, 'ada'], [C, C.slice(0, 8)]], 'verse rows keep userId; empty clean name falls back to id prefix');
 }
 
 // PB friend lookups return a clean username to the PB sim.
