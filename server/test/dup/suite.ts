@@ -16,6 +16,7 @@ import {
 import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
 import { runShooterRewards } from './shooter_rewards.ts';
+import { runCoopRewards } from './coop_rewards.ts';
 import { runWagers } from './wagers.ts';
 import { runStandalone } from './standalone.ts';
 import { runGameBeaten } from './game_beaten.ts';
@@ -102,6 +103,7 @@ function testBudget(name: string): number {
     || name.includes('oversized logs')
     || name.includes('expensive logs')
   ) return 240_000;
+  if (name.includes('restart')) return 240_000;
   if (name.includes('daily cap') || name.includes('verse cap') || name.includes('exchange steps') || name.includes('cross the session cap')) {
     return 180_000;
   }
@@ -1712,7 +1714,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1973,6 +1975,7 @@ export async function main(): Promise<void> {
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
     if (selected('shooter')) await runShooterRewards(test);
+    if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
     if (selected('hub-gate')) await runHubGate({ test, pending });
     if (selected('standalone')) await runStandalone(test);

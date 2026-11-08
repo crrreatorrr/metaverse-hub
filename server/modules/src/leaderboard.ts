@@ -19,6 +19,7 @@ namespace HubBoards {
     pb_total_xp: "peoples-bitcoin",
     sproto_wins: "sproto",
     shooter_story_clear_ms_v1: "sproto-shooter",
+    coop_stage_clear_ms_v1: "sproto-coop-battle",
   };
   /** asc keeps the lower time. desc keeps the higher total. incr adds wins. */
   var BOARD_MODE: { [id: string]: string } = {
@@ -27,6 +28,7 @@ namespace HubBoards {
     pb_total_xp: "desc",
     sproto_wins: "incr",
     shooter_story_clear_ms_v1: "asc",
+    coop_stage_clear_ms_v1: "asc",
   };
 
   /** Integer ms floors per NOBU level (same numbers as NOBU's src/config/trials.js) and the ceiling. */
@@ -219,8 +221,8 @@ namespace HubBoards {
     }
     var boardId = text(body, "boardId");
     if (!boardId && text(body, "board_id")) boardId = text(body, "board_id");
-    // Clients cannot post a Shooter clear. Settlement writes the row in the same receipt.
-    if (boardId === "shooter_story_clear_ms_v1") return fail("bad_board");
+    // Clients cannot post a Shooter or Coop clear. Settlement writes the row in the same receipt.
+    if (boardId === "shooter_story_clear_ms_v1" || boardId === "coop_stage_clear_ms_v1") return fail("bad_board");
     if (SERVER_BOARDS[boardId]) return JSON.stringify({ accepted: false, reason: "server_board" });
     var mode = BOARD_MODE[boardId];
     if (!mode) return fail("bad_board");

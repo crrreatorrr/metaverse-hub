@@ -1,8 +1,10 @@
-// Authoritative six-seat Coop match. Zero rewards: this file never calls the
-// ticket ledger, a score board, or a wallet. Stage select, God Mode, demos,
-// client snapshots, and client results are rejected. A server restart writes
-// the sim's exportState checkpoint and tells clients hostTakeover is 0.
-// See CoopProto for opcodes, the 20 Hz / 3-substep loop, and the 15 s grace.
+// Authoritative six-seat Coop match. A banked boss clear settles inside
+// CoopRewards: 20 Tickets once per account, per canonical boss, per UTC day.
+// The wire field rewards stays 0. Clients cannot treat an opcode as a mint.
+// Stage select, God Mode, demos, client snapshots, and client results are
+// rejected. A server restart writes the sim's exportState checkpoint and tells
+// clients hostTakeover is 0. See CoopProto for opcodes, the 20 Hz / 3-substep
+// loop, and the 15 s grace.
 
 namespace CoopMatch {
   /**
@@ -65,6 +67,31 @@ namespace CoopMatch {
     goldenSeq: number;
     goldenPrimed: boolean;
     stateHash: string;
+    /** Hub game-session id captured on the first join. A later socket does not replace it. */
+    hubSid: { [id: string]: string };
+    /** 1 after reconnect grace expires during the current encounter. */
+    released: { [id: string]: number };
+    /** neutralAlive frozen at disconnect so grace does not count as AFK. -1 means counting. */
+    afkMark: { [id: string]: number };
+    /** Encounter ids whose terminal decision already reached SQL. */
+    paid: { [id: string]: number };
+    /** Accounting day sealed at the first settle attempt. Retries do not recompute it. */
+    payDay: { [id: string]: string };
+    /** Set when a stage clear ends the encounter. Null on game over. Snapshotted so a retry cannot move the day, the score, or eligibility. */
+    payFacts: {
+      canonicalBossId: string;
+      stageIndex: number;
+      startTick: number;
+      terminalTick: number;
+      clearMs: number;
+      god: number;
+      practice: number;
+      stageSelect: number;
+      assistance: string;
+      /** Account ids whose grace had already expired when the clear was sealed. */
+      frozenReleased: { [id: string]: number };
+      accounts: CoopRewards.PresenceRow[];
+    } | null;
   }
 
   function fail(code: string, message: string): string {
@@ -177,7 +204,169 @@ namespace CoopMatch {
       goldenSeq: 1,
       goldenPrimed: false,
       stateHash: "",
+      hubSid: {},
+      released: {},
+      afkMark: {},
+      paid: {},
+      payDay: {},
+      payFacts: null,
     };
+  }
+
+  var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+  /** Restored checkpoints from before rewards omit these maps. They are plain objects, never a Set. */
+  function maps(state: State): void {
+    if (!state.hubSid) state.hubSid = {};
+    if (!state.released) state.released = {};
+    if (!state.afkMark) state.afkMark = {};
+    if (!state.paid) state.paid = {};
+    if (!state.payDay) state.payDay = {};
+  }
+
+  function rememberSid(state: State, userId: string, ctx: nkruntime.Context): void {
+    maps(state);
+    var vars = ctx.vars || null;
+    if (!userId || !vars) return;
+    var sid = vars["sid"] || "";
+    if (!sid || state.hubSid[userId]) return;
+    state.hubSid[userId] = sid;
+  }
+
+  function markAfk(state: State, account: AccountRec): void {
+    maps(state);
+    var session = state.session;
+    var row = session && session.encounter ? session.encounter.accounts[account.userId] : null;
+    state.afkMark[account.userId] = row ? row.neutralAlive : 0;
+  }
+
+  function clampGrace(state: State): void {
+    maps(state);
+    var session = state.session;
+    if (!session || !session.encounter) return;
+    for (var id in state.accounts) {
+      var account = state.accounts[id];
+      if (account.leftTick < 0) continue;
+      var mark = state.afkMark[id];
+      if (typeof mark !== "number" || mark < 0) continue;
+      var row = session.encounter.accounts[id];
+      if (row && row.neutralAlive > mark) row.neutralAlive = mark;
+    }
+  }
+
+  function encounterKey(boss: string, start: number): string {
+    return boss + ":" + String(start);
+  }
+
+  function copyPresence(facts: CoopFacts): CoopRewards.PresenceRow[] {
+    var out: CoopRewards.PresenceRow[] = [];
+    var accounts = facts.accounts || [];
+    for (var i = 0; i < accounts.length; i++) {
+      var row = accounts[i];
+      var slots = row["slots"];
+      var n = 0;
+      if (Object.prototype.toString.call(slots) === "[object Array]") n = (slots as unknown[]).length;
+      else if (typeof slots === "number") n = slots;
+      out.push({
+        accountId: String(row["accountId"] || ""),
+        slots: n,
+        presentAtStart: Number(row["presentAtStart"] || 0),
+        nonNeutral: Number(row["nonNeutral"] || 0),
+        neutralAlive: Number(row["neutralAlive"] || 0),
+        downTicks: Number(row["downTicks"] || 0),
+      });
+    }
+    return out;
+  }
+
+  function armPay(state: State, facts: CoopFacts, session: CoopSession): void {
+    maps(state);
+    var boss = String(facts.canonicalBossId || "");
+    if (!boss || !CoopRewards.allowedBoss(boss)) return;
+    var start = typeof facts.startTick === "number" ? facts.startTick : 0;
+    var tick = session.state.t;
+    var frames = tick - start;
+    if (frames < 0) frames = 0;
+    var clearMs = Math.round(frames * 1000 / 60);
+    if (clearMs > 2700000) clearMs = 2700000;
+    var human = 0;
+    for (var i = 0; i < session.seats.length; i++) if (session.seats[i].human) human++;
+    var encStage = typeof facts.stageIndex === "number" ? facts.stageIndex : session.state.stageIdx;
+    var frozen: { [id: string]: number } = {};
+    for (var id in state.released) if (state.released[id] === 1) frozen[id] = 1;
+    state.payFacts = {
+      canonicalBossId: boss,
+      stageIndex: encStage,
+      startTick: start,
+      terminalTick: tick,
+      clearMs: clearMs,
+      god: session.state.god === true ? 1 : 0,
+      practice: session.mode !== "banked" ? 1 : 0,
+      stageSelect: session.state.stageIdx !== encStage ? 1 : 0,
+      assistance: human >= 6 ? "all_human" : "cpu_assisted",
+      frozenReleased: frozen,
+      accounts: copyPresence(facts),
+    };
+  }
+
+  function applyPay(ctx: nkruntime.Context, nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State): void {
+    maps(state);
+    var facts = state.payFacts;
+    var session = state.session;
+    if (!facts || !session) return;
+    var key = encounterKey(facts.canonicalBossId, facts.startTick);
+    if (state.paid[key]) return;
+    var mode = session.state.mode;
+    if (mode !== "clear" && mode !== "victory" && state.payDay[key]) {
+      state.paid[key] = 1;
+      return;
+    }
+    if (!state.payDay[key]) {
+      var day = CoopRewards.serverDay(nk);
+      if (!day) return;
+      state.payDay[key] = day;
+    }
+    var pending = false;
+    for (var i = 0; i < facts.accounts.length; i++) {
+      var row = facts.accounts[i];
+      if (!row.accountId || !UUID.test(row.accountId)) continue;
+      var sid = state.hubSid[row.accountId] || "";
+      if (!UUID.test(sid)) {
+        pending = true;
+        logger.info("coop skip no session " + row.accountId);
+        continue;
+      }
+      var frozen = facts.frozenReleased || {};
+      var released = frozen[row.accountId] === 1;
+      var decision = CoopRewards.decide(row, {
+        practice: facts.practice === 1,
+        god: facts.god === 1,
+        stageSelect: facts.stageSelect === 1,
+        released: released,
+        knownBoss: true,
+      }, CoopProtocol.LIMITS.afkAliveTicks);
+      var reqHash = nk.sha256Hash("coop.settle\n" + row.accountId + "\n" + session.matchId + "\n" + key + "\n" + facts.canonicalBossId + "\n" + state.payDay[key]);
+      var result = CoopRewards.settle(
+        nk,
+        row.accountId,
+        sid,
+        session.matchId || "",
+        key,
+        facts.canonicalBossId,
+        state.payDay[key],
+        facts.terminalTick,
+        facts.clearMs,
+        decision.eligible,
+        decision.reason,
+        row.slots,
+        facts.assistance,
+        reqHash,
+      );
+      if (result.error === "empty_result") return;
+      logger.info("coop settle " + facts.canonicalBossId + " paid " + String(result.paid) + " tickets " + String(result.tickets) + " reason " + String(result.reason || result.error || "") + " user " + row.accountId);
+      if (result.paid === true) HubFault.apply(ctx, nk, row.accountId, "coop.after_commit");
+    }
+    if (!pending) state.paid[key] = 1;
   }
 
   function labelFor(state: State): string {
@@ -477,6 +666,7 @@ namespace CoopMatch {
         if (account.generation > 4294967295) account.generation = 1;
       }
       account.leftTick = -1;
+      state.afkMark[presence.userId] = -1;
       reattach(state, account);
     }
     var before = JSON.stringify(CoopProtocol.lifeFacts(session.state));
@@ -710,12 +900,23 @@ namespace CoopMatch {
   function settle(state: State, beforeStage: number, beforeMode: string): void {
     var session = state.session;
     if (!session) return;
+    maps(state);
     var term = CoopProtocol.terminalFacts(session);
     var stageChanged = term.stageIndex !== beforeStage;
     var cleared = term.encounterCleared === 1 || term.gameOver === 1 || term.victory === 1 || term.mode === "clear" || stageChanged || (beforeMode === "play" && term.mode !== "play");
-    if (session.encounter && cleared) state.lastFacts = CoopProtocol.endEncounter(session);
+    var wasClear = beforeMode === "play" && (term.mode === "clear" || term.encounterCleared === 1);
+    if (session.encounter && cleared) {
+      if (wasClear) clampGrace(state);
+      var ended = CoopProtocol.endEncounter(session);
+      state.lastFacts = ended;
+      if (wasClear) armPay(state, ended, session);
+    }
     term = CoopProtocol.terminalFacts(session);
-    if (!session.encounter && term.mode === "play" && term.gameOver !== 1 && term.victory !== 1) CoopProtocol.beginEncounter(session);
+    if (!session.encounter && term.mode === "play" && term.gameOver !== 1 && term.victory !== 1) {
+      CoopProtocol.beginEncounter(session);
+      state.released = {};
+      state.afkMark = {};
+    }
   }
 
   function takeGroups(state: State): { [key: string]: unknown }[][] {
@@ -785,6 +986,12 @@ namespace CoopMatch {
       closedEncounter: session.closedEncounter ? JSON.parse(JSON.stringify(session.closedEncounter)) : null,
       exported: exported,
       rewards: 0,
+      hubSid: state.hubSid,
+      released: state.released,
+      afkMark: state.afkMark,
+      paid: state.paid,
+      payDay: state.payDay,
+      payFacts: state.payFacts,
       stateHash: state.stateHash,
       endReason: state.endReason,
       simTick: session.state.t,
@@ -1101,6 +1308,12 @@ namespace CoopMatch {
         var playing = String(row.value["phase"] || "playing") === "playing";
         state.phase = playing ? "playing" : "lobby";
         state.accounts = restoreAccounts(row.value["accounts"], playing);
+        state.hubSid = isObj(row.value["hubSid"]) ? row.value["hubSid"] as { [id: string]: string } : {};
+        state.released = isObj(row.value["released"]) ? row.value["released"] as { [id: string]: number } : {};
+        state.afkMark = isObj(row.value["afkMark"]) ? row.value["afkMark"] as { [id: string]: number } : {};
+        state.paid = isObj(row.value["paid"]) ? row.value["paid"] as { [id: string]: number } : {};
+        state.payDay = isObj(row.value["payDay"]) ? row.value["payDay"] as { [id: string]: string } : {};
+        state.payFacts = isObj(row.value["payFacts"]) ? row.value["payFacts"] as State["payFacts"] : null;
         if (playing) {
           for (var id in state.accounts) parkCpu(state, state.accounts[id]);
           if (!state.session.encounter && state.session.state.mode === "play") CoopProtocol.beginEncounter(state.session);
@@ -1133,6 +1346,7 @@ namespace CoopMatch {
 
     matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, metadata) {
       thaw(state);
+      if (presence && presence.userId) rememberSid(state, presence.userId, ctx);
       if (!open(ctx)) return { state: ret(state).state, accept: false, rejectMessage: "capacity_dark" };
       if (state.phase === "done" || state.broken) return { state: ret(state).state, accept: false, rejectMessage: "match_ended" };
       if (!scopeOk(ctx)) return { state: ret(state).state, accept: false, rejectMessage: "wrong_scope" };
@@ -1169,6 +1383,7 @@ namespace CoopMatch {
 
     matchLeave: function (_ctx, _logger, _nk, d, tick, state, presences) {
       thaw(state);
+      maps(state);
       for (var i = 0; i < presences.length; i++) {
         var presence = presences[i];
         var account = state.accounts[presence.userId];
@@ -1183,6 +1398,7 @@ namespace CoopMatch {
         } else if (state.phase === "playing") {
           account.leftTick = tick;
           parkCpu(state, account);
+          markAfk(state, account);
         }
       }
       broadcastSeats(d, state);
@@ -1192,6 +1408,7 @@ namespace CoopMatch {
     matchLoop: function (ctx, logger, nk, d, tick, state, messages) {
       var started = Date.now();
       thaw(state);
+      maps(state);
       var matchId = ctx.matchId || "";
       if (state.broken && state.phase !== "done") finish(nk, logger, d, state, tick, "sim_fault", matchId);
       if (state.phase === "ending") finish(nk, logger, d, state, tick, state.endReason || "room_expired", matchId);
@@ -1217,6 +1434,7 @@ namespace CoopMatch {
           releaseAccount(state, account);
           account.leftTick = -2;
           account.ready = false;
+          state.released[account.userId] = 1;
           CoopMm.clearLive(nk, account.userId, matchId);
           released = true;
         }
@@ -1248,7 +1466,15 @@ namespace CoopMatch {
           var who = state.present[advanced.rejected[r].accountId];
           if (who) reject(d, who, advanced.rejected[r].reason);
         }
+        clampGrace(state);
         settle(state, beforeStage, beforeMode);
+        try {
+          applyPay(ctx, nk, logger, state);
+        } catch (payErr) {
+          var payMessage = String(payErr);
+          if (payMessage.indexOf("fault_injected") < 0) logger.error("sproto_coop settle " + payMessage);
+          else logger.warn("sproto_coop fault after commit");
+        }
         if (advanced.snapshot) {
           var raw = JSON.stringify(advanced.snapshot);
           state.snapBytes += raw.length;
