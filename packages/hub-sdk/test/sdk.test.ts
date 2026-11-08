@@ -342,6 +342,8 @@ async function main(): Promise<void> {
   await liveSdk();
   await staleOutbox();
   await finalOutbox();
+  await deadCachedSession();
+  await drainOwnGame();
   await nakamaClientWire();
   await scoresAndSession();
   await refreshWire();
@@ -533,7 +535,7 @@ async function staleOutbox(): Promise<void> {
   const alone = await open().init('nobu');
   assert.equal(alone.ranked, false);
 
-  // Other failures still reject init, as before.
+  // Other failures leave the row queued without failing init (0.6.3), and it lands later.
   hash = '#t=b';
   const live = open();
   await live.init('nobu');
@@ -541,9 +543,13 @@ async function staleOutbox(): Promise<void> {
   await assert.rejects(() => live.reportEvent(HubEvent.NobuBossDefeated, { boss: 'cone' }, 'cone-3'), isCode('rpc_failed'));
   closed.add(tokenOf('b'));
   hash = '#t=d';
-  await assert.rejects(() => open().init('nobu'), isCode('rpc_failed'));
+  const stillDown = await open().init('nobu');
+  assert.equal(stillDown.playerId, 'user-1');
+  assert.equal(sent.filter((call) => call.key === 'cone-3').at(-1)?.token, tokenOf('d'), 'the row was retried on the new session');
+  const tries = sent.filter((call) => call.key === 'cone-3').length;
   down = false;
   await open().init('nobu');
+  assert.equal(sent.filter((call) => call.key === 'cone-3').length, tries + 1);
   assert.equal(sent.filter((call) => call.key === 'cone-3').at(-1)?.token, tokenOf('d'));
 }
 
@@ -636,12 +642,12 @@ async function finalOutbox(): Promise<void> {
   assert.equal(sends('mismatch-now'), 1, 'a refused row was sent again');
   assert.equal(sends('over-later'), 1, 'a refused row was sent again');
 
-  // HTTP 5xx is retryable: the row stays queued, and init fails as before until it lands.
+  // HTTP 5xx is retryable: the row stays queued until it lands, and init still succeeds (0.6.3).
   const live = open();
   await live.init('hpos10i');
   answers.set('boom', 'down');
   await assert.rejects(() => live.earnTickets(20, 'level_end', 'boom'), isCode('rpc_failed'));
-  await assert.rejects(() => open().init('hpos10i'), isCode('rpc_failed'));
+  assert.equal((await open().init('hpos10i')).playerId, 'user-7');
   assert.equal(sends('boom'), 2);
   answers.set('boom', 'ok');
   await open().init('hpos10i');
@@ -666,6 +672,184 @@ async function finalOutbox(): Promise<void> {
   assert.equal(sends('dead-d'), deadSends + 1);
   assert.equal(sent.at(-1)?.token, tokenOf('f'));
   session.removeItem('hub:hpos10i:session');
+}
+
+/**
+ * HUB-W-1-07b: a cached session the server reports dead (session_closed, 401, not a game
+ * session) falls back to standalone instead of looking live. A transient failure keeps it.
+ */
+async function deadCachedSession(): Promise<void> {
+  const token = fakeJwt('user-31', { sid: 'sid-31', ranked: '1', scope: 'game', game: 'sproto-fighter' });
+  let profile: 'ok' | 'closed' | 'expired' | 'down' | 'offline' = 'ok';
+  const sent: string[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-31' };
+    },
+    async authenticateCustom() {
+      return { token, refreshToken: 'refresh-31', userId: 'user-31' };
+    },
+    async rpc<T>(id: string, body: object): Promise<T> {
+      if (id === 'profile.get') {
+        if (profile === 'closed') throw new HubSdkError('session_closed', 'Session is closed');
+        if (profile === 'expired') throw new HubSdkError('rpc_failed', 'unauthorized', 401);
+        if (profile === 'down') throw new HubSdkError('rpc_failed', 'bad gateway', 502);
+        if (profile === 'offline') throw new TypeError('fetch failed');
+        return { playerId: 'user-31', relics: [], ticketsCapLeft: 50, ranked: true } as T;
+      }
+      if (id === 'tickets.earn') {
+        sent.push((body as { key: string }).key);
+        return { balance: 1, capped: false } as T;
+      }
+      // Rows other cases left in the shared in-memory outbox are on their own closed sessions.
+      throw new HubSdkError('session_closed', 'Session is closed');
+    },
+  };
+  let hash = '#t=f31';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const launched = await open().init('sproto-fighter');
+  assert.equal(launched.playerId, 'user-31');
+  assert.ok(session.getItem('hub:sproto-fighter:session'), 'the launch caches its session');
+
+  // A reload while the session is still open resumes it.
+  const resumed = open();
+  assert.equal((await resumed.init('sproto-fighter')).ranked, true);
+  assert.equal(resumed.getSession?.()?.token, token);
+
+  // Transient failures keep the cached session: the next init can load the profile.
+  for (const failure of ['down', 'offline'] as const) {
+    profile = failure;
+    const sdk = open();
+    const result = await sdk.init('sproto-fighter');
+    assert.equal(result.playerId, 'user-31', `${failure} keeps the cached session`);
+    assert.equal(sdk.getSession?.()?.token, token);
+  }
+
+  // A dead session does not look live: standalone, the cache is dropped, writes no-op.
+  for (const failure of ['closed', 'expired'] as const) {
+    hash = '#t=f31';
+    profile = 'ok';
+    await open().init('sproto-fighter');
+    profile = failure;
+    const sdk = open();
+    const result = await sdk.init('sproto-fighter');
+    assert.equal(result.ranked, false, `cached_dead_session_falls_back_to_standalone (${failure})`);
+    assert.notEqual(result.playerId, 'user-31');
+    assert.equal(sdk.getSession?.(), null);
+    assert.equal(session.getItem('hub:sproto-fighter:session'), null, 'the dead session is not cached any more');
+    assert.deepEqual(await sdk.earnTickets(5, 'win', `after-${failure}`), { balance: 0, capped: false });
+    assert.equal(sent.includes(`after-${failure}`), false);
+    // The next init without a ticket stays standalone without asking the server again.
+    profile = 'ok';
+    assert.equal((await open().init('sproto-fighter')).ranked, false);
+  }
+}
+
+/**
+ * HUB-W-1-07c: every game shares the hub-outbox IndexedDB on one origin. init drains only
+ * its own game's rows (another game's row is never sent or dropped), and one row that
+ * fails for a non-final reason stays queued without failing init or blocking the rest.
+ */
+async function drainOwnGame(): Promise<void> {
+  const tickets: Record<string, { game: GameId; sid: string }> = {
+    a1: { game: 'sproto-arcade', sid: 'sid-g-a1' },
+    a2: { game: 'sproto-arcade', sid: 'sid-g-a2' },
+    a3: { game: 'sproto-arcade', sid: 'sid-g-a3' },
+    b1: { game: 'peoples-bitcoin', sid: 'sid-g-b1' },
+  };
+  const tokenOf = (name: string) => fakeJwt('user-41', { sid: tickets[name]!.sid, ranked: '0', scope: 'game', game: tickets[name]!.game });
+  /** Per key: how the server answers. */
+  const answers = new Map<string, 'ok' | 'refuse' | 'down' | 'offline'>();
+  const sent: { key: string; token?: string }[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-41' };
+    },
+    async authenticateCustom(id) {
+      return { token: tokenOf(id.slice(2)), refreshToken: `refresh-${id}`, userId: 'user-41' };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string }): Promise<T> {
+      if (id === 'profile.get') return { relics: [], ticketsCapLeft: 100 } as T;
+      const key = (body as { key?: string }).key ?? '';
+      // Rows other cases left in the shared in-memory outbox.
+      if (!key.startsWith('own-')) throw new HubSdkError('session_closed', 'Session is closed');
+      const answer = answers.get(key) ?? 'ok';
+      if (answer === 'offline') throw new TypeError('fetch failed');
+      sent.push({ key, token: opts?.token });
+      if (answer === 'down') throw new HubSdkError('rpc_failed', 'bad gateway', 502);
+      if (answer === 'refuse') throw new HubSdkError('amount_over_rule', 'amount_over_rule');
+      return { balance: 1, capped: false } as T;
+    },
+  };
+  let hash = '';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const sends = (key: string) => sent.filter((call) => call.key === key).length;
+
+  // Arcade queues a write it could not deliver.
+  hash = '#t=a1';
+  const arcade = open();
+  await arcade.init('sproto-arcade');
+  answers.set('own-arcade-1', 'offline');
+  await assert.rejects(() => arcade.earnTickets(10, 'boss', 'own-arcade-1'), TypeError);
+
+  // People's Bitcoin, same player and origin, launches. The arcade row would now be refused
+  // for good; PB must neither send it (nor drop it), and its init must still succeed.
+  answers.set('own-arcade-1', 'refuse');
+  hash = '#t=b1';
+  const pb = await open().init('peoples-bitcoin');
+  assert.equal(pb.playerId, 'user-41');
+  assert.equal(sends('own-arcade-1'), 0, 'drain_skips_other_games_rows');
+
+  // The arcade's own next launch delivers it on its new session.
+  answers.set('own-arcade-1', 'ok');
+  hash = '#t=a2';
+  await open().init('sproto-arcade');
+  assert.equal(sends('own-arcade-1'), 1);
+  assert.equal(sent.at(-1)?.token, tokenOf('a2'));
+
+  // One row failing with a retryable error stays queued and does not fail init or block the next row.
+  const live = open();
+  await live.init('sproto-arcade');
+  answers.set('own-arcade-bad', 'offline');
+  answers.set('own-arcade-good', 'offline');
+  await assert.rejects(() => live.earnTickets(10, 'boss', 'own-arcade-bad'), TypeError);
+  await assert.rejects(() => live.earnTickets(10, 'boss', 'own-arcade-good'), TypeError);
+  answers.set('own-arcade-bad', 'down');
+  answers.set('own-arcade-good', 'ok');
+  hash = '#t=a3';
+  const next = await open().init('sproto-arcade');
+  assert.equal(next.playerId, 'user-41', 'drain_row_error_does_not_fail_init');
+  assert.equal(sends('own-arcade-bad'), 1);
+  assert.equal(sends('own-arcade-good'), 1, 'a failing row does not block the rows after it');
+  answers.set('own-arcade-bad', 'ok');
+  await open().init('sproto-arcade');
+  assert.equal(sends('own-arcade-bad'), 2, 'the failed row stayed queued and lands later');
+  await open().init('sproto-arcade');
+  assert.equal(sends('own-arcade-bad'), 2);
+  assert.equal(sends('own-arcade-good'), 1);
+  session.removeItem('hub:sproto-arcade:session');
 }
 
 async function nakamaClientWire(): Promise<void> {

@@ -385,6 +385,128 @@ async function noReconnectWhenDisabled(): Promise<void> {
   assert.equal(t.queue.length, 0);
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((r) => {
+    resolve = r;
+  });
+  return { promise, resolve };
+}
+
+/** A realtime client whose getToken() calls each wait for a test-controlled answer. */
+function deferredTokenClient(reconnect: false | { baseDelayMs: number; maxDelayMs: number } = false) {
+  FakeSocket.all = [];
+  const t = fakeTimers();
+  const asks: ReturnType<typeof deferred<string>>[] = [];
+  const states: RealtimeState[] = [];
+  const rt = createRealtime({
+    serverUrl: 'https://hub.test',
+    getToken: () => {
+      const d = deferred<string>();
+      asks.push(d);
+      return d.promise;
+    },
+    WebSocketImpl: FakeSocket as unknown as new (url: string) => WebSocket,
+    timers: t.timers,
+    reconnect,
+  });
+  rt.onState((s) => states.push(s));
+  return { rt, t, asks, states };
+}
+
+// HUB-W-1-07a: disconnect() while connect() waits for getToken() must not leave a zombie socket.
+async function disconnectDuringGetToken(): Promise<void> {
+  const { rt, asks, states } = deferredTokenClient();
+  const connecting = rt.connect();
+  const settled = connecting.then(() => 'resolved', (e: unknown) => e);
+  await tick();
+  assert.equal(asks.length, 1);
+  rt.disconnect();
+  assert.equal(rt.state, 'closed');
+  asks[0]!.resolve(jwt('u1', 'a'));
+  const outcome = await settled;
+  assert.ok(outcome instanceof HubSdkError && outcome.code === 'rt_closed', `connect rejects rt_closed, got ${String(outcome)}`);
+  await tick();
+  assert.equal(FakeSocket.all.length, 0, 'disconnect_during_get_token_creates_no_socket');
+  assert.equal(rt.state, 'closed', 'disconnect_during_get_token_stays_closed');
+  assert.ok(!states.includes('open'), 'no open after disconnect');
+  assert.equal(rt.self, null);
+}
+
+// A connect() after that disconnect() starts fresh: the stale attempt neither wins nor clobbers it.
+async function reconnectAfterAbortedConnect(): Promise<void> {
+  const { rt, asks } = deferredTokenClient();
+  const first = rt.connect();
+  const firstOutcome = first.then(() => 'resolved', (e: unknown) => e);
+  await tick();
+  rt.disconnect();
+  const second = rt.connect();
+  assert.notEqual(second, first, 'connect after disconnect is a new attempt');
+  await tick();
+  assert.equal(asks.length, 2);
+  asks[1]!.resolve(jwt('u2', 'b'));
+  await tick();
+  assert.equal(FakeSocket.all.length, 1);
+  FakeSocket.all[0]!.open();
+  await second;
+  assert.equal(rt.state, 'open');
+  // The stale token answer arrives late: no second socket, the live one stays open.
+  asks[0]!.resolve(jwt('u1', 'a'));
+  const outcome = await firstOutcome;
+  assert.ok(outcome instanceof HubSdkError && outcome.code === 'rt_closed');
+  await tick();
+  assert.equal(FakeSocket.all.length, 1, 'stale getToken creates no socket');
+  assert.equal(rt.state, 'open', 'stale attempt does not close the live connection');
+  assert.equal(rt.self?.userId, 'u2');
+  rt.disconnect();
+}
+
+// The reconnect timer path: disconnect() while the retry waits for getToken().
+async function disconnectDuringReconnectGetToken(): Promise<void> {
+  const { rt, t, asks, states } = deferredTokenClient({ baseDelayMs: 100, maxDelayMs: 1000 });
+  const p = rt.connect();
+  await tick();
+  asks[0]!.resolve(jwt('u1', 'a'));
+  await tick();
+  FakeSocket.all[0]!.open();
+  await p;
+  FakeSocket.all[0]!.drop();
+  assert.equal(rt.state, 'reconnecting');
+  t.runNext();
+  await tick();
+  assert.equal(asks.length, 2, 'the retry asks for a token');
+  rt.disconnect();
+  asks[1]!.resolve(jwt('u1', 'a'));
+  await tick();
+  await tick();
+  assert.equal(FakeSocket.all.length, 1, 'reconnect_after_disconnect_creates_no_socket');
+  assert.equal(rt.state, 'closed');
+  assert.equal(states.filter((s) => s === 'open').length, 1, 'open fired only for the first connection');
+  assert.equal(t.queue.length, 0, 'no further retry is scheduled');
+}
+
+// disconnect() while the socket is still opening: a late onopen must not mark it open.
+async function disconnectWhileSocketOpening(): Promise<void> {
+  const { rt, asks, states } = deferredTokenClient();
+  const p = rt.connect();
+  const outcome = p.then(() => 'resolved', (e: unknown) => e);
+  await tick();
+  asks[0]!.resolve(jwt('u1', 'a'));
+  await tick();
+  const ws = FakeSocket.all[0]!;
+  // A socket whose close() does not report back synchronously, as in a browser.
+  ws.close = function close() {
+    this.readyState = 2;
+  };
+  rt.disconnect();
+  ws.open();
+  const result = await outcome;
+  assert.ok(result instanceof HubSdkError && result.code === 'rt_closed');
+  assert.equal(rt.state, 'closed');
+  assert.ok(!states.includes('open'), 'late onopen does not emit open');
+  assert.equal(ws.readyState, 2, 'the opening socket was closed');
+}
+
 async function fromSdk(): Promise<void> {
   const sdk = createHubSdk({ local: memoryKeyValue(), session: memoryKeyValue(), readHash: () => '' });
   await sdk.init('nobu');
@@ -396,5 +518,9 @@ await connectAndMatch();
 await chatHistory();
 await earlyMatchData();
 await noReconnectWhenDisabled();
+await disconnectDuringGetToken();
+await reconnectAfterAbortedConnect();
+await disconnectDuringReconnectGetToken();
+await disconnectWhileSocketOpening();
 await fromSdk();
 console.log('hub-sdk realtime tests ok');

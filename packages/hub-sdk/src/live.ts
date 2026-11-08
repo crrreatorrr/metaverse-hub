@@ -352,21 +352,25 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     return transmit(row);
   }
 
-  async function drain(): Promise<void> {
+  /**
+   * Send this game's queued rows. Every game shares the `hub-outbox` database on one
+   * origin, so a row for another game (or with no game) is left alone: never sent, never
+   * dropped. That game's own SDK delivers it.
+   *
+   * No single row fails init:
+   * - a final refusal is dropped by transmit (the write that queued it already got that error);
+   * - a row on a dead session this session cannot carry waits for its own player's next session;
+   * - a network failure, an HTTP error, or a storage error leaves the row queued for the
+   *   next init, and the rows after it are still sent.
+   */
+  async function drain(game: GameId): Promise<void> {
     const rows = await listWrites();
     for (const queued of rows) {
-      const row = await rebind(queued);
+      if (typeof queued.gameId !== 'string' || canonicalGameId(queued.gameId) !== game) continue;
       try {
-        await transmit(row);
-      } catch (error) {
-        // The server refused the row for good and transmit dropped it. The write that
-        // queued it already got that error; this init must not fail on it again.
-        if (finalRefusal(error)) continue;
-        // A row on a dead session that this session cannot carry stays queued for a
-        // later session of its own player and game. It must not fail this init, or
-        // one stale row keeps every later launch from reaching the hub.
-        if (row.token !== active?.token && deadSession(error)) continue;
-        throw error;
+        await transmit(await rebind(queued));
+      } catch {
+        // Left queued (or dropped, for a final refusal). Carry on with the next row.
       }
     }
   }
@@ -465,12 +469,20 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
             if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
             serverTime = clockMs(profile.serverTime);
             writeCached(cached);
-          } catch {
-            active = cached;
+          } catch (error) {
+            if (deadSession(error)) {
+              // Closed by a newer portal or by exit, or past its lease: run standalone
+              // until the hub sends a fresh ticket. Do not keep showing it as live.
+              resolved.session.removeItem(sessionKey(game));
+              active = null;
+            } else {
+              // Offline or a server hiccup: the token may still be good. The next init retries.
+              active = cached;
+            }
           }
         }
       }
-      await drain();
+      await drain(game);
       return withInventory(active ? profileOf(active, serverTime) : standalone(serverTime));
     },
 
