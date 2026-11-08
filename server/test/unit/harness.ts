@@ -12,6 +12,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { appendFileSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs';
+import { vendorChunk } from '../../modules/append-vendor.mjs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +36,7 @@ export function buildModule(): string {
   execFileSync(process.execPath, [join(MODULE_DIR, 'embed-shop.mjs')], { stdio: 'pipe' });
   execFileSync(process.execPath, [tsc, '-p', join(MODULE_DIR, 'tsconfig.json'), '--outFile', out], { stdio: 'inherit' });
   for (const name of readdirSync(join(MODULE_DIR, 'vendor')).filter((n) => n.endsWith('.js')).sort()) {
-    appendFileSync(out, '\n' + readFileSync(join(MODULE_DIR, 'vendor', name), 'utf8'));
+    appendFileSync(out, vendorChunk(name, readFileSync(join(MODULE_DIR, 'vendor', name), 'utf8')));
   }
   built = out;
   return out;

@@ -30,6 +30,7 @@ namespace ShooterRewards {
 
   /** Empty string when the loaded bundle matches the pin. */
   export function verifyRuntime(): string {
+    if (typeof __loadSprotoShooterSim === "function") __loadSprotoShooterSim();
     if (typeof SprotoShooterSim === "undefined" || !SprotoShooterSim) return "bundle_missing";
     if (SprotoShooterSim.PROTOCOL_VERSION !== PROTOCOL) return "protocol";
     if (SprotoShooterSim.SOURCE_COMMIT !== COMMIT) return "commit";
