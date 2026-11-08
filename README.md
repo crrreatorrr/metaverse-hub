@@ -82,7 +82,7 @@ npm run preview     # serves the production build
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the duplication and realtime tests against Nakama and Postgres.
 
-`npm run build` inlines `VITE_NAKAMA_SERVER_KEY` into the plaza and stops with an error when it is empty or unset, because an empty key makes every login fail. For a release build, set it to `NAKAMA_SERVER_KEY` from `deploy/.env`. CI builds with a placeholder value that no server accepts. `npm run build -w @metaverse/hub -- --mode development` builds a local bundle with the dev key instead.
+`npm run build` inlines `VITE_NAKAMA_SERVER_KEY` into the plaza and stops with an error when it is empty or unset, because an empty key makes every login fail. For a release build, set it to `NAKAMA_SERVER_KEY` from `deploy/.env`, either in the shell or in `apps/hub/.env.production` (gitignored; the shell value wins). CI builds with a placeholder value that no server accepts. `npm run build -w @metaverse/hub -- --mode development` builds a local bundle with the dev key instead.
 
 ## Multiplayer
 
