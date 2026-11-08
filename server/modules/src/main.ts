@@ -276,6 +276,11 @@ function InitModule(
   initializer.registerRpc("coop.golden", rpcCoopGolden);
   // <<< game: sproto-coop-battle
   // ----
+  // >>> game: sproto-shooter registrations
+  initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
+  initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  // <<< game: sproto-shooter
+  // ----
   // >>> game: peoples-bitcoin registrations
   initializer.registerMatch("pb_world", { matchInit: pbWorldInit, matchJoinAttempt: pbWorldJoinAttempt, matchJoin: pbWorldJoin, matchLeave: pbWorldLeave, matchLoop: pbWorldLoop, matchTerminate: pbWorldTerminate, matchSignal: pbWorldSignal });
   initializer.registerRpc("pb.worlds", rpcPbWorlds);

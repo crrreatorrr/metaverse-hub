@@ -15,6 +15,7 @@ import {
 } from './cases.ts';
 import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
+import { runShooterRewards } from './shooter_rewards.ts';
 import { runWagers } from './wagers.ts';
 import { runStandalone } from './standalone.ts';
 import { runGameBeaten } from './game_beaten.ts';
@@ -93,6 +94,13 @@ function testBudget(name: string): number {
   if (name.includes('kill_')) return 120_000;
   if (name.includes('sweep')) return 180_000;
   if (name.includes('arena result') || name.includes('rate limit')) return 180_000;
+  if (
+    name.includes('x100 retries')
+    || name.includes('concurrent races')
+    || name.includes('wallet fault')
+    || name.includes('UTC day bucket')
+    || name.includes('oversized logs')
+  ) return 240_000;
   if (name.includes('daily cap') || name.includes('verse cap') || name.includes('exchange steps') || name.includes('cross the session cap')) {
     return 180_000;
   }
@@ -1963,6 +1971,7 @@ export async function main(): Promise<void> {
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
+    if (selected('shooter')) await runShooterRewards(test);
     if (selected('wager')) await runWagers(test);
     if (selected('hub-gate')) await runHubGate({ test, pending });
     if (selected('standalone')) await runStandalone(test);

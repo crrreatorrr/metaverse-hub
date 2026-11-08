@@ -1,0 +1,23 @@
+{
+  "kind": "sproto-shooter-sim-pin",
+  "repo": "crrreatorrr/sproto-shooter",
+  "commit": "5ccaf82a04c8e4233b257b71194ad82d8fd5f022",
+  "sha256": "aad5daf5b63c6b71309635bd98e48d8019c8fa2ba5f4736c2a8bb3d241e9576d",
+  "protocol": 1,
+  "fingerprint": "3c657fb5",
+  "gameId": "sproto-shooter",
+  "protocolVersion": 1,
+  "sourceCommit": "5ccaf82a04c8e4233b257b71194ad82d8fd5f022",
+  "contentFingerprint": "3c657fb5",
+  "bundleSha256": "aad5daf5b63c6b71309635bd98e48d8019c8fa2ba5f4736c2a8bb3d241e9576d",
+  "bundleBytes": 276598,
+  "global": "SprotoShooterSim",
+  "entry": "verifyRun",
+  "jsonEntry": "verifyRunJSON",
+  "mintsTickets": false,
+  "payTickets": 20,
+  "sessionCap": 200,
+  "dailyCap": 1000,
+  "goja": "github.com/dop251/goja v0.0.0-20261107161106-d6eaa50db8bc",
+  "node": ">=22"
+}

@@ -28,7 +28,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/check-coop-sim-version.mjs
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.10'
+      - name: Check Shooter simulation pin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-shooter-sim-version.mjs
       - run: npm test
+        env:
+          SHOOTER_REQUIRE_GOJA: '1'
+          GOTOOLCHAIN: local
       - run: npm run build
 
   duplication:

@@ -1,6 +1,8 @@
 // Append vendored runtime libraries to the compiled module. Nakama loads one
 // file (build/index.js); each vendor file defines a global the module uses.
 // Every vendor/*.js is appended in alphabetical order (Contract C3), e.g.
+//   vendor/shooter-sim.js Sproto Shooter campaign verifier (sproto-shooter
+//                          scripts/build-server-sim.mjs). It never mints Tickets.
 //   vendor/coop-sim.js    Sproto Coop Battle simulation and banked protocol
 //                          (generated in Sproto-Coop-Battle. by
 //                          scripts/build-server-sim.mjs)
