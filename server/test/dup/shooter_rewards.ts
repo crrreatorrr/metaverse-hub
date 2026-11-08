@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -72,21 +72,35 @@ function body(result: RpcResult): SubmitBody & IssueBody {
   return result.body as SubmitBody & IssueBody;
 }
 
-function shooterSrc(): string {
-  const candidates = [process.env.SHOOTER_SRC || '', '/tmp/sproto-shooter'].filter(Boolean);
-  for (const dir of candidates) {
-    try {
-      const head = execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
-      if (head === PIN.commit) return dir;
-    } catch {
-      // Try the next checkout.
-    }
+let pinnedSrc: string | null = null;
+
+function gitRev(dir: string): string {
+  try {
+    return execFileSync('git', ['-C', dir, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).trim();
+  } catch {
+    return '';
   }
-  const dir = join(tmpdir(), `sproto-shooter-${PIN.commit.slice(0, 8)}`);
-  execFileSync('git', ['clone', '--depth', '1', '--filter=blob:none', '--sparse', `https://github.com/crrreatorrr/sproto-shooter.git`, dir], { stdio: 'inherit' });
+}
+
+function shooterSrc(): string {
+  if (pinnedSrc && existsSync(join(pinnedSrc, 'src/sim/simulate.js'))) return pinnedSrc;
+  const dir = process.env.SHOOTER_SRC || join(tmpdir(), `sproto-shooter-${PIN.commit.slice(0, 12)}`);
+  if (gitRev(dir) === PIN.commit && existsSync(join(dir, 'src/sim/simulate.js'))) {
+    pinnedSrc = dir;
+    return dir;
+  }
+  rmSync(dir, { recursive: true, force: true });
+  execFileSync('git', ['clone', '--depth', '1', '--filter=blob:none', '--sparse', 'https://github.com/crrreatorrr/sproto-shooter.git', dir], { stdio: 'inherit' });
   execFileSync('git', ['-C', dir, 'sparse-checkout', 'set', 'src'], { stdio: 'inherit' });
   execFileSync('git', ['-C', dir, 'fetch', '--depth', '1', 'origin', PIN.commit], { stdio: 'inherit' });
   execFileSync('git', ['-C', dir, 'checkout', '--detach', PIN.commit], { stdio: 'inherit' });
+  if (gitRev(dir) !== PIN.commit || !existsSync(join(dir, 'src/sim/simulate.js'))) {
+    throw new Error(`shooter checkout ${gitRev(dir)} is missing src/sim/simulate.js`);
+  }
+  pinnedSrc = dir;
   return dir;
 }
 
@@ -282,6 +296,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     const duel = await openGame(who.token, 'sproto');
     const duelPay = await call('session.event', { eventId: 'sproto.boss_defeated', key: 'duel-sahil', data: { boss: 'sahil' } }, duel.gameToken);
     assert.equal(Number(duelPay.body.tickets), PAY, JSON.stringify(duelPay.body));
+    assert.equal(ticketBalance(who.userId, 'sproto'), PAY);
     const session = await openGame(who.token, 'sproto-shooter');
     const { issuance, log } = await cleared(session, 'sahil', 'clear-1');
     const first = await submit(session, issuance.runId, log);
@@ -291,7 +306,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(paid.ticketsMinted, 0);
     assert.equal(paid.canonicalBoss, 'sahil');
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
-    assert.equal(ticketBalance(session.hub.userId, 'sproto'), 0);
+    assert.equal(ticketBalance(session.hub.userId, 'sproto'), PAY);
     assert.equal(credits(session.hub.userId), 1);
     assert.equal(scores(session.hub.userId), 1);
     assert.equal(receipts(session.hub.userId), 1);
