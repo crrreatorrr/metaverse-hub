@@ -507,6 +507,41 @@ async function disconnectWhileSocketOpening(): Promise<void> {
   assert.equal(ws.readyState, 2, 'the opening socket was closed');
 }
 
+// Review: a getToken() that never answers must not leave connect() pending after disconnect().
+async function disconnectWhileGetTokenHangs(): Promise<void> {
+  const { rt, asks } = deferredTokenClient();
+  const settled = rt.connect().then(() => 'resolved', (e: unknown) => e);
+  await tick();
+  assert.equal(asks.length, 1);
+  rt.disconnect();
+  const outcome = await Promise.race([settled, new Promise((resolve) => setTimeout(() => resolve('pending'), 50))]);
+  assert.ok(outcome instanceof HubSdkError && outcome.code === 'rt_closed', `hung_get_token_connect_rejects_on_disconnect, got ${String(outcome)}`);
+  assert.equal(rt.state, 'closed');
+  assert.equal(FakeSocket.all.length, 0);
+}
+
+// Review: a state listener that calls connect() on 'connecting' joins the same attempt.
+async function reentrantConnectFromListener(): Promise<void> {
+  const { rt, asks } = deferredTokenClient();
+  const inner: Promise<void>[] = [];
+  rt.onState((s) => {
+    if (s === 'connecting') inner.push(rt.connect());
+  });
+  const outer = rt.connect();
+  assert.equal(inner.length, 1);
+  assert.equal(inner[0], outer, 'reentrant_connect_returns_the_same_attempt');
+  await tick();
+  assert.equal(asks.length, 1, 'one attempt asks for one token');
+  asks[0]!.resolve(jwt('u1', 'a'));
+  await tick();
+  assert.equal(FakeSocket.all.length, 1);
+  FakeSocket.all[0]!.open();
+  await outer;
+  await inner[0];
+  assert.equal(rt.state, 'open');
+  rt.disconnect();
+}
+
 async function fromSdk(): Promise<void> {
   const sdk = createHubSdk({ local: memoryKeyValue(), session: memoryKeyValue(), readHash: () => '' });
   await sdk.init('nobu');
@@ -522,5 +557,7 @@ await disconnectDuringGetToken();
 await reconnectAfterAbortedConnect();
 await disconnectDuringReconnectGetToken();
 await disconnectWhileSocketOpening();
+await disconnectWhileGetTokenHangs();
+await reentrantConnectFromListener();
 await fromSdk();
 console.log('hub-sdk realtime tests ok');

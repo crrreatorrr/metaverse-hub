@@ -179,6 +179,8 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
    * (or a newer connect()) overtook closes what it made and never reports 'open'.
    */
   let generation = 0;
+  /** Rejects the caller-facing promise of the connect() in flight, even while getToken() hangs. */
+  let abortConnect: (() => void) | null = null;
 
   function isCurrent(gen: number): boolean {
     return gen === generation && wanted;
@@ -487,6 +489,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
   }
 
   async function establish(isReconnect: boolean, gen: number): Promise<void> {
+    if (!isCurrent(gen)) throw superseded();
     await openSocket(gen);
     if (!isCurrent(gen)) throw superseded();
     attempt = 0;
@@ -650,8 +653,17 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
       attempt = 0;
       generation += 1;
       const gen = generation;
-      setState('connecting');
-      const attemptPromise: Promise<void> = establish(false, gen)
+      let abort!: () => void;
+      const aborted = new Promise<never>((_, reject) => {
+        abort = () => reject(superseded());
+      });
+      abortConnect = abort;
+      const attemptPromise: Promise<void> = Promise.race([
+        // Starts after 'connecting' is announced and `connecting` is set, so a state
+        // listener that calls connect() joins this attempt instead of replacing it.
+        Promise.resolve().then(() => establish(false, gen)),
+        aborted,
+      ])
         .catch((error: unknown) => {
           // Overtaken by disconnect() or a newer connect(): leave their state alone.
           if (!isCurrent(gen)) throw superseded();
@@ -662,16 +674,24 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
         })
         .finally(() => {
           if (connecting === attemptPromise) connecting = null;
+          if (abortConnect === abort) abortConnect = null;
         });
       connecting = attemptPromise;
+      setState('connecting');
       return attemptPromise;
     },
 
     disconnect() {
       wanted = false;
       generation += 1;
-      // A connect() still in flight now rejects with rt_closed; the next connect() starts fresh.
+      // A connect() still in flight now rejects with rt_closed, even if getToken() never
+      // answers; the next connect() starts fresh.
       connecting = null;
+      if (abortConnect) {
+        const abort = abortConnect;
+        abortConnect = null;
+        abort();
+      }
       if (reconnectTimer) {
         timers.clearTimeout(reconnectTimer);
         reconnectTimer = null;

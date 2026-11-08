@@ -3,10 +3,25 @@
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
 Version 0.6.3 is a fix release. No method, type, or option changes.
-- **Realtime.** `disconnect()` while `connect()` (or a reconnect) is still waiting for `getToken()` or for the socket to open no longer leaves a zombie socket. The pending attempt closes whatever it made, never reports `'open'`, and `connect()` rejects with `rt_closed`. A `connect()` right after `disconnect()` starts a new attempt instead of returning the cancelled one.
-- **Cached session.** `init()` without a ticket now drops a cached session that the server reports dead (`session_closed`, `not_game_session`, `unauthorized`, or HTTP 401) and runs standalone until the hub sends a new ticket. Before, the dead session still looked live. A network failure or a 5xx still keeps the cached session.
-- **Outbox.** Every game on the hub origin shares the `hub-outbox` IndexedDB. `init()` now sends only its own game's rows and never sends or drops another game's.
-- **Outbox errors.** A row that fails for a non-final reason (offline, HTTP error) stays queued for the next `init()`. It no longer makes `init()` reject, and it no longer stops the rows after it.
+- **Realtime.**
+  - `disconnect()` while `connect()` (or a reconnect) is still waiting for `getToken()` or for the socket to open no longer leaves a zombie socket. The pending attempt closes whatever it made and never reports `'open'`.
+  - The pending `connect()` rejects with `rt_closed` at once, even if `getToken()` never answers.
+  - A `connect()` right after `disconnect()` starts a new attempt instead of returning the cancelled one.
+  - A state listener that calls `connect()` on `'connecting'` joins the attempt already in flight.
+- **Cached session.** When `init()` without a ticket finds the cached access token expired (HTTP 401; tokens last 2 h, refresh tokens 7 days), it refreshes the token, caches the new one and retries `profile.get` once. It drops the cached session and runs standalone only when:
+  - the refresh is refused (a 4xx), or there is no refresh token;
+  - or `profile.get` answers that the session is dead (`session_closed`, `not_game_session`, `unauthorized`, or 401).
+
+  A network failure or a 5xx keeps the session. Today's server `profile.get` checks only the user, so it does not report a closed game session; the outbox catches that case (next point).
+- **Outbox.** Every game on the hub origin shares the `hub-outbox` IndexedDB.
+  - `init()` may move only its own game's rows onto its session.
+  - It sends other games' rows on their own stored token, so a game the player never relaunches still gets its writes delivered. Such a row is never re-pointed, is dropped only on its own final refusal, and its failure never affects this game.
+  - If a row sent on this session's own token comes back `session_closed` (or another dead-session answer), the session ends: standalone, cache cleared, and no more rows are sent on that token.
+- **Outbox errors.**
+  - A row that fails for a non-final reason (offline, HTTP error) stays queued for the next `init()`. It no longer makes `init()` reject or stops the rows after it.
+  - An outbox that cannot be read no longer fails `init()`.
+  - Errors that are not hub answers are logged with `console.warn`.
+- `auth_failed` from the Nakama client now carries the HTTP status.
 
 Version 0.6.2 adds `sproto-shooter` and `sproto-coop-battle` to `GAME_IDS`. Neither has a Relic, an earn event, or a leaderboard. `RELIC_BY_GAME` is partial: a game id with no entry cannot grant a Relic. Coop Battle is a Bar cabinet game (same kind as Sproto Fighter and Sproto Arcade) and has no plaza portal. Shooter is a ring id; this version does not place the ring. A classic-script build is `dist/hub-sdk.iife.js` (`global HubSDK`), produced by `node scripts/build-sdk-iife.mjs` and pinned in `SOURCE.pin.json`. Load that file from the game's own origin. Do not import the SDK from a CDN.
 

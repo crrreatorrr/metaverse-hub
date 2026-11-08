@@ -11,11 +11,11 @@
     "src/errors.ts": "4eaba836a4dfad994b3926d90b66a158c4384ce6f100bf8a0791877c0646b541",
     "src/events.ts": "982ae3376590c85933f9e54b2b93edef11a7cf68ab4b072c9a69838ad92d74b8",
     "src/index.ts": "a3721b5d01e8e9b7a00c78d88848602e213717132e65cb7db63e54ef055a8d91",
-    "src/live.ts": "0c5157900d6b44ecc74cccfa22ee6a1a41a633f647e2d0e38aac1cf5aa857bb6",
-    "src/nakama.ts": "dcd3ee39456b06c66878cdc03349a9a3ac9e15b03db6c11fdd88c944e1f2d968",
+    "src/live.ts": "9d7c5d69071a9417aed7a2dc60a0c04007095b4e322cfebda6460aaf5ae7f75a",
+    "src/nakama.ts": "67a701b47178244f1a63b433f8d715aea824b1599a49f140b35b401950ee266a",
     "src/pbShop.ts": "0233bbe424a2991dc6e370ae0ca05987165f5eb64a66926e357acb185c088b3e",
     "src/realtime/chatRules.ts": "26913facb5c4c28c0a3529a4ecb6a3a50fadfe067736c74fb571184a9aa81b0e",
-    "src/realtime/client.ts": "4259b21a8df6069e7faa4e0263d9ebbcde88a370e89fc744e601e08dd7c250b4",
+    "src/realtime/client.ts": "09b799cc261ae06eb36a3141722e7752b603c58eac66fdb2b2a4f88f4ae08b79",
     "src/realtime/friends.ts": "d2b309fca509ab6e46def7d4be20e470d7d932f6eacef63287ce7697225f86ef",
     "src/realtime/mock.ts": "e476f22d8c78c0b1e0dc5cb0e7fc553bfd3534dd22d45920aeb903c8dfa049a7",
     "src/realtime/protocol.ts": "9f25c52103c82110eb518043395fed92a71f5c713f70c6e7369072ce988ea14e",
@@ -25,5 +25,5 @@
     "src/ticket.ts": "b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033",
     "src/types.ts": "d826fbade3dd59646ffa409e2dc2b79a9128d66aaeededf37795f6be5fcbb011"
   },
-  "iifeSha256": "db530926b1849fcd4d54109157597fa70404bc0535136339921a934afa62b297"
+  "iifeSha256": "fa3b076580e3b6d1ac65804bf9eb0c6a6e4c01f26638a9821e5a8fdd84891a18"
 }

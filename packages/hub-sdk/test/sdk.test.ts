@@ -344,6 +344,9 @@ async function main(): Promise<void> {
   await finalOutbox();
   await deadCachedSession();
   await drainOwnGame();
+  await refreshCachedSession();
+  await deadActiveSessionInDrain();
+  await drainWarnings();
   await nakamaClientWire();
   await scoresAndSession();
   await refreshWire();
@@ -757,9 +760,181 @@ async function deadCachedSession(): Promise<void> {
 }
 
 /**
- * HUB-W-1-07c: every game shares the hub-outbox IndexedDB on one origin. init drains only
- * its own game's rows (another game's row is never sent or dropped), and one row that
- * fails for a non-final reason stays queued without failing init or blocking the rest.
+ * HUB-W-1-07 review: a cached session whose access token expired (2 h) while its refresh
+ * token (7 days) and lease (6 h) still hold is refreshed, not dropped. A 401 drops it only
+ * when the refresh itself is refused, or there is nothing to refresh with.
+ */
+async function refreshCachedSession(): Promise<void> {
+  const tokenAt = (n: number) => fakeJwt('user-51', { sid: 'sid-51', ranked: '1', scope: 'game', game: 'nobu', n: String(n) });
+  let minted = 1;
+  let current = tokenAt(minted);
+  let refreshAnswer: 'ok' | 'refused' | 'offline' = 'ok';
+  let refreshes = 0;
+  let profileAfterRefresh: 'ok' | 'closed' = 'ok';
+  const profiles: string[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-51' };
+    },
+    async authenticateCustom() {
+      return { token: current, refreshToken: 'refresh-51', userId: 'user-51' };
+    },
+    async sessionRefresh(refreshToken) {
+      refreshes += 1;
+      assert.equal(refreshToken, 'refresh-51');
+      if (refreshAnswer === 'offline') throw new TypeError('fetch failed');
+      if (refreshAnswer === 'refused') throw new HubSdkError('auth_failed', 'Refresh token invalid', 401);
+      minted += 1;
+      current = tokenAt(minted);
+      return { token: current, refreshToken: 'refresh-51' };
+    },
+    async rpc<T>(id: string, _body: object, opts?: { token?: string }): Promise<T> {
+      if (id === 'profile.get') {
+        profiles.push(opts?.token ?? '');
+        if (opts?.token !== current) throw new HubSdkError('rpc_failed', 'token expired', 401);
+        if (profileAfterRefresh === 'closed') throw new HubSdkError('session_closed', 'Session is closed');
+        return { playerId: 'user-51', relics: [], ticketsCapLeft: 7 } as T;
+      }
+      throw new HubSdkError('session_closed', 'Session is closed');
+    },
+  };
+  let hash = '#t=r51';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const launch = async () => {
+    minted += 1;
+    current = tokenAt(minted);
+    hash = '#t=r51';
+    refreshAnswer = 'ok';
+    profileAfterRefresh = 'ok';
+    await open().init('nobu');
+  };
+  const cachedToken = () => (JSON.parse(session.getItem('hub:nobu:session') ?? '{}') as { token?: string }).token;
+
+  // The access token expires: init refreshes, persists the new token and retries profile.get once.
+  await launch();
+  const stale = current;
+  current = 'expired-server-side';
+  const revived = open();
+  const result = await revived.init('nobu');
+  assert.equal(result.playerId, 'user-51', 'expired_access_token_is_refreshed_not_dropped');
+  assert.equal(result.ticketsCapLeft, 7);
+  assert.equal(refreshes, 1);
+  assert.notEqual(revived.getSession?.()?.token, stale);
+  assert.equal(revived.getSession?.()?.token, current);
+  assert.equal(cachedToken(), current, 'the refreshed token is cached');
+  assert.deepEqual(profiles.slice(-2), [stale, current], 'profile.get is retried once with the new token');
+
+  // The refresh is refused (refresh token expired or revoked): standalone.
+  await launch();
+  current = 'expired-server-side';
+  refreshAnswer = 'refused';
+  const refused = open();
+  assert.equal((await refused.init('nobu')).ranked, false, 'refused_refresh_falls_back_to_standalone');
+  assert.equal(refused.getSession?.(), null);
+  assert.equal(session.getItem('hub:nobu:session'), null);
+
+  // The refresh fails offline: keep the cached session for the next init.
+  await launch();
+  const kept = current;
+  current = 'expired-server-side';
+  refreshAnswer = 'offline';
+  const offline = open();
+  assert.equal((await offline.init('nobu')).playerId, 'user-51', 'offline_refresh_keeps_the_session');
+  assert.equal(offline.getSession?.()?.token, kept);
+
+  // Refreshed, but the session itself is closed: standalone.
+  await launch();
+  current = 'expired-server-side';
+  profileAfterRefresh = 'closed';
+  const closedAfter = open();
+  assert.equal((await closedAfter.init('nobu')).ranked, false);
+  assert.equal(closedAfter.getSession?.(), null);
+  session.removeItem('hub:nobu:session');
+}
+
+/**
+ * HUB-W-1-07 review: profile.get does not report a closed session today, so the drain is the
+ * real signal. A row sent on the active session's token that comes back dead ends that
+ * session: standalone, cache cleared, no more rows sent on that token.
+ */
+async function deadActiveSessionInDrain(): Promise<void> {
+  const tokens: Record<string, string> = {
+    h1: fakeJwt('user-61', { sid: 'sid-h1', ranked: '0', scope: 'game', game: 'hpos10i' }),
+    h2: fakeJwt('user-61', { sid: 'sid-h2', ranked: '0', scope: 'game', game: 'hpos10i' }),
+  };
+  const closed = new Set<string>();
+  let offline = false;
+  const sent: { key: string; token?: string }[] = [];
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-61' };
+    },
+    async authenticateCustom(id) {
+      return { token: tokens[id.slice(2)]!, refreshToken: `refresh-${id}`, userId: 'user-61' };
+    },
+    async rpc<T>(id: string, body: object, opts?: { token?: string }): Promise<T> {
+      if (id === 'profile.get') return { playerId: 'user-61', relics: [], ticketsCapLeft: 9 } as T;
+      const key = (body as { key?: string }).key ?? '';
+      if (!key.startsWith('act-')) throw new HubSdkError('session_closed', 'Session is closed');
+      if (offline) throw new TypeError('fetch failed');
+      sent.push({ key, token: opts?.token });
+      if (opts?.token && closed.has(opts.token)) throw new HubSdkError('session_closed', 'Session is closed');
+      return { balance: 1, capped: false } as T;
+    },
+  };
+  let hash = '';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+
+  hash = '#t=h1';
+  const first = open();
+  await first.init('hpos10i');
+  offline = true;
+  await assert.rejects(() => first.earnTickets(5, 'level_end', 'act-1'), TypeError);
+  await assert.rejects(() => first.earnTickets(5, 'level_end', 'act-2'), TypeError);
+  offline = false;
+  // Another tab's portal closes h1; profile.get still answers (it does not check the session).
+  closed.add(tokens.h1!);
+  const reload = open();
+  const result = await reload.init('hpos10i');
+  assert.equal(result.ranked, false, 'dead_active_token_in_drain_goes_standalone');
+  assert.equal(reload.getSession?.(), null);
+  assert.equal(session.getItem('hub:hpos10i:session'), null, 'the dead session is not cached');
+  assert.equal(sent.filter((call) => call.token === tokens.h1).length, 1, 'no more rows are sent on the dead token');
+  // The rows stay queued and the player's next session carries both.
+  hash = '#t=h2';
+  await open().init('hpos10i');
+  assert.deepEqual(sent.filter((call) => call.token === tokens.h2).map((call) => call.key).sort(), ['act-1', 'act-2']);
+  session.removeItem('hub:hpos10i:session');
+}
+
+/**
+ * HUB-W-1-07c (revised in review): every game shares the hub-outbox IndexedDB on one origin.
+ * init also delivers other games' rows, but only with each row's own stored token: never
+ * re-pointed at this session, dropped only on that row's own final refusal, and a failure
+ * never affects this game's init. One row failing for a non-final reason stays queued
+ * without failing init or blocking the rest.
  */
 async function drainOwnGame(): Promise<void> {
   const tickets: Record<string, { game: GameId; sid: string }> = {
@@ -767,10 +942,11 @@ async function drainOwnGame(): Promise<void> {
     a2: { game: 'sproto-arcade', sid: 'sid-g-a2' },
     a3: { game: 'sproto-arcade', sid: 'sid-g-a3' },
     b1: { game: 'peoples-bitcoin', sid: 'sid-g-b1' },
+    b2: { game: 'peoples-bitcoin', sid: 'sid-g-b2' },
   };
   const tokenOf = (name: string) => fakeJwt('user-41', { sid: tickets[name]!.sid, ranked: '0', scope: 'game', game: tickets[name]!.game });
   /** Per key: how the server answers. */
-  const answers = new Map<string, 'ok' | 'refuse' | 'down' | 'offline'>();
+  const answers = new Map<string, 'ok' | 'refuse' | 'down' | 'offline' | 'closed'>();
   const sent: { key: string; token?: string }[] = [];
   const client: NakamaClient = {
     async authenticateDevice() {
@@ -789,6 +965,7 @@ async function drainOwnGame(): Promise<void> {
       sent.push({ key, token: opts?.token });
       if (answer === 'down') throw new HubSdkError('rpc_failed', 'bad gateway', 502);
       if (answer === 'refuse') throw new HubSdkError('amount_over_rule', 'amount_over_rule');
+      if (answer === 'closed') throw new HubSdkError('session_closed', 'Session is closed');
       return { balance: 1, capped: false } as T;
     },
   };
@@ -805,29 +982,50 @@ async function drainOwnGame(): Promise<void> {
     },
     assign: () => undefined,
   });
-  const sends = (key: string) => sent.filter((call) => call.key === key).length;
+  const sends = (key: string) => sent.filter((call) => call.key === key);
 
-  // Arcade queues a write it could not deliver.
+  // The arcade queues three writes it could not deliver.
   hash = '#t=a1';
   const arcade = open();
   await arcade.init('sproto-arcade');
-  answers.set('own-arcade-1', 'offline');
-  await assert.rejects(() => arcade.earnTickets(10, 'boss', 'own-arcade-1'), TypeError);
+  for (const key of ['own-arcade-1', 'own-arcade-2', 'own-arcade-3']) {
+    answers.set(key, 'offline');
+    await assert.rejects(() => arcade.earnTickets(10, 'boss', key), TypeError);
+  }
 
-  // People's Bitcoin, same player and origin, launches. The arcade row would now be refused
-  // for good; PB must neither send it (nor drop it), and its init must still succeed.
-  answers.set('own-arcade-1', 'refuse');
+  // People's Bitcoin (same player, same origin) launches. It sends the arcade's rows on the
+  // arcade's own token, never its own. A 5xx, a final refusal and a closed arcade session
+  // none of them affect PB's init or PB's session.
+  answers.set('own-arcade-1', 'down');
+  answers.set('own-arcade-2', 'refuse');
+  answers.set('own-arcade-3', 'closed');
   hash = '#t=b1';
-  const pb = await open().init('peoples-bitcoin');
-  assert.equal(pb.playerId, 'user-41');
-  assert.equal(sends('own-arcade-1'), 0, 'drain_skips_other_games_rows');
+  const pbSdk = open();
+  const pb = await pbSdk.init('peoples-bitcoin');
+  assert.equal(pb.playerId, 'user-41', 'other_games_row_failures_do_not_fail_init');
+  assert.equal(pbSdk.getSession?.()?.token, tokenOf('b1'), 'another game\'s dead row does not end this session');
+  for (const key of ['own-arcade-1', 'own-arcade-2', 'own-arcade-3']) {
+    assert.deepEqual(sends(key).map((call) => call.token), [tokenOf('a1')], `other_games_rows_keep_their_own_token (${key})`);
+  }
 
-  // The arcade's own next launch delivers it on its new session.
+  // Next PB launch: the 5xx row lands on its own token; the refused row was dropped; the
+  // closed-session row stays queued and is not re-pointed at PB's session.
   answers.set('own-arcade-1', 'ok');
+  hash = '#t=b2';
+  await open().init('peoples-bitcoin');
+  assert.deepEqual(sends('own-arcade-1').map((call) => call.token), [tokenOf('a1'), tokenOf('a1')], 'delivered for a game the player did not relaunch');
+  assert.equal(sends('own-arcade-2').length, 1, 'a final refusal dropped the other game\'s row');
+  assert.ok(sends('own-arcade-3').every((call) => call.token === tokenOf('a1')));
+
+  // The arcade's own next launch re-points its closed-session row at its new session.
+  answers.set('own-arcade-3', 'ok');
   hash = '#t=a2';
   await open().init('sproto-arcade');
-  assert.equal(sends('own-arcade-1'), 1);
-  assert.equal(sent.at(-1)?.token, tokenOf('a2'));
+  assert.equal(sends('own-arcade-3').at(-1)?.token, tokenOf('a2'));
+  const delivered = sends('own-arcade-3').length;
+  await open().init('sproto-arcade');
+  assert.equal(sends('own-arcade-1').length, 2, 'a delivered row is not sent again');
+  assert.equal(sends('own-arcade-3').length, delivered);
 
   // One row failing with a retryable error stays queued and does not fail init or block the next row.
   const live = open();
@@ -841,15 +1039,84 @@ async function drainOwnGame(): Promise<void> {
   hash = '#t=a3';
   const next = await open().init('sproto-arcade');
   assert.equal(next.playerId, 'user-41', 'drain_row_error_does_not_fail_init');
-  assert.equal(sends('own-arcade-bad'), 1);
-  assert.equal(sends('own-arcade-good'), 1, 'a failing row does not block the rows after it');
+  assert.equal(sends('own-arcade-bad').length, 1);
+  assert.equal(sends('own-arcade-good').length, 1, 'a failing row does not block the rows after it');
   answers.set('own-arcade-bad', 'ok');
   await open().init('sproto-arcade');
-  assert.equal(sends('own-arcade-bad'), 2, 'the failed row stayed queued and lands later');
+  assert.equal(sends('own-arcade-bad').length, 2, 'the failed row stayed queued and lands later');
   await open().init('sproto-arcade');
-  assert.equal(sends('own-arcade-bad'), 2);
-  assert.equal(sends('own-arcade-good'), 1);
+  assert.equal(sends('own-arcade-bad').length, 2);
+  assert.equal(sends('own-arcade-good').length, 1);
   session.removeItem('hub:sproto-arcade:session');
+}
+
+/** Review: drain never hides a non-server error silently, and an unreadable outbox does not fail init. */
+async function drainWarnings(): Promise<void> {
+  const token = fakeJwt('user-71', { sid: 'sid-71', ranked: '0', scope: 'game', game: 'sproto-shooter' });
+  let answer: 'offline' | 'bug' | 'ok' = 'offline';
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-71' };
+    },
+    async authenticateCustom() {
+      return { token, refreshToken: 'refresh-71', userId: 'user-71' };
+    },
+    async rpc<T>(id: string, body: object): Promise<T> {
+      if (id === 'profile.get') return { playerId: 'user-71', relics: [], ticketsCapLeft: 3 } as T;
+      if ((body as { key?: string }).key !== 'warn-1') throw new HubSdkError('session_closed', 'Session is closed');
+      if (answer === 'offline') throw new TypeError('fetch failed');
+      if (answer === 'bug') throw new RangeError('a programming error');
+      return { balance: 1, capped: false } as T;
+    },
+  };
+  let hash = '#t=w71';
+  const session = memoryKeyValue();
+  const open = () => createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session,
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const warned: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warned.push(String(args[0]));
+  };
+  const globals = globalThis as { indexedDB?: unknown };
+  try {
+    const sdk = open();
+    await sdk.init('sproto-shooter');
+    await assert.rejects(() => sdk.earnTickets(1, 'win', 'warn-1'), TypeError);
+    answer = 'bug';
+    assert.equal((await open().init('sproto-shooter')).playerId, 'user-71');
+    assert.ok(warned.some((line) => line.includes('warn-1')), 'drain_warns_on_non_hub_errors');
+
+    // An outbox that cannot be opened (blocked storage) does not fail init.
+    globals.indexedDB = {
+      open() {
+        const request: { error?: Error; onerror?: () => void } = {};
+        queueMicrotask(() => {
+          request.error = new Error('storage blocked');
+          request.onerror?.();
+        });
+        return request;
+      },
+    };
+    const blocked = await open().init('sproto-shooter');
+    assert.equal(blocked.playerId, 'user-71', 'unreadable_outbox_does_not_fail_init');
+    assert.ok(warned.some((line) => line.includes('could not read the outbox')));
+  } finally {
+    console.warn = originalWarn;
+    delete globals.indexedDB;
+  }
+  answer = 'ok';
+  await open().init('sproto-shooter');
+  session.removeItem('hub:sproto-shooter:session');
 }
 
 async function nakamaClientWire(): Promise<void> {

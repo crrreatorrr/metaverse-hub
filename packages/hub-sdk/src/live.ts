@@ -166,6 +166,22 @@ function deadSession(error: unknown): boolean {
   return error.code === 'rpc_failed' && error.status === 401;
 }
 
+/** The access token itself was refused (an expired 2 h JWT). A refresh can cure it. */
+function expiredToken(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  return error.code === 'unauthorized' || (error.code === 'rpc_failed' && error.status === 401);
+}
+
+/**
+ * The refresh itself was refused: the refresh token is expired or revoked, or the answer
+ * had no token. A network failure or a 5xx is not a refusal.
+ */
+function refreshRefused(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  if (error.status !== undefined) return error.status >= 400 && error.status < 500;
+  return error.code === 'auth_failed' || error.code === 'bad_token' || error.code === 'unauthorized';
+}
+
 /** Codes a server can answer in a 2xx body that a later attempt of the same write can still pass. */
 const RETRY_CODES = new Set(['rate_limited', 'missing_ticket_key', 'missing_recovery_pepper']);
 
@@ -352,25 +368,61 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     return transmit(row);
   }
 
+  /** End the active session: closed by a newer portal or by exit, or past its lease. */
+  function dropActive(): void {
+    if (active) resolved.session.removeItem(sessionKey(active.game));
+    active = null;
+  }
+
+  function warnRow(what: string, error: unknown): void {
+    // A HubSdkError is a server or session answer and is expected here. Anything else may be
+    // a bug, so say so instead of hiding it.
+    if (error instanceof HubSdkError) return;
+    console.warn(`hub-sdk: ${what}; left queued`, error);
+  }
+
   /**
-   * Send this game's queued rows. Every game shares the `hub-outbox` database on one
-   * origin, so a row for another game (or with no game) is left alone: never sent, never
-   * dropped. That game's own SDK delivers it.
+   * Send the queued rows. Every game shares the `hub-outbox` database on one origin.
+   *
+   * - This game's rows may move onto this session's token (rebind).
+   * - Another game's row (or one with no game) goes out on its own stored token only, so a
+   *   game the player never relaunches still gets its writes delivered. It is never
+   *   re-pointed, it is dropped only on its own final refusal, and its failure never
+   *   affects this game.
    *
    * No single row fails init:
    * - a final refusal is dropped by transmit (the write that queued it already got that error);
    * - a row on a dead session this session cannot carry waits for its own player's next session;
-   * - a network failure, an HTTP error, or a storage error leaves the row queued for the
+   * - a network failure, an HTTP error or a storage error leaves the row queued for the
    *   next init, and the rows after it are still sent.
+   *
+   * profile.get does not report a closed session today, so a row on this session's own token
+   * that comes back dead is the signal: the session ends (standalone, cache cleared) and no
+   * more rows go out on that token.
    */
   async function drain(game: GameId): Promise<void> {
-    const rows = await listWrites();
+    let rows: OutboxRecord[];
+    try {
+      rows = await listWrites();
+    } catch (error) {
+      console.warn('hub-sdk: could not read the outbox; queued writes wait for the next init', error);
+      return;
+    }
+    let deadToken: string | null = null;
     for (const queued of rows) {
-      if (typeof queued.gameId !== 'string' || canonicalGameId(queued.gameId) !== game) continue;
+      const own = typeof queued.gameId === 'string' && canonicalGameId(queued.gameId) === game;
+      let row = queued;
       try {
-        await transmit(await rebind(queued));
-      } catch {
-        // Left queued (or dropped, for a final refusal). Carry on with the next row.
+        if (own) row = await rebind(queued);
+        if (deadToken !== null && row.token === deadToken) continue;
+        await transmit(row);
+      } catch (error) {
+        if (own && active && row.token === active.token && deadSession(error)) {
+          deadToken = active.token;
+          dropActive();
+          continue;
+        }
+        warnRow(`outbox row ${queued.key} failed`, error);
       }
     }
   }
@@ -454,31 +506,55 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         if (!cached) {
           active = null;
         } else {
+          type Profile = {
+            playerId?: string;
+            relics?: unknown;
+            ticketsCapLeft?: number;
+            serverTime?: number;
+            items?: unknown;
+            gates?: unknown;
+          };
+          const loadProfile = (sessionToken: string) => client.rpc<Profile>('profile.get', {}, { token: sessionToken });
+          let profile: Profile | null = null;
+          let dead = false;
           try {
-            const profile = await client.rpc<{
-              playerId?: string;
-              relics?: unknown;
-              ticketsCapLeft?: number;
-              serverTime?: number;
-              items?: unknown;
-              gates?: unknown;
-            }>('profile.get', {}, { token: cached.token });
+            profile = await loadProfile(cached.token);
+          } catch (error) {
+            const sessionRefresh = client.sessionRefresh;
+            if (expiredToken(error) && cached.refreshToken && sessionRefresh) {
+              // The 2 h access token lapsed (a tab restored after sleep) while the refresh
+              // token and the lease may still hold: refresh, keep it, and retry once.
+              try {
+                const fresh = await sessionRefresh(cached.refreshToken);
+                cached.token = fresh.token;
+                cached.refreshToken = fresh.refreshToken || cached.refreshToken;
+                writeCached(cached);
+                try {
+                  profile = await loadProfile(cached.token);
+                } catch (retryError) {
+                  dead = deadSession(retryError);
+                }
+              } catch (refreshError) {
+                dead = refreshRefused(refreshError);
+              }
+            } else {
+              dead = deadSession(error);
+            }
+          }
+          if (dead) {
+            // Run standalone until the hub sends a fresh ticket. Do not keep showing it as live.
+            resolved.session.removeItem(sessionKey(game));
+            active = null;
+          } else if (profile) {
             cached.relics = asRelics(profile.relics);
             readInventory(profile);
             if (profile.playerId) cached.playerId = profile.playerId;
             if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
             serverTime = clockMs(profile.serverTime);
             writeCached(cached);
-          } catch (error) {
-            if (deadSession(error)) {
-              // Closed by a newer portal or by exit, or past its lease: run standalone
-              // until the hub sends a fresh ticket. Do not keep showing it as live.
-              resolved.session.removeItem(sessionKey(game));
-              active = null;
-            } else {
-              // Offline or a server hiccup: the token may still be good. The next init retries.
-              active = cached;
-            }
+          } else {
+            // Offline or a server hiccup: the token may still be good. The next init retries.
+            active = cached;
           }
         }
       }
