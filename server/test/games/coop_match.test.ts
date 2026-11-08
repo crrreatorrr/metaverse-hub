@@ -647,8 +647,9 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(bag(run.mod).liveSession(run.matchId), null);
   const resumed = run.mod.call<{ matchId: string; error?: string }>('coop.resume', game(USERS[0]!), { matchId: run.matchId });
   assert.equal(resumed.error, undefined, JSON.stringify(resumed));
-  const saved = run.mod.nk.storageRead([{ collection: 'sproto_coop', key: `ckpt:${run.matchId}`, userId: '00000000-0000-0000-0000-000000000000' }]);
-  const exported = saved[0]?.value['exported'];
+  const saved = run.mod.nk.storage.get(`sproto_coop/ckpt:${run.matchId}/00000000-0000-0000-0000-000000000000`);
+  assert.ok(saved);
+  const exported = saved.value['exported'];
   assert.equal(sha256(exported), shutdown?.body.stateHash);
   const Sim = run.mod.global.Sim as { importState(data: unknown): { players: { ctrl: string }[] }; exportState(state: unknown): unknown };
   assert.equal(sha256(Sim.exportState(Sim.importState(exported))), shutdown?.body.stateHash);
