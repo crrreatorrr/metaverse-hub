@@ -3312,6 +3312,9 @@ namespace HubSchema {
   // 0040_shooter_boss_receipt is registered from src/games/shooter_rewards.ts. It adds the
   // shooter run, digest, and receipt tables and the internal settle function. It does not
   // add a client event_rule. 0036 and 0038 stay unused.
+  // 0041_coop_boss_receipt is registered from src/games/coop_rewards.ts. It adds the coop
+  // eligibility and receipt tables and the internal settle function. It does not add a
+  // client event_rule, and it does not change V Coin or any other game's payout.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
