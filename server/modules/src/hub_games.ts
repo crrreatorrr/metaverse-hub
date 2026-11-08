@@ -23,6 +23,19 @@ namespace HubGames {
   var regs: { [game: string]: GameReg } = {};
   var order: string[] = [];
 
+  /**
+   * Add a matchmaker to a game id that was registered earlier. A second
+   * matchmaker for that id throws. The id itself is not registered again.
+   */
+  export function attach(game: string, patch: { matchmaker?: GameReg["matchmaker"] }): void {
+    var reg = regs[game];
+    if (!reg) throw new Error("hub_games_missing " + game);
+    if (!patch || !patch.matchmaker) return;
+    if (reg.matchmaker === patch.matchmaker) return;
+    if (reg.matchmaker) throw new Error("hub_games_matchmaker_set " + game);
+    reg.matchmaker = patch.matchmaker;
+  }
+
   /** Call at top level of the game file. A duplicate game id throws. */
   export function register(reg: GameReg): void {
     if (!reg || typeof reg.game !== "string" || !reg.game) throw new Error("hub_games_bad_registration");

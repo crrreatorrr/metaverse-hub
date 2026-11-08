@@ -20,6 +20,7 @@
     "src/nakama.d.ts",
     "src/sproto_nakama.d.ts",
     "src/sproto_sim.d.ts",
+    "src/games/coop_sim.d.ts",
     "src/shop_seed.ts",
     "src/schema.ts",
     "src/hub_realms.ts",

@@ -24,6 +24,10 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
+      - name: Check Coop simulation pin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-coop-sim-version.mjs
       - run: npm test
       - run: npm run build
 
@@ -69,6 +73,9 @@ jobs:
         timeout-minutes: 120
       - run: npm run test:rt
         timeout-minutes: 10
+      - name: Coop authoritative match
+        run: npx tsx scripts/load/coop-bots.ts
+        timeout-minutes: 15
       - name: Economy audit
         if: always()
         run: docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/audit.sql
