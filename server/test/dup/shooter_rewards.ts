@@ -22,6 +22,7 @@ import {
   num,
   openGame,
   psql,
+  sleep,
   sqlId,
   ticketBalance,
   type GameLogin,
@@ -203,6 +204,10 @@ function credits(userId: string): number {
   return num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = 'sproto-shooter' AND reason = '${REASON}' AND delta = ${PAY}`);
 }
 
+function creditSum(userId: string): number {
+  return num(`SELECT COALESCE(sum(delta), 0) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = 'sproto-shooter' AND reason = '${REASON}'`);
+}
+
 function scores(userId: string, boss = 'sahil'): number {
   return num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(userId)}' AND board_id = 'shooter_story_clear_ms_v1' AND variant = '${boss}'`);
 }
@@ -211,11 +216,11 @@ function receipts(userId: string, boss = 'sahil'): number {
   return num(`SELECT count(*) FROM game.shooter_receipt WHERE user_id = '${sqlId(userId)}' AND canonical_boss = '${boss}'`);
 }
 
-function idleLog(issuance: Issuance, from: string | null = null) {
+function idleLog(issuance: Issuance, from: string | null = null, frames = 1) {
   return {
     v: 1,
     binding: { accountId: issuance.accountId, sessionId: issuance.sessionId, day: issuance.day, runId: issuance.runId },
-    segments: [{ i: 0, from, tick0: from ? 1 : 0, n: 1, frames: 'AAAAAAAAAAAAAAAA', actions: [] }],
+    segments: [{ i: 0, from, tick0: from ? 1 : 0, n: frames, frames: Buffer.alloc(frames * 12).toString('base64'), actions: [] }],
   };
 }
 
@@ -230,27 +235,49 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     const event = await call('session.event', { eventId: 'shooter.boss_clear', key: 'client-event', data: { boss: 'sahil' } }, session.gameToken);
     assert.equal(body(event).error, 'server_reason');
     assert.equal(body(event).tickets, undefined);
-    const score = await call('score.submit', { boardId: 'shooter_story_clear_ms_v1', value: 10, meta: {} }, session.gameToken);
+    const score = await call('score.submit', { boardId: 'shooter_story_clear_ms_v1', value: 10, meta: { boss: 'sahil' } }, session.gameToken);
     assert.equal(body(score).error, 'bad_board');
+    for (const reason of ['boss', 'win', 'sproto.boss_defeated']) {
+      const generic = await call('tickets.earn', { amount: 20, reason, key: `generic-${reason}` }, session.gameToken);
+      assert.notEqual(body(generic).balance, PAY, JSON.stringify(generic.body));
+      assert.equal(body(generic).error === 'unknown_reason' || body(generic).error === 'amount_over_rule' || body(generic).error === 'server_reason', true, JSON.stringify(generic.body));
+    }
+    const duelEvent = await call('session.event', { eventId: 'sproto.boss_defeated', key: 'generic-event', data: { boss: 'sahil' } }, session.gameToken);
+    assert.equal(body(duelEvent).tickets, undefined, JSON.stringify(duelEvent.body));
+    const aliasEvent = await call('session.event', { eventId: 'sproto.boss_defeated', key: 'generic-alias', data: { boss: 'obamaDuo' } }, session.gameToken);
+    assert.equal(body(aliasEvent).tickets, undefined, JSON.stringify(aliasEvent.body));
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), 0);
     assert.equal(credits(session.hub.userId), 0);
+    assert.equal(creditSum(session.hub.userId), 0);
+    assert.equal(scores(session.hub.userId), 0);
   });
 
   await test('shooter', 'aliases and a forged issue do not open a payable run', async () => {
     const session = await loginShooter();
-    for (const boss of ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent']) {
+    const aliasReason: { [boss: string]: string } = {
+      obamaDuo: 'obama_is_one',
+      midgetDuo: 'obama_is_one',
+      agent: 'glowie_not_agent',
+      glowieAgent: 'glowie_not_agent',
+    };
+    for (const boss of Object.keys(aliasReason)) {
       const result = await call('shooter.run.issue', { key: `alias-${boss}`, canonicalBoss: boss }, session.gameToken);
-      assert.notEqual(body(result).ok, true, boss);
-      assert.equal(body(result).tickets, 0, JSON.stringify(result.body));
+      assert.equal(body(result).reason, aliasReason[boss], JSON.stringify(result.body));
+      assert.equal(body(result).tickets, 0);
       assert.equal(body(result).ticketsMinted, 0);
     }
-    const seeded = await call('shooter.run.issue', { key: 'forged-seed', canonicalBoss: 'sahil', seed: 7, loadout: 'god' }, session.gameToken);
-    assert.equal(body(seeded).reason, 'forged_seed');
+    const seeded = await call('shooter.run.issue', { key: 'forged-seed', canonicalBoss: 'sahil', seed: 7 }, session.gameToken);
+    assert.equal(body(seeded).reason, 'forged_seed', JSON.stringify(seeded.body));
     assert.equal(body(seeded).tickets, 0);
+    const loaded = await call('shooter.run.issue', { key: 'forged-loadout', canonicalBoss: 'sahil', loadout: 'god' }, session.gameToken);
+    assert.equal(body(loaded).reason, 'injected_inventory', JSON.stringify(loaded.body));
+    assert.equal(body(loaded).tickets, 0);
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE user_id = '${sqlId(session.hub.userId)}'`), 0);
+    assert.equal(credits(session.hub.userId), 0);
+    assert.equal(scores(session.hub.userId), 0);
   });
 
-  await test('shooter', 'x100 retries of one clear pay once and write one score', async () => {
+  await test('shooter', 'x100 retries and a delayed retry of one clear pay once and write one score', async () => {
     const who = await guest();
     const duel = await openGame(who.token, 'sproto');
     const duelPay = await call('session.event', { eventId: 'sproto.boss_defeated', key: 'duel-sahil', data: { boss: 'sahil' } }, duel.gameToken);
@@ -275,11 +302,24 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
       assert.equal(canonical(again.body), canonical(first.body), `retry ${i} ${JSON.stringify(again.body)}`);
     }
     assert.equal(credits(session.hub.userId), 1);
+    assert.equal(creditSum(session.hub.userId), PAY);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
+    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(psql(`SELECT day::text FROM game.shooter_receipt WHERE run_id = '${sqlId(issuance.runId)}'`), issuance.day);
+    await sleep(2000);
+    const delayed = await submit(session, issuance.runId, log);
+    assert.equal(canonical(delayed.body), canonical(first.body), JSON.stringify(delayed.body));
+    assert.equal(credits(session.hub.userId), 1);
+    assert.equal(creditSum(session.hub.userId), PAY);
+    assert.equal(scores(session.hub.userId), 1);
+    const alias = await call('shooter.run.issue', { key: 'after-clear-obamaDuo', canonicalBoss: 'obamaDuo' }, session.gameToken);
+    assert.equal(body(alias).reason, 'obama_is_one', JSON.stringify(alias.body));
+    assert.equal(body(alias).tickets, 0);
+    assert.equal(credits(session.hub.userId), 1);
     assert.equal(scores(session.hub.userId), 1);
   });
 
-  await test('shooter', '20 concurrent races and a new key or session pay once', async () => {
+  await test('shooter', '20 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
     const session = await loginShooter();
     const { issuance, log } = await cleared(session, 'sahil', 'race-key');
     const results = await Promise.all(Array.from({ length: 20 }, () => submit(session, issuance.runId, log)));
@@ -288,7 +328,19 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     const sealed = canonical(winners[0]?.body);
     for (const result of winners) assert.equal(canonical(result.body), sealed);
     assert.equal(credits(session.hub.userId), 1);
+    assert.equal(creditSum(session.hub.userId), PAY);
+    assert.equal(scores(session.hub.userId), 1);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
+    const aliasNames = ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent'];
+    const aliasRace = await Promise.all(aliasNames.flatMap((boss) => (
+      Array.from({ length: 5 }, (_, i) => call('shooter.run.issue', { key: `alias-race-${boss}-${i}`, canonicalBoss: boss }, session.gameToken))
+    )));
+    assert.equal(aliasRace.length, 20);
+    for (const result of aliasRace) {
+      assert.notEqual(body(result).ok, true, JSON.stringify(result.body));
+      assert.equal(body(result).tickets, 0);
+      assert.equal(body(result).ticketsMinted, 0);
+    }
     const otherClear = await cleared(session, 'sahil', 'race-other-key');
     const other = otherClear.issuance;
     assert.notEqual(other.runId, issuance.runId);
@@ -302,6 +354,8 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(body(third).tickets, 0, JSON.stringify(third.body));
     assert.notEqual(body(third).paid, true);
     assert.equal(credits(session.hub.userId), 1);
+    assert.equal(creditSum(session.hub.userId), PAY);
+    assert.equal(scores(session.hub.userId), 1);
     assert.equal(receipts(session.hub.userId), 1);
   });
 
@@ -388,7 +442,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(credits(boundary.hub.userId), 2);
   });
 
-  await test('shooter', 'forged account, checkpoint, god mode, and oversized logs pay 0', async () => {
+  await test('shooter', 'forged run, account, checkpoint, and malformed or expensive logs pay 0', async () => {
     const session = await loginShooter();
     const before = ticketBalance(session.hub.userId, 'sproto-shooter');
     const forgedClear = await cleared(session, 'sahil', 'forged-log');
@@ -399,6 +453,19 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     const rebound = await submit(session, issuance.runId, forged);
     assert.equal(body(rebound).reason, 'rebind', JSON.stringify(rebound.body));
     assert.equal(body(rebound).tickets, 0);
+    const missing = await submit(session, 'ffffffff-ffff-4fff-8fff-ffffffffffff', log);
+    assert.equal(body(missing).reason, 'unknown_run', JSON.stringify(missing.body));
+    assert.equal(body(missing).tickets, 0);
+    const swapped = JSON.parse(JSON.stringify(log)) as { binding: { runId: string } };
+    swapped.binding.runId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const wrongRun = await submit(session, issuance.runId, swapped);
+    assert.equal(body(wrongRun).reason, 'rebind', JSON.stringify(wrongRun.body));
+    assert.equal(body(wrongRun).tickets, 0);
+    const otherDay = JSON.parse(JSON.stringify(log)) as { binding: { day: string } };
+    otherDay.binding.day = '1999-01-01';
+    const wrongDay = await submit(session, issuance.runId, otherDay);
+    assert.equal(body(wrongDay).reason, 'rebind', JSON.stringify(wrongDay.body));
+    assert.equal(body(wrongDay).tickets, 0);
     const malformed = await submit(session, issuance.runId, { v: 1 });
     assert.equal(body(malformed).reason, 'malformed');
     assert.equal(body(malformed).tickets, 0);
@@ -414,6 +481,9 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     const god = await submit(session, issuance.runId, hostile);
     assert.equal(body(god).reason, 'god_mode', JSON.stringify(god.body));
     assert.equal(body(god).tickets, 0);
+    const expensive = await submit(session, issuance.runId, idleLog(issuance, null, 1800));
+    assert.equal(body(expensive).tickets, 0, JSON.stringify(expensive.body));
+    assert.notEqual(body(expensive).paid, true);
     const idleIssue = await issue(session, 'glowie', 'checkpoint-1');
     const partial = await submit(session, idleIssue.runId, idleLog(idleIssue));
     assert.equal(body(partial).tickets, 0, JSON.stringify(partial.body));

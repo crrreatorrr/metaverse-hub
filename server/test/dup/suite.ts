@@ -100,6 +100,7 @@ function testBudget(name: string): number {
     || name.includes('wallet fault')
     || name.includes('UTC day bucket')
     || name.includes('oversized logs')
+    || name.includes('expensive logs')
   ) return 240_000;
   if (name.includes('daily cap') || name.includes('verse cap') || name.includes('exchange steps') || name.includes('cross the session cap')) {
     return 180_000;
