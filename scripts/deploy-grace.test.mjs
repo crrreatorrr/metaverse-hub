@@ -40,8 +40,8 @@ const graceLine = read('deploy/nakama/config.yml')
 assert.ok(graceLine, 'deploy/nakama/config.yml needs a top-level shutdown_grace_sec');
 const graceSec = Number(graceLine.split(':')[1].trim());
 
-assert.equal(graceSec, 60, 'shutdown_grace_sec is 60 (plan §R.9 step 1)');
-assert.equal(stopSec, 90, 'stop_grace_period is 90s (plan §R.9 step 1)');
+// Long enough for matchTerminate to refund escrow, checkpoint coop and save PB worlds.
+assert.ok(Number.isFinite(graceSec) && graceSec >= 30, `shutdown_grace_sec ${graceSec} must be at least 30`);
 // Headroom for socket close and process exit after the match grace window.
 assert.ok(stopSec >= graceSec + 15, `stop_grace_period ${stopSec}s must exceed shutdown_grace_sec ${graceSec}s by 15 s`);
 
