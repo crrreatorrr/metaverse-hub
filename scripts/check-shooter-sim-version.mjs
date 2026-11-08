@@ -1,12 +1,19 @@
-// Fail when the vendored Shooter verifier disagrees with its pin, with the
-// campaign contract, or with sproto-shooter main. A stale pin is not accepted.
+// Fail when the vendored Shooter verifier disagrees with its pin or with the
+// campaign contract, or when sproto-shooter main has moved in a way that could
+// change the campaign bundle.
 //
-//   node scripts/check-shooter-sim-version.mjs
+//   node scripts/check-shooter-sim-version.mjs            # default
+//   node scripts/check-shooter-sim-version.mjs --strict   # main must be the pin
+//
+// By default a later shooter main passes when the pinned commit is its ancestor
+// and no file feeding the campaign bundle changed in between (see
+// shooter-pin-drift.mjs). --strict, or SHOOTER_PIN_STRICT=1, keeps the old rule.
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { decideShooterPin } from './shooter-pin-drift.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const bundlePath = join(root, 'server/modules/vendor/shooter-sim.js');
@@ -15,6 +22,7 @@ const sourcePath = join(root, 'server/modules/src/games/shooter_rewards.ts');
 const runsPath = join(root, 'server/modules/src/games/shooter_runs.ts');
 const REPO = 'crrreatorrr/sproto-shooter';
 const FINGERPRINT = '3c657fb5';
+const STRICT = process.argv.includes('--strict') || process.env.SHOOTER_PIN_STRICT === '1';
 
 function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex');
@@ -40,6 +48,10 @@ function loadPin(text, label) {
   if (pin.gameId !== 'sproto-shooter') errors.push(`${label} gameId`);
   if (pin.mintsTickets !== false) errors.push(`${label} mintsTickets`);
   if (pin.entry !== 'verifyRun' || pin.jsonEntry !== 'verifyRunJSON') errors.push(`${label} entry`);
+  const inputs = pin.bundleInputs;
+  if (!Array.isArray(inputs) || !inputs.includes('src/server/verify.js') || inputs.some((p) => typeof p !== 'string' || !p || p.startsWith('/'))) {
+    errors.push(`${label} bundleInputs`);
+  }
   return { pin, errors };
 }
 
@@ -112,19 +124,25 @@ async function fetchJson(url, token) {
   return { status: response.status, body: await response.json() };
 }
 
-async function mainSha() {
+async function githubJson(path, label) {
   const token = process.env.GITHUB_TOKEN || '';
   let last = 'no response';
   for (const auth of token ? [token, ''] : ['']) {
     try {
-      const result = await fetchJson(`https://api.github.com/repos/${REPO}/commits/main`, auth);
-      if (result.status === 200 && result.body && result.body.sha) return result.body.sha;
+      const result = await fetchJson(`https://api.github.com/repos/${REPO}/${path}`, auth);
+      if (result.status === 200 && result.body) return result.body;
       last = `GitHub API HTTP ${result.status}`;
     } catch (error) {
       last = error instanceof Error ? error.message : String(error);
     }
   }
-  throw new Error(`could not read shooter main (${last})`);
+  throw new Error(`could not read ${label} (${last})`);
+}
+
+async function mainSha() {
+  const body = await githubJson('commits/main', 'shooter main');
+  if (!body.sha) throw new Error('could not read shooter main (no sha)');
+  return body.sha;
 }
 
 const local = checkLocal();
@@ -134,11 +152,15 @@ if (local.errors.length || !local.pin) {
 }
 try {
   const main = await mainSha();
-  if (main !== local.pin.commit) {
-    console.error(`FAIL: shooter main ${main} != vendored ${local.pin.commit}`);
+  const pinCommit = local.pin.commit;
+  const compare = main === pinCommit || STRICT ? null : await githubJson(`compare/${pinCommit}...${main}`, 'the shooter compare');
+  const decision = decideShooterPin({ pinCommit, mainSha: main, compare, bundleInputs: local.pin.bundleInputs, strict: STRICT });
+  if (!decision.ok) {
+    console.error(`FAIL (${decision.case}): ${decision.message}`);
+    for (const path of decision.offending || []) console.error(`  ${path}`);
     process.exit(1);
   }
-  console.log(`Shooter main ${main} matches pin`);
+  console.log(`OK (${decision.case}): ${decision.message}`);
 } catch (error) {
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);

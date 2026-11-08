@@ -12,6 +12,7 @@
 //                          (generated in the Sproto-Fighter repo by
 //                          scripts/build-sim-bundle.mjs --out <this path>)
 //   vendor/pb-sim.js      People's Bitcoin world simulation (PB repo)
+// Pins, CI checks and the re-vendor steps: vendor/README.md.
 // Vendor bundles must do no heavy work at load: every match VM evaluates the whole file.
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
