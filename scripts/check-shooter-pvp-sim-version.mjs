@@ -1,0 +1,177 @@
+// Fail when the vendored free-arena bundle disagrees with its pin, with the
+// campaign pin, or with sproto-shooter main. A stale pin is not accepted.
+//
+//   node scripts/check-shooter-pvp-sim-version.mjs
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
+
+const root = fileURLToPath(new URL('..', import.meta.url));
+const bundlePath = join(root, 'server/modules/vendor/shooter-pvp-sim.js');
+const pinPath = join(root, 'server/modules/vendor/shooter-pvp-sim.pin.json');
+const campaignPinPath = join(root, 'server/modules/vendor/shooter-sim.pin.json');
+const protocolPath = join(root, 'server/modules/src/games/shooter_protocol.ts');
+const REPO = 'crrreatorrr/sproto-shooter';
+const FINGERPRINT = 'f5949631';
+const LOADOUT = '9eb7cd63';
+const CAMPAIGN_FINGERPRINT = '3c657fb5';
+const CAMPAIGN_SHA = 'aad5daf5b63c6b71309635bd98e48d8019c8fa2ba5f4736c2a8bb3d241e9576d';
+const GOLDEN = { outcome: 'draw', reason: 'double_ko', winner: null, tick: 61, stateHash: 'ce272de1' };
+
+function sha256(buf) {
+  return createHash('sha256').update(buf).digest('hex');
+}
+
+function assigned(source, name) {
+  const match = new RegExp(`export var ${name} = "([^"]+)"`).exec(source);
+  return match ? match[1] : undefined;
+}
+
+function loadPin(text, label) {
+  const pin = JSON.parse(text);
+  const errors = [];
+  if (pin.kind !== 'sproto-shooter-pvp-pin') errors.push(`${label} kind`);
+  if (pin.repo !== REPO) errors.push(`${label} repo`);
+  if (pin.artifact !== 'shooter-pvp') errors.push(`${label} artifact`);
+  if (!/^[0-9a-f]{40}$/.test(String(pin.commit || ''))) errors.push(`${label} commit`);
+  if (!/^[0-9a-f]{64}$/.test(String(pin.sha256 || ''))) errors.push(`${label} sha256`);
+  if (pin.contentFingerprint !== FINGERPRINT) errors.push(`${label} fingerprint`);
+  if (pin.loadoutHash !== LOADOUT) errors.push(`${label} loadout`);
+  if (pin.protocol !== 1 || pin.sim !== 1) errors.push(`${label} protocol`);
+  if (pin.sha256 !== pin.bundleSha256) errors.push(`${label} sha256 != bundleSha256`);
+  if (pin.commit !== pin.sourceCommit) errors.push(`${label} commit != sourceCommit`);
+  if (pin.mintsTickets !== false || pin.stakes !== false) errors.push(`${label} economy`);
+  if (pin.entry !== 'replayJSON' || pin.global !== 'SprotoShooterPvp') errors.push(`${label} entry`);
+  if (pin.campaignContentFingerprint !== CAMPAIGN_FINGERPRINT || pin.campaignProtocol !== 1) errors.push(`${label} campaign`);
+  const golden = pin.golden || {};
+  if (golden.seed !== 7 || golden.tick !== GOLDEN.tick || golden.stateHash !== GOLDEN.stateHash || golden.reason !== GOLDEN.reason) {
+    errors.push(`${label} golden`);
+  }
+  return { pin, errors };
+}
+
+function scripted(api) {
+  const director = api.createDirector({ seed: 7, matchId: 'golden' });
+  const hello = (id) => JSON.stringify({ accountId: id, protocol: 1, sim: 1, content: api.CONTENT_FINGERPRINT });
+  director.handle({ userId: 'a', sessionId: 'sa' }, 1, hello('a'), 0);
+  director.handle({ userId: 'b', sessionId: 'sb' }, 1, hello('b'), 0);
+  director.handle({ userId: 'a', sessionId: 'sa' }, 4, JSON.stringify({ accountId: 'a' }), 0);
+  director.handle({ userId: 'b', sessionId: 'sb' }, 4, JSON.stringify({ accountId: 'b' }), 0);
+  const yaws = [director.sim.players[0].yaw, director.sim.players[1].yaw];
+  const inputs = [];
+  for (let i = 0; i < 180; i++) {
+    inputs.push(yaws.map((yaw) => ({
+      yaw, pitch: 0, moveX: 0, moveZ: 1, fire: true, zoom: true, sprint: false, jump: false, dash: false, reload: false, slot: 0,
+    })));
+  }
+  return JSON.parse(api.replayJSON(JSON.stringify({ seed: 7, inputs })));
+}
+
+function checkLocal() {
+  const errors = [];
+  const bundle = readFileSync(bundlePath);
+  const hash = sha256(bundle);
+  let pin = null;
+  try {
+    const loaded = loadPin(readFileSync(pinPath, 'utf8'), 'pin');
+    pin = loaded.pin;
+    errors.push(...loaded.errors);
+  } catch (error) {
+    errors.push(`could not read pin: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (pin && hash !== pin.sha256) errors.push(`bundle sha256 ${hash} != pin ${pin.sha256}`);
+  if (pin && bundle.length !== pin.bundleBytes) errors.push('bundle bytes');
+  if (!bundle.includes(Buffer.from(pin ? pin.commit : ''))) errors.push('bundle does not bake the pinned commit');
+
+  const campaign = JSON.parse(readFileSync(campaignPinPath, 'utf8'));
+  if (campaign.fingerprint !== CAMPAIGN_FINGERPRINT || campaign.sha256 !== CAMPAIGN_SHA || campaign.protocol !== 1) {
+    errors.push('campaign pin moved');
+  }
+  if (campaign.entry !== 'verifyRun') errors.push('campaign entry');
+
+  const source = readFileSync(protocolPath, 'utf8');
+  if (pin) {
+    if (assigned(source, 'COMMIT') !== pin.commit) errors.push('ShooterProto.COMMIT != pin commit');
+    if (assigned(source, 'BUNDLE_SHA256') !== pin.sha256) errors.push('ShooterProto.BUNDLE_SHA256 != pin sha256');
+    if (assigned(source, 'FINGERPRINT') !== pin.contentFingerprint) errors.push('ShooterProto.FINGERPRINT != pin');
+    if (assigned(source, 'LOADOUT_HASH') !== pin.loadoutHash) errors.push('ShooterProto.LOADOUT_HASH != pin');
+    if (assigned(source, 'REPO') !== pin.repo) errors.push('ShooterProto.REPO != pin repo');
+    if (assigned(source, 'CAMPAIGN_FINGERPRINT') !== CAMPAIGN_FINGERPRINT) errors.push('campaign fingerprint constant');
+  }
+  if (!source.includes('export var PROTOCOL = 1') || !source.includes('export var SIM = 1')) errors.push('protocol constant');
+  if (!source.includes('export var MATCH_NAME = "sproto_shooter_free"')) errors.push('match name');
+  if (source.includes('sproto_arena') || source.includes('sproto_duel')) errors.push('fighter match id reused');
+
+  const sandbox = { console: { log() {}, warn() {}, error() {} } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(bundle.toString('utf8'), sandbox, { filename: 'shooter-pvp-sim.js' });
+  const api = sandbox.SprotoShooterPvp;
+  if (!api || typeof api.replayJSON !== 'function' || typeof api.createDirector !== 'function') {
+    errors.push('bundle did not export replayJSON and createDirector');
+  } else {
+    if (api.PVP_PROTOCOL_VERSION !== 1 || api.PVP_SIM_VERSION !== 1) errors.push('bundle protocol');
+    if (api.SOURCE_COMMIT !== (pin && pin.commit)) errors.push(`bundle commit ${api.SOURCE_COMMIT}`);
+    if (api.CONTENT_FINGERPRINT !== FINGERPRINT) errors.push(`bundle fingerprint ${api.CONTENT_FINGERPRINT}`);
+    if (api.LOADOUT_HASH !== LOADOUT) errors.push(`bundle loadout ${api.LOADOUT_HASH}`);
+    const economy = api.ECONOMY || {};
+    if (economy.mintsTickets !== false || economy.stakes !== false || economy.wagerMayCreateTickets !== false || economy.ticketsMintedByArtifact !== 0) {
+      errors.push('bundle economy can mint or stake');
+    }
+    const forged = JSON.parse(api.replayJSON('{"seed":1,"inputs":[null]}'));
+    if (forged.ticketsMinted !== 0) errors.push('replay minted');
+    const nan = JSON.parse(api.replayJSON('{"seed":NaN}'));
+    if (nan.ok !== false || nan.ticketsMinted !== 0) errors.push('NaN replay was accepted');
+    const golden = scripted(api);
+    if (golden.outcome !== GOLDEN.outcome || golden.reason !== GOLDEN.reason || golden.winner !== null || golden.tick !== GOLDEN.tick || golden.stateHash !== GOLDEN.stateHash || golden.ticketsMinted !== 0) {
+      errors.push(`golden ${golden.outcome} ${golden.reason} ${golden.tick} ${golden.stateHash}`);
+    }
+  }
+  return { errors, pin, hash };
+}
+
+async function fetchJson(url, token) {
+  const headers = {
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'metaverse-hub-shooter-pvp-check',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+  return { status: response.status, body: await response.json() };
+}
+
+async function mainSha() {
+  const token = process.env.GITHUB_TOKEN || '';
+  let last = 'no response';
+  for (const auth of token ? [token, ''] : ['']) {
+    try {
+      const result = await fetchJson(`https://api.github.com/repos/${REPO}/commits/main`, auth);
+      if (result.status === 200 && result.body && result.body.sha) return result.body.sha;
+      last = `GitHub API HTTP ${result.status}`;
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+  }
+  throw new Error(`could not read shooter main (${last})`);
+}
+
+const local = checkLocal();
+if (local.errors.length || !local.pin) {
+  for (const error of local.errors) console.error(`FAIL: ${error}`);
+  process.exit(1);
+}
+try {
+  const main = await mainSha();
+  if (main !== local.pin.commit) {
+    console.error(`FAIL: shooter main ${main} != vendored ${local.pin.commit}`);
+    process.exit(1);
+  }
+  console.log(`Shooter main ${main} matches pvp pin`);
+} catch (error) {
+  console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
+  process.exit(1);
+}
+console.log(`PASS: shooter-pvp-sim ${local.hash} protocol ${local.pin.protocol} sim ${local.pin.sim} fingerprint ${local.pin.contentFingerprint}`);

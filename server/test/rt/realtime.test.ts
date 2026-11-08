@@ -104,6 +104,51 @@ await test('matchmaker scope: hub sessions only for hub-scope games', async () =
   rt.disconnect();
 });
 
+await test('shooter free match: game scope, one guest seat, delayed inputs, zero tickets', async () => {
+  const ada = await login('sproto-shooter');
+  const bea = await login('sproto-shooter');
+  const hub = await guest();
+  const hubRt = socket(hub.token);
+  await hubRt.connect();
+  await assert.rejects(
+    hubRt.addMatchmaker({ query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1', minCount: 2, maxCount: 2, stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '1', sim: '1', content: 'f5949631' } }),
+    (error: unknown) => error instanceof HubSdkError && error.code === 'wrong_scope',
+  );
+  hubRt.disconnect();
+  const created = await call('shooter.room_create', {}, ada.gameToken);
+  assert.equal(created.body.stake, 0);
+  assert.equal(created.body.ticketsMinted, 0);
+  const matchId = String(created.body.matchId);
+  const joined = await call('shooter.room_join', { code: created.body.code }, bea.gameToken);
+  assert.equal(joined.body.matchId, matchId);
+  const ra = socket(ada.gameToken);
+  const rb = socket(bea.gameToken);
+  await Promise.all([ra.connect(), rb.connect()]);
+  const mail: MatchData[] = [];
+  const ma = await ra.joinMatch({ matchId });
+  const mb = await rb.joinMatch({ matchId });
+  ma.onMessage((msg) => mail.push(msg));
+  const hello = (userId: string) => ({ accountId: userId, protocol: 1, sim: 1, content: 'f5949631' });
+  ma.send(1, hello(ada.hub.userId));
+  mb.send(1, hello(bea.hub.userId));
+  await until('welcome', () => mail.find((msg) => msg.opCode === 2));
+  ma.send(4, { accountId: ada.hub.userId });
+  mb.send(4, { accountId: bea.hub.userId });
+  const phase = await until('live', () => mail.find((msg) => msg.opCode === 5 && msg.json<{ phase?: string }>().phase === 'live'));
+  assert.equal(phase.json<{ ticketsMinted: number; stakes: boolean }>().ticketsMinted, 0);
+  assert.equal(phase.json<{ stakes: boolean }>().stakes, false);
+  for (const delay of [100, 200]) {
+    await sleep(delay + (delay === 100 ? 15 : 35));
+    const snap = mail.filter((msg) => msg.opCode === 7).at(-1);
+    assert.ok(snap, 'snapshot during delayed input');
+    assert.equal(snap.json<{ ticketsMinted: number }>().ticketsMinted, 0);
+  }
+  const balance = await call('tickets.balance', { game: 'sproto-shooter' }, ada.gameToken);
+  assert.equal(balance.body.balance, 0);
+  ra.disconnect();
+  rb.disconnect();
+});
+
 await test('NOBU score from an unranked session shows in leaderboard.top (ms); god mode posts nothing', async () => {
   const session = await login('nobu');
   const value = 15000 + Math.floor(Math.random() * 1000);
