@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
+import { nakamaServerKey } from './server-key.ts';
 
 const nakama = 'http://127.0.0.1:7350';
 const proxy = {
@@ -110,7 +111,7 @@ function realmPages(): Plugin {
   // Plaza at /hub/. Portals open /play/<slug>/: a fetched real build, or the
   // Sproto Duel mock at /play/sproto/ until that build is fetched. Nakama at /v2.
   // The dev server key is inlined only for `vite dev`. Production builds take
-  // VITE_NAKAMA_SERVER_KEY and never embed the compose default.
+  // VITE_NAKAMA_SERVER_KEY, never embed the compose default, and fail when it is empty.
   export default defineConfig(({ command, mode }) => {
     if (command === 'serve') preferFetchedBuilds();
     return {
@@ -131,9 +132,7 @@ function realmPages(): Plugin {
       proxy,
     },
     define: {
-      __NAKAMA_SERVER_KEY__: JSON.stringify(
-        mode === 'development' ? 'defaultkey' : (process.env.VITE_NAKAMA_SERVER_KEY ?? ''),
-      ),
+      __NAKAMA_SERVER_KEY__: JSON.stringify(nakamaServerKey({ command, mode }, process.env.VITE_NAKAMA_SERVER_KEY)),
     },
     build: {
       target: 'es2022',

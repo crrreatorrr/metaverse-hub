@@ -124,7 +124,7 @@ On the server:
 
    `https://<domain>/v2/` should not be a gateway failure. A 401 or 404 from Nakama means the proxy reached the process.
 
-5. Deploy the hub and each game. On the build machine, before the upload:
+5. Deploy the hub and each game. Build the hub with `VITE_NAKAMA_SERVER_KEY` set to this server's `NAKAMA_SERVER_KEY`; the build refuses an empty key. On the build machine, before the upload:
 
    ```bash
    deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade
