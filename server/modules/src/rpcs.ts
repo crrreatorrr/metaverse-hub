@@ -475,6 +475,7 @@ namespace HubRpc {
     var data = body.data;
     var seq: number | null = null;
     if (!eventId || eventId.length > 80) return fail("bad_event", "Event id is required");
+    if (ShooterRewards.clientBlocked(eventId)) return fail("server_reason", "This event is granted by the server");
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       return fail("bad_event", "Event data must be an object");
@@ -594,7 +595,8 @@ namespace HubRpc {
     }
     if (!reason || reason.length > 64) return fail("bad_reason", "Reason must be 1 to 64 characters");
     // srv_* reasons are granted by match handlers through HubEconomy only (Contract C6).
-    if (reason.indexOf("srv_") === 0) return fail("server_reason", "This reason is granted by the server");
+    // Shooter boss clears are settled inside the server. A client cannot name that reason.
+    if (reason.indexOf("srv_") === 0 || ShooterRewards.clientBlocked(reason)) return fail("server_reason", "This reason is granted by the server");
     var amount = Math.floor(body.amount);
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));

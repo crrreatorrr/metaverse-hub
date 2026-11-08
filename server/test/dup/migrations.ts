@@ -66,8 +66,9 @@ const GAME_ID_TABLES = [
  * so they never hold a pb row for that migration to rewrite.
  * auth_ticket: 0006_hashed_portal_tickets. item_rule: 0030_m6_item_grants.
  * relic_claim_pending and item_owned_pending: 0033_hold_client_relic_grants.
+ * shooter_receipt: 0040_shooter_boss_receipt. Its game_id is only sproto-shooter.
  */
-const POST_PB_TABLES = ['auth_ticket', 'item_rule', 'relic_claim_pending', 'item_owned_pending'] as const;
+const POST_PB_TABLES = ['auth_ticket', 'item_rule', 'relic_claim_pending', 'item_owned_pending', 'shooter_receipt'] as const;
 
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 

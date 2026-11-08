@@ -3309,6 +3309,9 @@ namespace HubSchema {
   // 0038 stays unregistered: an unmerged shooter patch proposed it, and this phase does not take it.
   // 0039_sproto_shooter_coop is registered from src/games/sproto_shooter.ts. It widens game_session
   // and auth_ticket only, and the new checks still list vcoin.
+  // 0040_shooter_boss_receipt is registered from src/games/shooter_rewards.ts. It adds the
+  // shooter run, digest, and receipt tables and the internal settle function. It does not
+  // add a client event_rule. 0036 and 0038 stay unused.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
