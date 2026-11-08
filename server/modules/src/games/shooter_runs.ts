@@ -139,7 +139,7 @@ namespace ShooterRuns {
     if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(day)) return zero("malformed");
     var runId = nk.uuidv4();
     var seed = serverSeed(nk);
-    var built = SprotoShooterSim.buildIssuance({
+    var built = ShooterRewards.api().buildIssuance({
       accountId: who.userId,
       sessionId: who.sid,
       day: day,
@@ -219,7 +219,7 @@ namespace ShooterRuns {
       seenRunIds: prior.runIds,
     };
     if (resume) ctxVerify.resume = resume;
-    var receipt = SprotoShooterSim.verifyRun(body.log, ctxVerify);
+    var receipt = ShooterRewards.api().verifyRun(body.log, ctxVerify);
     var cpu = typeof receipt.cpuMs === "number" ? receipt.cpuMs : 0;
     logger.info("shooter verify " + String(receipt.reason || "") + " cpuMs " + String(cpu) + " boss " + String(receipt.canonicalBoss || "") + " user " + who.userId);
     if (receipt.ticketsMinted !== 0) return zero("mint_refused");

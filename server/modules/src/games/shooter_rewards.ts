@@ -28,14 +28,28 @@ namespace ShooterRewards {
     return false;
   }
 
+  /** The campaign API. Nakama freezes the global, so the loader keeps it in a box. */
+  export function api(): ShooterSimApi {
+    if (typeof __sprotoShooterSim === "function") {
+      var loaded = __sprotoShooterSim();
+      if (loaded) return loaded;
+    }
+    if (typeof SprotoShooterSim !== "undefined" && SprotoShooterSim) return SprotoShooterSim;
+    throw new Error("bundle_missing");
+  }
+
   /** Empty string when the loaded bundle matches the pin. */
   export function verifyRuntime(): string {
-    if (typeof __loadSprotoShooterSim === "function") __loadSprotoShooterSim();
-    if (typeof SprotoShooterSim === "undefined" || !SprotoShooterSim) return "bundle_missing";
-    if (SprotoShooterSim.PROTOCOL_VERSION !== PROTOCOL) return "protocol";
-    if (SprotoShooterSim.SOURCE_COMMIT !== COMMIT) return "commit";
-    if (SprotoShooterSim.contentFingerprintOf() !== FINGERPRINT) return "fingerprint";
-    var economy = SprotoShooterSim.ECONOMY;
+    var sim: ShooterSimApi;
+    try {
+      sim = api();
+    } catch (err) {
+      return err ? "bundle_missing" : "bundle_missing";
+    }
+    if (sim.PROTOCOL_VERSION !== PROTOCOL) return "protocol";
+    if (sim.SOURCE_COMMIT !== COMMIT) return "commit";
+    if (sim.contentFingerprintOf() !== FINGERPRINT) return "fingerprint";
+    var economy = sim.ECONOMY;
     if (!economy || economy.mintsTickets !== false || economy.ticketsMintedByArtifact !== 0) return "economy";
     if (economy.payoutAuthority !== "server" || economy.wagerMayCreateTickets !== false) return "economy";
     return "";

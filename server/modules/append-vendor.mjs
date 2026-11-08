@@ -19,12 +19,22 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 /**
  * Shooter's campaign bundle is large. Leave it unexecuted until a Shooter RPC.
- * Nakama seals the global after module init, so the properties the bundle
- * assigns must already exist or that later assignment throws.
+ * Nakama freezes the global after module init, so the bundle must not assign
+ * new or read-only globals. It fills a mutable box created here instead.
  */
 export function vendorChunk(name, source) {
   if (name !== 'shooter-sim.js') return `\n${source}`;
-  return `\nglobalThis.__SPROTO_VERIFY_BUNDLE = false;\nif (typeof globalThis.SprotoShooterSim === "undefined") globalThis.SprotoShooterSim = undefined;\nif (typeof globalThis.structuredClone === "undefined") globalThis.structuredClone = undefined;\nfunction __loadSprotoShooterSim() {\nif (globalThis.SprotoShooterSim) return;\n${source}\n}\n`;
+  const flag = 'globalThis.__SPROTO_VERIFY_BUNDLE = true;';
+  const clone = 'globalThis.structuredClone = pureClone;';
+  const publish = 'globalThis.SprotoShooterSim = SprotoShooterSim;';
+  if (!source.includes(flag) || !source.includes(clone) || !source.includes(publish)) {
+    throw new Error('shooter-sim.js no longer has the global assignments the loader rewrites');
+  }
+  const patched = source
+    .replace(flag, 'void 0;')
+    .replace(clone, 'globalThis.__shooterSimBox.clone = pureClone;')
+    .replace(publish, 'globalThis.__shooterSimBox.api = SprotoShooterSim;');
+  return `\nglobalThis.__SPROTO_VERIFY_BUNDLE = true;\nglobalThis.__shooterSimBox = { api: null, clone: null };\nglobalThis.structuredClone = function (value) {\n  var clone = globalThis.__shooterSimBox && globalThis.__shooterSimBox.clone;\n  if (typeof clone === "function") return clone(value);\n  throw new TypeError("structuredClone");\n};\nfunction __loadSprotoShooterSim() {\nif (globalThis.__shooterSimBox && globalThis.__shooterSimBox.api) return;\n${patched}\n}\nfunction __sprotoShooterSim() {\n__loadSprotoShooterSim();\nreturn globalThis.__shooterSimBox.api;\n}\n`;
 }
 
 const dir = dirname(fileURLToPath(import.meta.url));

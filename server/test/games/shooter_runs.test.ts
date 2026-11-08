@@ -202,7 +202,6 @@ if (!gojaReceipt.skipped) {
 }
 
 const mod = loadModule();
-Object.preventExtensions(mod.global);
 const mark = () => mod.nk.sqlCalls.length;
 let at = mark();
 const earned = mod.call('tickets.earn', session, { key: 'k1', amount: 20, reason: 'srv_shooter_boss_clear' }) as { error?: string; balance?: number };
@@ -252,6 +251,7 @@ mod.nk.onSql(/issue_shooter_run/, (args) => {
   assert.equal(args[1], SID);
   return [{ result: JSON.stringify({ ok: true, replay: false, paid: false, tickets: 0, ticketsMinted: 0, issuance }) }];
 });
+Object.freeze(mod.global);
 const opened = mod.call('shooter.run.issue', session, { key: 'issue-1', canonicalBoss: 'sahil' }) as { ok?: boolean; ticketsMinted?: number; tickets?: number; issuance?: { seed?: number } };
 assert.equal(opened.ok, true, JSON.stringify(opened));
 assert.equal(opened.ticketsMinted, 0);

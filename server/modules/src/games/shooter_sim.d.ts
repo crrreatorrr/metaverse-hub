@@ -39,3 +39,4 @@ declare const SprotoShooterSim: ShooterSimApi;
 
 /** Defined by append-vendor around shooter-sim.js. Absent when the bundle was evaluated at load. */
 declare function __loadSprotoShooterSim(): void;
+declare function __sprotoShooterSim(): ShooterSimApi | null;
