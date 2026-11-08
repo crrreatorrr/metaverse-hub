@@ -1715,7 +1715,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-match', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-free', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1726,6 +1726,14 @@ function report(): number {
     const expected = rows.filter((item) => item.status === 'expected-fail').length;
     failed += fail;
     console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending, ${expected} expected-fail`);
+  }
+  if (selected('shooter-free') || selected('shooter-match')) {
+    const rows = outcomes.filter((item) => item.category === 'shooter-free');
+    const pass = rows.filter((item) => item.status === 'pass').length;
+    if (pass === 0) {
+      failed += 1;
+      console.log('shooter-free: category produced no pass, failing the suite');
+    }
   }
   const notes = findingsList();
   if (notes.length) {
@@ -1976,7 +1984,7 @@ export async function main(): Promise<void> {
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
     if (selected('shooter')) await runShooterRewards(test);
-    if (selected('shooter-match')) await runShooterMatch(test);
+    if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
     if (selected('hub-gate')) await runHubGate({ test, pending });

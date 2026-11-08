@@ -25,12 +25,16 @@ function socket(token: string): HubRealtime {
 }
 
 let failures = 0;
+const shooterFree = { pass: 0, fail: 0 };
 async function test(name: string, fn: () => Promise<void>): Promise<void> {
+  const free = name.startsWith('shooter-free:');
   try {
     await fn();
     console.log(`ok   ${name}`);
+    if (free) shooterFree.pass += 1;
   } catch (error) {
     failures += 1;
+    if (free) shooterFree.fail += 1;
     console.error(`FAIL ${name}\n${error instanceof Error ? error.stack : String(error)}`);
   }
 }
@@ -104,7 +108,7 @@ await test('matchmaker scope: hub sessions only for hub-scope games', async () =
   rt.disconnect();
 });
 
-await test('shooter free match: game scope, one guest seat, delayed inputs, zero tickets', async () => {
+await test('shooter-free: guests play one seat and delayed inputs move no tickets', async () => {
   const ada = await login('sproto-shooter');
   const bea = await login('sproto-shooter');
   const hub = await guest();
@@ -149,6 +153,133 @@ await test('shooter free match: game scope, one guest seat, delayed inputs, zero
   rb.disconnect();
 });
 
+function freeInput(seq: number, frame: number): Uint8Array {
+  const bytes = new Uint8Array(16);
+  const view = new DataView(bytes.buffer);
+  view.setUint32(0, seq, true);
+  view.setInt32(4, frame, true);
+  return bytes;
+}
+
+await test('shooter-free: forged result and claim-winner are rejected', async () => {
+  const ada = await login('sproto-shooter');
+  const bea = await login('sproto-shooter');
+  const created = await call('shooter.room_create', {}, ada.gameToken);
+  const matchId = String(created.body.matchId);
+  await call('shooter.room_join', { code: created.body.code, v: 1, sim: 1, content: 'f5949631' }, bea.gameToken);
+  const ra = socket(ada.gameToken);
+  const rb = socket(bea.gameToken);
+  await Promise.all([ra.connect(), rb.connect()]);
+  const mail: MatchData[] = [];
+  const ma = await ra.joinMatch({ matchId });
+  const mb = await rb.joinMatch({ matchId });
+  ma.onMessage((msg) => mail.push(msg));
+  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  await until('welcome', () => mail.find((msg) => msg.opCode === 2));
+  ma.send(4, { accountId: ada.hub.userId });
+  mb.send(4, { accountId: bea.hub.userId });
+  await until('live', () => mail.find((msg) => msg.opCode === 5 && msg.json<{ phase?: string }>().phase === 'live'));
+  ma.send(8, { winner: 0, outcome: 'ko', claimWinner: true });
+  ma.send(4, { accountId: ada.hub.userId, winner: 0, earnTickets: 20 });
+  const rejected = await until('client_result', () => mail.find((msg) => msg.opCode === 3 && msg.json<{ reason?: string }>().reason === 'client_result'));
+  assert.equal(rejected.json<{ ticketsMinted: number }>().ticketsMinted, 0);
+  await sleep(200);
+  assert.equal(mail.some((msg) => msg.opCode === 8), false);
+  const balance = await call('tickets.balance', { game: 'sproto-shooter' }, ada.gameToken);
+  assert.equal(balance.body.balance, 0);
+  ra.disconnect();
+  rb.disconnect();
+});
+
+await test('shooter-free: injected and wrong-seat input are rejected', async () => {
+  const ada = await login('sproto-shooter');
+  const bea = await login('sproto-shooter');
+  const created = await call('shooter.room_create', {}, ada.gameToken);
+  const matchId = String(created.body.matchId);
+  await call('shooter.room_join', { code: created.body.code }, bea.gameToken);
+  const ra = socket(ada.gameToken);
+  const rb = socket(bea.gameToken);
+  await Promise.all([ra.connect(), rb.connect()]);
+  const mail: MatchData[] = [];
+  const ma = await ra.joinMatch({ matchId });
+  const mb = await rb.joinMatch({ matchId });
+  ma.onMessage((msg) => mail.push(msg));
+  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  await until('welcome', () => mail.find((msg) => msg.opCode === 2));
+  ma.send(7, { winner: 1, hp: 0 });
+  ma.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  const reasons = await until('wrong sender', () => {
+    const found = mail.filter((msg) => msg.opCode === 3).map((msg) => msg.json<{ reason?: string }>().reason);
+    return found.includes('wrong_sender') ? found : undefined;
+  });
+  assert.ok(reasons.includes('malformed') || reasons.includes('client_result'), JSON.stringify(reasons));
+  assert.ok(reasons.includes('wrong_sender'), JSON.stringify(reasons));
+  assert.equal(mail.some((msg) => msg.opCode === 8), false);
+  ra.disconnect();
+  rb.disconnect();
+});
+
+await test('shooter-free: oversized and out-of-order frames are rejected', async () => {
+  const ada = await login('sproto-shooter');
+  const bea = await login('sproto-shooter');
+  const created = await call('shooter.room_create', {}, ada.gameToken);
+  const matchId = String(created.body.matchId);
+  await call('shooter.room_join', { code: created.body.code }, bea.gameToken);
+  const ra = socket(ada.gameToken);
+  const rb = socket(bea.gameToken);
+  await Promise.all([ra.connect(), rb.connect()]);
+  const mail: MatchData[] = [];
+  const ma = await ra.joinMatch({ matchId });
+  const mb = await rb.joinMatch({ matchId });
+  ma.onMessage((msg) => mail.push(msg));
+  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  await until('welcome', () => mail.find((msg) => msg.opCode === 2));
+  ma.send(4, { accountId: ada.hub.userId });
+  mb.send(4, { accountId: bea.hub.userId });
+  const snap = await until('snapshot', () => mail.find((msg) => msg.opCode === 7));
+  const tick = snap.json<{ tick: number }>().tick;
+  ma.send(6, new Uint8Array(80));
+  ma.send(6, freeInput(9, tick));
+  ma.send(6, new Uint8Array([1, 2, 3]));
+  const reasons = await until('malformed and sequence', () => {
+    const found = mail.filter((msg) => msg.opCode === 3).map((msg) => msg.json<{ reason?: string }>().reason);
+    return found.includes('malformed') && found.includes('sequence') ? found : undefined;
+  });
+  assert.ok(reasons.includes('malformed') && reasons.includes('sequence'), JSON.stringify(reasons));
+  ra.disconnect();
+  rb.disconnect();
+});
+
+await test('shooter-free: protocol, sim, and content mismatch are rejected', async () => {
+  const ada = await login('sproto-shooter');
+  const rt = socket(ada.gameToken);
+  await rt.connect();
+  await assert.rejects(
+    rt.addMatchmaker({
+      query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1',
+      minCount: 2,
+      maxCount: 2,
+      stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '9', sim: '1', content: 'f5949631' },
+    }),
+    (error: unknown) => error instanceof HubSdkError && error.code === 'version_mismatch',
+  );
+  const bad = await call('shooter.room_create', { content: 'deadbeef' }, ada.gameToken);
+  assert.equal(bad.body.error, 'version_mismatch');
+  const created = await call('shooter.room_create', {}, ada.gameToken);
+  const matchId = String(created.body.matchId);
+  const joined = await rt.joinMatch({ matchId });
+  const mail: MatchData[] = [];
+  joined.onMessage((msg) => mail.push(msg));
+  joined.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 9, content: 'f5949631' });
+  const rejected = await until('version', () => mail.find((msg) => msg.opCode === 3));
+  assert.equal(rejected.json<{ reason?: string; ticketsMinted?: number }>().reason, 'version');
+  assert.equal(rejected.json<{ ticketsMinted?: number }>().ticketsMinted, 0);
+  rt.disconnect();
+});
+
 await test('NOBU score from an unranked session shows in leaderboard.top (ms); god mode posts nothing', async () => {
   const session = await login('nobu');
   const value = 15000 + Math.floor(Math.random() * 1000);
@@ -162,6 +293,12 @@ await test('NOBU score from an unranked session shows in leaderboard.top (ms); g
   assert.equal(level2.body.me, null);
 });
 
+console.log('\nRealtime suite');
+console.log(`shooter-free: ${shooterFree.pass} pass, ${shooterFree.fail} fail`);
+if (shooterFree.fail > 0 || shooterFree.pass === 0) {
+  console.error('shooter-free category missing or failed');
+  process.exit(1);
+}
 if (failures) {
   console.error(`${failures} realtime test(s) failed`);
   process.exit(1);
