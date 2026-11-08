@@ -115,7 +115,7 @@ function open(seed = '7'): { mod: LoadedModule; m: MatchDriver; a: Presence; b: 
   return { mod, m, a, b, ledger };
 }
 
-function live(): { mod: LoadedModule; m: MatchDriver; a: Presence; b: Presence } {
+function live(): { mod: LoadedModule; m: MatchDriver; a: Presence; b: Presence; ledger: number } {
   const seated = open();
   hello(seated.m, seated.a);
   hello(seated.m, seated.b);
