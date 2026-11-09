@@ -39,7 +39,7 @@ import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
 
 export async function startRealm(definition: RealmDefinition): Promise<void> {
-  const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
+  const CONTROLS_HINT = 'WASD or arrows move  ·  Mouse look  ·  Z / C turn camera  ·  Shift run  ·  Space jump  ·  E use  ·  Enter chat  ·  Esc menu';
   const PAD_HINT = 'Left stick move  ·  Right stick camera  ·  B run  ·  A jump  ·  X interact  ·  View chat  ·  Menu menu';
   const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
   const CAMERA_YAW_RATE = MOVEMENT.yawRate;
@@ -377,10 +377,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     return Boolean(target.closest('[contenteditable="true"], [role="textbox"], [data-chat], .chat-field, #chat'));
   }
 
-  /** A/D yaw and W/S pitch, matching mouse look. Arrows stay on the character. */
+  /**
+   * Keyboard camera for players without a mouse: Z / C turn, R / F raise and lower the camera.
+   * WASD and the arrows both move the character, so the camera stays off the movement keys.
+   */
   function orbitCamera(dt: number): void {
-    const yawInput = (keys.has('KeyA') ? 1 : 0) - (keys.has('KeyD') ? 1 : 0);
-    const pitchInput = (keys.has('KeyW') ? 1 : 0) - (keys.has('KeyS') ? 1 : 0);
+    const yawInput = (keys.has('KeyZ') ? 1 : 0) - (keys.has('KeyC') ? 1 : 0);
+    const pitchInput = (keys.has('KeyR') ? 1 : 0) - (keys.has('KeyF') ? 1 : 0);
     yaw += yawInput * CAMERA_YAW_RATE * dt;
     pitch += pitchInput * CAMERA_PITCH_RATE * dt;
     pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
@@ -391,8 +394,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       jumpQueued = false;
       return { forward: 0, strafe: 0, sprint: false, jump: false, yaw };
     }
-    const forward = MathUtils.clamp((keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0) + padMove.forward, -1, 1);
-    const strafe = MathUtils.clamp((keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0) + padMove.strafe, -1, 1);
+    const up = keys.has('ArrowUp') || keys.has('KeyW');
+    const down = keys.has('ArrowDown') || keys.has('KeyS');
+    const right = keys.has('ArrowRight') || keys.has('KeyD');
+    const left = keys.has('ArrowLeft') || keys.has('KeyA');
+    const forward = MathUtils.clamp((up ? 1 : 0) - (down ? 1 : 0) + padMove.forward, -1, 1);
+    const strafe = MathUtils.clamp((right ? 1 : 0) - (left ? 1 : 0) + padMove.strafe, -1, 1);
     const jump = jumpQueued;
     jumpQueued = false;
     return {

@@ -70,3 +70,21 @@ gives the prompts back to the keyboard.
 
 Portals need no button: walking into a ring travels, so the trip to a game is stick-only. The
 game reads the pad on the first press on its page, with that press latched (rule 2).
+
+## Keyboard convention
+
+The keyboard follows one layout too, so a player who knows one Sproto game knows them all:
+
+- **WASD and the arrow keys both move.** Local versus is the exception: P1 keeps WASD and P2
+  takes the arrows, and the game says so on screen.
+- The mouse looks or aims in 3D games (click to capture). Keyboard camera turning, where it
+  exists, never uses WASD (the plaza uses Z / C to turn and R / F to raise and lower).
+- Space jumps (or is the main action where there is no jump). Shift runs or dashes.
+- E uses or interacts. R reloads in shooters.
+- Menus: arrows and W / S move, Enter and Space confirm, Esc goes back or closes. Esc (or P)
+  pauses gameplay. Number keys pick directly where a list is numbered (menu tabs, weapons, the
+  arcade picker).
+- Prompts, help screens and the README always name the keys the game really uses.
+
+The plaza: WASD or arrows move, mouse looks, Z / C turn the camera, R / F raise and lower it,
+Shift runs, Space jumps, E uses, Enter opens chat, Esc opens the menu (1–4 change its tab).
