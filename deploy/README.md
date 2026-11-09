@@ -57,6 +57,7 @@ deploy/scripts/install-caddy.sh    Caddyfile, cert paths, reload
 deploy/scripts/cloudflare-ufw.sh   80/443 from Cloudflare ranges only
 deploy/scripts/deploy-hub.sh
 deploy/scripts/deploy-game.sh
+deploy/scripts/deploy-server.sh    zero-kill Nakama upgrade (see Upgrades)
 deploy/scripts/check-dist-secrets.sh
 deploy/scripts/backup-postgres.sh
 deploy/scripts/check-env.sh
@@ -253,13 +254,63 @@ That `psql` command shows the password in the process list for the length of the
 
 Unattended upgrades install Ubuntu security updates and do not reboot. Reboot for a kernel on purpose.
 
-After a git pull that changes the Nakama module or this folder:
+### Upgrading Nakama without killing live matches
+
+`deploy/scripts/deploy-server.sh` is the runbook for a server change (the Nakama module, `compose.yml` or `nakama/`). It is run by you, by hand, on the VPS. A hub deploy must not end a live duel, arena or coop match, so the script drains the single Nakama node before it restarts it. Two Nakama nodes at once are not safe on OSS Nakama.
 
 ```bash
 cd /opt/metaverse
 git pull
-deploy/scripts/bootstrap.sh
+DRY_RUN=1 deploy/scripts/deploy-server.sh   # optional: prints the plan and the live match count, changes nothing
+deploy/scripts/deploy-server.sh             # add --game <id>=<build-dir> (repeatable) to publish game pages last
 ```
+
+What it does, in order:
+
+1. Backs up Postgres with `backup-postgres.sh` (and rsyncs it off the host when `BACKUP_RSYNC_TARGET` is set).
+2. Builds `metaverse-nakama:<git sha>` while the old container keeps serving. It refuses a checkout with uncommitted tracked changes (`ALLOW_DIRTY=1` overrides).
+3. Starts maintenance: calls the `maint.begin` RPC with the http key from `deploy/.env`, with a deadline 20 minutes out (`DRAIN_MINUTES`). New hard matches are refused and players get a notice.
+4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live` (duel, arena, coop, shooter PvP), until there are none or the deadline passes.
+5. Waits 60 s more (`NOTICE_SEC`) so the notice reaches everyone.
+6. Retags `metaverse-nakama:prod` to the new image and recreates only the `nakama` container (`up -d --no-build --no-deps --force-recreate`). Postgres is not restarted. Matches that are still running get the 60 s shutdown grace below.
+7. Waits for the container healthcheck and `127.0.0.1:7350/healthcheck`.
+8. Ends maintenance with `maint.end`. An EXIT trap also calls it, so Ctrl-C or a failure ends maintenance too. If that call fails (Nakama down), maintenance turns itself off at its deadline.
+9. With `--game <id>=<build-dir>`, publishes those game pages with `deploy-game.sh`, after the server is healthy.
+
+`:prod` always names the live image, so `bootstrap.sh`, the backup timer and plain `docker compose` commands keep working. The sha tags are the rollback history (`docker image ls metaverse-nakama`). Before switching, the script prints the tag of the image it replaces; when that image has no sha tag yet (it was built by `bootstrap.sh`), it tags it `rollback-<stamp>` first.
+
+The `maint.*` RPCs come with the server drain ticket. Until the running server has them, `maint.begin` returns 404: the script prints a warning, waits 60 s (`NO_MAINT_WAIT_SEC`, Ctrl-C to stop) and restarts without a drain or a notice. Any other `maint.begin` error stops the script before anything restarts. The contract the script expects, all called with `?http_key=...&unwrap=true`:
+
+| RPC | Body | Answer |
+| --- | --- | --- |
+| `maint.begin` | `{"reason": "deploy <tag>", "deadline": <unix seconds>}` | 200 when maintenance is on |
+| `maint.live` | `{}` | `{"hard": N, "soft": N, "kinds": {"duel": N, "arena": N, "coop": N, "shooter": N}}` |
+| `maint.end` | `{}` | 200 |
+
+The http key goes to `curl` in a config read from stdin, so it does not show in the process list.
+
+**What players see** once the server drain and the game-side retries have landed (until then, only the restart and the shutdown grace apply). During the drain, a "Maintenance in N min" notice. Matches that are already running carry on. Starting a new duel, arena, coop or Shooter match is refused until the restart, while the plaza, People's Bitcoin worlds and `coop.resume` stay open. At the restart, the plaza and PB reconnect, and a coop team that was still playing resumes from its checkpoint. Expect about a minute without the server.
+
+**Checks after a deploy:**
+
+```bash
+cd /opt/metaverse/deploy
+docker compose --env-file .env -f compose.yml ps        # nakama "healthy", created a minute ago
+docker compose --env-file .env -f compose.yml logs --since 10m nakama | grep -iE 'error|panic' || true
+# Held wager escrow: this should fall back to 0 within minutes of the restart.
+docker compose --env-file .env -f compose.yml exec -T postgres psql -U postgres -d nakama -c \
+  "SELECT count(*) AS held, coalesce(sum(stake), 0) AS stake FROM game.sproto_wager WHERE status = 'held'"
+```
+
+**Rollback.** Deploy the previous image again, without a drain and without a rebuild:
+
+```bash
+IMAGE_TAG=<previous sha> deploy/scripts/deploy-server.sh --no-drain
+```
+
+A rollback only swaps the image. It does not undo database migrations, which is why migrations must be additive: the previous image has to run on the new schema. To go back further, restore a dump (see Backups).
+
+`bootstrap.sh` still rebuilds and recreates Nakama immediately (`up -d --build`), with no drain. Use it for the first boot and for host changes, not for a routine server upgrade.
 
 `HUB_FAULT_INJECT` is not set. The duplication-suite hook stays inert.
 
