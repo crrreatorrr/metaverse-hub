@@ -35,6 +35,8 @@ export interface RealmContent {
   groundHeight?(position: Vector3): number;
   consumeWarp?(): SpawnPoint | null;
   handleKey?(event: KeyboardEvent): boolean;
+  /** A realm overlay (the arcade picker) is open: it takes the controller and the avatar stands. */
+  overlayOpen?(): boolean;
   onSession?(session: { client: NakamaClient; token: string }): Promise<void>;
 }
 export interface RealmDefinition {
