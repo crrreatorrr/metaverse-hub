@@ -139,3 +139,4 @@ Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choi
   - Shooter's `docs/codex/C-*.md` specs
   - HPOS10I QA ids such as `PHY-C2`
   - plaza model names such as `C1-mountain`
+- **HPOS10I's copy of `docs/higgsfield-workflow-guide.md` differs on purpose.** One table row leaves out The People's Bitcoin, because HPOS10I's originality scan bans the word "bitcoin" (term #425). The owner chose to keep this difference (2026-11-09). When you sync the guide, skip that line in HPOS10I rather than adding an allowlist exception.
