@@ -75,12 +75,14 @@ npm test            # hub-sdk (incl. realtime client + mock), capsule collider, 
 npm run test:dup    # relic duplication tests against docker compose Nakama
 npm run test:rt     # realtime (plaza, chat, matchmaker scope, NOBU boards) against docker compose Nakama
 npm run vendor:sdk -- <game-repo>   # build and vendor @metaverse/hub-sdk into a game repo
-npm run build       # sdk, Nakama module, plaza, then a check that the bundle has no debug globals
+npm run build       # sdk, Nakama module, plaza, then a check that the bundle has no debug globals (needs VITE_NAKAMA_SERVER_KEY)
 npm run pack:sdk    # tarball a game repo can npm install
 npm run preview     # serves the production build
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the duplication and realtime tests against Nakama and Postgres.
+
+`npm run build` inlines `VITE_NAKAMA_SERVER_KEY` into the plaza and stops with an error when it is empty or unset, because an empty key makes every login fail. For a release build, set it to `NAKAMA_SERVER_KEY` from `deploy/.env`, either in the shell or in `apps/hub/.env.production` (gitignored; the shell value wins). CI builds with a placeholder value that no server accepts. `npm run build -w @metaverse/hub -- --mode development` builds a local bundle with the dev key instead.
 
 ## Multiplayer
 

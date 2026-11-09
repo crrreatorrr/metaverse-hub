@@ -44,6 +44,9 @@ jobs:
           SHOOTER_REQUIRE_GOJA: '1'
           GOTOOLCHAIN: local
       - run: npm run build
+        env:
+          # Placeholder so the production build passes its empty-key guard. No server accepts it.
+          VITE_NAKAMA_SERVER_KEY: ci-build-placeholder-not-a-server-key
 
   duplication:
     runs-on: ubuntu-latest
