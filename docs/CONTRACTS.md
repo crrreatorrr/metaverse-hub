@@ -87,7 +87,7 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 
 ## 3. Migration id ranges
 
-`schema.ts` (`MIGRATIONS`) and game files (`HubSchema.register`) share one numbered sequence. The runner refuses an unapplied id below the highest recorded id, so PRs merge and deploy in id order. Migrations are forward-only and additive. The source of truth is the comment at `server/modules/src/schema.ts:3344-3361`.
+`schema.ts` (`MIGRATIONS`) and game files (`HubSchema.register`) share one numbered sequence. The runner refuses an unapplied id below the highest recorded id, so PRs merge and deploy in id order. Migrations are forward-only and additive. The source of truth is the comment at `server/modules/src/schema.ts:3344-3364`.
 
 | Ids | Owner | Registered by | Used |
 |---|---|---|---|
@@ -104,9 +104,10 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0041 | sproto-coop-battle | `games/coop_rewards.ts` | `0041_coop_boss_receipt` |
 | 0042 | hub | `schema.ts` | `0042_server_flags` (`game.server_flags`, read by `src/flags.ts`) |
 | 0043 | hub | `schema.ts` | `0043_hpos10i_core_live` (takes the HPOS10I Core off the 0033 hold) |
-| 0044+ | next free | | none on `main`. An open PR proposes `0044_pb_godmode` (#101); check open PRs before taking an id |
+| 0044 | peoples-bitcoin (owner godmode) | `games/pb_godmode.ts` | `0044_pb_godmode` (`game.godmode_user`, `game.godmode_topup`, the `godmode` ledger kind) |
+| 0045+ | next free | | none; check open PRs before taking an id |
 
-The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0043 did.
+The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
 ## 4. The games
 
