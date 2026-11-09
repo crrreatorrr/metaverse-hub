@@ -54,6 +54,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     init: true
+    # Docker's default is 10 s, then SIGKILL. Nakama needs shutdown_grace_sec (60 s in
+    # nakama/config.yml) to run matchTerminate: escrow refunds, coop checkpoints and PB
+    # saves. Keep this at least 15 s above that value.
+    stop_grace_period: 90s
     healthcheck:
       test: ["CMD", "/nakama/nakama", "healthcheck"]
       interval: 5s

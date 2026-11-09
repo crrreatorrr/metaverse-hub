@@ -164,7 +164,7 @@ export function createNakamaClient(options: NakamaClientOptions): NakamaClient {
       body: JSON.stringify(body),
     });
     const text = await response.text();
-    if (!response.ok) throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`);
+    if (!response.ok) throw new HubSdkError('auth_failed', text || `HTTP ${response.status}`, response.status);
     const parsed = JSON.parse(text) as { token?: string; refresh_token?: string; refreshToken?: string };
     if (!parsed.token) throw new HubSdkError('auth_failed', 'Auth did not return a token');
     return {
