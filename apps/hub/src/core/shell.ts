@@ -614,7 +614,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   function bodyHeight(): number {
     const character = CHARACTERS.find((entry) => entry.id === look.character) ?? CHARACTERS[0];
-    return characterHeight(character) * look.height;
+    return characterHeight(character);
   }
 
   /**
