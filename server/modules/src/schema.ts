@@ -3233,6 +3233,19 @@ namespace HubSchema {
          ON CONFLICT (key) DO NOTHING`,
       ],
     },
+    {
+      // HPOS10I Core goes live again: clearing Zone 1 Act 1 grants it at once
+      // (claim_event_relic's live branch), as the HPOS10I contract says. Takes
+      // hpos10i_core off the 0033 hold and drops every held claim for it, so
+      // nobody has a pending Core and the next qualifying clear is the grant.
+      // Live relic_claim rows are untouched. The act-2 pets stay held.
+      id: "0043_hpos10i_core_live",
+      statements: [
+        `UPDATE game.event_rule SET grant_hold = false
+         WHERE game_id = 'hpos10i' AND event_type = 'hpos10i.level_complete' AND relic_id = 'hpos10i_core'`,
+        "DELETE FROM game.relic_claim_pending WHERE relic_id = 'hpos10i_core'",
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3332,7 +3345,8 @@ namespace HubSchema {
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
-  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
+  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal,
+  // 0043_hpos10i_core_live (after the game files' 0039-0041 and 0042_server_flags).
   // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
   // 0038 stays unregistered: an unmerged shooter patch proposed it, and this phase does not take it.
   // 0039_sproto_shooter_coop is registered from src/games/sproto_shooter.ts. It widens game_session
@@ -3344,6 +3358,9 @@ namespace HubSchema {
   // eligibility and receipt tables and the internal settle function. It does not add a
   // client event_rule, and it does not change V Coin or any other game's payout.
   // 0042_server_flags is the hub's (MIGRATIONS above): game.server_flags, read by src/flags.ts.
+  // 0044_pb_godmode is registered from src/games/pb_godmode.ts (0042 and 0043 are taken by the
+  // server_flags and hpos10i_core_live PRs, which merge first). It adds game.godmode_user and
+  // game.godmode_topup and allows the 'godmode' tickets_ledger kind. No client RPC writes it.
   // 0045_coop_shooter_relics is registered from src/games/stage_relics.ts. It widens the Relic
   // checks (relic_claim, relic_claim_pending) and game_beaten for marina_anchor (Coop stage 1) and
   // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.

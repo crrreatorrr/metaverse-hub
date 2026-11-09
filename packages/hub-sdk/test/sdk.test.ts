@@ -80,6 +80,7 @@ async function arcadeAndSaves(): Promise<void> {
   assert.equal(relicForEvent('sproto-arcade', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), 'breakwater_coin');
   assert.equal(relicForEvent('sproto-arcade', HubEvent.ArcadeBossDefeated, { boss: 'vela' }), undefined);
   assert.equal(relicForEvent('nobu', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), undefined);
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.GameBeaten, {}), undefined);
 
   // Standalone: saves no-op.
   {
