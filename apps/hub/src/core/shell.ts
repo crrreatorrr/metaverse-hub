@@ -25,7 +25,7 @@ import { createRemotes } from '../remotes';
 import { createOverheads } from '../overheads';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
-import { createMenu } from '../menu';
+import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
@@ -34,10 +34,13 @@ import '../style.css';
 import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from '../travel';
 
 import { createEngine } from './engine';
+import { PAD, PAD_TUNING, createPadReader, padPrompt, type PadFrame } from './gamepad';
+import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
 
 export async function startRealm(definition: RealmDefinition): Promise<void> {
   const CONTROLS_HINT = 'Arrows move  ·  WASD camera  ·  Shift run  ·  Space jump  ·  Enter chat  ·  Esc menu';
+  const PAD_HINT = 'Left stick move  ·  Right stick camera  ·  B run  ·  A jump  ·  X interact  ·  View chat  ·  Menu menu';
   const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
   const CAMERA_YAW_RATE = MOVEMENT.yawRate;
   const CAMERA_PITCH_RATE = MOVEMENT.pitchRate;
@@ -94,6 +97,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   if (petParam) void world.setPet(petParam);
 
   const keys = new Set<string>();
+  const pad = createPadReader();
+  const padFocus = createPadFocus();
+  /** A controller was the last device used: hints show controller prompts. */
+  let usingPad = false;
+  /** Left stick click toggles running until the stick comes back to rest. */
+  let padRun = false;
   let yaw = initial.yaw;
   let pitch: number = MOVEMENT.initialPitch;
   let dragging = false;
@@ -256,6 +265,14 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   window.addEventListener('keyup', (event) => {
     keys.delete(event.code);
   });
+  // The last device used decides the prompts: any key or click hands them back to the keyboard.
+  const dropPadPrompts = () => {
+    if (!usingPad) return;
+    usingPad = false;
+    padFocus.clear();
+  };
+  window.addEventListener('keydown', dropPadPrompts, { capture: true });
+  window.addEventListener('pointerdown', dropPadPrompts, { capture: true });
   window.addEventListener('blur', () => {
     keys.clear();
     dragging = false;
@@ -290,7 +307,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     preview = MathUtils.damp(preview, menu.open ? 1 : 0, 9, dt);
     if (!menu.open && preview < 0.002) preview = 0;
     if (!menu.open) orbitCamera(dt);
-    const input = readInput();
+    const padMove = readPad(pad.poll(navigator.getGamepads?.() ?? [], timestamp), dt);
+    const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const moving = Math.hypot(input.forward, input.strafe) > 0;
     // P4: the jog / dash clips bake their own bounce, so the procedural bob stays at 0.
@@ -368,22 +386,91 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
   }
 
-  function readInput(): MoveInput {
-    if (menu.open || chat.open) {
+  function readInput(padMove: PadMove = NO_PAD_MOVE): MoveInput {
+    if (menu.open || chat.open || content.overlayOpen?.()) {
       jumpQueued = false;
       return { forward: 0, strafe: 0, sprint: false, jump: false, yaw };
     }
-    const forward = (keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0);
-    const strafe = (keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0);
+    const forward = MathUtils.clamp((keys.has('ArrowUp') ? 1 : 0) - (keys.has('ArrowDown') ? 1 : 0) + padMove.forward, -1, 1);
+    const strafe = MathUtils.clamp((keys.has('ArrowRight') ? 1 : 0) - (keys.has('ArrowLeft') ? 1 : 0) + padMove.strafe, -1, 1);
     const jump = jumpQueued;
     jumpQueued = false;
     return {
       forward,
       strafe,
-      sprint: keys.has('ShiftLeft') || keys.has('ShiftRight'),
+      sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || padMove.sprint,
       jump,
       yaw,
     };
+  }
+
+  /**
+   * One controller frame (docs/controllers.md). Overlays first: the login gate runs its own
+   * loop in login.ts, the arcade picker takes the D-pad / A / B as arrows / Enter / Esc, and the
+   * menu moves a focus ring. In the plaza: left stick moves, right stick turns the camera,
+   * A jumps, B (held) or a left stick click runs, X uses the prompt in front of you (the cabinet),
+   * right stick click puts the camera behind you, Menu opens the menu and View opens chat.
+   */
+  function readPad(frame: PadFrame, dt: number): PadMove {
+    if (!frame.connected) {
+      padRun = false;
+      return NO_PAD_MOVE;
+    }
+    if (frame.active) usingPad = true;
+    if (gate.isOpen() || traveling) return NO_PAD_MOVE;
+
+    const pickerKey = frame.pressed(PAD.A) ? 'Enter' : frame.pressed(PAD.B) ? 'Escape' : frame.nav ? NAV_KEYS[frame.nav] : '';
+    if (content.overlayOpen?.()) {
+      if (pickerKey) content.handleKey?.(new KeyboardEvent('keydown', { code: pickerKey, key: pickerKey }));
+      return NO_PAD_MOVE;
+    }
+
+    if (menu.open) {
+      const root = document.querySelector<HTMLElement>('#menu');
+      if (frame.pressed(PAD.B) || frame.pressed(PAD.MENU)) {
+        menu.hide();
+        padFocus.clear();
+        return NO_PAD_MOVE;
+      }
+      const step = (frame.pressed(PAD.RB) ? 1 : 0) - (frame.pressed(PAD.LB) ? 1 : 0);
+      if (step) {
+        const at = MENU_TAB_ORDER.indexOf(menu.tab);
+        menu.show(MENU_TAB_ORDER[(at + step + MENU_TAB_ORDER.length) % MENU_TAB_ORDER.length]);
+      }
+      if (root && frame.nav) padFocus.move(root, frame.nav);
+      if (root && frame.pressed(PAD.A)) padFocus.activate(root);
+      previewSpin += frame.look.x * PAD_TUNING.previewSpinRate * dt;
+      return NO_PAD_MOVE;
+    }
+
+    if (chat.open) {
+      if (frame.pressed(PAD.B) || frame.pressed(PAD.VIEW)) chat.hide();
+      return NO_PAD_MOVE;
+    }
+
+    if (frame.pressed(PAD.MENU)) {
+      menu.show();
+      return NO_PAD_MOVE;
+    }
+    if (frame.pressed(PAD.VIEW)) {
+      chat.show();
+      return NO_PAD_MOVE;
+    }
+    if (frame.pressed(PAD.A)) jumpQueued = true;
+    if (frame.pressed(PAD.X)) {
+      const interaction = content.interactions?.find(item => item.active() && item.interact);
+      interaction?.interact?.();
+    }
+    if (frame.pressed(PAD.RS)) {
+      yaw = player.facingYaw;
+      pitch = MOVEMENT.initialPitch;
+    }
+    const moving = frame.move.x !== 0 || frame.move.y !== 0;
+    if (frame.pressed(PAD.LS)) padRun = !padRun;
+    if (!moving) padRun = false;
+    yaw -= frame.look.x * PAD_TUNING.lookYawRate * dt;
+    pitch = MathUtils.clamp(pitch + frame.look.y * PAD_TUNING.lookPitchRate * dt, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
+    return { forward: -frame.move.y, strafe: frame.move.x, sprint: frame.held(PAD.B) || padRun };
   }
 
   const previewLook = new Vector3();
@@ -480,7 +567,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   function updateHint(): void {
-    const look = document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
+    const look = usingPad || document.pointerLockElement === canvas ? '' : 'Click to look  ·  ';
     const enabled = content.portalsEnabled?.() ?? true;
     const near = enabled ? nearestPortal(player.position.x, player.position.z) : null;
     const inside = enabled ? portalContaining(PORTALS, player.position.x, player.position.z) : null;
@@ -498,8 +585,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
               ? `${look}Entering ${inside.label}…`
               : near
                 ? `${look}Walk into the ring to enter ${near.label}`
-                : `${look}${CONTROLS_HINT}`;
-    if (hint.textContent !== text) hint.textContent = text;
+                : `${look}${usingPad ? PAD_HINT : CONTROLS_HINT}`;
+    const shown = usingPad ? padPrompt(text) : text;
+    if (hint.textContent !== shown) hint.textContent = shown;
   }
 
   function nearestPortal(x: number, z: number) {
@@ -896,3 +984,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
 }
+
+/** Controller movement handed to the player controller, merged with the keyboard. */
+interface PadMove { forward: number; strafe: number; sprint: boolean }
+const NO_PAD_MOVE: PadMove = Object.freeze({ forward: 0, strafe: 0, sprint: false });
+/** D-pad steps for overlays that already speak arrow keys (the arcade picker). */
+const NAV_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' } as const;

@@ -15,6 +15,8 @@ import {
 import '@fontsource/press-start-2p/latin-400.css';
 import '@fontsource/vt323/latin-400.css';
 import './login.css';
+import { PAD, createPadReader } from './core/gamepad';
+import { createPadFocus } from './core/pad-focus';
 
 /**
  * Sign-up / log-in gate. It is plain DOM and does not import Three.js, so it paints
@@ -328,6 +330,29 @@ function createGate(): Gate {
 
   paintProgress();
   void start();
+
+  // Controller (docs/controllers.md): the D-pad or left stick moves the focus ring and A presses
+  // the button under it, so a pad can reach Continue as guest, the tabs and the submit button.
+  // Text fields keep focus for a device keyboard. The plaza's own reader latches anything still
+  // held when the gate leaves, so this A press does not also jump.
+  const pad = createPadReader();
+  const padFocus = createPadFocus();
+  const padLoop = (now: number): void => {
+    if (!open) {
+      padFocus.clear();
+      return;
+    }
+    const frame = pad.poll(navigator.getGamepads?.() ?? [], now);
+    if (frame.connected && !busy) {
+      if (frame.nav) padFocus.move(root, frame.nav);
+      if (frame.pressed(PAD.A)) padFocus.activate(root);
+    }
+    window.requestAnimationFrame(padLoop);
+  };
+  window.requestAnimationFrame(padLoop);
+  const dropRing = (): void => padFocus.clear();
+  root.addEventListener('pointerdown', dropRing);
+  root.addEventListener('keydown', dropRing);
 
   return {
     entry,

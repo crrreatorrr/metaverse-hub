@@ -44,6 +44,8 @@ The hub opens on a sign-up / log-in page: username, password, and a backup email
 
 The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
 
+**Controllers** work everywhere in the hub, including the login gate, the menu and the arcade picker: left stick moves, right stick turns the camera, A jumps, B (held) runs, X uses the cabinet, Menu opens the menu, View opens chat. Every game follows the same convention (A confirms, B goes back, Menu pauses, buttons held while a page loads are ignored until released), so a player can walk from the plaza into any game and back on the pad alone. See [docs/controllers.md](docs/controllers.md).
+
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a one-time ticket in the fragment:
 
 ```
