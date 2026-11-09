@@ -417,13 +417,14 @@ namespace HubRpc {
     try {
       rows = queryList(
         nk,
-        "SELECT COALESCE((SELECT json_agg(json_build_object('name', name, 'gameId', game_id, 'lifetime', lifetime) ORDER BY lifetime DESC) FROM (SELECT COALESCE(u.username, left(e.user_id::text, 8)) AS name, e.game_id, e.lifetime FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.lifetime DESC LIMIT LEAST($1::int, 100)) s), '[]'::json)::text AS result",
+        "SELECT COALESCE((SELECT json_agg(json_build_object('userId', user_id, 'name', name, 'gameId', game_id, 'lifetime', lifetime) ORDER BY lifetime DESC) FROM (SELECT e.user_id, COALESCE(u.username, left(e.user_id::text, 8)) AS name, e.game_id, e.lifetime FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.lifetime DESC LIMIT LEAST($1::int, 100)) s), '[]'::json)::text AS result",
         [limit],
       );
     } catch (e) {
       _logger.warn("verse board query failed " + String(e));
       rows = [];
     }
+    for (var i = 0; i < rows.length; i++) HubBoards.cleanRowName(rows[i]);
     return ok({ rows: rows });
   }
 

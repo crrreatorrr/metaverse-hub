@@ -25,7 +25,7 @@ export interface RemoteWorld {
   applyDelta(d: Delta, now: number): void;
   applyRoster(r: RosterChange): void;
   byUser(userId: string): RemotePlayer | null;
-  /** Players present (not away), self excluded. */
+  /** Players present (not away), self and sims (this screen only) excluded. */
   presentCount(): number;
   clear(): void;
   onRoster(cb: () => void): () => void;
@@ -117,7 +117,7 @@ export function createRemoteWorld(): RemoteWorld {
     },
     presentCount() {
       let n = 0;
-      for (const p of players.values()) if (!p.away) n += 1;
+      for (const p of players.values()) if (!p.away && !p.userId.startsWith('sim:')) n += 1;
       return n;
     },
     clear() {

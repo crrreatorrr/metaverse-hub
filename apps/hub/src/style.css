@@ -54,6 +54,12 @@ button:disabled {
   outline-offset: 4px;
 }
 
+/* Controller focus ring (core/pad-focus.ts): shown even when the browser hides :focus-visible. */
+.pad-focus {
+  outline: 3px dashed var(--yellow-2);
+  outline-offset: 4px;
+}
+
 /* Shared glass surface. */
 .verse,
 .hud-btn,
@@ -871,7 +877,7 @@ button:disabled {
 
 .menu-tabs {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(6, 1fr);
   gap: 8px;
   margin: 12px 4px 14px;
 }
@@ -2323,4 +2329,56 @@ button:disabled {
 .pet-card.active {
   outline: 2px solid var(--yellow);
   outline-offset: 4px;
+}
+
+/* Sims tab */
+.menu-grid.chars.sims-chars {
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.sims-chars .char-card {
+  padding: 4px 4px 6px;
+}
+
+.sims-chars .char-portrait {
+  box-shadow: inset 0 0 0 3px var(--ink);
+}
+
+.sims-chars .char-card.on .char-portrait::after {
+  display: none;
+}
+
+.sims-chars .char-name {
+  margin-top: 4px;
+  font-size: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sim-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.sim-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.sim-text {
+  display: grid;
+  min-width: 0;
+}
+
+.sim-text strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
