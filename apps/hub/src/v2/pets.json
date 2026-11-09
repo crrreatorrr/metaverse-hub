@@ -9,7 +9,8 @@
   "height_m": {
    "sproto": 0.6,
    "sproto_pup": 0.45,
-   "nobu": 0.6
+   "nobu": 0.6,
+   "nobu_game": 0.72
   },
   "follow": {
    "offset_avatar_local_m": {

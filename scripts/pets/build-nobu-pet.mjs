@@ -21,7 +21,7 @@ import sharp from 'sharp';
 const ID = 'pet_nobu';
 const PETS = JSON.parse(readFileSync(new URL('../../apps/hub/src/v2/pets.json', import.meta.url), 'utf8'));
 const CONTRACT = PETS.contract;
-const PET_H = CONTRACT.height_m.nobu;
+const PET_H = CONTRACT.height_m.nobu_game;
 const FPS = 30;
 /** nobuGlb.js normalizes Nobu to 1.5 m; the animator's root offsets are in those metres. */
 const GAME_H = 1.5;
