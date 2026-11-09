@@ -46,19 +46,37 @@ export const AVATAR_ASSET = 'world/v2/avatar/wizard.glb';
 const DUEL_PLAYER_HEIGHT = 1.9;
 
 /**
- * Pickable avatars. The wizard is the default. The others are Sproto Duel's
- * stage-one boss rigs (`models/rigged/<id>_stage1.glb`), placeholders until
- * hub-made characters exist. Each shares the wizard's clip names.
+ * Pickable avatars. The wizard is the default. Sproto Duel's stage-one bosses
+ * came first. Sproto Shooter adds its soldier and every enemy model (the duel
+ * cast's later stages, the bots, and the bosses). `duelHeight` is only the fit
+ * ratio: bosses that tower in the shooter stand with the plaza regulars.
  * `ownStaff`: the staff is baked into the mesh, so the picked staff is not mounted.
+ * `borrow`: a Mixamo body with no clips. Idle and run are retargeted from Laser Bot.
  */
 export const CHARACTERS = [
-  { id: 'wizard', label: 'Wizard', blurb: 'The plaza regular.', asset: AVATAR_ASSET, portrait: 'world/v2/avatar/portraits/wizard.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false },
-  { id: 'sahil', label: 'Sahil', blurb: 'Sproto Duel, first boss.', asset: 'world/v2/avatar/sahil.glb', portrait: 'world/v2/avatar/portraits/sahil.webp', duelHeight: 2.0, ownStaff: true },
-  { id: 'obama', label: 'Bitcoin Obama', blurb: 'Shills the pump.', asset: 'world/v2/avatar/obama.glb', portrait: 'world/v2/avatar/portraits/obama.webp', duelHeight: 2.1, ownStaff: false },
-  { id: 'midget', label: 'The Midget', blurb: "Obama's partner. Quick feet.", asset: 'world/v2/avatar/midget.glb', portrait: 'world/v2/avatar/portraits/midget.webp', duelHeight: 1.25, ownStaff: false },
-  { id: 'broccoli', label: 'Broccoli Head', blurb: 'One enormous drag on the vape.', asset: 'world/v2/avatar/broccoli.glb', portrait: 'world/v2/avatar/portraits/broccoli.webp', duelHeight: 2.0, ownStaff: false },
-  { id: 'agent', label: 'Glowie', blurb: 'Under laser sights.', asset: 'world/v2/avatar/agent.glb', portrait: 'world/v2/avatar/portraits/agent.webp', duelHeight: 2.0, ownStaff: false },
-  { id: 'tinubu', label: 'Tinubu', blurb: 'The final crown.', asset: 'world/v2/avatar/tinubu.glb', portrait: 'world/v2/avatar/portraits/tinubu.webp', duelHeight: 2.1, ownStaff: false },
+  { id: 'wizard', label: 'Wizard', blurb: 'The plaza regular.', asset: AVATAR_ASSET, portrait: 'world/v2/avatar/portraits/wizard.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'sahil', label: 'Sahil', blurb: 'Sproto Duel, first boss.', asset: 'world/v2/avatar/sahil.glb', portrait: 'world/v2/avatar/portraits/sahil.webp', duelHeight: 2.0, ownStaff: true, borrow: false },
+  { id: 'obama', label: 'Bitcoin Obama', blurb: 'Shills the pump.', asset: 'world/v2/avatar/obama.glb', portrait: 'world/v2/avatar/portraits/obama.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'midget', label: 'The Midget', blurb: "Obama's partner. Quick feet.", asset: 'world/v2/avatar/midget.glb', portrait: 'world/v2/avatar/portraits/midget.webp', duelHeight: 1.25, ownStaff: false, borrow: false },
+  { id: 'broccoli', label: 'Broccoli Head', blurb: 'One enormous drag on the vape.', asset: 'world/v2/avatar/broccoli.glb', portrait: 'world/v2/avatar/portraits/broccoli.webp', duelHeight: 2.0, ownStaff: false, borrow: false },
+  { id: 'agent', label: 'Glowie', blurb: 'Under laser sights.', asset: 'world/v2/avatar/agent.glb', portrait: 'world/v2/avatar/portraits/agent.webp', duelHeight: 2.0, ownStaff: false, borrow: false },
+  { id: 'tinubu', label: 'Tinubu', blurb: 'The final crown.', asset: 'world/v2/avatar/tinubu.glb', portrait: 'world/v2/avatar/portraits/tinubu.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'soldier', label: 'Sproto Soldier', blurb: 'Sproto Shooter.', asset: 'world/v2/avatar/soldier.glb', portrait: 'world/v2/avatar/portraits/soldier.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: true },
+  { id: 'midget2', label: 'Midget II', blurb: 'The swarm, grown.', asset: 'world/v2/avatar/midget2.glb', portrait: 'world/v2/avatar/portraits/midget2.webp', duelHeight: 1.25, ownStaff: false, borrow: false },
+  { id: 'flyer', label: 'Flying Midget', blurb: 'Gold top hat.', asset: 'world/v2/avatar/flyer.glb', portrait: 'world/v2/avatar/portraits/flyer.webp', duelHeight: 1.25, ownStaff: false, borrow: false },
+  { id: 'obama2', label: 'Obama II', blurb: 'Second coat.', asset: 'world/v2/avatar/obama2.glb', portrait: 'world/v2/avatar/portraits/obama2.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'bigobama', label: 'Big Obama', blurb: 'Shield up front.', asset: 'world/v2/avatar/bigobama.glb', portrait: 'world/v2/avatar/portraits/bigobama.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'sahil2', label: 'Sahil II', blurb: 'Second rite.', asset: 'world/v2/avatar/sahil2.glb', portrait: 'world/v2/avatar/portraits/sahil2.webp', duelHeight: 2.0, ownStaff: true, borrow: false },
+  { id: 'hexsahil', label: 'Hex Sahil', blurb: 'The auditor.', asset: 'world/v2/avatar/hexsahil.glb', portrait: 'world/v2/avatar/portraits/hexsahil.webp', duelHeight: 2.0, ownStaff: true, borrow: false },
+  { id: 'tinubu2', label: 'Tinubu II', blurb: 'Second crown.', asset: 'world/v2/avatar/tinubu2.glb', portrait: 'world/v2/avatar/portraits/tinubu2.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'megatinubu', label: 'Mega Tinubu', blurb: 'The last wave.', asset: 'world/v2/avatar/megatinubu.glb', portrait: 'world/v2/avatar/portraits/megatinubu.webp', duelHeight: 2.1, ownStaff: false, borrow: false },
+  { id: 'laser', label: 'Laser Bot', blurb: 'Two red bolts.', asset: 'world/v2/avatar/laser.glb', portrait: 'world/v2/avatar/portraits/laser.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'shooterbot', label: 'Shooter Bot', blurb: 'Arm cannon.', asset: 'world/v2/avatar/shooterbot.glb', portrait: 'world/v2/avatar/portraits/shooterbot.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'monster', label: 'Blue Monster', blurb: 'Wave-two boss.', asset: 'world/v2/avatar/monster.glb', portrait: 'world/v2/avatar/portraits/monster.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'beast', label: 'Sproto Beast', blurb: 'Punches and kicks.', asset: 'world/v2/avatar/beast.glb', portrait: 'world/v2/avatar/portraits/beast.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'cargolem', label: 'Car Golem', blurb: 'Magnet fists.', asset: 'world/v2/avatar/cargolem.glb', portrait: 'world/v2/avatar/portraits/cargolem.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'mole', label: 'Mole Monster', blurb: 'A drill for a hand.', asset: 'world/v2/avatar/mole.glb', portrait: 'world/v2/avatar/portraits/mole.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
+  { id: 'dragon', label: 'Jade Dragon', blurb: 'Wave-one boss.', asset: 'world/v2/avatar/dragon.glb', portrait: 'world/v2/avatar/portraits/dragon.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false, borrow: false },
 ] as const;
 export type CharacterId = (typeof CHARACTERS)[number]['id'];
 export type CharacterConfig = (typeof CHARACTERS)[number];
@@ -92,9 +110,18 @@ export function staffScale(character: CharacterConfig): number {
   return Math.min(1.15, Math.max(0.75, character.duelHeight / DUEL_PLAYER_HEIGHT));
 }
 
-/** Fitted body height in the plaza. The wizard is `AVATAR_HEIGHT`; the rest keep their Sproto Duel ratio. */
+/** Fitted body height in the plaza. The wizard is `AVATAR_HEIGHT`; the rest keep their ratio to it. */
 export function characterHeight(character: CharacterConfig): number {
   return AVATAR_HEIGHT * (character.duelHeight / DUEL_PLAYER_HEIGHT);
+}
+
+/**
+ * Yaw applied before the height fit, so the face matches the wizard (toward −Z).
+ * Duel rigs and the Mixamo shooter cast face +Z and need a half turn.
+ * The jade dragon's nose points along −X, so it only needs a quarter turn.
+ */
+export function characterYaw(character: CharacterConfig): number {
+  return character.id === 'dragon' ? -Math.PI / 2 : Math.PI;
 }
 
 /**

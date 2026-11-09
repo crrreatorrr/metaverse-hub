@@ -54,6 +54,12 @@ button:disabled {
   outline-offset: 4px;
 }
 
+/* Controller focus ring (core/pad-focus.ts): shown even when the browser hides :focus-visible. */
+.pad-focus {
+  outline: 3px dashed var(--yellow-2);
+  outline-offset: 4px;
+}
+
 /* Shared glass surface. */
 .verse,
 .hud-btn,
