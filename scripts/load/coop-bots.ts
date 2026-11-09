@@ -167,7 +167,10 @@ const worst = samples.reduce((best, row) => (row.p95 > best ? row.p95 : best), 0
 check(
   'ten matches stay under 25 ms p95',
   samples.length === BENCH_MATCHES && samples.every((row) => row.phase === 'playing' && row.n >= 100 && row.p95 < 25 && row.rewards === 0 && !row.error),
-  JSON.stringify(samples.map((row) => ({ n: row.n, p50: row.p50, p95: row.p95, max: row.max, over25: row.over25, tick: row.tick, phase: row.phase, error: row.error }))),
+  JSON.stringify({
+    cpu: cpus()[0]?.model ?? '',
+    samples: samples.map((row) => ({ n: row.n, p50: row.p50, p95: row.p95, max: row.max, over25: row.over25, tick: row.tick, phase: row.phase, error: row.error })),
+  }),
 );
 
 const after = await Promise.all(accounts.map((session) => balance(session.gameToken)));
