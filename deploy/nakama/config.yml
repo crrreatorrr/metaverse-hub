@@ -49,4 +49,6 @@ console:
   password: "${NAKAMA_CONSOLE_PASSWORD}"
   signing_key: "${NAKAMA_CONSOLE_SIGNING_KEY}"
 
-shutdown_grace_sec: 15
+# Seconds Nakama gives running matches to finish matchTerminate on SIGTERM. compose.yml's
+# stop_grace_period (90s) must stay above this, or Docker SIGKILLs Nakama first.
+shutdown_grace_sec: 60

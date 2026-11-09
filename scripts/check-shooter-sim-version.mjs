@@ -1,5 +1,6 @@
-// Fail when the vendored Shooter verifier disagrees with its pin, with the
-// campaign contract, or with sproto-shooter main. A stale pin is not accepted.
+// Fail when the vendored Shooter verifier disagrees with its pin or the
+// campaign contract. Shooter main must be the pin commit, or a descendant
+// whose sim, protocol, content, and bundle-build files are unchanged.
 //
 //   node scripts/check-shooter-sim-version.mjs
 import { createHash } from 'node:crypto';
@@ -7,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
+import { assertShooterMain } from './shooter-main-pin.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const bundlePath = join(root, 'server/modules/vendor/shooter-sim.js');
@@ -101,44 +103,15 @@ function checkLocal() {
   return { errors, pin, hash };
 }
 
-async function fetchJson(url, token) {
-  const headers = {
-    Accept: 'application/vnd.github+json',
-    'User-Agent': 'metaverse-hub-shooter-sim-check',
-    'X-GitHub-Api-Version': '2022-11-28',
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-  const response = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
-  return { status: response.status, body: await response.json() };
-}
-
-async function mainSha() {
-  const token = process.env.GITHUB_TOKEN || '';
-  let last = 'no response';
-  for (const auth of token ? [token, ''] : ['']) {
-    try {
-      const result = await fetchJson(`https://api.github.com/repos/${REPO}/commits/main`, auth);
-      if (result.status === 200 && result.body && result.body.sha) return result.body.sha;
-      last = `GitHub API HTTP ${result.status}`;
-    } catch (error) {
-      last = error instanceof Error ? error.message : String(error);
-    }
-  }
-  throw new Error(`could not read shooter main (${last})`);
-}
-
 const local = checkLocal();
 if (local.errors.length || !local.pin) {
   for (const error of local.errors) console.error(`FAIL: ${error}`);
   process.exit(1);
 }
 try {
-  const main = await mainSha();
-  if (main !== local.pin.commit) {
-    console.error(`FAIL: shooter main ${main} != vendored ${local.pin.commit}`);
-    process.exit(1);
-  }
-  console.log(`Shooter main ${main} matches pin`);
+  const main = await assertShooterMain(local.pin.commit);
+  if (main.same) console.log(`Shooter main ${main.main} matches pin`);
+  else console.log(`Shooter main ${main.main} is ahead of pin ${local.pin.commit} with no sim source changes (${main.files.length} other files)`);
 } catch (error) {
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
