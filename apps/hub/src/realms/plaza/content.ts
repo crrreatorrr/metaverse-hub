@@ -1,7 +1,7 @@
 import { createRealmGate } from '../../core/gates';
 import { SANDBOX_GATE } from './layout';
 import { createArcadePicker } from '../../v2/arcade-picker';
-import { createLiveLeaderboardProvider } from '../../leaderboards';
+import { createLiveLeaderboardProvider, verseTotals, type VerseRow } from '../../leaderboards';
 import { parseReturnGame } from '../../travel';
 import { ARCADE_GAMES, PORTALS, STATUE_PORTALS } from './config';
 import { ARCADE_PROMPT } from './arcade-layout';
@@ -549,7 +549,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
 
   type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
-  interface EarnedRow { name?: string; gameId?: string; lifetime?: number }
+  type EarnedRow = VerseRow;
 
   const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
     hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
@@ -592,12 +592,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   }
 
   function totals(rows: EarnedRow[]): (readonly [string, number])[] {
-    const sums = new Map<string, number>();
-    for (const row of rows) {
-      if (!row.name || typeof row.lifetime !== 'number' || !row.gameId) continue;
-      sums.set(row.name, (sums.get(row.name) ?? 0) + row.lifetime);
-    }
-    return [...sums.entries()];
+    return verseTotals(rows).map((row) => [row.name, row.score] as const);
   }
 
   if (barTabs instanceof HTMLElement) {
