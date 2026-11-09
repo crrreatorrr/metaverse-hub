@@ -10,6 +10,8 @@ Nakama, Postgres, and Caddy for the hub. Economy RPCs live in the TypeScript run
 
 The database password is `localdb`. The Nakama server key is `defaultkey`. The HTTP key is `localhttpkey`. Those are local dev values, not production secrets. The HTTP key stays on the Nakama process. Game and hub bundles do not contain it. A portal ticket is redeemed with custom authentication and the server key. Write RPCs reject a call that has no user id.
 
+People's Bitcoin has an owner godmode: accounts in `game.godmode_user` get their `peoples-bitcoin` Ticket wallet raised to a set amount on every balance read (`modules/src/godmode.ts`, migration `0042_pb_godmode`). Only `deploy/scripts/godmode.sh` adds accounts; see `deploy/README.md`. Locally: `docker compose exec -T postgres psql -U postgres -d nakama -c "INSERT INTO game.godmode_user (user_id, tickets) SELECT id, 90000000000 FROM users WHERE username = '<name>'"`.
+
 ## Accounts
 
 The hub opens on a sign-up / log-in page. Accounts use Nakama's email auth with a username:

@@ -24,6 +24,7 @@
     "src/games/shooter_sim.d.ts",
     "src/shop_seed.ts",
     "src/schema.ts",
+    "src/godmode.ts",
     "src/hub_realms.ts",
     "src/hub_games.ts",
     "src/server_economy.ts",

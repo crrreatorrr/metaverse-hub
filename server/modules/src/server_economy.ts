@@ -95,6 +95,7 @@ namespace HubEconomy {
   export function balance(nk: nkruntime.Nakama, who: Who): { [k: string]: unknown } {
     if (!who || !UUID.test(who.userId || "")) return { error: "unauthorized" };
     if (!UUID.test(who.sid || "")) return { error: "session_closed" };
+    HubGodmode.topUp(nk, who.userId, who.game);
     return queryJson(
       nk,
       "SELECT json_build_object('balance', COALESCE((SELECT balance FROM game.tickets_balance WHERE user_id = $1::uuid AND game_id = $2), 0), 'sessionCapLeft', GREATEST(0, game.session_ticket_cap() - COALESCE((SELECT SUM(delta) FROM game.tickets_ledger WHERE user_id = $1::uuid AND game_id = $2 AND ref_id = $3::uuid AND delta > 0 AND COALESCE(kind, '') <> 'refund' AND reason <> 'refund'), 0)), 'dailyCapLeft', GREATEST(0, 1000 - COALESCE((SELECT amount FROM game.earn_window WHERE user_id = $1::uuid AND bucket = 'tickets:' || $2 AND day = (now() AT TIME ZONE 'utc')::date), 0)), 'serverTime', floor(extract(epoch FROM now()) * 1000)::bigint)::text AS result",
