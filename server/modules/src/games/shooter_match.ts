@@ -147,12 +147,9 @@ namespace ShooterMatch {
     }
   }
 
-  /**
-   * The display name the director puts in WELCOME `names`, cleaned like plaza names.
-   * TODO(hub #92): switch to HubMatch.cleanName once it is on main.
-   */
+  /** The display name the director puts in WELCOME `names`: HubMatch.cleanName, or "player" when nothing is left. */
   export function displayName(raw: unknown): string {
-    return HubMatch.sanitizeName(typeof raw === "string" ? raw : "");
+    return HubMatch.cleanName(typeof raw === "string" ? raw : "") || "player";
   }
 
   function blankReplay(on: boolean): ReplaySummary {
