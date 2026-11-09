@@ -489,6 +489,13 @@ function staffMatch(mod: LoadedModule, helloA: unknown, helloB: unknown, via: 'h
   assert.deepEqual(staffMatch(mod, 'duel_staff_nobu', 'duel_staff_moonward').staffs, ['duel_staff_nobu', 'duel_staff_sproto']);
 }
 {
+  // Fighter's Might: game.owned_item_ids lists it for a Tidebreaker Belt owner, so the owner keeps it
+  // and a player without the Belt gets the starter.
+  const mod = loadModule();
+  ownStaffs(mod, { [A]: ['duel_staff_sproto', 'duel_staff_fighters_might'], [B]: ['duel_staff_sproto'] });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_fighters_might', 'duel_staff_fighters_might').staffs, ['duel_staff_fighters_might', 'duel_staff_sproto']);
+}
+{
   // A failed ownership read fails closed to the starter.
   const mod = loadModule();
   mod.nk.onSql('game.owned_item_ids', () => {

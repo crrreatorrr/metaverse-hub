@@ -17,7 +17,7 @@ client, the **host** (picked at random per match), runs the fight, and this matc
 
 | Op | Name | Direction | Body |
 |---|---|---|---|
-| 1 | HELLO | c→s | `{v, staff}`; `v` ≠ `NET_VERSION` → CANCEL `version_mismatch`. `staff` must be a listed staff the player owns (`game.owned_item_ids`, plus the Nobu Staff for the Breakwater Coin), read once per match; anything else, or a failed read, is the starter `duel_staff_sproto`. |
+| 1 | HELLO | c→s | `{v, staff}`; `v` ≠ `NET_VERSION` → CANCEL `version_mismatch`. `staff` must be a listed staff the player owns (`game.owned_item_ids`, which gives Fighter's Might for the Tidebreaker Belt, plus the Nobu Staff for the Breakwater Coin), read once per match; anything else, or a failed read, is the starter `duel_staff_sproto`. |
 | 2 | START | s→each | `{seat, hostSeat, names, staffs, rules:"online1", seed}` once both said HELLO. `staffs` are the accepted (owned) staffs; clients use these, not their own pick. |
 | 3 | SIGNAL | c→s→peer | opaque (reserved for WebRTC) |
 | 10 | INPUT | guest→s→host | `{t, f}` packed intent frames; ≤ 2 KB |

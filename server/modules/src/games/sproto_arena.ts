@@ -66,7 +66,8 @@ namespace SprotoArena {
   export var PVP_DAILY_PAID_WINS = 10;
   export var WINS_BOARD = "sproto_wins";
 
-  export var STAFFS = ["duel_staff_sproto", "duel_staff_momentum", "duel_staff_moonward", "duel_staff_nobu"];
+  /** Sproto Duel's staffs (src/sim-core/staffs.ts). Fighter's Might comes from the Tidebreaker Belt through game.owned_item_ids. */
+  export var STAFFS = ["duel_staff_sproto", "duel_staff_momentum", "duel_staff_moonward", "duel_staff_nobu", "duel_staff_fighters_might"];
   export var ROOM_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
   export interface RoundRec { round: number; winnerSeat: number | null; reason: string; wins: number[]; tick: number }
