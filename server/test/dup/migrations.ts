@@ -388,10 +388,14 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-const LATER_GAMES = "('sproto-fighter', 'sproto-arcade')";
+/** 0039 adds sproto-shooter and sproto-coop-battle; their dup Relic flows (0042) leave sessions and game_beaten rows. */
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle')";
 const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
-/** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
-const LATER_RELICS = "('breakwater_coin')";
+/**
+ * Relics added after 0009's relic check (0025: breakwater_coin; 0042: marina_anchor, dragon_scale).
+ * 0009 and 0025 re-add narrower checks during the replay; 0042 widens them again.
+ */
+const LATER_RELICS = "('breakwater_coin', 'marina_anchor', 'dragon_scale')";
 
 function parkLaterGames(): void {
   psql('CREATE SCHEMA IF NOT EXISTS dup_park');

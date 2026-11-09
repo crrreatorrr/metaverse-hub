@@ -1,6 +1,8 @@
-// H0: sproto-shooter and sproto-coop-battle are registered with no earn, Relic, or leaderboard.
+// H0: sproto-shooter and sproto-coop-battle are registered with no client earn or leaderboard.
 // Coop Battle is a Bar cabinet game (no plaza portal). Shooter is the empty-slot plaza ring.
-// Neither id can mint Tickets, Relics, or scores. vcoin stays on the session and ticket checks.
+// Neither id can mint Tickets or scores from the client, and 0039 itself grants no Relic.
+// Their Relics (Marina Anchor, Dragon Scale) come from 0042; see server/test/games/stage_relics.test.ts.
+// vcoin stays on the session and ticket checks.
 // server/test/unit/run.ts globs this file; it does not need its own runner entry.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -87,7 +89,7 @@ function unauthenticated(fn: () => void): void {
 const hub = { userId: USER, vars: { scope: 'hub' } };
 const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', game, sid: SID, ranked: '0' } });
 
-// Migration 0039 keeps every current id, including vcoin, and does not mint.
+// Migration 0039 keeps every current id, including vcoin, and does not mint. Later Relic rules are 0042.
 {
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
   const all = plain(HubSchema.all());
@@ -177,7 +179,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   }
 }
 
-// No earn and no score board for the new ids.
+// No earn and no score board for the new ids. Another game's boss event grants nothing here.
 {
   for (const game of ADDED) {
     const earned = mod.call('tickets.earn', gameSession(game), { key: 'k1', amount: 20, reason: 'boss' }) as { error?: string; balance?: number };

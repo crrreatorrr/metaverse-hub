@@ -267,7 +267,8 @@ BEGIN
         FROM game.item_owned
         WHERE item_id IN ('pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto',
                           'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
-                          'tidebreaker_belt', 'breakwater_coin')
+                          'tidebreaker_belt', 'breakwater_coin',
+                          'marina_anchor', 'dragon_scale')
       ) items
     $q$
     LOOP

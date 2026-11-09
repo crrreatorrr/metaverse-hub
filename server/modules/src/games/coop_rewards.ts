@@ -5,8 +5,9 @@
 // Those phases are one clear. Slot count is not a multiplier.
 //
 // A client cannot name this payout through tickets.earn, session.event, or
-// score.submit. There is no positive event_rule for this game. HubEconomy.earn
-// refuses the reason too, so a match cannot mint it outside this function.
+// score.submit. No event_rule pays Tickets for this game (0042 adds only the
+// Marina Anchor Relic rule, see StageRelics). HubEconomy.earn refuses the
+// reason too, so a match cannot mint it outside this function.
 namespace CoopRewards {
   export var GAME_ID = "sproto-coop-battle";
   export var BANKED_REASON = "srv_coop_boss_clear";

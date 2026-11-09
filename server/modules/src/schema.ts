@@ -3315,6 +3315,9 @@ namespace HubSchema {
   // 0041_coop_boss_receipt is registered from src/games/coop_rewards.ts. It adds the coop
   // eligibility and receipt tables and the internal settle function. It does not add a
   // client event_rule, and it does not change V Coin or any other game's payout.
+  // 0042_coop_shooter_relics is registered from src/games/stage_relics.ts. It widens the Relic
+  // checks (relic_claim, relic_claim_pending) and game_beaten for marina_anchor (Coop stage 1) and
+  // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
