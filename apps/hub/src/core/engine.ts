@@ -1,7 +1,7 @@
 import { BackSide, CanvasTexture, CircleGeometry, Color, DirectionalLight, Fog, Group, HalfFloatType, HemisphereLight, LOD, Mesh, MeshBasicMaterial, NoToneMapping, PerspectiveCamera, PMREMGenerator, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, WebGLRenderer } from 'three';
 import { EffectComposer, EffectPass, RenderPass, SelectiveBloomEffect, ToneMappingEffect, ToneMappingMode } from 'postprocessing';
 import { isRelicId } from '@metaverse/hub-sdk';
-import { createAvatarRig } from '../avatar';
+import { createAvatarRig, type AvatarAir } from '../avatar';
 import type { AvatarLook } from '../look';
 import { CAMERA_FOV } from '../config';
 import { STAND_Y } from '../physics';
@@ -144,10 +144,10 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     setHiddenRelics(ids: readonly string[]) { hidden = new Set(ids); syncGems(); },
     setRemoteOrbit(avatars: readonly OrbitAvatar[]) { remoteOrbit = avatars; syncGems(); },
     setPreviewAvatars(avatars: readonly OrbitAvatar[]) { previewOrbit = avatars; syncGems(); },
-    update(dt: number, moving: boolean, sprint: boolean) {
+    update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir) {
       elapsed += dt;
       for (const fn of animated) fn(elapsed, dt);
-      actors().avatarRig.update(dt, moving, sprint);
+      actors().avatarRig.update(dt, moving, sprint, air);
       actors().pets.update(dt, actors().rig.position, STAND_Y, sprint);
       gems.update(elapsed);
     },

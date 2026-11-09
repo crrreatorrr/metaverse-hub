@@ -17,6 +17,16 @@ export const PORTALS: readonly PortalConfig[] = [
 ];
 
 /**
+ * Extra gates that are not artist slots. The statue head faces south toward the spawn, so its back
+ * is north. This green gate stands on the ground just past the pedestal (radius 25) on that side,
+ * as a second way into Sproto Shooter. Returns from the game still land at the Range ring.
+ */
+export const STATUE_PORTAL_DISTANCE = 31;
+export const STATUE_PORTALS: readonly PortalConfig[] = [
+  { distance: STATUE_PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-shooter', label: 'Sproto Shooter', place: 'Behind the statue', angle: 0, color: '#39ff6a' },
+];
+
+/**
  * Sproto Fighter, Sproto Arcade and Sproto Coop Battle have no ring on the plaza. They share the
  * arcade cabinet inside the Bar: stand at the machine, press E and pick one. Same portal ticket
  * flow as the rings (`portal.enter`, then `#t=`).

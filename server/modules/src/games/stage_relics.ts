@@ -13,7 +13,7 @@
 // the Four Lights, the Hall of Champions or the Four Lights pet, or unlocks an item in another game.
 // `coop.boss_clear` and `shooter.boss_clear` stay server-only (CoopRewards / ShooterRewards).
 //
-// Migration 0042 is the next free id after 0041_coop_boss_receipt. It widens the Relic checks and
+// Migration 0045 follows main's 0042_server_flags (0043 and 0044 are claimed by open PRs). It widens the Relic checks and
 // game_beaten (claim_event_relic writes a game_beaten row on a live grant) and adds the two rules.
 namespace StageRelics {
   export var COOP_GAME = "sproto-coop-battle";
@@ -46,7 +46,7 @@ namespace StageRelics {
 }
 
 HubSchema.register({
-  id: "0042_coop_shooter_relics",
+  id: "0045_coop_shooter_relics",
   statements: [
     "ALTER TABLE game.relic_claim DROP CONSTRAINT IF EXISTS relic_claim_known",
     "ALTER TABLE game.relic_claim ADD CONSTRAINT relic_claim_known CHECK (relic_id IN ('hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin', 'marina_anchor', 'dragon_scale'))",

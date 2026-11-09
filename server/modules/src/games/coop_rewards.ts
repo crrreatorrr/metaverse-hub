@@ -5,7 +5,7 @@
 // Those phases are one clear. Slot count is not a multiplier.
 //
 // A client cannot name this payout through tickets.earn, session.event, or
-// score.submit. No event_rule pays Tickets for this game (0042 adds only the
+// score.submit. No event_rule pays Tickets for this game (0045 adds only the
 // Marina Anchor Relic rule, see StageRelics). HubEconomy.earn refuses the
 // reason too, so a match cannot mint it outside this function.
 namespace CoopRewards {

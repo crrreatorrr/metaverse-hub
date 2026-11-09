@@ -36,7 +36,7 @@ docker compose up --build -d
 npm run test:dup
 ```
 
-The suite lives in `server/test/dup/`. `cases.ts` is the only table you add to. M1 covers `session.event` for Tinubu's Crown (`sproto.boss_defeated` → `tinubu_crown`) and `tickets.exchange` (10 Tickets = 1 Verse, 50 Verse per game per UTC day). `FIGHTER_FLOWS` covers Sproto Fighter (migration 0009): `fighter.story_level_complete` with world 1 → `tidebreaker_belt`, and a `fighter_win` exchange. `ARCADE_FLOWS` covers the Breakwater Coin, and `COOP_SHOOTER_FLOWS` covers migration 0042: `coop.stage_clear` with stage 1 → `marina_anchor` and `shooter.wave_clear` with wave 1 → `dragon_scale` (both live, God Mode included, no Tickets). Append a relic or exchange row to `M2_FLOWS`, or a `{ kind: 'purchase', defId, priceVerse }` row to `M7_FLOWS`, and the same idempotency, race, forged-request, wallet, and fault cases run for it. Purchases call `store.buy` with `{ defId, key }` and need `HubFault.apply` at `purchase.before_rpc` and `purchase.after_commit`.
+The suite lives in `server/test/dup/`. `cases.ts` is the only table you add to. M1 covers `session.event` for Tinubu's Crown (`sproto.boss_defeated` → `tinubu_crown`) and `tickets.exchange` (10 Tickets = 1 Verse, 50 Verse per game per UTC day). `FIGHTER_FLOWS` covers Sproto Fighter (migration 0009): `fighter.story_level_complete` with world 1 → `tidebreaker_belt`, and a `fighter_win` exchange. `ARCADE_FLOWS` covers the Breakwater Coin, and `COOP_SHOOTER_FLOWS` covers migration 0045: `coop.stage_clear` with stage 1 → `marina_anchor` and `shooter.wave_clear` with wave 1 → `dragon_scale` (both live, God Mode included, no Tickets). Append a relic or exchange row to `M2_FLOWS`, or a `{ kind: 'purchase', defId, priceVerse }` row to `M7_FLOWS`, and the same idempotency, race, forged-request, wallet, and fault cases run for it. Purchases call `store.buy` with `{ defId, key }` and need `HubFault.apply` at `purchase.before_rpc` and `purchase.after_commit`.
 
 `server/test/dup/audit.sql` must return no rows. The suite runs it after every case. CI runs it again after the job. `HUB_FAULT_INJECT=1` in this compose file arms nothing by itself; only rows in `game.fault_arm` (inserted by the suite) pause or abort a grant. Leave that flag unset on a production deploy.
 
@@ -70,6 +70,14 @@ Moderation is SQL for now:
 INSERT INTO game.chat_mute (user_id, until, reason) VALUES ('<uuid>', now() + interval '1 day', 'spam');
 -- newest reports
 SELECT created_at, reporter, target, channel_id, text, reason FROM game.chat_report ORDER BY created_at DESC LIMIT 50;
+```
+
+Feature flags are rows in `game.server_flags` (migration `0042_server_flags`), read through `Flags.on(nk, key, userId, logger?, { onReadError? })` in `modules/src/flags.ts`. A flag's `state` is `off`, `allowlist` (the `allowlist` uuids), `percent` (a stable per-key bucket of the user below `percent`, plus the allowlist) or `on`. A missing row is off. A failed read returns `onReadError`, which defaults to false: readers of `maint` must pass `{ onReadError: true }` so a database outage keeps maintenance on. Buckets are independent per key, so a nested rollout (`shooter_pvp_wager` inside `shooter_pvp`) must check both flags. Each node caches a row for 5 s. The launch flags (`shooter_pvp`, `shooter_pvp_wager`, `shooter_pvp_ranked`, `hub_exchange`, `verse_store`, `relic_unhold`, `diagnostics_prompt`, `maint`) are seeded `off`, and nothing reads them yet. Turning a flag off is the first rollback:
+
+```sql
+UPDATE game.server_flags SET state = 'allowlist', allowlist = '{<uuid>}', updated_at = now() WHERE key = 'shooter_pvp';
+UPDATE game.server_flags SET state = 'percent', percent = 10, updated_at = now() WHERE key = 'shooter_pvp';
+UPDATE game.server_flags SET state = 'off', updated_at = now() WHERE key = 'shooter_pvp';
 ```
 
 Tests: `npm test` builds the module and runs `server/test/unit/*.test.ts` and `server/test/games/*.test.ts` in `node:vm` against a fake `nk` (no Docker). Against this compose stack, `npm run test:rt` drives real sockets (plaza, chat, matchmaker scope, NOBU boards) next to `npm run test:dup`.

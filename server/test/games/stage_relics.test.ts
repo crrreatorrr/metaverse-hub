@@ -1,4 +1,4 @@
-// Marina Anchor (Coop stage 1) and Dragon Scale (Shooter Wave Mode wave 1): migration 0042, the
+// Marina Anchor (Coop stage 1) and Dragon Scale (Shooter Wave Mode wave 1): migration 0045, the
 // client event path, and the banked Coop grant in CoopMatch.applyPay. The grant is earn-once in SQL
 // (game.claim_event_relic); this file checks who the match asks for it and that Tickets stay apart.
 import assert from 'node:assert/strict';
@@ -87,16 +87,21 @@ function fakeClaims(mod: LoadedModule): Set<string> {
   return owned;
 }
 
-// Migration 0042: the next id, every Relic in both checks, game_beaten widened, two live rules.
+// Migration 0045: after main's 0042_server_flags (0043 and 0044 are claimed by open PRs), every Relic
+// in both checks, game_beaten widened, two live rules.
 {
   const mod = loadModule();
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
   const all = plain(HubSchema.all());
   const ids = all.map((row) => row.id);
-  const m = all.find((row) => row.id === '0042_coop_shooter_relics');
-  assert.ok(m, 'migration 0042 registered');
-  assert.equal(ids.indexOf('0042_coop_shooter_relics'), ids.indexOf('0041_coop_boss_receipt') + 1);
-  assert.equal(ids.at(-1), '0042_coop_shooter_relics');
+  const m = all.find((row) => row.id === '0045_coop_shooter_relics');
+  assert.ok(m, 'migration 0045 registered');
+  // Runs after every migration with a lower id, whatever else has merged since.
+  const num = (id: string) => Number(id.slice(0, 4));
+  assert.ok(ids.indexOf('0045_coop_shooter_relics') > ids.indexOf('0042_server_flags'), 'after 0042_server_flags');
+  for (const id of ids) {
+    if (num(id) < 45) assert.ok(ids.indexOf(id) < ids.indexOf('0045_coop_shooter_relics'), `${id} runs before 0045`);
+  }
   const sql = m.statements.join('\n');
   const list = RELICS.map((id) => `'${id}'`).join(', ');
   assert.ok(sql.includes(`relic_claim_known CHECK (relic_id IN (${list}))`), 'relic_claim_known');

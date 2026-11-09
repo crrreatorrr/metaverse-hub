@@ -113,6 +113,8 @@ export interface Chat {
   hide(): void;
   /** System line in the log only. */
   system(text: string): void;
+  /** A line from someone only on this screen (a sim): log only, never sent. */
+  local(name: string, text: string): void;
   /**
    * Places the overhead text. `x`/`y` are CSS pixels; `scale` shrinks it with
    * distance. Pass null when the head is off screen.
@@ -350,6 +352,9 @@ export function createChat(options: ChatOptions): Chat {
     get open() { return open; },
     show,
     hide: () => close(false),
+    local(name: string, text: string) {
+      addLine(name, text.slice(0, CHAT_MAX_LENGTH), 'public');
+    },
     system(text: string) {
       addLine(null, text, 'system');
     },

@@ -1,7 +1,7 @@
 // H0: sproto-shooter and sproto-coop-battle are registered with no client earn or leaderboard.
 // Coop Battle is a Bar cabinet game (no plaza portal). Shooter is the empty-slot plaza ring.
 // Neither id can mint Tickets or scores from the client, and 0039 itself grants no Relic.
-// Their Relics (Marina Anchor, Dragon Scale) come from 0042; see server/test/games/stage_relics.test.ts.
+// Their Relics (Marina Anchor, Dragon Scale) come from 0045; see server/test/games/stage_relics.test.ts.
 // vcoin stays on the session and ticket checks.
 // server/test/unit/run.ts globs this file; it does not need its own runner entry.
 import assert from 'node:assert/strict';
@@ -89,7 +89,7 @@ function unauthenticated(fn: () => void): void {
 const hub = { userId: USER, vars: { scope: 'hub' } };
 const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', game, sid: SID, ranked: '0' } });
 
-// Migration 0039 keeps every current id, including vcoin, and does not mint. Later Relic rules are 0042.
+// Migration 0039 keeps every current id, including vcoin, and does not mint. Later Relic rules are 0045.
 {
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
   const all = plain(HubSchema.all());
@@ -132,7 +132,9 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   assert.match(games, /id: 'sproto-fighter',\s*slug: 'sproto-fighter',\s*env: 'VITE_GAME_URL_SPROTO_FIGHTER',\s*entry: 'cabinet'/);
   assert.match(games, /id: 'sproto-arcade',\s*slug: 'sproto-arcade',\s*env: 'VITE_GAME_URL_SPROTO_ARCADE',\s*entry: 'cabinet'/);
   const plaza = readFileSync(join(repoRoot, 'apps/hub/src/realms/plaza/config.ts'), 'utf8');
-  assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 1);
+  // The Range ring plus the green gate behind the statue head.
+  assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 2);
+  assert.match(plaza, /id: 'sproto-shooter', label: 'Sproto Shooter', place: 'Behind the statue', angle: 0, color: '#39ff6a'/);
   assert.equal(plaza.split("id: 'sproto-coop-battle'").length - 1, 1);
   assert.match(plaza, /id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 \* PLAZA_SLOT \+ PLAZA_YAW/);
   assert.match(plaza, /id: 'sproto-coop-battle', label: 'Sproto Coop Battle'/);

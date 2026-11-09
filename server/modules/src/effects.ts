@@ -34,7 +34,7 @@ namespace HubEffects {
     // Sproto Arcade. Its awards repeat Cone's Tip's items in each game's own code; the matrix
     // rows stay keyed by Cone's Tip, so the Coin adds no rows here.
     breakwater_coin: "sproto-arcade",
-    // Sproto Coop Battle and Sproto Shooter (0042). Plaza Relics only: no matrix rows.
+    // Sproto Coop Battle and Sproto Shooter (0045). Plaza Relics only: no matrix rows.
     marina_anchor: "sproto-coop-battle",
     dragon_scale: "sproto-shooter",
   };

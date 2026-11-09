@@ -262,7 +262,7 @@ namespace CoopMm {
       }
     }
     var names: { [id: string]: string } = {};
-    for (var n = 0; n < matches.length; n++) names[matches[n].presence.userId] = String(matches[n].presence.username || "").slice(0, 16);
+    for (var n = 0; n < matches.length; n++) names[matches[n].presence.userId] = HubMatch.cleanName(matches[n].presence.username, 16);
     var id = nk.matchCreate(CoopProto.MATCH_NAME, {
       private: "0",
       roster: JSON.stringify(ids),

@@ -210,7 +210,7 @@ export const ARCADE_FLOWS: DupFlow[] = [
 ];
 
 /**
- * Sproto Coop Battle and Sproto Shooter (migration 0042). Live, Ticket-free Relics; God Mode counts,
+ * Sproto Coop Battle and Sproto Shooter (migration 0045). Live, Ticket-free Relics; God Mode counts,
  * so the payload carries the flag. No exchange rows: neither game has a client Ticket earn.
  *   reportEvent('coop.stage_clear', { stage: 1 }, key)   → marina_anchor
  *   reportEvent('shooter.wave_clear', { wave: 1 }, key)  → dragon_scale
