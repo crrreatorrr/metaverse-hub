@@ -157,9 +157,7 @@ namespace PbWorld {
         }
       },
       resolveUsername: function (name) {
-        var users = nk().usersGetUsername([name]);
-        if (!users || !users.length) return null;
-        return { userId: users[0].userId, username: users[0].username };
+        return resolveUsername(nk(), name);
       },
       log: function (level, msg) {
         var line = "[pb_world " + state.worldNo + "] " + msg;
@@ -168,6 +166,16 @@ namespace PbWorld {
         else state.env.logger.info(line);
       },
     };
+  }
+
+  /**
+   * Friend/ignore lookup by name for the PB sim. The username it returns is shown to
+   * the player and stored in their friend list, so it is cleaned (HubMatch.cleanName).
+   */
+  export function resolveUsername(nk: nkruntime.Nakama, name: string): { userId: string; username: string } | null {
+    var users = nk.usersGetUsername([name]);
+    if (!users || !users.length) return null;
+    return { userId: users[0].userId, username: HubMatch.cleanName(users[0].username) || "player" };
   }
 
   /** Current character versions (null when absent). */

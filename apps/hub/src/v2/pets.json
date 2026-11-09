@@ -9,7 +9,8 @@
   "height_m": {
    "sproto": 0.6,
    "sproto_pup": 0.45,
-   "nobu": 0.6
+   "nobu": 0.6,
+   "nobu_game": 0.72
   },
   "follow": {
    "offset_avatar_local_m": {
@@ -207,31 +208,13 @@
    "lod1": "glb/pet_nobu-lod1.glb",
    "item_id": "pet_nobu",
    "pb_id": "sp_nobu",
-   "rig": "nobu20",
-   "role": "Relic summon = Nobu base + cape, cone charm, bark rings",
+   "rig": "nobu_game (the NOBU game's Meshy humanoid rig, 24 joints)",
+   "role": "Relic summon (Cone's Tip) = Nobu from the NOBU game: its nobu.glb with the retouched nobu_tex_fixed.jpg, clips baked from the game's procedural animator by scripts/pets/build-nobu-pet.mjs",
    "vfx": {
     "fx_anchor": "pet_fx_anchor",
-    "color": "#ffd23f",
-    "taunt": "#ffb020"
+    "color": "#ffd23f"
    },
-   "pulses": [
-    {
-     "node": "pet_nobu_bark_rings",
-     "material": "pet_nobu_bark_mat",
-     "min": 1.5,
-     "max": 3.0,
-     "hz": 2.67,
-     "color": "#ffd040",
-     "note": "rings are only visible during emote_happy (node scale keys)"
-    }
-   ],
-   "parts": {
-    "pet_nobu_tag": "coin tag, swings",
-    "pet_nobu_cape": "rigid cape on spine_3, flutters +-5 deg about its top edge",
-    "pet_nobu_cone": "gold cone charm, swings opposite the tag",
-    "pet_nobu_bark_rings": "inner bark ring, scale 0.001 except 2 pops in emote_happy",
-    "pet_nobu_bark_rings_2": "outer bark ring, 0.05 later"
-   },
+   "pulses": [],
    "pb": {
     "tint": "#f4f4f4",
     "props": [
