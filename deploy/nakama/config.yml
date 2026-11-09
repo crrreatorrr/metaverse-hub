@@ -2,6 +2,8 @@
 # from the container environment, and Nakama loads the rendered file. Do not
 # pass this file to Nakama directly. Values come from deploy/.env.
 # HUB_FAULT_INJECT is unset on purpose: the duplication-suite hook stays inert.
+# SHOOTER_PVP_REPLAY is unset on purpose: free Shooter matches keep no replay
+# record (docs/games/sproto-shooter-free.md). Wagers will turn it on.
 
 name: metaverse
 data_dir: "/nakama/data"
