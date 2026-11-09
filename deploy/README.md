@@ -291,7 +291,7 @@ curl -fsSI -H 'Accept-Encoding: br' https://play.<domain>/hpos10i/index.<hash>.w
 
 `deploy/scripts/godmode.sh` keeps one account's `peoples-bitcoin` Ticket wallet at a fixed amount,
 333,333,333 by default. Run it as root on the VPS after a deploy that includes migration
-`0042_pb_godmode`:
+`0044_pb_godmode`:
 
 ```bash
 sudo /opt/metaverse/deploy/scripts/godmode.sh on <username>

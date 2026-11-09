@@ -1,4 +1,4 @@
-// Owner godmode (server/modules/src/games/pb_godmode.ts): migration 0042 and the top-up call on
+// Owner godmode (server/modules/src/games/pb_godmode.ts): migration 0044 and the top-up call on
 // both Ticket balance reads. The SQL itself is exercised against Postgres by
 // deploy/scripts/godmode.sh; here the module is checked with the fake nk.
 import assert from 'node:assert/strict';
@@ -22,8 +22,8 @@ const topUps = () => mod.nk.sqlCalls.filter((c) => c.sql.includes('game.godmode_
 {
   const all = HubSchema.all();
   const ids = all.map((m) => m.id);
-  assert.ok(ids.indexOf('0042_pb_godmode') > ids.indexOf('0041_coop_boss_receipt'));
-  const sql = all.find((m) => m.id === '0042_pb_godmode')!.statements.join('\n');
+  assert.ok(ids.indexOf('0044_pb_godmode') > ids.indexOf('0041_coop_boss_receipt'));
+  const sql = all.find((m) => m.id === '0044_pb_godmode')!.statements.join('\n');
   assert.match(sql, /'duel_refund', 'godmode'\)/);
   assert.match(sql, /CREATE TABLE IF NOT EXISTS game\.godmode_user/);
   assert.match(sql, /IF p_game_id <> 'peoples-bitcoin' THEN RETURN NULL/);

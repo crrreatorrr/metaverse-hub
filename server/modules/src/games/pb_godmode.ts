@@ -20,7 +20,7 @@ namespace HubGodmode {
 }
 
 HubSchema.register({
-  id: "0042_pb_godmode",
+  id: "0044_pb_godmode",
   statements: [
     "ALTER TABLE game.tickets_ledger DROP CONSTRAINT IF EXISTS tickets_ledger_kind",
     "ALTER TABLE game.tickets_ledger ADD CONSTRAINT tickets_ledger_kind CHECK (kind IS NULL OR kind IN ('earn', 'exchange', 'spend', 'shop_sell', 'duel_stake', 'duel_payout', 'duel_refund', 'godmode'))",
