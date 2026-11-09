@@ -63,6 +63,7 @@ deploy/scripts/deploy-server.sh    zero-kill Nakama upgrade (see Upgrades)
 deploy/scripts/check-dist-secrets.sh
 deploy/scripts/backup-postgres.sh
 deploy/scripts/check-env.sh
+deploy/scripts/godmode.sh          owner godmode for The People's Bitcoin Tickets
 ```
 
 On the server:
@@ -340,6 +341,27 @@ curl -fsSI -H 'Accept-Encoding: br' https://play.<domain>/hpos10i/index.<hash>.w
 
 `index.html` is `no-cache`. The fingerprinted wasm is `application/wasm`, `immutable`, and `content-encoding: br` when the `.br` sibling exists and the client asks for brotli.
 
+
+## People's Bitcoin godmode (owner)
+
+`deploy/scripts/godmode.sh` keeps one account's `peoples-bitcoin` Ticket wallet at a fixed amount,
+333,333,333 by default. Run it as root on the VPS after a deploy that includes migration
+`0044_pb_godmode`:
+
+```bash
+sudo /opt/metaverse/deploy/scripts/godmode.sh on <username>
+sudo /opt/metaverse/deploy/scripts/godmode.sh list
+sudo /opt/metaverse/deploy/scripts/godmode.sh off <username>
+```
+
+`on` takes a username or a user id, and an optional amount as a third argument. It raises the
+wallet right away. After that the server raises it again whenever People's Bitcoin reads the
+balance (`tickets.balance` in a hub session, `HubEconomy.balance` in an online world), so spending
+never runs it down for long. Each raise is one `tickets_ledger` row with reason `godmode` and no
+session ref, so it bypasses the 200-per-session and 1000-per-day earn caps and the ledger still
+sums to the balance. Exchanging Tickets for Verse keeps its own cap. `off` stops the top-ups and
+leaves the Tickets in the wallet. Only this script writes `game.godmode_user`; no RPC can, so
+turning it on needs root on the server.
 
 ## Realm pages (prepared; deploy only when the owner asks)
 

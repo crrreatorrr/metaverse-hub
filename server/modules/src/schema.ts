@@ -3358,6 +3358,9 @@ namespace HubSchema {
   // eligibility and receipt tables and the internal settle function. It does not add a
   // client event_rule, and it does not change V Coin or any other game's payout.
   // 0042_server_flags is the hub's (MIGRATIONS above): game.server_flags, read by src/flags.ts.
+  // 0044_pb_godmode is registered from src/games/pb_godmode.ts (0042 and 0043 are taken by the
+  // server_flags and hpos10i_core_live PRs, which merge first). It adds game.godmode_user and
+  // game.godmode_topup and allows the 'godmode' tickets_ledger kind. No client RPC writes it.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
