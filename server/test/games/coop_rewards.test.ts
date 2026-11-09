@@ -35,7 +35,14 @@ function stateOf(m: MatchDriver): CoopState {
 }
 
 function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
-  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown };
+  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; matchId?: string };
+  const bag = mod.global.CoopMatch as { liveSession?(id: string): CoopState['session'] };
+  const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
+  if (held && held.state.players && held.state.players.length === 6) {
+    st.session = held;
+    st.cold = false;
+    return st;
+  }
   if (st.cold && st.simPacked && st.session) {
     const Sim = mod.global.Sim as { importState(data: unknown): CoopState['session'] extends infer S ? S extends { state: infer T } ? T : never : never };
     st.session.state = Sim.importState(st.simPacked) as CoopState['session'] extends infer S ? S extends { state: infer T } ? T : never : never;

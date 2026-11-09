@@ -173,6 +173,22 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   let connecting: Promise<void> | null = null;
   let lastToken = '';
+  /**
+   * Connection generation. connect() and disconnect() bump it. Every await in
+   * openSocket/establish/restore re-checks it, so an attempt that a disconnect()
+   * (or a newer connect()) overtook closes what it made and never reports 'open'.
+   */
+  let generation = 0;
+  /** Rejects the caller-facing promise of the connect() in flight, even while getToken() hangs. */
+  let abortConnect: (() => void) | null = null;
+
+  function isCurrent(gen: number): boolean {
+    return gen === generation && wanted;
+  }
+
+  function superseded(): HubSdkError {
+    return new HubSdkError('rt_closed', 'Realtime connection was closed');
+  }
 
   const pending = new Map<string, Pending>();
   /** Match messages that arrived before their join reply, by match id. */
@@ -381,8 +397,9 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     }
   }
 
-  async function openSocket(): Promise<void> {
+  async function openSocket(gen: number): Promise<void> {
     const token = await options.getToken();
+    if (!isCurrent(gen)) throw superseded();
     lastToken = token;
     const Impl = options.WebSocketImpl ?? (globalThis as { WebSocket?: new (url: string) => WebSocket }).WebSocket;
     if (!Impl) throw new HubSdkError('rt_unavailable', 'WebSocket is not available');
@@ -415,13 +432,24 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
         onEnvelope(env);
       };
     });
+    if (!isCurrent(gen) || socket !== ws) {
+      // disconnect() ran while the socket was opening. Close it here: nothing else will.
+      if (socket === ws) socket = null;
+      try {
+        ws.close(1000, 'client disconnect');
+      } catch {
+        // Already closed.
+      }
+      throw superseded();
+    }
     self = presenceFromToken(token);
   }
 
-  async function restore(): Promise<void> {
+  async function restore(gen: number): Promise<void> {
     for (const entry of [...matches.values()]) {
       try {
         const env = await joinRequest({ match_id: entry.matchId, metadata: entry.metadata ?? {} });
+        if (!isCurrent(gen)) throw superseded();
         const m = env.match ?? {};
         const held = takeOrphans(entry.matchId);
         if (entry.message.size === 0) entry.early.push(...held);
@@ -439,6 +467,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     for (const entry of [...channels.values()]) {
       try {
         const env = await request({ channel_join: channelJoinBody(entry.target, entry.persistence, entry.hidden) });
+        if (!isCurrent(gen)) throw superseded();
         entry.presences = (env.channel?.presences ?? []).map(presenceFromWire);
         if (env.channel?.self?.session_id) self = presenceFromWire(env.channel.self);
       } catch (error) {
@@ -449,6 +478,7 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     for (const entry of [...matchmaker.values()]) {
       try {
         const env = await request({ matchmaker_add: matchmakerBody(entry.request) });
+        if (!isCurrent(gen)) throw superseded();
         entry.current = env.matchmaker_ticket?.ticket ?? entry.current;
       } catch (error) {
         if (error instanceof HubSdkError && (error.code === 'rt_disconnected' || error.code === 'rt_closed')) throw error;
@@ -458,11 +488,13 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     }
   }
 
-  async function establish(isReconnect: boolean): Promise<void> {
-    await openSocket();
+  async function establish(isReconnect: boolean, gen: number): Promise<void> {
+    if (!isCurrent(gen)) throw superseded();
+    await openSocket(gen);
+    if (!isCurrent(gen)) throw superseded();
     attempt = 0;
     setState('open');
-    if (isReconnect) await restore();
+    if (isReconnect) await restore(gen);
   }
 
   function scheduleReconnect(code?: number, reason?: string): void {
@@ -478,8 +510,10 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
     reconnectTimer = timers.setTimeout(() => {
       reconnectTimer = null;
       if (!wanted) return;
-      establish(true).catch((error: unknown) => {
-        if (!wanted) return;
+      const gen = generation;
+      establish(true, gen).catch((error: unknown) => {
+        // disconnect() or a newer connect() owns the state now.
+        if (!isCurrent(gen)) return;
         // restore() lost the socket mid-way: the close handler already scheduled the next try.
         if (reconnectTimer || (socket && socket.readyState === OPEN)) return;
         socket = null;
@@ -617,22 +651,47 @@ export function createRealtime(options: RealtimeOptions): HubRealtime {
       }
       wanted = true;
       attempt = 0;
-      setState('connecting');
-      connecting = establish(false)
+      generation += 1;
+      const gen = generation;
+      let abort!: () => void;
+      const aborted = new Promise<never>((_, reject) => {
+        abort = () => reject(superseded());
+      });
+      abortConnect = abort;
+      const attemptPromise: Promise<void> = Promise.race([
+        // Starts after 'connecting' is announced and `connecting` is set, so a state
+        // listener that calls connect() joins this attempt instead of replacing it.
+        Promise.resolve().then(() => establish(false, gen)),
+        aborted,
+      ])
         .catch((error: unknown) => {
+          // Overtaken by disconnect() or a newer connect(): leave their state alone.
+          if (!isCurrent(gen)) throw superseded();
           socket = null;
           wanted = false;
           setState('closed', { reason: error instanceof Error ? error.message : String(error) });
           throw error instanceof HubSdkError ? error : new HubSdkError('rt_connect_failed', String(error));
         })
         .finally(() => {
-          connecting = null;
+          if (connecting === attemptPromise) connecting = null;
+          if (abortConnect === abort) abortConnect = null;
         });
-      return connecting;
+      connecting = attemptPromise;
+      setState('connecting');
+      return attemptPromise;
     },
 
     disconnect() {
       wanted = false;
+      generation += 1;
+      // A connect() still in flight now rejects with rt_closed, even if getToken() never
+      // answers; the next connect() starts fresh.
+      connecting = null;
+      if (abortConnect) {
+        const abort = abortConnect;
+        abortConnect = null;
+        abort();
+      }
       if (reconnectTimer) {
         timers.clearTimeout(reconnectTimer);
         reconnectTimer = null;

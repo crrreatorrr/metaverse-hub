@@ -14,7 +14,7 @@ interface ImportMetaEnv {
   readonly VITE_GAME_URL_SPROTO_COOP_BATTLE?: string;
 }
 
-/** Inlined by vite.config.ts. Empty in production unless VITE_NAKAMA_SERVER_KEY is set. */
+/** Inlined by vite.config.ts (server-key.ts). A non-development build fails if VITE_NAKAMA_SERVER_KEY is empty. */
 declare const __NAKAMA_SERVER_KEY__: string;
 
 interface HubDebugState {

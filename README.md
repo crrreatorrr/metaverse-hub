@@ -77,12 +77,14 @@ npm test            # hub-sdk (incl. realtime client + mock), capsule collider, 
 npm run test:dup    # relic duplication tests against docker compose Nakama
 npm run test:rt     # realtime (plaza, chat, matchmaker scope, NOBU boards) against docker compose Nakama
 npm run vendor:sdk -- <game-repo>   # build and vendor @metaverse/hub-sdk into a game repo
-npm run build       # sdk, Nakama module, plaza, then a check that the bundle has no debug globals
+npm run build       # sdk, Nakama module, plaza, then a check that the bundle has no debug globals (needs VITE_NAKAMA_SERVER_KEY)
 npm run pack:sdk    # tarball a game repo can npm install
 npm run preview     # serves the production build
 ```
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the duplication and realtime tests against Nakama and Postgres.
+
+`npm run build` inlines `VITE_NAKAMA_SERVER_KEY` into the plaza and stops with an error when it is empty or unset, because an empty key makes every login fail. For a release build, set it to `NAKAMA_SERVER_KEY` from `deploy/.env`, either in the shell or in `apps/hub/.env.production` (gitignored; the shell value wins). CI builds with a placeholder value that no server accepts. `npm run build -w @metaverse/hub -- --mode development` builds a local bundle with the dev key instead.
 
 ## Multiplayer
 
@@ -132,7 +134,7 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).
 
-Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.1; see its README for the realtime API and the mock server for game tests.
+Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.3; see its README for the realtime API and the mock server for game tests.
 
 `installHubSdk()` sets `window.hubSdk` for HPOS10I's JavaScriptBridge. The plaza does not install it.
 
