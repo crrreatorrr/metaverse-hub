@@ -6,15 +6,26 @@ set -euo pipefail
 # shellcheck source=lib.sh
 source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
+defaults_only=0
+if [ "${1:-}" = "--defaults-only" ]; then
+  defaults_only=1
+  shift
+fi
+
 if [ "$#" -lt 1 ]; then
-  echo "usage: check-dist-secrets.sh <dist-dir> [dist-dir...]" >&2
+  echo "usage: check-dist-secrets.sh [--defaults-only] <dist-dir> [dist-dir...]" >&2
   exit 2
 fi
 
-env_file="$(deploy_dir)/.env"
-http_key="$(read_env "$env_file" NAKAMA_HTTP_KEY)" || exit 1
-console_password="$(read_env "$env_file" NAKAMA_CONSOLE_PASSWORD)" || exit 1
-console_signing_key="$(read_env "$env_file" NAKAMA_CONSOLE_SIGNING_KEY)" || exit 1
+http_key=""
+console_password=""
+console_signing_key=""
+if [ "$defaults_only" -eq 0 ]; then
+  env_file="$(deploy_dir)/.env"
+  http_key="$(read_env "$env_file" NAKAMA_HTTP_KEY)" || exit 1
+  console_password="$(read_env "$env_file" NAKAMA_CONSOLE_PASSWORD)" || exit 1
+  console_signing_key="$(read_env "$env_file" NAKAMA_CONSOLE_SIGNING_KEY)" || exit 1
+fi
 
 require_scan_secret() {
   local name="$1" val="$2"
@@ -28,9 +39,11 @@ require_scan_secret() {
   fi
 }
 
-require_scan_secret NAKAMA_HTTP_KEY "$http_key"
-require_scan_secret NAKAMA_CONSOLE_PASSWORD "$console_password"
-require_scan_secret NAKAMA_CONSOLE_SIGNING_KEY "$console_signing_key"
+if [ "$defaults_only" -eq 0 ]; then
+  require_scan_secret NAKAMA_HTTP_KEY "$http_key"
+  require_scan_secret NAKAMA_CONSOLE_PASSWORD "$console_password"
+  require_scan_secret NAKAMA_CONSOLE_SIGNING_KEY "$console_signing_key"
+fi
 
 for dir in "$@"; do
   if [ ! -d "$dir" ]; then
@@ -42,6 +55,7 @@ done
 export NAKAMA_HTTP_KEY="$http_key"
 export NAKAMA_CONSOLE_PASSWORD="$console_password"
 export NAKAMA_CONSOLE_SIGNING_KEY="$console_signing_key"
+export CHECK_DIST_DEFAULTS_ONLY="$defaults_only"
 
 python3 - "$@" <<'PY'
 import os
@@ -63,12 +77,20 @@ DEV_VALUES = (
     "dev-audit-key",
 )
 
-SERVER_SECRETS = (
-    ("NAKAMA_HTTP_KEY", os.environ["NAKAMA_HTTP_KEY"].encode()),
-    ("NAKAMA_CONSOLE_PASSWORD", os.environ["NAKAMA_CONSOLE_PASSWORD"].encode()),
-    ("NAKAMA_CONSOLE_SIGNING_KEY", os.environ["NAKAMA_CONSOLE_SIGNING_KEY"].encode()),
+SERVER_SECRETS = tuple(
+    (name, os.environ[name].encode())
+    for name in ("NAKAMA_HTTP_KEY", "NAKAMA_CONSOLE_PASSWORD", "NAKAMA_CONSOLE_SIGNING_KEY")
+    if os.environ.get(name)
 )
-DEV_BYTES = tuple((name, name.encode()) for name in DEV_VALUES)
+# --defaults-only is the CI scan. The login UI contains the field name "password",
+# and "changeme" is an English word. The publish scan (no flag) still refuses both.
+SKIP_IN_DEFAULTS = {"password", "changeme"} if os.environ.get("CHECK_DIST_DEFAULTS_ONLY") == "1" else set()
+DEV_BYTES = tuple((name, name.encode()) for name in DEV_VALUES if name not in SKIP_IN_DEFAULTS)
+PRIVATE_KEYS = (
+    ("PRIVATE_KEY", b"-----BEGIN PRIVATE KEY-----"),
+    ("PRIVATE_KEY", b"-----BEGIN RSA PRIVATE KEY-----"),
+    ("PRIVATE_KEY", b"-----BEGIN OPENSSH PRIVATE KEY-----"),
+)
 
 failed = False
 for raw in sys.argv[1:]:
@@ -88,6 +110,7 @@ for raw in sys.argv[1:]:
                 continue
             labels = [label for label, needle in DEV_BYTES if needle in data]
             labels += [label for label, needle in SERVER_SECRETS if needle in data]
+            labels += [label for label, needle in PRIVATE_KEYS if needle in data]
             if not labels:
                 continue
             hits += 1

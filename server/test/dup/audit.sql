@@ -355,6 +355,88 @@ BEGIN
     END LOOP;
   END IF;
 
+  -- H5 escrow. Shooter: wallets plus held pots match the non-wager ledger,
+  -- and a hold is never left without both locks (or a lock without a hold).
+  -- Coop: each boss receipt is one +20 credit and the sums match. Fighter
+  -- escrow stays on its own audit.
+  IF to_regprocedure('game.shooter_wager_drift()') IS NOT NULL
+     AND to_regclass('game.shooter_wager') IS NOT NULL THEN
+    FOR r IN EXECUTE $q$
+      SELECT kind, subject, detail FROM (
+        SELECT 'shooter_escrow_drift'::text AS kind,
+               ''::text AS subject,
+               game.shooter_wager_drift()::text AS detail
+        WHERE game.shooter_wager_drift() <> 0
+
+        UNION ALL
+        SELECT 'shooter_held_without_locks',
+               w.match_id,
+               'locks=' || (SELECT count(*) FROM game.shooter_wager_active a WHERE a.match_id = w.match_id)::text
+        FROM game.shooter_wager w
+        WHERE w.status = 'held'
+          AND (SELECT count(*) FROM game.shooter_wager_active a WHERE a.match_id = w.match_id) <> 2
+
+        UNION ALL
+        SELECT 'shooter_lock_without_hold',
+               a.match_id,
+               a.user_id::text
+        FROM game.shooter_wager_active a
+        WHERE NOT EXISTS (
+          SELECT 1 FROM game.shooter_wager w
+          WHERE w.match_id = a.match_id AND w.status = 'held'
+        )
+      ) escrow
+    $q$
+    LOOP
+      n := n + 1;
+      msg := msg || r.kind || '|' || r.subject || '|' || r.detail || E'\n';
+    END LOOP;
+  END IF;
+
+  IF to_regclass('game.coop_receipt') IS NOT NULL THEN
+    FOR r IN EXECUTE $q$
+      SELECT kind, subject, detail FROM (
+        SELECT 'coop_receipt_ledger_count'::text AS kind,
+               ''::text AS subject,
+               'receipts=' || (SELECT count(*) FROM game.coop_receipt)::text
+                 || ' credits=' || (
+                   SELECT count(*) FROM game.tickets_ledger
+                   WHERE game_id = 'sproto-coop-battle' AND reason = 'srv_coop_boss_clear' AND delta = 20
+                 )::text AS detail
+        WHERE (SELECT count(*) FROM game.coop_receipt)
+           <> (
+             SELECT count(*) FROM game.tickets_ledger
+             WHERE game_id = 'sproto-coop-battle' AND reason = 'srv_coop_boss_clear' AND delta = 20
+           )
+
+        UNION ALL
+        SELECT 'coop_receipt_ledger_sum',
+               '',
+               'receipts=' || (SELECT COALESCE(sum(tickets), 0) FROM game.coop_receipt)::text
+                 || ' ledger=' || (
+                   SELECT COALESCE(sum(delta), 0) FROM game.tickets_ledger
+                   WHERE game_id = 'sproto-coop-battle' AND reason = 'srv_coop_boss_clear'
+                 )::text
+        WHERE (SELECT COALESCE(sum(tickets), 0) FROM game.coop_receipt)
+           <> (
+             SELECT COALESCE(sum(delta), 0) FROM game.tickets_ledger
+             WHERE game_id = 'sproto-coop-battle' AND reason = 'srv_coop_boss_clear'
+           )
+
+        UNION ALL
+        SELECT 'coop_credit_not_20',
+               user_id::text,
+               'delta=' || delta::text || ' seq=' || seq::text
+        FROM game.tickets_ledger
+        WHERE game_id = 'sproto-coop-battle' AND reason = 'srv_coop_boss_clear' AND delta <> 20
+      ) coop
+    $q$
+    LOOP
+      n := n + 1;
+      msg := msg || r.kind || '|' || r.subject || '|' || r.detail || E'\n';
+    END LOOP;
+  END IF;
+
   IF n <> 0 THEN
     RAISE EXCEPTION 'economy audit returned % row(s): %', n, msg;
   END IF;

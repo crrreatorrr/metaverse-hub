@@ -47,10 +47,12 @@ jobs:
         env:
           # Placeholder so the production build passes its empty-key guard. No server accepts it.
           VITE_NAKAMA_SERVER_KEY: ci-build-placeholder-not-a-server-key
+      - name: Hub dist has no secrets
+        run: deploy/scripts/check-dist-secrets.sh --defaults-only apps/hub/dist
 
   duplication:
     runs-on: ubuntu-latest
-    timeout-minutes: 140
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -96,6 +98,12 @@ jobs:
       - name: Shooter free match
         run: npx tsx scripts/load/shooter-bots.ts
         timeout-minutes: 15
+      - name: Coop H5 acceptance
+        run: npx tsx scripts/load/coop-acceptance.ts
+        timeout-minutes: 20
+      - name: Shooter H5 acceptance
+        run: npx tsx scripts/load/shooter-acceptance.ts
+        timeout-minutes: 20
       - name: Economy audit
         if: always()
         run: |

@@ -34,6 +34,7 @@ if [ ! -f "${src%/}/index.html" ]; then
   exit 1
 fi
 
+# Publish the static tree only. This does not write game.server_flags.
 "$(dirname "$(readlink -f "$0")")/check-dist-secrets.sh" "$src"
 
 rel="$(stage_release "$base" "$src")"
