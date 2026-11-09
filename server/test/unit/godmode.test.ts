@@ -31,7 +31,7 @@ const topUps = () => mod.nk.sqlCalls.filter((c) => c.sql.includes('game.godmode_
   assert.match(sql, /'godmode', NULL, 'godmode'\)/);
   assert.equal(sql.includes('earn_window'), false);
   assert.equal(HubGodmode.GAME, 'peoples-bitcoin');
-  assert.equal(HubGodmode.DEFAULT_TICKETS, 90_000_000_000);
+  assert.equal(HubGodmode.DEFAULT_TICKETS, 333_333_333);
 }
 
 // tickets.balance tops up before it reads, for peoples-bitcoin only.

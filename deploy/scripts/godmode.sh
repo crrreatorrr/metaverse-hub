@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Owner godmode for The People's Bitcoin: keep one account's peoples-bitcoin Ticket wallet
-# at a fixed amount (default 90,000,000,000). The server tops it up whenever the game reads
+# at a fixed amount (default 333,333,333). The server tops it up whenever the game reads
 # the balance (server/modules/src/godmode.ts). Only for accounts the owner names here.
 #
 #   godmode.sh on  <username|user-id> [tickets]
@@ -27,7 +27,7 @@ usage() {
 
 action="${1:-}"
 who="${2:-}"
-tickets="${3:-90000000000}"
+tickets="${3:-333333333}"
 
 case "$tickets" in
   ''|*[!0-9]*|0)

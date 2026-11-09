@@ -10,7 +10,7 @@ namespace HubGodmode {
   /** The only game godmode touches. */
   export var GAME = "peoples-bitcoin";
   /** Default target for deploy/scripts/godmode.sh. */
-  export var DEFAULT_TICKETS = 90000000000;
+  export var DEFAULT_TICKETS = 333333333;
 
   /** Raises the wallet if `userId` is listed. A no-op for every other account and game. */
   export function topUp(nk: nkruntime.Nakama, userId: string, game: string): void {
