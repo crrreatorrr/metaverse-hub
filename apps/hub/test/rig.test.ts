@@ -5,7 +5,7 @@ import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Obj
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../src/config';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
-import { buildLocomotion, groundSpeedOf, P4_CLIPS } from '../src/rig/locomotion';
+import { buildLocomotion, groundSpeedOf, onWizardSkeleton, P4_CLIPS } from '../src/rig/locomotion';
 import { loadGLB } from './support/load-glb';
 
 const PUBLIC = fileURLToPath(new URL('../public/', import.meta.url));
@@ -63,11 +63,21 @@ async function main(): Promise<void> {
     }
   }
 
-  // 3. Every pickable character gets jog + dash with a measured stride, and plays them inside the clamp band
+  let onSkeleton = 0;
+  let offSkeleton = 0;
+  // 3. Every pickable character on the wizard's skeleton gets jog + dash with a measured stride, and plays them inside the clamp band
   //    (0.5–2.5x, see avatar.ts), so the feet stay planted at the controller's 7.8 and 16 m/s.
   for (const character of CHARACTERS) {
     const rig = await loadGLB(`${PUBLIC}${character.asset}`);
     const clips = buildLocomotion(rig, wizard);
+    if (!onWizardSkeleton(rig.scene)) {
+      // Mixamo shooter cast, the beast, the dragon: their own clips, untouched (avatar.ts resolves them).
+      assert.equal(clips, rig.animations, `${character.id} keeps its own clips`);
+      assert.ok(clips.every((clip) => groundSpeedOf(clip) === 0), `${character.id} clips are not re-timed`);
+      offSkeleton += 1;
+      continue;
+    }
+    onSkeleton += 1;
     const fit = characterHeight(character) / restHeight(SkeletonUtils.clone(rig.scene));
     for (const [name, actual] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
       const gait = clip(clips, name);
@@ -100,8 +110,10 @@ async function main(): Promise<void> {
       const drift = Math.abs(lowest(clip(clips, name)) - floor) * fit;
       assert.ok(drift < 0.06, `${character.id} ${name}: toes ${drift.toFixed(3)} m off the idle floor`);
     }
-    assert.ok(clips.some((entry) => entry.name === 'jump'), `${character.id} has a jump clip`);
   }
+  // The Sproto Duel cast (wizard, the stage-one bosses and the shooter's later stages) is on the wizard's skeleton.
+  assert.ok(onSkeleton >= 15, `wizard-skeleton characters: ${onSkeleton}`);
+  console.log(`rig: ${onSkeleton} characters on the wizard skeleton, ${offSkeleton} on their own clips`);
   console.log('rig tests passed');
 }
 

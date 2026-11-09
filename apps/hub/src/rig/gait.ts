@@ -66,7 +66,12 @@ function inHierarchyOrder(root: Object3D, names: ReadonlySet<string>): string[] 
  * The result loops like the source and keeps its `userData`, minus `speed_mps`, which belongs to the source's
  * proportions; measure the target with `measureGroundSpeed`.
  */
-export function retargetClip(sourceRoot: Object3D, clip: AnimationClip, targetRoot: Object3D): AnimationClip {
+export function retargetClip(
+  sourceRoot: Object3D,
+  clip: AnimationClip,
+  targetRoot: Object3D,
+  floors?: { source: number; target: number },
+): AnimationClip {
   sourceRoot.updateMatrixWorld(true);
   targetRoot.updateMatrixWorld(true);
   const sourceBones = bonesByName(sourceRoot);
@@ -100,8 +105,9 @@ export function retargetClip(sourceRoot: Object3D, clip: AnimationClip, targetRo
   // the same rotations at different leg extensions, so without this the feet sink into the floor.
   const sourceToes = FOOT_BONES.map((name) => sourceBones.get(name)).filter((bone): bone is Object3D => Boolean(bone));
   const targetToes = FOOT_BONES.map((name) => targetBones.get(name)).filter((bone): bone is Object3D => Boolean(bone));
-  const sourceFloor = lowestY(sourceToes);
-  const targetFloor = lowestY(targetToes);
+  // Each rig's floor: where its toes rest in its own idle (`floors`), or in the rest pose.
+  const sourceFloor = floors?.source ?? lowestY(sourceToes);
+  const targetFloor = floors?.target ?? lowestY(targetToes);
   const hipsTranslated = clip.tracks.some((track) => track.name === `${HIPS}.position`);
 
   const frames = Math.max(2, Math.round(clip.duration * BAKE_FPS) + 1);
@@ -177,6 +183,27 @@ export function retargetClip(sourceRoot: Object3D, clip: AnimationClip, targetRo
   const { speed_mps: _authored, ...rest } = (clip.userData ?? {}) as Record<string, unknown>;
   baked.userData = { ...rest, retargeted: true };
   return baked;
+}
+
+/**
+ * Lowest toe height over a clip, in `root`'s world units: where that rig's feet meet the floor in it.
+ * Returns null when the rig has no toe bones. `root` is posed while sampling: pass a clone.
+ */
+export function lowestToe(root: Object3D, clip: AnimationClip, samples = 40): number | null {
+  const bones = bonesByName(root);
+  const toes = FOOT_BONES.map((name) => bones.get(name)).filter((bone): bone is Object3D => Boolean(bone));
+  if (toes.length === 0) return null;
+  const mixer = new AnimationMixer(root);
+  mixer.clipAction(clip).play();
+  let low = Infinity;
+  for (let i = 0; i <= samples; i += 1) {
+    mixer.setTime((clip.duration * i) / samples);
+    root.updateMatrixWorld(true);
+    low = Math.min(low, lowestY(toes));
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
+  return low;
 }
 
 /** Lowest world Y among `bones` (matrices must be current). */

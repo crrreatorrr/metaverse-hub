@@ -1,13 +1,16 @@
-// Gait clips for every pickable character. The wizard ships P4's `jog` and `dash`; the Sproto Duel boss
-// rigs only have a short `run`, which at plaza speeds (7.8 and 16 m/s) plays far too slowly and the feet
-// skate. Rigs without P4 clips get the wizard's, retargeted, and every gait clip is tagged with the ground
-// speed it was animated for, so the avatar can scale playback to keep the planted foot still.
+// Gait clips for the characters on the wizard's skeleton. The wizard ships P4's `jog` and `dash`; the Sproto
+// Duel cast only has a short `run`, which at plaza speeds (7.8 and 16 m/s) plays far too slowly and the feet
+// skate. Those rigs get the wizard's clips, retargeted, and every gait clip is tagged with the ground speed it
+// was animated for, so the avatar can scale playback to keep the planted foot still. Other skeletons (the
+// Mixamo shooter cast, the beast, the dragon) are left on their own clips.
 import type { AnimationClip, Object3D } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { measureGroundSpeed, retargetClip } from './gait';
+import { lowestToe, measureGroundSpeed, retargetClip } from './gait';
 
 /** P4 gait clips the donor rig (the wizard) carries. */
 export const P4_CLIPS = ['jog', 'dash'] as const;
+/** Bones a rig must share with the wizard to take its clips: the retarget matches bones by name. */
+const WIZARD_SKELETON = ['Hips', 'Spine', 'Head', 'LeftArm', 'RightArm', 'LeftUpLeg', 'RightUpLeg', 'LeftToeBase', 'RightToeBase'];
 /** Clips that move the feet, measured for `ground_speed`. */
 const GAIT_CLIPS = new Set(['jog', 'dash', 'run']);
 
@@ -22,19 +25,31 @@ export function groundSpeedOf(clip: AnimationClip): number {
   return Number.isFinite(speed) && speed > 0 ? speed : 0;
 }
 
+/** True when `root` has the wizard's bone names, so the retarget and the foot measurement apply. */
+export function onWizardSkeleton(root: Object3D): boolean {
+  const names = new Set<string>();
+  root.traverse((obj) => {
+    if ((obj as { isBone?: boolean }).isBone) names.add(obj.name);
+  });
+  return WIZARD_SKELETON.every((name) => names.has(name));
+}
+
 /**
  * The rig's clips plus any P4 clips it lacks, retargeted from `donor`. Gait clips carry `ground_speed`.
  * Source clips are tagged in place (the tag is a pure function of the clip, so sharing is safe).
+ * A rig on another skeleton comes back with its own clips, untouched.
  */
 export function buildLocomotion(rig: RigSource, donor: RigSource | null): AnimationClip[] {
+  if (!onWizardSkeleton(rig.scene)) return rig.animations;
   const clips = [...rig.animations];
-  if (donor && donor !== rig) {
+  let floors: { source: number; target: number } | undefined;
+  if (donor && donor !== rig && onWizardSkeleton(donor.scene)) {
     for (const name of P4_CLIPS) {
       if (clips.some((clip) => clip.name === name)) continue;
       const source = donor.animations.find((clip) => clip.name === name);
       if (!source) continue;
       // Clones: the bake poses both skeletons, and the originals are shared through the GLTF cache.
-      clips.push(retargetClip(SkeletonUtils.clone(donor.scene), source, SkeletonUtils.clone(rig.scene)));
+      clips.push(retargetClip(SkeletonUtils.clone(donor.scene), source, SkeletonUtils.clone(rig.scene), floors ??= idleFloors(rig, donor)));
     }
   }
   const probe = SkeletonUtils.clone(rig.scene);
@@ -44,6 +59,19 @@ export function buildLocomotion(rig: RigSource, donor: RigSource | null): Animat
     if (speed > 0) clip.userData = { ...clip.userData, ground_speed: speed };
   }
   return clips;
+}
+
+/**
+ * Where each rig's toes rest in its own idle, so retargeted gaits stand at the same height as the idle they
+ * crossfade with. Undefined (rest pose) when either rig has no idle.
+ */
+function idleFloors(rig: RigSource, donor: RigSource): { source: number; target: number } | undefined {
+  const rigIdle = rig.animations.find((clip) => clip.name === 'idle');
+  const donorIdle = donor.animations.find((clip) => clip.name === 'idle');
+  if (!rigIdle || !donorIdle) return undefined;
+  const source = lowestToe(SkeletonUtils.clone(donor.scene), donorIdle);
+  const target = lowestToe(SkeletonUtils.clone(rig.scene), rigIdle);
+  return source === null || target === null ? undefined : { source, target };
 }
 
 const cache = new Map<string, Promise<AnimationClip[]>>();
@@ -59,6 +87,7 @@ export function locomotionFor(
 ): Promise<AnimationClip[]> {
   const existing = cache.get(asset);
   if (existing) return existing;
+  if (!onWizardSkeleton(rig.scene)) return Promise.resolve(rig.animations);
   const needsDonor = P4_CLIPS.some((name) => !rig.animations.some((clip) => clip.name === name));
   const donor = needsDonor
     ? loadDonor().catch((error: unknown) => {

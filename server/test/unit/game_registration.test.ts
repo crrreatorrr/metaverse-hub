@@ -130,7 +130,9 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   assert.match(games, /id: 'sproto-fighter',\s*slug: 'sproto-fighter',\s*env: 'VITE_GAME_URL_SPROTO_FIGHTER',\s*entry: 'cabinet'/);
   assert.match(games, /id: 'sproto-arcade',\s*slug: 'sproto-arcade',\s*env: 'VITE_GAME_URL_SPROTO_ARCADE',\s*entry: 'cabinet'/);
   const plaza = readFileSync(join(repoRoot, 'apps/hub/src/realms/plaza/config.ts'), 'utf8');
-  assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 1);
+  // The Range ring plus the green gate behind the statue head.
+  assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 2);
+  assert.match(plaza, /id: 'sproto-shooter', label: 'Sproto Shooter', place: 'Behind the statue', angle: 0, color: '#39ff6a'/);
   assert.equal(plaza.split("id: 'sproto-coop-battle'").length - 1, 1);
   assert.match(plaza, /id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 \* PLAZA_SLOT \+ PLAZA_YAW/);
   assert.match(plaza, /id: 'sproto-coop-battle', label: 'Sproto Coop Battle'/);
