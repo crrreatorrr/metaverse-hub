@@ -72,6 +72,14 @@ INSERT INTO game.chat_mute (user_id, until, reason) VALUES ('<uuid>', now() + in
 SELECT created_at, reporter, target, channel_id, text, reason FROM game.chat_report ORDER BY created_at DESC LIMIT 50;
 ```
 
+Feature flags are rows in `game.server_flags` (migration `0042_server_flags`), read through `Flags.on(nk, key, userId, logger?, { onReadError? })` in `modules/src/flags.ts`. A flag's `state` is `off`, `allowlist` (the `allowlist` uuids), `percent` (a stable per-key bucket of the user below `percent`, plus the allowlist) or `on`. A missing row is off. A failed read returns `onReadError`, which defaults to false: readers of `maint` must pass `{ onReadError: true }` so a database outage keeps maintenance on. Buckets are independent per key, so a nested rollout (`shooter_pvp_wager` inside `shooter_pvp`) must check both flags. Each node caches a row for 5 s. The launch flags (`shooter_pvp`, `shooter_pvp_wager`, `shooter_pvp_ranked`, `hub_exchange`, `verse_store`, `relic_unhold`, `diagnostics_prompt`, `maint`) are seeded `off`, and nothing reads them yet. Turning a flag off is the first rollback:
+
+```sql
+UPDATE game.server_flags SET state = 'allowlist', allowlist = '{<uuid>}', updated_at = now() WHERE key = 'shooter_pvp';
+UPDATE game.server_flags SET state = 'percent', percent = 10, updated_at = now() WHERE key = 'shooter_pvp';
+UPDATE game.server_flags SET state = 'off', updated_at = now() WHERE key = 'shooter_pvp';
+```
+
 Tests: `npm test` builds the module and runs `server/test/unit/*.test.ts` and `server/test/games/*.test.ts` in `node:vm` against a fake `nk` (no Docker). Against this compose stack, `npm run test:rt` drives real sockets (plaza, chat, matchmaker scope, NOBU boards) next to `npm run test:dup`.
 
 Runtime knobs in `deploy/nakama/config.yml` (and the dev compose flags): `runtime.js_max_count 64`, `socket.max_message_size_bytes 8192`, `socket.outgoing_queue_size 256`, `match.input_queue_size 256`, `match.call_queue_size 256`.

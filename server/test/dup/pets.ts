@@ -112,7 +112,7 @@ async function spiral(): Promise<void> {
 }
 
 async function relicStillGrants(): Promise<void> {
-  // 0042: hpos10i_core is live again. The first Z1A1 clear grants it once; no items, no Tickets.
+  // 0043: hpos10i_core is live again. The first Z1A1 clear grants it once; no items, no Tickets.
   const session = await login(HPOS);
   const user = session.hub.userId;
   const result = await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
@@ -159,7 +159,7 @@ async function profileAndLoadout(): Promise<void> {
   await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
-  // The Z1A1 clear grants hpos10i_core (live since 0042), which derives pet_speed_sproto.
+  // The Z1A1 clear grants hpos10i_core (live since 0043), which derives pet_speed_sproto.
   // The act-2 clear's pet_honk_sproto is still held and stays out.
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,

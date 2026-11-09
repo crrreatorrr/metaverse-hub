@@ -482,7 +482,7 @@ async function runSeq(runner: GateRunner): Promise<void> {
       const accepted = [a, b].filter((item) => !item.body.error);
       const rejected = [a, b].filter((item) => item.body.error === 'seq_duplicate');
       assert.equal(rejected.length, 1, JSON.stringify([a.body, b.body]));
-      // Both relics are live (hpos10i_core since 0042): exactly one caller mints.
+      // Both relics are live (hpos10i_core since 0043): exactly one caller mints.
       assert.equal(accepted.length, 1, JSON.stringify([a.body, b.body]));
       assert.equal(granted.length, 1, JSON.stringify([a.body, b.body]));
       assert.equal(mints(session.hub.userId, event.relicId), 1);

@@ -13,7 +13,7 @@ declare global {
     };
   }
 }
-import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS } from '../src/realms/plaza/config';
+import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, STATUE_PORTALS } from '../src/realms/plaza/config';
 import { ARCADE_PROMPT, ARCADE_RETURN, ARCADE_WALKUP } from '../src/realms/plaza/arcade-layout';
 import { gameUrl } from '../src/games';
 import { spawnFor, spawnForArrival } from '../src/realms/plaza/layout';
@@ -55,6 +55,21 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   );
   assert.equal(gate?.id, 'sproto-shooter');
   assert.equal(parseReturnGame('#from=sproto-shooter'), 'sproto-shooter');
+}
+
+// The green gate behind the statue head (north, off the 25 m pedestal) is a second Shooter entrance.
+// It does not overlap any ring, and Shooter returns still land at the Range ring.
+{
+  assert.deepEqual(STATUE_PORTALS.map((portal) => portal.id), ['sproto-shooter']);
+  const gate = STATUE_PORTALS[0]!;
+  assert.equal(gate.angle, 0);
+  assert.equal(gate.color, '#39ff6a');
+  assert.ok(gate.distance - gate.triggerRadius > 25);
+  const all = [...PORTALS, ...STATUE_PORTALS];
+  assert.equal(portalContaining(all, 0, -gate.distance)?.id, 'sproto-shooter');
+  assert.equal(portalContaining(PORTALS, 0, -gate.distance), null);
+  assert.equal(portalContaining(all, spawnFor(null).x, spawnFor(null).z), null);
+  assert.deepEqual(spawnForArrival('#from=sproto-shooter'), spawnFor('sproto-shooter'));
 }
 
 // Coop return is the Bar cabinet lookup, the same spot as Fighter and Arcade. Not a ring.

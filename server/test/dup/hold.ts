@@ -7,7 +7,7 @@
  * Held: tidebreaker_belt, genesis_shard, pet_honk_sproto,
  * pet_spiral_sproto, pet_moon_sproto, pet_sproto_pup.
  * Live: cones_tip, tinubu_crown, pet_presidential_sproto, pet_mecha_sproto,
- * pet_conehead_sproto, breakwater_coin, hpos10i_core (live again since 0042).
+ * pet_conehead_sproto, breakwater_coin, hpos10i_core (live again since 0043).
  */
 import assert from 'node:assert/strict';
 import {
