@@ -47,7 +47,9 @@ A later disconnect does not replace a result the director already recorded.
 
 ## Recovery
 
-Nakama is one node. On boot, after migrations, every held Shooter row is refunded (`shooter_wager_expire(interval '0')`), because the match that owned it died with the process.
+The boot refund of every held row assumes **one Nakama node**. The match lives in that process, so after a restart the match is gone and `shooter_wager_expire(interval '0')` returns both stakes.
+
+While wagers are on, drain before a deploy. Turn `shooter_pvp_wager` off, let live matches finish, and only then restart. A rolling deploy boots a new node while the old one is still playing. That boot refunds every held pot, including a match that is still live on the other node. The winner goes unpaid. Both seats get their 10 Tickets back, so no Tickets are lost.
 
 A match named `shooter_wager_sweep` runs for the life of the process and refunds holds older than **20 minutes** at most once every 5 minutes. The authoritative match itself lasts at most 10 minutes after both players are ready, so the extra 10 minutes is grace for a slow loop. The sweep does not wait for someone to queue.
 

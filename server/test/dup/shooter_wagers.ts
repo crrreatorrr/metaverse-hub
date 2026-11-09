@@ -70,11 +70,12 @@ function hold(matchId: string, a: string, b: string, hash = RULE, at = ''): Wage
   return jsonLine(raw);
 }
 
-function settle(matchId: string, winner: string, reason = 'ko'): WagerResult {
+function settle(matchId: string, seat: number, reason = 'ko'): WagerResult {
   assertMatchKey(matchId);
   if (!/^(ko|time|forfeit)$/.test(reason)) throw new Error(`bad settle reason ${reason}`);
+  if (seat !== 0 && seat !== 1 && seat !== 2) throw new Error(`bad seat ${seat}`);
   return jsonLine(psql(
-    `SELECT game.shooter_wager_settle('${matchId}', '${sqlId(winner)}'::uuid, '${reason}')::text`,
+    `SELECT game.shooter_wager_settle('${matchId}', ${seat}::int, '${reason}')::text`,
   ));
 }
 
@@ -162,6 +163,18 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
        WHERE n.nspname = 'game' AND p.proname = 'shooter_wager_hold' ORDER BY 1`,
     );
     assert.equal(shooter, 'p_match_id text, p_a uuid, p_b uuid, p_rule_hash text, p_at timestamp with time zone');
+    const settleSig = psql(
+      `SELECT pg_get_function_identity_arguments(p.oid)
+       FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'game' AND p.proname = 'shooter_wager_settle' ORDER BY 1`,
+    );
+    assert.equal(settleSig, 'p_match_id text, p_seat integer, p_reason text');
+    const moveDef = psql(
+      `SELECT pg_get_functiondef(p.oid) FROM pg_proc p
+       JOIN pg_namespace n ON n.oid = p.pronamespace
+       WHERE n.nspname = 'game' AND p.proname = 'shooter_wager_move'`,
+    );
+    assert.match(moveDef, /tickets_balance\.balance \+ p_delta/);
     const fighter = psql(
       `SELECT pg_get_function_identity_arguments(p.oid)
        FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -206,7 +219,7 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
     assert.equal(exact.status, 'held', JSON.stringify(exact));
     assert.equal(ticketBalance(exactA.userId, GAME), 0);
     assert.equal(ticketBalance(exactB.userId, GAME), 0);
-    assert.equal(settle(exactId, exactA.userId, 'ko').payout, 20);
+    assert.equal(settle(exactId, 0, 'ko').payout, 20);
 
     const shortA = await claimed();
     const richB = await claimed();
@@ -274,7 +287,7 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
     assert.equal(ticketBalance(a.userId, GAME), startA - STAKE);
     let paid: WagerResult | null = null;
     for (let i = 0; i < 100; i += 1) {
-      const row = settle(id, a.userId, 'ko');
+      const row = settle(id, 0, 'ko');
       assert.equal(row.status, 'settled', JSON.stringify(row));
       assert.equal(row.payout, 20);
       assert.equal(row.fee, 0);
@@ -319,7 +332,7 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
     assert.equal(ticketBalance(a.userId, GAME), startA);
     assert.equal(ticketBalance(b.userId, GAME), startB);
     assertConserved(a.userId, b.userId, startA, startB);
-    const after = settle(id, a.userId, 'ko');
+    const after = settle(id, 0, 'ko');
     assert.equal(after.repeat, true, JSON.stringify(after));
     assert.equal(after.status, 'refunded');
     assert.equal(kindRows(id, 'shooter_payout'), 0);
@@ -335,7 +348,7 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
       races.push({ id, a, b, startA: ticketBalance(a.userId, GAME) + STAKE, startB: ticketBalance(b.userId, GAME) + STAKE });
     }
     await Promise.all(races.map(async (race, index) => {
-      const settleSql = `SELECT game.shooter_wager_settle('${race.id}', '${sqlId(race.a.userId)}'::uuid, 'ko')::text`;
+      const settleSql = `SELECT game.shooter_wager_settle('${race.id}', 0::int, 'ko')::text`;
       const refundSql = `SELECT game.shooter_wager_refund('${race.id}', 'draw')::text`;
       const other = index % 2 === 0 ? refundSql : settleSql;
       const [left, right] = await Promise.all([psqlAsync(settleSql), psqlAsync(other)]);
@@ -400,7 +413,7 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
     assert.equal(openedLate.accountingDay, '2026-11-09');
     assert.equal(dayOf(early), '2026-11-08');
     assert.equal(dayOf(late), '2026-11-09');
-    assert.equal(settle(early, beforeA.userId, 'time').status, 'settled');
+    assert.equal(settle(early, 0, 'time').status, 'settled');
     assert.equal(dayOf(early), '2026-11-08', 'settlement does not move the accounting day');
     assert.equal(num('SELECT game.shooter_wager_drift()'), 0);
   });
@@ -409,17 +422,63 @@ export async function runShooterWagers(test: TestFn): Promise<void> {
     const [a, b] = await pair(20);
     const id = matchKey();
     assert.equal(hold(id, a.userId, b.userId).status, 'held');
-    const first = settle(id, b.userId, 'forfeit');
+    const first = settle(id, 1, 'forfeit');
     assert.equal(first.repeat, undefined);
     assert.equal(first.winner, b.userId);
     assert.equal(first.payout, 20);
-    const again = settle(id, a.userId, 'ko');
+    const again = settle(id, 0, 'ko');
     assert.equal(again.repeat, true, JSON.stringify(again));
     assert.equal(again.winner, b.userId, 'the first receipt stands');
     assert.equal(again.reason, 'forfeit');
     assert.equal(again.payout, first.payout);
     assert.deepEqual(again.balances, first.balances);
     assert.equal(kindRows(id, 'shooter_payout'), 1);
+    assert.equal(num('SELECT game.shooter_wager_drift()'), 0);
+  });
+
+  await test('shooter-wager', 'SQL pays seat 0 or seat 1 and refuses any other seat', async () => {
+    const [a, b] = await pair(40);
+    const seat0 = matchKey();
+    assert.equal(hold(seat0, a.userId, b.userId).status, 'held');
+    const paid0 = settle(seat0, 0, 'ko');
+    assert.equal(paid0.winner, a.userId, JSON.stringify(paid0));
+    assert.equal(paid0.deltas?.[a.userId], 10);
+    assert.equal(paid0.deltas?.[b.userId], -10);
+    const seat1 = matchKey();
+    assert.equal(hold(seat1, a.userId, b.userId).status, 'held');
+    const paid1 = settle(seat1, 1, 'time');
+    assert.equal(paid1.winner, b.userId, JSON.stringify(paid1));
+    assert.equal(paid1.deltas?.[a.userId], -10);
+    assert.equal(paid1.deltas?.[b.userId], 10);
+    const badId = matchKey();
+    assert.equal(hold(badId, a.userId, b.userId).status, 'held');
+    const beforeA = ticketBalance(a.userId, GAME);
+    const beforeB = ticketBalance(b.userId, GAME);
+    const bad = settle(badId, 2, 'ko');
+    assert.equal(bad.error, 'not_a_player', JSON.stringify(bad));
+    assert.equal(psql(`SELECT status FROM game.shooter_wager WHERE match_id = '${badId}'`), 'held');
+    assert.equal(ticketBalance(a.userId, GAME), beforeA);
+    assert.equal(ticketBalance(b.userId, GAME), beforeB);
+    assert.equal(settle(badId, 0, 'ko').winner, a.userId);
+    assert.equal(num('SELECT game.shooter_wager_drift()'), 0);
+  });
+
+  await test('shooter-wager', 'two credits that insert the same wallet both land', async () => {
+    const who = await claimed();
+    const id = sqlId(who.userId);
+    const move = `SELECT game.shooter_wager_move('${id}'::uuid, 10, 'shooter_payout', 'shooter_payout', gen_random_uuid())`;
+    const [left, right] = await Promise.all([psqlAsync(move), psqlAsync(move)]);
+    const got = [Number(left), Number(right)].sort((x, y) => x - y);
+    assert.deepEqual(got, [10, 20], `balances ${left} and ${right}`);
+    assert.equal(ticketBalance(who.userId, GAME), 20);
+    psql('ALTER TABLE game.tickets_ledger DISABLE TRIGGER tickets_ledger_append_only');
+    try {
+      psql(`DELETE FROM game.tickets_ledger WHERE user_id = '${id}'`);
+      psql(`DELETE FROM game.tickets_balance WHERE user_id = '${id}'`);
+    } finally {
+      psql('ALTER TABLE game.tickets_ledger ENABLE TRIGGER tickets_ledger_append_only');
+    }
+    assert.equal(num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${id}'`), 0);
     assert.equal(num('SELECT game.shooter_wager_drift()'), 0);
   });
 

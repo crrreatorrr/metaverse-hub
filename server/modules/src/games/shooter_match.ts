@@ -766,19 +766,28 @@ namespace ShooterMatch {
     var reason = live ? live.reason : (state.result ? state.result.reason : "");
     var winner = live ? live.winner : (state.result ? state.result.winner : null);
     var money = ShooterWagers.plan(outcome, reason, winner, state.replay.policy || "", state.replay.verified === true);
-    var pair: [string, string] | null = null;
-    if (state.roster.length === 2 && state.roster[0] !== state.roster[1]) pair = [state.roster[0], state.roster[1]];
-    else if (director) pair = pairOf(state, director);
-    var receipt: { [key: string]: unknown };
-    if (money.op === "settle" && money.winnerSeat !== null && pair && pair[money.winnerSeat]) {
-      receipt = ShooterWagers.settle(nk, matchId, pair[money.winnerSeat], money.reason);
-      if (receipt["error"]) {
-        logger.error("shooter wager settle " + matchId + " " + String(receipt["error"]));
-        receipt = ShooterWagers.refund(nk, matchId, "replay_refuse");
+    var receipt: { [key: string]: unknown } | null = null;
+    try {
+      if (money.op === "settle" && (money.winnerSeat === 0 || money.winnerSeat === 1)) {
+        receipt = ShooterWagers.settle(nk, matchId, money.winnerSeat, money.reason);
+        if (receipt["error"]) {
+          logger.error("shooter wager settle " + matchId + " " + String(receipt["error"]));
+          receipt = ShooterWagers.refund(nk, matchId, "replay_refuse");
+        }
+      } else {
+        receipt = ShooterWagers.refund(nk, matchId, money.reason);
       }
-    } else {
-      receipt = ShooterWagers.refund(nk, matchId, money.reason);
+    } catch (e) {
+      // A thrown settle or refund must not leave the pot until the 20 minute sweep.
+      logger.error("shooter wager close threw " + matchId + " " + String(e));
+      try {
+        receipt = ShooterWagers.refund(nk, matchId, "replay_refuse");
+      } catch (e2) {
+        logger.error("shooter wager refund threw " + matchId + " " + String(e2));
+        return;
+      }
     }
+    if (!receipt) return;
     state.wagerClosed = true;
     state.wagerReceipt = receipt;
     if (receipt["error"]) logger.error("shooter wager close " + matchId + " " + String(receipt["error"]));

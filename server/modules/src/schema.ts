@@ -3303,7 +3303,7 @@ namespace HubSchema {
           IF v_balance + p_delta < 0 THEN RETURN NULL; END IF;
           INSERT INTO game.tickets_balance (user_id, game_id, balance)
           VALUES (p_user_id, 'sproto-shooter', v_balance + p_delta)
-          ON CONFLICT (user_id, game_id) DO UPDATE SET balance = EXCLUDED.balance
+          ON CONFLICT (user_id, game_id) DO UPDATE SET balance = tickets_balance.balance + p_delta
           RETURNING balance INTO v_balance;
           INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
           VALUES (gen_random_uuid(), p_user_id, 'sproto-shooter', p_delta, v_balance, p_reason, p_wager_id, p_kind);
@@ -3397,10 +3397,11 @@ namespace HubSchema {
             RAISE;
         END;
         $fn$`,
-        `CREATE OR REPLACE FUNCTION game.shooter_wager_settle(p_match_id text, p_winner uuid, p_reason text)
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_settle(p_match_id text, p_seat integer, p_reason text)
          RETURNS jsonb LANGUAGE plpgsql AS $fn$
         DECLARE
           w game.shooter_wager%ROWTYPE;
+          v_winner uuid;
           v_balance bigint;
           v_a bigint;
           v_b bigint;
@@ -3420,17 +3421,19 @@ namespace HubSchema {
           IF p_reason NOT IN ('ko', 'time', 'forfeit') THEN
             RETURN jsonb_build_object('error', 'bad_reason');
           END IF;
-          IF p_winner IS DISTINCT FROM w.player_a AND p_winner IS DISTINCT FROM w.player_b THEN
+          -- Seat 0 is player_a and seat 1 is player_b, the order stored at hold.
+          v_winner := CASE p_seat WHEN 0 THEN w.player_a WHEN 1 THEN w.player_b ELSE NULL END;
+          IF v_winner IS NULL THEN
             RETURN jsonb_build_object('error', 'not_a_player');
           END IF;
-          v_balance := game.shooter_wager_move(p_winner, w.stake * 2, 'shooter_payout', 'shooter_payout', w.wager_id);
+          v_balance := game.shooter_wager_move(v_winner, w.stake * 2, 'shooter_payout', 'shooter_payout', w.wager_id);
           IF v_balance IS NULL THEN RAISE EXCEPTION 'shooter_wager_credit_failed'; END IF;
           SELECT balance INTO v_a FROM game.tickets_balance WHERE user_id = w.player_a AND game_id = 'sproto-shooter';
           SELECT balance INTO v_b FROM game.tickets_balance WHERE user_id = w.player_b AND game_id = 'sproto-shooter';
-          v_delta_a := CASE WHEN p_winner = w.player_a THEN w.stake ELSE -w.stake END;
-          v_delta_b := CASE WHEN p_winner = w.player_b THEN w.stake ELSE -w.stake END;
+          v_delta_a := CASE WHEN v_winner = w.player_a THEN w.stake ELSE -w.stake END;
+          v_delta_b := CASE WHEN v_winner = w.player_b THEN w.stake ELSE -w.stake END;
           v_receipt := jsonb_build_object(
-            'status', 'settled', 'winner', p_winner, 'reason', p_reason,
+            'status', 'settled', 'winner', v_winner, 'reason', p_reason,
             'stake', w.stake, 'pot', w.pot, 'payout', w.stake * 2, 'fee', 0, 'minted', 0,
             'wagerId', w.wager_id, 'matchId', w.match_id, 'ruleHash', w.rule_hash,
             'accountingDay', w.accounting_day,
@@ -3438,7 +3441,7 @@ namespace HubSchema {
             'balances', jsonb_build_object(w.player_a::text, v_a, w.player_b::text, v_b)
           );
           UPDATE game.shooter_wager
-          SET status = 'settled', winner = p_winner, reason = p_reason, receipt = v_receipt, closed_at = now()
+          SET status = 'settled', winner = v_winner, reason = p_reason, receipt = v_receipt, closed_at = now()
           WHERE wager_id = w.wager_id;
           DELETE FROM game.shooter_wager_active WHERE match_id = w.match_id;
           RETURN v_receipt;

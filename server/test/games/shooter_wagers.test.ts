@@ -233,6 +233,46 @@ function wagerApi(mod: LoadedModule): WagerApi {
   assert.equal(sqls(mod, 'shooter_wager_refund').length, 0);
 }
 
+// A thrown settle refunds in the same close instead of leaving the hold for the sweep.
+{
+  const mod = load(true);
+  signIn(mod, A, B);
+  const ns = mod.global.ShooterWagers as {
+    plan: () => { op: string; reason: string; winnerSeat: number | null };
+    settle: (nk: unknown, matchId: string, seat: number, reason: string) => { [key: string]: unknown };
+    refund: (nk: unknown, matchId: string, reason: string) => { [key: string]: unknown };
+  };
+  let settles = 0;
+  let refunds = 0;
+  ns.plan = () => ({ op: 'settle', reason: 'ko', winnerSeat: 0 });
+  ns.settle = () => { settles += 1; throw new Error('settle boom'); };
+  ns.refund = () => { refunds += 1; return { status: 'refunded', reason: 'replay_refuse', payout: 0, minted: 0 }; };
+  mod.nk.onSql(/shooter_wager_hold/, () => [{ r: JSON.stringify({ status: 'held', wagerId: '11111111-1111-4111-8111-111111111111', stake: 10, pot: 20 }) }]);
+  const m = mod.startMatch('sproto_shooter_free', {
+    spawnSeed: '7', seedSource: 'server', private: '0', wager: '1', roster: JSON.stringify([A, B]),
+  });
+  const a = presence(A, 'ada', 'sa');
+  const b = presence(B, 'bea', 'sb');
+  m.join([a], game(A, 'sa'));
+  m.join([b], game(B, 'sb'));
+  hello(m, a);
+  hello(m, b);
+  ready(m, a);
+  ready(m, b);
+  m.leave([a, b]);
+  m.signal('advance:10400');
+  m.loop([]);
+  assert.equal(m.loop([]), true, 'the thrown settle does not kill the match');
+  assert.equal(settles, 1);
+  assert.equal(refunds, 1);
+  const closed = m.state as { wagerClosed: boolean; wagerReceipt: { status?: string } | null };
+  assert.equal(closed.wagerClosed, true);
+  assert.equal(closed.wagerReceipt?.status, 'refunded');
+  m.loop([]);
+  assert.equal(settles, 1, 'a later loop does not settle again');
+  assert.equal(refunds, 1);
+}
+
 // Queue with the flag on creates a wager match. A free ticket is not paired with it.
 {
   const mod = load(true);

@@ -81,8 +81,9 @@ namespace ShooterWagers {
     return call(nk, "SELECT game.shooter_wager_hold($1, $2::uuid, $3::uuid, $4)::text AS r", [matchId, a, b, hash]);
   }
 
-  export function settle(nk: nkruntime.Nakama, matchId: string, winner: string, reason: string): { [key: string]: unknown } {
-    return call(nk, "SELECT game.shooter_wager_settle($1, $2::uuid, $3)::text AS r", [matchId, winner, reason]);
+  /** Seat 0 is player_a and seat 1 is player_b. SQL maps the seat; the caller does not pass an account. */
+  export function settle(nk: nkruntime.Nakama, matchId: string, seat: number, reason: string): { [key: string]: unknown } {
+    return call(nk, "SELECT game.shooter_wager_settle($1, $2::int, $3)::text AS r", [matchId, seat, reason]);
   }
 
   export function refund(nk: nkruntime.Nakama, matchId: string, reason: string): { [key: string]: unknown } {
