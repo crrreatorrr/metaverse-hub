@@ -5,6 +5,7 @@ import { cleanName, defaultLook, type AvatarLook } from './look';
 import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
+import type { MoveStick } from './core/gamepad';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets';
 
@@ -107,6 +108,9 @@ export interface MenuOptions {
   hiddenRelics: () => readonly string[];
   /** Store and apply a new switched-off list. */
   setHiddenRelics: (ids: readonly string[]) => void;
+  /** Which controller stick walks; the other turns the camera. */
+  moveStick: () => MoveStick;
+  setMoveStick: (stick: MoveStick) => void;
   /** Catalog ids that have a hub model (`EQUIPPABLE_PET_IDS`), so they can be deployed. */
   deployablePets: readonly string[];
   /** The pet following the avatar, or null. */
@@ -207,6 +211,33 @@ export function createMenu(options: MenuOptions): Menu {
   walletText.append(verseLine, relicCount);
   wallet.append(pixelIcon('coin', 'menu-wallet-coin'), walletText);
   itemsPage.append(wallet);
+
+  // ---------- Controller (lives on Items so it is one LB press from the menu's first tab)
+  const padNote = el('p', 'menu-note small', '');
+  const stickRow = el('div', 'chip-row');
+  const stickButtons = new Map<MoveStick, HTMLButtonElement>();
+  for (const [stick, label] of [['right', 'Right stick moves'], ['left', 'Left stick moves']] as const) {
+    const chip = el('button', 'chip', label);
+    chip.type = 'button';
+    chip.dataset.stick = stick;
+    chip.addEventListener('click', () => {
+      options.setMoveStick(stick);
+      paintController();
+    });
+    stickButtons.set(stick, chip);
+    stickRow.append(chip);
+  }
+  itemsPage.append(el('h3', 'menu-h', 'Controller'), stickRow, padNote);
+
+  function paintController(): void {
+    const stick = options.moveStick();
+    for (const [id, chip] of stickButtons) {
+      chip.classList.toggle('on', id === stick);
+      chip.setAttribute('aria-pressed', String(id === stick));
+    }
+    const camera = stick === 'right' ? 'left' : 'right';
+    padNote.textContent = `The ${camera} stick turns the camera. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
+  }
 
   // ---------- Pets
   const petsPage = bodies.get('pets') as HTMLElement;
@@ -529,6 +560,7 @@ export function createMenu(options: MenuOptions): Menu {
     setTab(next);
     paintLook();
     paintItems();
+    paintController();
     paintPets();
     paintRelics();
     paintSims();

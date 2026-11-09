@@ -15,7 +15,7 @@ import {
 import '@fontsource/press-start-2p/latin-400.css';
 import '@fontsource/vt323/latin-400.css';
 import './login.css';
-import { PAD, createPadReader } from './core/gamepad';
+import { PAD, PAD_TUNING, createPadReader, loadMoveStick } from './core/gamepad';
 import { createPadFocus } from './core/pad-focus';
 
 /**
@@ -331,11 +331,12 @@ function createGate(): Gate {
   paintProgress();
   void start();
 
-  // Controller (docs/controllers.md): the D-pad or left stick moves the focus ring and A presses
+  // Controller (docs/controllers.md): the D-pad or the walking stick moves the focus ring and A presses
   // the button under it, so a pad can reach Continue as guest, the tabs and the submit button.
   // Text fields keep focus for a device keyboard. The plaza's own reader latches anything still
   // held when the gate leaves, so this A press does not also jump.
-  const pad = createPadReader();
+  const moveStick = loadMoveStick();
+  const pad = createPadReader(PAD_TUNING, { moveStick: () => moveStick });
   const padFocus = createPadFocus();
   const padLoop = (now: number): void => {
     if (!open) {

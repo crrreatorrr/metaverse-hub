@@ -698,6 +698,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     interactions,
     handleKey: event => sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
     overlayOpen: () => arcadePicker.open || sprotelTalk.open,
+    setPadPrompts(on) {
+      arcadePicker.setPad(on);
+      sprotelTalk.setPad(on);
+    },
     async onSession(session) {
       const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
       boardRows = board.rows ?? [];
