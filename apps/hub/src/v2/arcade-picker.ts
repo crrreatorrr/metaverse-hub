@@ -21,9 +21,13 @@ export type PickerAction =
 
 export const PICKER_CLOSED: PickerState = { open: false, index: 0 };
 
-/** Help line for the games currently shown. Count follows the visible list, up to the 1–9 keys. */
-export function pickerHelp(count: number): string {
+/**
+ * Help line for the games currently shown. Count follows the visible list, up to the 1–9 keys.
+ * `pad`: a controller was the last device used, so the line names its buttons instead.
+ */
+export function pickerHelp(count: number, pad = false): string {
   const shown = Math.max(0, Math.min(9, Math.floor(count)));
+  if (pad) return shown > 0 ? '↑ ↓ choose · A to play · B to step away' : 'B to step away';
   if (shown <= 0) return 'Esc to step away';
   const digits = Array.from({ length: shown }, (_, index) => String(index + 1)).join(' / ');
   return `${digits} or ↑ ↓ · Enter to play · Esc to step away`;
@@ -72,6 +76,8 @@ export interface ArcadePicker {
   hide(): void;
   /** Returns true when the picker consumed the key. */
   handleKey(event: KeyboardEvent): boolean;
+  /** Show controller prompts (true) or keyboard prompts (false). */
+  setPad(on: boolean): void;
 }
 
 /** A two-line DOM overlay. `onChoose` receives the picked game. */
@@ -82,6 +88,7 @@ export function createArcadePicker(
 ): ArcadePicker {
   let state: PickerState = PICKER_CLOSED;
   let shown: ArcadeChoice[] = [];
+  let pad = false;
   const root = document.createElement('div');
   root.className = 'arcade-picker';
   root.hidden = true;
@@ -124,7 +131,7 @@ export function createArcadePicker(
       button.addEventListener('click', () => choose(index));
       list.append(button);
     });
-    help.textContent = pickerHelp(shown.length);
+    help.textContent = pickerHelp(shown.length, pad);
   }
 
   function choose(index: number): void {
@@ -150,6 +157,11 @@ export function createArcadePicker(
       root.hidden = false;
     },
     hide,
+    setPad(on) {
+      if (on === pad) return;
+      pad = on;
+      help.textContent = pickerHelp(shown.length, pad);
+    },
     handleKey(event) {
       if (!state.open) return false;
       // Browser shortcuts (reload, dev tools, F-keys) pass through untouched.

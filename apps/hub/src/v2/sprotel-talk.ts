@@ -37,13 +37,15 @@ export const SPROTEL_TOPICS: readonly TalkTopic[] = [
   {
     id: 'cabinet',
     ask: "What's on the cabinet?",
-    answer: 'Sproto Arcade, Sproto Fighter and Sproto Coop Battle. Stand in front of it and press E to pick one.',
+    answer: 'Sproto Arcade, Sproto Fighter and Sproto Coop Battle. Stand in front of it and press E, or A on a controller, to pick one.',
   },
   { id: 'bye', ask: 'See you.', answer: '' },
 ];
 
-export function talkHelp(count: number): string {
+/** `pad`: a controller was the last device used, so the line names its buttons instead. */
+export function talkHelp(count: number, pad = false): string {
   const shown = Math.max(0, Math.min(9, Math.floor(count)));
+  if (pad) return shown ? '↑ ↓ choose · A to ask · B to leave' : 'B to leave';
   const digits = Array.from({ length: shown }, (_, index) => String(index + 1)).join(' / ');
   return shown ? `${digits} or ↑ ↓ · Enter to ask · Esc to leave` : 'Esc to leave';
 }
@@ -83,11 +85,14 @@ export interface SprotelTalk {
   hide(): void;
   /** Returns true when the panel consumed the key. */
   handleKey(event: KeyboardEvent): boolean;
+  /** Show controller prompts (true) or keyboard prompts (false). */
+  setPad(on: boolean): void;
 }
 
 /** DOM overlay at the bottom of the screen, styled like the cabinet picker. `onClose` runs once per close. */
 export function createSprotelTalk(onClose: () => void, parent: HTMLElement = document.body, random: () => number = Math.random): SprotelTalk {
   let state: PickerState = { open: false, index: 0 };
+  let pad = false;
   const root = document.createElement('div');
   root.className = 'sprotel-talk';
   root.hidden = true;
@@ -158,6 +163,11 @@ export function createSprotelTalk(onClose: () => void, parent: HTMLElement = doc
       root.hidden = false;
     },
     hide,
+    setPad(on) {
+      if (on === pad) return;
+      pad = on;
+      help.textContent = talkHelp(SPROTEL_TOPICS.length, pad);
+    },
     handleKey(event) {
       if (!state.open) return false;
       // Browser shortcuts (reload, dev tools, F-keys) pass through untouched.

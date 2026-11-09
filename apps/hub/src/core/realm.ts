@@ -37,6 +37,8 @@ export interface RealmContent {
   handleKey?(event: KeyboardEvent): boolean;
   /** A realm overlay (the arcade picker) is open: it takes the controller and the avatar stands. */
   overlayOpen?(): boolean;
+  /** A controller (true) or the keyboard / mouse (false) was the last device used: overlays switch prompts. */
+  setPadPrompts?(on: boolean): void;
   onSession?(session: { client: NakamaClient; token: string }): Promise<void>;
 }
 export interface RealmDefinition {

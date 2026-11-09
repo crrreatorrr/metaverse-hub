@@ -2212,6 +2212,12 @@ button:disabled {
   text-shadow: none;
 }
 
+/* A controller was the last device used: the chat chip names its button. */
+.chat-prompt.pad::before,
+#hud .chat-prompt.pad::before {
+  content: "VIEW";
+}
+
 /* ----- Portal wipe */
 
 #wipe {
