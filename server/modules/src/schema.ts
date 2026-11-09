@@ -3315,6 +3315,8 @@ namespace HubSchema {
   // 0041_coop_boss_receipt is registered from src/games/coop_rewards.ts. It adds the coop
   // eligibility and receipt tables and the internal settle function. It does not add a
   // client event_rule, and it does not change V Coin or any other game's payout.
+  // 0042_pb_godmode is registered from src/games/pb_godmode.ts. It adds game.godmode_user and
+  // game.godmode_topup and allows the 'godmode' tickets_ledger kind. No client RPC writes it.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

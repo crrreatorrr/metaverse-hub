@@ -1,4 +1,4 @@
-// Owner godmode (server/modules/src/godmode.ts): migration 0042 and the top-up call on
+// Owner godmode (server/modules/src/games/pb_godmode.ts): migration 0042 and the top-up call on
 // both Ticket balance reads. The SQL itself is exercised against Postgres by
 // deploy/scripts/godmode.sh; here the module is checked with the fake nk.
 import assert from 'node:assert/strict';
