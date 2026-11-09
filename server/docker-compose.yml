@@ -6,6 +6,9 @@
 # HUB_FAULT_INJECT is the duplication-suite hook. It does nothing unless a row
 # is armed in game.fault_arm (the test harness does that as postgres). Leave
 # the flag unset on a production deploy.
+# SHOOTER_PVP_REPLAY=1 replays every finished Shooter free match and keeps the
+# record (docs/games/sproto-shooter-free.md). On here so the suites cover it;
+# production leaves it unset until wagers need it.
 
 name: metaverse-hub
 
@@ -60,7 +63,8 @@ services:
           --runtime.env "TICKET_HMAC_KEY=$$TICKET_HMAC_KEY" \
           --runtime.env "RECOVERY_PEPPER=$$RECOVERY_PEPPER" \
           --runtime.env "AUDIT_KEY=$$AUDIT_KEY" \
-          --runtime.env HUB_FAULT_INJECT=1
+          --runtime.env HUB_FAULT_INJECT=1 \
+          --runtime.env SHOOTER_PVP_REPLAY=1
     depends_on:
       postgres:
         condition: service_healthy

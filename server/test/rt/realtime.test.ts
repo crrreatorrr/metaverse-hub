@@ -115,7 +115,7 @@ await test('shooter-free: guests play one seat and delayed inputs move no ticket
   const hubRt = socket(hub.token);
   await hubRt.connect();
   await assert.rejects(
-    hubRt.addMatchmaker({ query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1', minCount: 2, maxCount: 2, stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '1', sim: '1', content: 'f5949631' } }),
+    hubRt.addMatchmaker({ query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:2 +properties.content:17d87c54', minCount: 2, maxCount: 2, stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '2', sim: '2', content: '17d87c54' } }),
     (error: unknown) => error instanceof HubSdkError && error.code === 'wrong_scope',
   );
   hubRt.disconnect();
@@ -132,7 +132,7 @@ await test('shooter-free: guests play one seat and delayed inputs move no ticket
   const ma = await ra.joinMatch({ matchId });
   const mb = await rb.joinMatch({ matchId });
   ma.onMessage((msg) => mail.push(msg));
-  const hello = (userId: string) => ({ accountId: userId, protocol: 1, sim: 1, content: 'f5949631' });
+  const hello = (userId: string) => ({ accountId: userId, protocol: 2, sim: 2, content: '17d87c54' });
   ma.send(1, hello(ada.hub.userId));
   mb.send(1, hello(bea.hub.userId));
   await until('welcome', () => mail.find((msg) => msg.opCode === 2));
@@ -153,8 +153,9 @@ await test('shooter-free: guests play one seat and delayed inputs move no ticket
   rb.disconnect();
 });
 
+/** Protocol 2 INPUT: 18 bytes, seq u32 + frame i32, then a neutral wish with no rewind claim. */
 function freeInput(seq: number, frame: number): Uint8Array {
-  const bytes = new Uint8Array(16);
+  const bytes = new Uint8Array(18);
   const view = new DataView(bytes.buffer);
   view.setUint32(0, seq, true);
   view.setInt32(4, frame, true);
@@ -166,7 +167,7 @@ await test('shooter-free: forged result and claim-winner are rejected', async ()
   const bea = await login('sproto-shooter');
   const created = await call('shooter.room_create', {}, ada.gameToken);
   const matchId = String(created.body.matchId);
-  await call('shooter.room_join', { code: created.body.code, v: 1, sim: 1, content: 'f5949631' }, bea.gameToken);
+  await call('shooter.room_join', { code: created.body.code, v: 2, sim: 2, content: '17d87c54' }, bea.gameToken);
   const ra = socket(ada.gameToken);
   const rb = socket(bea.gameToken);
   await Promise.all([ra.connect(), rb.connect()]);
@@ -174,8 +175,8 @@ await test('shooter-free: forged result and claim-winner are rejected', async ()
   const ma = await ra.joinMatch({ matchId });
   const mb = await rb.joinMatch({ matchId });
   ma.onMessage((msg) => mail.push(msg));
-  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
-  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  ma.send(1, { accountId: ada.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
   await until('welcome', () => mail.find((msg) => msg.opCode === 2));
   ma.send(4, { accountId: ada.hub.userId });
   mb.send(4, { accountId: bea.hub.userId });
@@ -205,11 +206,11 @@ await test('shooter-free: injected and wrong-seat input are rejected', async () 
   const ma = await ra.joinMatch({ matchId });
   const mb = await rb.joinMatch({ matchId });
   ma.onMessage((msg) => mail.push(msg));
-  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
-  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  ma.send(1, { accountId: ada.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
   await until('welcome', () => mail.find((msg) => msg.opCode === 2));
   ma.send(7, { winner: 1, hp: 0 });
-  ma.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  ma.send(1, { accountId: bea.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
   const reasons = await until('wrong sender', () => {
     const found = mail.filter((msg) => msg.opCode === 3).map((msg) => msg.json<{ reason?: string }>().reason);
     return found.includes('wrong_sender') ? found : undefined;
@@ -234,15 +235,17 @@ await test('shooter-free: oversized and out-of-order frames are rejected', async
   const ma = await ra.joinMatch({ matchId });
   const mb = await rb.joinMatch({ matchId });
   ma.onMessage((msg) => mail.push(msg));
-  ma.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
-  mb.send(1, { accountId: bea.hub.userId, protocol: 1, sim: 1, content: 'f5949631' });
+  ma.send(1, { accountId: ada.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
+  mb.send(1, { accountId: bea.hub.userId, protocol: 2, sim: 2, content: '17d87c54' });
   await until('welcome', () => mail.find((msg) => msg.opCode === 2));
   ma.send(4, { accountId: ada.hub.userId });
   mb.send(4, { accountId: bea.hub.userId });
   const snap = await until('snapshot', () => mail.find((msg) => msg.opCode === 7));
   const tick = snap.json<{ tick: number }>().tick;
   ma.send(6, new Uint8Array(80));
-  ma.send(6, freeInput(9, tick));
+  // Protocol 2 allows sequence gaps; a sequence number that goes backwards is rejected.
+  ma.send(6, freeInput(9, tick + 1));
+  ma.send(6, freeInput(5, tick + 2));
   ma.send(6, new Uint8Array([1, 2, 3]));
   const reasons = await until('malformed and sequence', () => {
     const found = mail.filter((msg) => msg.opCode === 3).map((msg) => msg.json<{ reason?: string }>().reason);
@@ -259,10 +262,10 @@ await test('shooter-free: protocol, sim, and content mismatch are rejected', asy
   await rt.connect();
   await assert.rejects(
     rt.addMatchmaker({
-      query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1',
+      query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:2 +properties.content:17d87c54',
       minCount: 2,
       maxCount: 2,
-      stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '9', sim: '1', content: 'f5949631' },
+      stringProperties: { game: 'sproto-shooter', mode: 'free', protocol: '9', sim: '2', content: '17d87c54' },
     }),
     (error: unknown) => error instanceof HubSdkError && error.code === 'version_mismatch',
   );
@@ -273,7 +276,7 @@ await test('shooter-free: protocol, sim, and content mismatch are rejected', asy
   const joined = await rt.joinMatch({ matchId });
   const mail: MatchData[] = [];
   joined.onMessage((msg) => mail.push(msg));
-  joined.send(1, { accountId: ada.hub.userId, protocol: 1, sim: 9, content: 'f5949631' });
+  joined.send(1, { accountId: ada.hub.userId, protocol: 2, sim: 9, content: '17d87c54' });
   const rejected = await until('version', () => mail.find((msg) => msg.opCode === 3));
   assert.equal(rejected.json<{ reason?: string; ticketsMinted?: number }>().reason, 'version');
   assert.equal(rejected.json<{ ticketsMinted?: number }>().ticketsMinted, 0);

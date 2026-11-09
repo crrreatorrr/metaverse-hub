@@ -9,7 +9,9 @@ import { call, guest, login, num, sqlId, ticketBalance, type GameLogin } from '.
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
-const FP = 'f5949631';
+const FP = '17d87c54';
+const PROTOCOL = 2;
+const SIM = 2;
 const CATEGORY = 'shooter-free';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
@@ -86,7 +88,7 @@ async function openPair(): Promise<Pair> {
   assert.equal(created.body.stake, 0);
   const matchId = String(created.body.matchId);
   const code = String(created.body.code);
-  const joined = await call('shooter.room_join', { code, v: 1, sim: 1, content: FP }, bea.gameToken);
+  const joined = await call('shooter.room_join', { code, v: PROTOCOL, sim: SIM, content: FP }, bea.gameToken);
   assert.equal(joined.body.matchId, matchId);
   const ra = socket(ada.gameToken);
   const rb = socket(bea.gameToken);
@@ -97,7 +99,7 @@ async function openPair(): Promise<Pair> {
   const mb = await rb.joinMatch({ matchId });
   ma.onMessage((msg) => mailA.push(msg));
   mb.onMessage((msg) => mailB.push(msg));
-  const hello = (who: GameLogin) => ({ accountId: who.hub.userId, protocol: 1, sim: 1, content: FP });
+  const hello = (who: GameLogin) => ({ accountId: who.hub.userId, protocol: PROTOCOL, sim: SIM, content: FP });
   ma.send(1, hello(ada));
   mb.send(1, hello(bea));
   await until('ada welcome', () => mailA.find((msg) => msg.opCode === 2 && msg.json<{ accountId?: string }>().accountId === ada.hub.userId));
@@ -127,7 +129,7 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     const practice = await call('shooter.room_create', { mode: 'practice' }, ada.gameToken);
     assert.equal(practice.body.error, 'practice_offline');
     const seated = await openPair();
-    seated.ma.send(1, { accountId: seated.ada.hub.userId, protocol: 1, sim: 1, content: FP });
+    seated.ma.send(1, { accountId: seated.ada.hub.userId, protocol: PROTOCOL, sim: SIM, content: FP });
     await sleep(200);
     const seats = seated.mailA.filter((msg) => msg.opCode === 2 && msg.json<{ accountId?: string }>().accountId === seated.ada.hub.userId).map((msg) => msg.json<{ seat: number }>().seat);
     assert.equal(new Set(seats).size, 1);
@@ -169,7 +171,7 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     const seated = await openPair();
     try {
       seated.ma.send(7, { winner: 1, hp: 1, snapshot: true });
-      seated.ma.send(1, { accountId: seated.bea.hub.userId, protocol: 1, sim: 1, content: FP });
+      seated.ma.send(1, { accountId: seated.bea.hub.userId, protocol: PROTOCOL, sim: SIM, content: FP });
       const found = await until('injected and wrong seat', () => {
         const reasons = seated.mailA.filter((msg) => msg.opCode === 3).map((msg) => msg.json<{ reason?: string }>().reason);
         return reasons.includes('wrong_sender') && reasons.some((item) => item === 'malformed' || item === 'client_result') ? reasons : undefined;
@@ -187,9 +189,18 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     const seated = await openPair();
     try {
       const snap = await until('snapshot', () => seated.mailA.find((msg) => msg.opCode === 7));
+      await until('bea snapshot', () => seated.mailB.find((msg) => msg.opCode === 7));
+      // Per-recipient snapshots: each socket only ever gets its own seat's private state.
+      const seatOf = (mail: MatchData[], id: string) => mail.find((msg) => msg.opCode === 2 && msg.json<{ accountId?: string }>().accountId === id)?.json<{ seat: number }>().seat;
+      const adaSeat = seatOf(seated.mailA, seated.ada.hub.userId);
+      const beaSeat = seatOf(seated.mailB, seated.bea.hub.userId);
+      for (const msg of seated.mailA.filter((m) => m.opCode === 7)) assert.equal(msg.json<{ you: { seat: number } }>().you.seat, adaSeat);
+      for (const msg of seated.mailB.filter((m) => m.opCode === 7)) assert.equal(msg.json<{ you: { seat: number } }>().you.seat, beaSeat);
       const tick = snap.json<{ tick: number }>().tick;
       seated.ma.send(6, new Uint8Array(80));
-      seated.ma.send(6, packet({ seq: 9, frame: tick, yaw: 0, pitch: 0, moveX: 0, moveZ: 0, fire: false, slot: 0 }));
+      // Gaps are fine in protocol 2; a sequence number that goes backwards is not.
+      seated.ma.send(6, packet({ seq: 9, frame: tick + 1, yaw: 0, pitch: 0, moveX: 0, moveZ: 0, fire: false, slot: 0 }));
+      seated.ma.send(6, packet({ seq: 5, frame: tick + 2, yaw: 0, pitch: 0, moveX: 0, moveZ: 0, fire: false, slot: 0 }));
       let reasons: string[] = [];
       try {
         reasons = await until('oversized and sequence', () => {
@@ -211,7 +222,7 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
 
   await test(CATEGORY, 'protocol, sim, and content mismatch are rejected', async () => {
     const ada = await login(GAME);
-    const badVersion = await call('shooter.room_join', { code: 'AAAAAAAAAAAA', v: 9, sim: 1, content: FP }, ada.gameToken);
+    const badVersion = await call('shooter.room_join', { code: 'AAAAAAAAAAAA', v: 9, sim: SIM, content: FP }, ada.gameToken);
     assert.equal(badVersion.body.error, 'version_mismatch');
     const badSim = await call('shooter.room_create', { sim: 9 }, ada.gameToken);
     assert.equal(badSim.body.error, 'version_mismatch');
@@ -221,10 +232,10 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     await rt.connect();
     await assert.rejects(
       rt.addMatchmaker({
-        query: '+properties.game:sproto-shooter +properties.mode:free +properties.protocol:1',
+        query: `+properties.game:sproto-shooter +properties.mode:free +properties.protocol:${PROTOCOL} +properties.content:deadbeef`,
         minCount: 2,
         maxCount: 2,
-        stringProperties: { game: GAME, mode: 'free', protocol: '1', sim: '1', content: 'deadbeef' },
+        stringProperties: { game: GAME, mode: 'free', protocol: String(PROTOCOL), sim: String(SIM), content: 'deadbeef' },
       }),
       (error: unknown) => error instanceof HubSdkError && error.code === 'version_mismatch',
     );
@@ -234,7 +245,7 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     const joined = await rt.joinMatch({ matchId });
     const mail: MatchData[] = [];
     joined.onMessage((msg) => mail.push(msg));
-    joined.send(1, { accountId: ada.hub.userId, protocol: 2, sim: 1, content: FP });
+    joined.send(1, { accountId: ada.hub.userId, protocol: PROTOCOL, sim: 1, content: FP });
     const rejected = await until('hello version', () => mail.find((msg) => msg.opCode === 3));
     assert.equal(rejected.json<{ reason?: string; ticketsMinted?: number }>().reason, 'version');
     assert.equal(rejected.json<{ ticketsMinted?: number }>().ticketsMinted, 0);
