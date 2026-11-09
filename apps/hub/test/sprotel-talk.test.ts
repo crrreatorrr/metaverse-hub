@@ -37,5 +37,6 @@ assert.equal(greeting(-1), SPROTEL_GREETINGS[0]);
 
 assert.equal(talkHelp(4), '1 / 2 / 3 / 4 or ↑ ↓ · Enter to ask · Esc to leave');
 assert.equal(talkHelp(0), 'Esc to leave');
+assert.equal(talkHelp(4, true), '↑ ↓ choose · A to ask · B to leave');
 
 console.log('sprotel-talk ok');

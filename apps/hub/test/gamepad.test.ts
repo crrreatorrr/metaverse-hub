@@ -1,6 +1,6 @@
 // Plaza controller: deadzones, latch on connect, edges, menu auto-repeat, pad switching, focus geometry.
 import assert from 'node:assert/strict';
-import { PAD, PAD_TUNING, createPadReader, curve, navDirection, padPrompt, radialDeadzone, type PadSnapshot } from '../src/core/gamepad';
+import { DEFAULT_MOVE_STICK, PAD, PAD_TUNING, createPadReader, curve, loadMoveStick, navDirection, padPrompt, radialDeadzone, stickAxes, stickClicks, type PadSnapshot } from '../src/core/gamepad';
 import { pickInDirection } from '../src/core/pad-focus';
 
 function pad(index: number, down: readonly number[] = [], axes: readonly number[] = [0, 0, 0, 0]): PadSnapshot {
@@ -123,9 +123,38 @@ function pad(index: number, down: readonly number[] = [], axes: readonly number[
 
 // Prompts.
 {
-  assert.equal(padPrompt('Press E · Choose a game'), 'Press X · Choose a game');
+  assert.equal(padPrompt('Press E · Choose a game'), 'Press A · Choose a game');
   assert.equal(padPrompt('Welcome. Press Enter to chat.'), 'Welcome. Press View to chat.');
   assert.equal(padPrompt('Press Escape'), 'Press Escape');
+}
+
+// Stick layout: the plaza walks on the right stick by default; the left-stick layout is one menu switch away.
+{
+  assert.equal(DEFAULT_MOVE_STICK, 'right');
+  assert.equal(loadMoveStick(), 'right', 'no storage (node) falls back to the default');
+  assert.deepEqual(stickAxes('right'), { move: [2, 3], look: [0, 1] });
+  assert.deepEqual(stickAxes('left'), { move: [0, 1], look: [2, 3] });
+  assert.deepEqual(stickClicks('right'), { move: PAD.RS, look: PAD.LS });
+  assert.equal(navDirection(pad(0, [], [0, 0, 0.9, 0]), PAD_TUNING, 2), 'right', 'nav reads the stick it is told to');
+
+  let stick: 'left' | 'right' = 'right';
+  const reader = createPadReader(PAD_TUNING, { moveStick: () => stick });
+  let frame = reader.poll([pad(0, [], [0, -1, 0, -1])], 0);
+  assert.ok(frame.move.y < -0.9 && frame.move.x === 0, 'right stick up walks forward');
+  assert.ok(frame.look.y < -0.9, 'left stick up tilts the camera');
+  frame = reader.poll([pad(0, [], [1, 0, 0, 0])], 16);
+  assert.equal(frame.move.x, 0, 'left stick does not walk in the right-stick layout');
+  assert.ok(frame.look.x > 0.9);
+  stick = 'left';
+  frame = reader.poll([pad(0, [], [1, 0, 0, 0])], 32);
+  assert.ok(frame.move.x > 0.9 && frame.look.x === 0, 'switching the layout applies on the next poll');
+
+  // Menu steps follow the walking stick.
+  stick = 'right';
+  const nav = createPadReader(PAD_TUNING, { moveStick: () => stick });
+  nav.poll([pad(0)], 0);
+  assert.equal(nav.poll([pad(0, [], [0, 0, 0, 0.9])], 16).nav, 'down');
+  assert.equal(nav.poll([pad(0, [], [0, 0.9, 0, 0])], 600).nav, null, 'the camera stick does not step menus');
 }
 
 // Focus geometry: a column steps down; a row steps right; nothing that way is -1.
@@ -148,3 +177,14 @@ function pad(index: number, down: readonly number[] = [], axes: readonly number[
 }
 
 console.log('gamepad tests passed');
+
+// latch(): a button held when a screen closes under it is ignored until released.
+{
+  const reader = createPadReader();
+  reader.poll([pad(0)], 0);
+  assert.equal(reader.poll([pad(0, [PAD.A])], 16).pressed(PAD.A), true);
+  reader.latch();
+  assert.equal(reader.poll([pad(0, [PAD.A])], 32).held(PAD.A), false, 'latched A reads up');
+  reader.poll([pad(0)], 48);
+  assert.equal(reader.poll([pad(0, [PAD.A])], 64).pressed(PAD.A), true, 'a fresh press counts again');
+}

@@ -52,21 +52,30 @@ without touching the keyboard:
 ## The plaza
 
 The plaza follows the same rules (`apps/hub/src/core/gamepad.ts`, `apps/hub/src/core/pad-focus.ts`,
-tested in `apps/hub/test/gamepad.test.ts`). Keyboard and mouse are unchanged; any key or click
-gives the prompts back to the keyboard.
+tested in `apps/hub/test/gamepad.test.ts`), with one owner-requested exception to rule 6: by default
+the **right stick walks and the left stick turns the camera**. Menu → Items → Controller switches back
+to the standard layout (left stick walks); the choice is saved in this browser (`hub:pad-move-stick`).
+Below, "walking stick" and "camera stick" follow that setting. Keyboard and mouse are unchanged; any
+key or click gives the prompts back to the keyboard.
 
 | Action | Controller |
 | --- | --- |
-| Move (camera-relative) | Left stick or D-pad |
-| Camera | Right stick (not inverted) |
-| Run | Hold B, or click the left stick (stays on until you stop) |
-| Jump | A |
-| Use the prompt in front of you (arcade cabinet, Sprotel) | X ("Press E" prompts read "Press X") |
-| Camera behind the avatar | Right stick click |
-| Menu | Menu / Start. Inside: D-pad / left stick move the focus ring, A presses, LB / RB change tab, right stick turns the avatar preview, B or Menu closes |
+| Move (camera-relative) | Walking stick (right by default) or D-pad |
+| Camera | Camera stick (left by default, not inverted) |
+| Run | Hold B, or click the walking stick (stays on until you stop) |
+| Use the prompt in front of you (arcade cabinet, Sprotel) | A ("Press E" prompts read "Press A"). X does the same |
+| Jump | A, anywhere there is no prompt to use |
+| Camera behind the avatar | Click the camera stick |
+| Menu | Menu / Start. Inside: D-pad / walking stick move the focus ring, A presses, LB / RB change tab, camera stick turns the avatar preview, B or Menu closes |
 | Chat | View opens the chat box (a device keyboard types), B or View closes it |
-| Arcade picker | D-pad / left stick choose, A plays, B steps away |
-| Login gate | D-pad / left stick move the focus ring, A presses (tabs, Continue as guest, submit). Text fields keep focus for a device keyboard |
+| Arcade picker | D-pad / walking stick choose, A plays, B steps away |
+| Talking to Sprotel | D-pad / walking stick choose, A asks, B (or "See you.") leaves |
+| Login gate | D-pad / walking stick move the focus ring, A presses (tabs, Continue as guest, submit). Text fields keep focus for a device keyboard |
+
+The arcade picker, Sprotel's panel and the chat chip show controller buttons while a pad is the last
+device used, and A gives a short rumble where the browser supports it. The A that closes the login
+gate is latched, so it does not also use the cabinet or jump. If a game cannot be opened, the error
+stays on screen for five seconds instead of vanishing.
 
 Portals need no button: walking into a ring travels, so the trip to a game is stick-only. The
 game reads the pad on the first press on its page, with that press latched (rule 2).

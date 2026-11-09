@@ -37,7 +37,7 @@ import '../style.css';
 import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from '../travel';
 
 import { createEngine } from './engine';
-import { PAD, PAD_TUNING, createPadReader, padPrompt, type PadFrame } from './gamepad';
+import { PAD, PAD_TUNING, createPadReader, loadMoveStick, padPrompt, rumble, saveMoveStick, stickClicks, type MoveStick, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
 
@@ -63,7 +63,10 @@ function dampAngle(from: number, to: number, lambda: number, dt: number): number
 
 export async function startRealm(definition: RealmDefinition): Promise<void> {
   const CONTROLS_HINT = 'WASD or arrows move  ·  Mouse look  ·  Z / C turn camera  ·  Shift run  ·  Space jump  ·  E use  ·  Enter chat  ·  Esc menu';
-  const PAD_HINT = 'Left stick move  ·  Right stick camera  ·  B run  ·  A jump  ·  X interact  ·  View chat  ·  Menu menu';
+  const padHint = (stick: MoveStick) => {
+    const [walk, cam] = stick === 'left' ? ['Left', 'Right'] : ['Right', 'Left'];
+    return `${walk} stick move  ·  ${cam} stick camera  ·  A jump / use  ·  B run  ·  View chat  ·  Menu menu`;
+  };
   const TEXT_INPUT_TYPES = new Set(['', 'text', 'search', 'email', 'url', 'tel', 'password', 'number']);
   const CAMERA_YAW_RATE = MOVEMENT.yawRate;
   const CAMERA_PITCH_RATE = MOVEMENT.pitchRate;
@@ -190,12 +193,16 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   const keys = new Set<string>();
-  const pad = createPadReader();
+  /** Which stick walks (menu → Items → Controller). The other turns the camera. */
+  let moveStick: MoveStick = loadMoveStick();
+  const pad = createPadReader(PAD_TUNING, { moveStick: () => moveStick });
   const padFocus = createPadFocus();
   /** A controller was the last device used: hints show controller prompts. */
   let usingPad = false;
-  /** Left stick click toggles running until the stick comes back to rest. */
+  /** Clicking the walking stick toggles running until the stick comes back to rest. */
   let padRun = false;
+  /** The login gate or a trip had the pad last frame: latch what is held when they let go. */
+  let padBlocked = true;
   let yaw = initial.yaw;
   /** Yaw the body shows: eases toward the controller's facing instead of snapping. */
   let bodyYaw = initial.yaw;
@@ -207,6 +214,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let traveling = false;
   let dwell: PortalDwell = initialDwell();
   let portalError = '';
+  /** When the last travel error was shown; it stays up a few seconds even outside a ring. */
+  let portalErrorAt = -Infinity;
   let fps = 60;
   let warnedDraws = false;
   /** Set while the hub itself drops pointer lock, so the lock change does not open the menu. */
@@ -330,6 +339,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     onSpin(delta) {
       previewSpin += delta;
     },
+    moveStick: () => moveStick,
+    setMoveStick(next) {
+      moveStick = next;
+      saveMoveStick(next);
+    },
     deployablePets: EQUIPPABLE_PET_IDS,
     activePet: () => activePet,
     setActivePet: deployPet,
@@ -394,6 +408,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (!usingPad) return;
     usingPad = false;
     padFocus.clear();
+    content.setPadPrompts?.(false);
+    chat.setPad(false);
   };
   window.addEventListener('keydown', dropPadPrompts, { capture: true });
   window.addEventListener('pointerdown', dropPadPrompts, { capture: true });
@@ -431,7 +447,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     preview = MathUtils.damp(preview, menu.open ? 1 : 0, 9, dt);
     if (!menu.open && preview < 0.002) preview = 0;
     if (!menu.open) orbitCamera(dt);
-    const padMove = readPad(pad.poll(navigator.getGamepads?.() ?? [], timestamp), dt);
+    const pads = navigator.getGamepads?.() ?? [];
+    const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const moving = Math.hypot(input.forward, input.strafe) > 0;
@@ -542,22 +559,41 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   /**
    * One controller frame (docs/controllers.md). Overlays first: the login gate runs its own
-   * loop in login.ts, the arcade picker takes the D-pad / A / B as arrows / Enter / Esc, and the
-   * menu moves a focus ring. In the plaza: left stick moves, right stick turns the camera,
-   * A jumps, B (held) or a left stick click runs, X uses the prompt in front of you (the cabinet),
-   * right stick click puts the camera behind you, Menu opens the menu and View opens chat.
+   * loop in login.ts, the arcade picker and Sprotel's talk panel take the D-pad / walking stick /
+   * A / B as arrows / Enter / Esc, and the menu moves a focus ring. In the plaza: the walking stick
+   * (right by default, see `MoveStick`) moves, the other stick turns the camera, A uses the prompt in
+   * front of you (arcade cabinet, Sprotel) and jumps everywhere else, X also uses the prompt,
+   * B (held) or a click of the walking stick runs, a click of the camera stick puts the camera
+   * behind you, Menu opens the menu and View opens chat.
    */
-  function readPad(frame: PadFrame, dt: number): PadMove {
+  function readPad(frame: PadFrame, dt: number, pads: readonly unknown[]): PadMove {
     if (!frame.connected) {
       padRun = false;
       return NO_PAD_MOVE;
     }
-    if (frame.active) usingPad = true;
-    if (gate.isOpen() || traveling) return NO_PAD_MOVE;
+    if (frame.active && !usingPad) {
+      usingPad = true;
+      content.setPadPrompts?.(true);
+      chat.setPad(true);
+    }
+    if (gate.isOpen() || traveling) {
+      padBlocked = true;
+      return NO_PAD_MOVE;
+    }
+    if (padBlocked) {
+      // The gate can close inside this very frame (its own pad loop pressed Continue as guest), so
+      // the A that did it is still down: latch it instead of letting it use the cabinet or jump.
+      padBlocked = false;
+      pad.latch();
+      return NO_PAD_MOVE;
+    }
 
     const pickerKey = frame.pressed(PAD.A) ? 'Enter' : frame.pressed(PAD.B) ? 'Escape' : frame.nav ? NAV_KEYS[frame.nav] : '';
     if (content.overlayOpen?.()) {
-      if (pickerKey) content.handleKey?.(new KeyboardEvent('keydown', { code: pickerKey, key: pickerKey }));
+      if (pickerKey) {
+        content.handleKey?.(new KeyboardEvent('keydown', { code: pickerKey, key: pickerKey }));
+        if (pickerKey === 'Enter') rumble(pads, pad.activeIndex);
+      }
       return NO_PAD_MOVE;
     }
 
@@ -592,17 +628,22 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       chat.show();
       return NO_PAD_MOVE;
     }
-    if (frame.pressed(PAD.A)) jumpQueued = true;
-    if (frame.pressed(PAD.X)) {
-      const interaction = content.interactions?.find(item => item.active() && item.interact);
-      interaction?.interact?.();
+    // A is the confirm button: in front of the cabinet or Sprotel it uses them, elsewhere it jumps.
+    // X stays a second "use" button for players who learned it.
+    const usable = content.interactions?.find(item => item.active() && item.interact);
+    if (frame.pressed(PAD.A) || frame.pressed(PAD.X)) {
+      if (usable) {
+        usable.interact?.();
+        rumble(pads, pad.activeIndex, 0.35, 60);
+      } else if (frame.pressed(PAD.A)) jumpQueued = true;
     }
-    if (frame.pressed(PAD.RS)) {
+    const clicks = stickClicks(moveStick);
+    if (frame.pressed(clicks.look)) {
       yaw = player.facingYaw;
       pitch = MOVEMENT.initialPitch;
     }
     const moving = frame.move.x !== 0 || frame.move.y !== 0;
-    if (frame.pressed(PAD.LS)) padRun = !padRun;
+    if (frame.pressed(clicks.move)) padRun = !padRun;
     if (!moving) padRun = false;
     yaw -= frame.look.x * PAD_TUNING.lookYawRate * dt;
     pitch = MathUtils.clamp(pitch + frame.look.y * PAD_TUNING.lookPitchRate * dt, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
@@ -614,7 +655,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   function bodyHeight(): number {
     const character = CHARACTERS.find((entry) => entry.id === look.character) ?? CHARACTERS[0];
-    return characterHeight(character) * look.height;
+    return characterHeight(character);
   }
 
   /**
@@ -708,7 +749,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const near = enabled ? nearestPortal(player.position.x, player.position.z) : null;
     const inside = enabled ? portalContaining(PORTALS, player.position.x, player.position.z) : null;
     const interaction = content.interactions?.find(item => item.active());
-    if (!inside) portalError = '';
+    // A ring error clears when you step out; an arcade error stays long enough to read.
+    if (!inside && performance.now() - portalErrorAt > PORTAL_ERROR_MS) portalError = '';
     const closed = near && !pageFor(near.id) ? near : null;
     const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
     const text = portalError
@@ -721,7 +763,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
               ? `${look}Entering ${inside.label}…`
               : near
                 ? `${look}Walk into the ring to enter ${near.label}`
-                : `${look}${usingPad ? PAD_HINT : CONTROLS_HINT}`;
+                : `${look}${usingPad ? padHint(moveStick) : CONTROLS_HINT}`;
     const shown = usingPad ? padPrompt(text) : text;
     if (hint.textContent !== shown) hint.textContent = shown;
   }
@@ -756,6 +798,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   const ENTER_FADE_MS = 700;
+  const PORTAL_ERROR_MS = 5000;
 
   async function travel(portal: { id: GameId; label: string; color: string }, page: string): Promise<void> {
     traveling = true;
@@ -784,6 +827,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       traveling = false;
       wipe.classList.remove('on');
       portalError = error instanceof Error ? error.message : 'Could not open that portal';
+      portalErrorAt = performance.now();
       hint.textContent = portalError;
       console.error(error);
     }

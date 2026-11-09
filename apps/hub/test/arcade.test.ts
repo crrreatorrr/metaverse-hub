@@ -22,6 +22,8 @@ import { PICKER_CLOSED, pickerHelp, pickerKey } from '../src/v2/arcade-picker';
   assert.deepEqual(pickerKey(open, 'KeyZ', 2), { state: open, action: { type: 'none' } });
   assert.equal(pickerHelp(2), '1 / 2 or ↑ ↓ · Enter to play · Esc to step away');
   assert.equal(pickerHelp(3), '1 / 2 / 3 or ↑ ↓ · Enter to play · Esc to step away');
+  assert.equal(pickerHelp(3, true), '↑ ↓ choose · A to play · B to step away');
+  assert.equal(pickerHelp(0, true), 'B to step away');
   assert.deepEqual(pickerKey(open, 'Digit3', 3).action, { type: 'choose', index: 2 });
   assert.deepEqual(pickerKey(open, 'Digit4', 3).action, { type: 'none' });
   assert.equal(pickerKey({ open: true, index: 2 }, 'ArrowDown', 3).state.index, 0);

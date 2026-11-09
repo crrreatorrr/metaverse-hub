@@ -125,6 +125,8 @@ export interface Chat {
   /** Send and receive through a channel; loads the last 30 lines first. */
   attach(channel: ChatChannel, connection: ChatConnection): Promise<void>;
   detach(): void;
+  /** Controller prompts (View opens chat) or keyboard prompts (Enter). */
+  setPad(on: boolean): void;
 }
 
 export function createChat(options: ChatOptions): Chat {
@@ -352,6 +354,10 @@ export function createChat(options: ChatOptions): Chat {
     get open() { return open; },
     show,
     hide: () => close(false),
+    setPad(on: boolean) {
+      prompt.textContent = on ? 'Press View to chat' : 'Press Enter to chat';
+      prompt.classList.toggle('pad', on);
+    },
     local(name: string, text: string) {
       addLine(name, text.slice(0, CHAT_MAX_LENGTH), 'public');
     },

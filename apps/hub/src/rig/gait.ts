@@ -21,6 +21,24 @@ const HIPS = 'Hips';
 /** Contact points for the planted-foot measurement, toe first (the toe stays down longest in a run). */
 export const FOOT_BONES = ['LeftToeBase', 'RightToeBase'] as const;
 
+/**
+ * The same contact points and hips on the other skeletons the plaza plays: the Mixamo shooter cast (three.js drops
+ * the `:` from `mixamorig:Hips`) and the Sproto Beast. Only the ground-speed measurement uses these.
+ */
+const FOOT_ALIASES = [
+  ['LeftToeBase', 'mixamorigLeftToeBase', 'L_ToeBase'],
+  ['RightToeBase', 'mixamorigRightToeBase', 'R_ToeBase'],
+] as const;
+const HIPS_ALIASES = [HIPS, 'mixamorigHips', 'Pelvis'] as const;
+
+function firstBone(bones: Map<string, Object3D>, names: readonly string[]): Object3D | undefined {
+  for (const name of names) {
+    const bone = bones.get(name);
+    if (bone) return bone;
+  }
+  return undefined;
+}
+
 /** Bake rate for retargeted clips. The P4 gait clips are short loops, so 60 fps stays small. */
 const BAKE_FPS = 60;
 
@@ -223,12 +241,12 @@ function placeInParent(obj: Object3D, world: Vector3): Vector3 {
 /** Hips height above the lower foot, in world units of the rest pose. */
 function hipHeight(root: Object3D, bones: Map<string, Object3D>): number {
   root.updateMatrixWorld(true);
-  const hips = bones.get(HIPS);
+  const hips = firstBone(bones, HIPS_ALIASES);
   if (!hips) return 0;
   const hipsY = hips.getWorldPosition(v).y;
   let footY = Infinity;
-  for (const name of FOOT_BONES) {
-    const foot = bones.get(name);
+  for (const names of FOOT_ALIASES) {
+    const foot = firstBone(bones, names);
     if (foot) footY = Math.min(footY, foot.getWorldPosition(v).y);
   }
   return Number.isFinite(footY) ? hipsY - footY : 0;
@@ -243,7 +261,7 @@ function hipHeight(root: Object3D, bones: Map<string, Object3D>): number {
  */
 export function measureGroundSpeed(root: Object3D, clip: AnimationClip, samples = 240): number {
   const bones = bonesByName(root);
-  const feet = FOOT_BONES.map((name) => bones.get(name)).filter((bone): bone is Object3D => Boolean(bone));
+  const feet = FOOT_ALIASES.map((names) => firstBone(bones, names)).filter((bone): bone is Object3D => Boolean(bone));
   if (feet.length === 0 || clip.duration <= 0) return 0;
   const mixer = new AnimationMixer(root);
   mixer.clipAction(clip).play();

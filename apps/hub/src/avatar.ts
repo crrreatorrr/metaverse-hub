@@ -12,7 +12,6 @@ import {
   Matrix4,
   Mesh,
   MeshBasicMaterial,
-  MeshStandardMaterial,
   Quaternion,
   RingGeometry,
   SkinnedMesh,
@@ -20,7 +19,6 @@ import {
   Vector3,
   Vector4,
   type AnimationAction,
-  type Material,
   Object3D,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
@@ -36,6 +34,9 @@ import {
   WALK_SPEED,
   characterHeight,
   characterYaw,
+  fliesWhenMoving,
+  holdsStaff,
+  walksWithRun,
   staffScale,
   type CharacterConfig,
   type CharacterId,
@@ -78,7 +79,7 @@ export interface AvatarRig {
   load(): void;
   /** `air` drives the jump clip; leave it out for a rig that is always grounded. */
   update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void;
-  /** Tint, glow, height and Relic aura. Applies now, or when the mesh arrives. */
+  /** Character, staff and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
 
@@ -102,7 +103,6 @@ export function createAvatarRig(): AvatarRig {
   let bank = 0;
   let lastYaw: number | null = null;
   let started = false;
-  let materials: MeshStandardMaterial[] = [];
   let look: AvatarLook | null = null;
   let auraClock = 0;
   /** Character whose mesh is on screen or loading. */
@@ -124,6 +124,8 @@ export function createAvatarRig(): AvatarRig {
   group.add(lean);
   const body = new Group();
   body.name = 'avatar-body';
+  // `lean` sits on the floor, STAND_Y below the rig origin (the capsule top); the fit puts the feet at −STAND_Y.
+  body.position.y = STAND_Y;
   lean.add(body);
   const aura = createAura();
   group.add(aura.group);
@@ -147,31 +149,29 @@ export function createAvatarRig(): AvatarRig {
         if (token !== loadToken) return;
         const prepared = SkeletonUtils.clone(gltf.scene) as Group;
         // Duel-skeleton rigs without P4's jog / dash get the wizard's, retargeted, so their feet stay planted.
-        const clips = character.borrow
-          ? await borrowMixamoGait(prepared)
+        // Flyers keep their own airborne `run` for both gaits instead.
+        const clips = fliesWhenMoving(character)
+          ? gltf.animations
           : await locomotionFor(character.asset, gltf, () => loadGLTF(donorUrl));
         if (token !== loadToken) return;
         const next = fitModel(prepared, characterHeight(character), characterYaw(character));
-        const nextMaterials = ownMaterials(next);
         // Before the mixer runs, so the socket is placed against the rest pose.
         const nextSocket = staffSocket(next, staffScale(character));
         const nextMixer = new AnimationMixer(next);
         const claimed = new WeakSet<AnimationClip>();
         const nextActions = {
           idle: playClip(nextMixer, clips, 'idle', claimed),
-          walk: playClip(nextMixer, clips, 'walk', claimed),
+          walk: playClip(nextMixer, walksWithRun(character) ? clips.filter((clip) => clip.name !== 'walk') : clips, 'walk', claimed),
           run: playClip(nextMixer, clips, 'run', claimed),
           air: airClip(nextMixer, clips),
         };
         unmountStaff();
-        if (model) disposeModel(model, materials);
+        if (model) disposeModel(model);
         model = next;
         socket = nextSocket;
-        materials = nextMaterials;
         mixer = nextMixer;
         actions = nextActions;
         body.add(next);
-        if (look) paint(look);
         retime();
         if (pose === 'air' && !actions.air) pose = 'idle';
         poseAction(pose).play();
@@ -193,12 +193,12 @@ export function createAvatarRig(): AvatarRig {
   }
 
   /**
-   * Gait playback rate from the ground speed each clip was animated for, the fit scale and the look height,
+   * Gait playback rate from the ground speed each clip was animated for and the fit scale,
    * so the planted foot moves with the floor. Clips with no measured stride keep the rate `playClip` set.
    */
   function retime(): void {
     if (!actions || !model) return;
-    const scale = model.scale.y * body.scale.y;
+    const scale = model.scale.y;
     for (const gait of ['walk', 'run'] as const) {
       const action = actions[gait];
       const ground = groundSpeedOf(action.getClip()) * scale;
@@ -284,7 +284,7 @@ export function createAvatarRig(): AvatarRig {
   function mountStaff(): void {
     unmountStaff();
     if (!socket || !staffLoaded || staffLoaded.id !== staffWanted) return;
-    if (shown && characterById(shown).ownStaff) return;
+    if (shown && !holdsStaff(characterById(shown))) return;
     const prop = staffLoaded.scene.clone(true);
     prop.traverse((obj) => {
       const mesh = obj as Mesh;
@@ -306,23 +306,10 @@ export function createAvatarRig(): AvatarRig {
     staffObject = null;
   }
 
-  function paint(next: AvatarLook): void {
-    for (const material of materials) {
-      material.color.set(next.tint);
-      material.emissive.set(next.glow);
-      material.emissiveIntensity = next.glowStrength * 0.9;
-    }
-  }
-
   function setLook(next: AvatarLook): void {
     look = next;
     setStaff(next.staff);
     if (started) show(next.character);
-    // Scale about the feet: `lean` sits on the floor, STAND_Y below the rig origin (the capsule top).
-    body.scale.setScalar(next.height);
-    body.position.y = STAND_Y * next.height;
-    retime();
-    paint(next);
     const socket = RELICS.find((entry) => entry.id === next.aura);
     aura.group.visible = Boolean(socket);
     if (socket) aura.setColor(socket.color);
@@ -399,31 +386,13 @@ function staffSocket(model: Object3D, scale: number): Object3D | null {
   return socket;
 }
 
-/** Frees this copy's skeleton and cloned materials. Geometry and textures stay in the GLTF cache. */
-function disposeModel(root: Object3D, materials: readonly Material[]): void {
+/** Frees this copy's skeleton. Geometry, materials and textures stay in the GLTF cache. */
+function disposeModel(root: Object3D): void {
   root.removeFromParent();
   root.traverse((obj) => {
     const mesh = obj as SkinnedMesh;
     if (mesh.isSkinnedMesh) mesh.skeleton.dispose();
   });
-  for (const material of materials) material.dispose();
-}
-
-/** The GLTF cache shares materials. Clone them so a tint stays on this avatar. */
-function ownMaterials(root: Object3D): MeshStandardMaterial[] {
-  const owned: MeshStandardMaterial[] = [];
-  const swap = (material: Material): Material => {
-    if (!(material instanceof MeshStandardMaterial)) return material;
-    const copy = material.clone();
-    owned.push(copy);
-    return copy;
-  };
-  root.traverse((obj) => {
-    const mesh = obj as Mesh;
-    if (!mesh.isMesh) return;
-    mesh.material = Array.isArray(mesh.material) ? mesh.material.map(swap) : swap(mesh.material);
-  });
-  return owned;
 }
 
 /** Spinning floor ring plus a soft column. Two draw calls, shown only with a Relic aura. */
@@ -519,12 +488,13 @@ function columnTexture(): CanvasTexture {
 }
 
 /**
- * Resolve idle / walk / run. The wizard carries P4's `jog` and `dash`; duel bosses fall back
- * to `run`. Shooter rigs use `walk`, and the jade dragon uses `fly`.
+ * Resolve idle / walk / run. The wizard carries P4's `jog` and `dash`, and the Sproto Duel rigs get them retargeted.
+ * The jade dragon has a hover `idle`, a cruise `walk` and a fast `run`; `fly` is the fallback for older rigs. The
+ * Sproto Shooter cast hides its `walk` here (`walksWithRun`), so both gaits play `run`.
  */
 const GAIT_CLIP_NAMES: Record<keyof typeof AVATAR_CLIPS, readonly string[]> = {
   idle: ['idle', 'fly'],
-  walk: ['jog', 'run', 'walk', 'fly'],
+  walk: ['jog', 'walk', 'run', 'fly'],
   run: ['dash', 'run', 'walk', 'fly'],
 };
 
@@ -626,46 +596,6 @@ function fitModel(model: Group, height: number, yaw: number): Object3D {
     if (mesh.isMesh) mesh.frustumCulled = false;
   });
   return model;
-}
-
-/** Laser Bot's idle and run, retargeted onto a Mixamo body that shipped without clips (Sproto Soldier). */
-async function borrowMixamoGait(model: Object3D): Promise<AnimationClip[]> {
-  const donor = CHARACTERS.find((entry) => entry.id === 'laser');
-  if (!donor) throw new Error('Laser Bot is missing, so Sproto Soldier has no gait');
-  const gltf = await loadGLTF(`${import.meta.env.BASE_URL}${donor.asset}`);
-  const sourceRoot = SkeletonUtils.clone(gltf.scene);
-  const source = firstSkinned(sourceRoot);
-  const target = firstSkinned(model);
-  if (!source || !target) throw new Error('Sproto Soldier has no skeleton to retarget');
-  const options = { fps: 30, hip: 'mixamorigHips', getBoneName: (bone: Object3D) => bone.name };
-  const clips = (['idle', 'run'] as const).map((name) => {
-    const clip = gltf.animations.find((entry) => entry.name === name);
-    if (!clip) throw new Error(`Laser Bot is missing the ${name} clip`);
-    const retargeted = SkeletonUtils.retargetClip(target, source, clip, options);
-    return renameRetarget(retargeted, name);
-  });
-  target.skeleton.pose();
-  return clips;
-}
-
-function firstSkinned(root: Object3D): SkinnedMesh | null {
-  let found: SkinnedMesh | null = null;
-  root.traverse((obj) => {
-    const mesh = obj as SkinnedMesh;
-    if (!found && mesh.isSkinnedMesh) found = mesh;
-  });
-  return found;
-}
-
-/** `retargetClip` names tracks for a skinned mesh. The plaza mixer is rooted on the scene, which uses bone names. */
-function renameRetarget(clip: AnimationClip, name: string): AnimationClip {
-  const tracks = clip.tracks.map((track) => {
-    const match = /^\.bones\[(.+)\]\.(position|quaternion|scale)$/.exec(track.name);
-    const next = match ? `${match[1]}.${match[2]}` : track.name;
-    const Track = track.constructor as new (trackName: string, times: Float32Array, values: Float32Array) => AnimationClip['tracks'][number];
-    return new Track(next, track.times as Float32Array, track.values as Float32Array);
-  });
-  return new AnimationClip(name, clip.duration, tracks);
 }
 
 /** Staffs and props are skinned to the hands and can reach above the head. */
