@@ -1,0 +1,40 @@
+{
+  "kind": "sproto-shooter-pvp-pin",
+  "artifact": "shooter-pvp",
+  "repo": "crrreatorrr/sproto-shooter",
+  "commit": "5ccaf82a04c8e4233b257b71194ad82d8fd5f022",
+  "sourceCommit": "5ccaf82a04c8e4233b257b71194ad82d8fd5f022",
+  "sha256": "fccd3b17d0dc089d2134007a0f1cd37ef9c68296cdeacb5b040be3ac4f1d3f85",
+  "bundleSha256": "fccd3b17d0dc089d2134007a0f1cd37ef9c68296cdeacb5b040be3ac4f1d3f85",
+  "bundleBytes": 51182,
+  "bundlePath": "build/shooter-pvp-sim.js",
+  "protocol": 1,
+  "sim": 1,
+  "contentFingerprint": "f5949631",
+  "loadoutHash": "9eb7cd63",
+  "global": "SprotoShooterPvp",
+  "entry": "replayJSON",
+  "limits": {
+    "maxInputsPerSecond": 60,
+    "maxInputsPerTick": 4,
+    "futureFrames": 4,
+    "pastFrames": 15,
+    "frameBytes": 16,
+    "maxFrame": 1000000,
+    "maxIdLength": 80
+  },
+  "mintsTickets": false,
+  "stakes": false,
+  "campaignProtocol": 1,
+  "campaignContentFingerprint": "3c657fb5",
+  "golden": {
+    "seed": 7,
+    "outcome": "draw",
+    "reason": "double_ko",
+    "winner": null,
+    "tick": 61,
+    "stateHash": "ce272de1"
+  },
+  "goja": "github.com/dop251/goja v0.0.0-20261107161106-d6eaa50db8bc",
+  "node": ">=22"
+}

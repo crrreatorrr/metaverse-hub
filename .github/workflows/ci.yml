@@ -35,6 +35,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/check-shooter-sim-version.mjs
+      - name: Check Shooter free-arena pin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-shooter-pvp-sim-version.mjs
       - run: npm test
         env:
           SHOOTER_REQUIRE_GOJA: '1'
@@ -88,6 +92,9 @@ jobs:
         timeout-minutes: 10
       - name: Coop authoritative match
         run: npx tsx scripts/load/coop-bots.ts
+        timeout-minutes: 15
+      - name: Shooter free match
+        run: npx tsx scripts/load/shooter-bots.ts
         timeout-minutes: 15
       - name: Economy audit
         if: always()

@@ -194,7 +194,8 @@ function beforeLinkDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: 
 
 function rtBeforeMatchmakerRemove(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope {
   var after = rtBeforeSprotoMatchmakerRemove(ctx, logger, nk, envelope);
-  return rtBeforeCoopMatchmakerRemove(ctx, logger, nk, after);
+  after = rtBeforeCoopMatchmakerRemove(ctx, logger, nk, after);
+  return rtBeforeShooterMatchmakerRemove(ctx, logger, nk, after);
 }
 
 function InitModule(
@@ -279,6 +280,13 @@ function InitModule(
   // >>> game: sproto-shooter registrations
   initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
   initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  initializer.registerMatch("sproto_shooter_free", { matchInit: sprotoShooterFreeInit, matchJoinAttempt: sprotoShooterFreeJoinAttempt, matchJoin: sprotoShooterFreeJoin, matchLeave: sprotoShooterFreeLeave, matchLoop: sprotoShooterFreeLoop, matchTerminate: sprotoShooterFreeTerminate, matchSignal: sprotoShooterFreeSignal });
+  initializer.registerRpc("shooter.version", rpcShooterVersion);
+  initializer.registerRpc("shooter.room_create", rpcShooterRoomCreate);
+  initializer.registerRpc("shooter.room_join", rpcShooterRoomJoin);
+  initializer.registerRpc("shooter.queue_cancel", rpcShooterQueueCancel);
+  initializer.registerRpc("shooter.resume", rpcShooterResume);
+  initializer.registerRpc("shooter.metrics", rpcShooterMetrics);
   // <<< game: sproto-shooter
   // ----
   // >>> game: peoples-bitcoin registrations
