@@ -430,8 +430,8 @@ const HOSTED_SESSION = `(function () {
   flood.push({ sender: b, opCode: OP.PING, data: { t: 99 } });
   m.loop(flood);
   assert.equal(stateOf(m).rateDrops - drops, 60 - 56);
-  const hubRate = m.dispatcher.sent<Wire>(OP.REJECT).filter((row) => row.body.reason === 'rate' && row.body.lastSeq === 0 && row.body.accountId === A);
-  assert.ok(hubRate.length >= 1);
+  // The director's PING rate and the hub's per-sender cap both say "rate": one REJECT per loop.
+  assert.equal(m.dispatcher.sent<Wire>(OP.REJECT).filter((row) => row.body.reason === 'rate').length, 1);
   for (const row of m.dispatcher.sent<Wire>(OP.REJECT)) only(row, a);
   const bPong = m.dispatcher.sent<Wire>(OP.PONG).filter((row) => row.to![0]!.userId === B);
   assert.equal(bPong.length, 1, 'the other seat is still answered');

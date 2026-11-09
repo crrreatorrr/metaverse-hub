@@ -140,6 +140,7 @@ declare namespace nkruntime {
     storageWrite(objects: StorageWrite[]): StorageWriteAck[];
     storageRead(keys: StorageReadRequest[]): StorageObject[];
     storageDelete(objects: StorageDeleteRequest[]): void;
+    storageList(userId: string | null, collection: string, limit?: number, cursor?: string): { objects?: StorageObject[]; cursor?: string };
     matchList(limit: number, authoritative?: boolean | null, label?: string | null, minSize?: number | null, maxSize?: number | null, query?: string | null): Match[];
     matchGet(id: string): Match | null;
     matchSignal(id: string, data: string): string;

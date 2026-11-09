@@ -1,8 +1,4 @@
 {
-  "kind": "sproto-shooter-pvp-pin",
-  "repo": "crrreatorrr/sproto-shooter",
-  "commit": "29b912ec0b8064c08701f6b2ce88bc2eee42c5c9",
-  "sha256": "eee11404bc964ee09a36f969d27a23dc9f3786083d8cc0f415b8edad68f2111a",
   "artifact": "shooter-pvp",
   "protocol": 2,
   "sim": 2,
@@ -57,6 +53,10 @@
   "stakes": false,
   "campaignProtocol": 1,
   "campaignContentFingerprint": "3c657fb5",
+  "kind": "sproto-shooter-pvp-pin",
+  "repo": "crrreatorrr/sproto-shooter",
+  "commit": "29b912ec0b8064c08701f6b2ce88bc2eee42c5c9",
+  "sha256": "eee11404bc964ee09a36f969d27a23dc9f3786083d8cc0f415b8edad68f2111a",
   "golden": {
     "seed": 7,
     "outcome": "draw",

@@ -12,6 +12,13 @@
 // match state, which stays plain JSON. There is no crash-recovery copy: if
 // the match VM dies the match is gone, and a free match has nothing to refund.
 //
+// "done" is sticky (state.ended): once the director or the hub ends the match it
+// never reopens during the linger. matchTerminate is final: Nakama keeps calling
+// matchLoop for shutdown_grace_sec, and those loops only clean up and return null.
+//
+// Private rooms: only the host and accounts that used the code (shooter.room_join
+// signals "admit:<uid>") may join; the label says private.
+//
 // Every director message is { op, body, to }. `to` null goes to every present
 // seat; otherwise it goes only to the stored presence of that user and
 // session (presences carry their node), or to the sender itself, and is
@@ -20,6 +27,8 @@
 
 namespace ShooterMatch {
   let directors: { [id: string]: ShooterPvpDirector } | null = null;
+  /** REJECTs already sent this loop, by user:session:reason. Null outside a loop. */
+  let rejectsThisLoop: { [key: string]: boolean } | null = null;
 
   function directorBag(): { [id: string]: ShooterPvpDirector } {
     if (!directors) directors = {};
@@ -37,7 +46,7 @@ namespace ShooterMatch {
   }
 
   export interface ReplaySummary {
-    /** pending until the director's RESULT has gone out, then done or skipped. */
+    /** off (SHOOTER_PVP_REPLAY unset), pending until the director's RESULT is out, then done or skipped. */
     status: string;
     verified: boolean;
     policy: string;
@@ -53,6 +62,8 @@ namespace ShooterMatch {
     /** sha256 of the combat seed, as WELCOME/PHASE send it. */
     combatCommit: string;
     privateRoom: boolean;
+    /** Private rooms: accounts that used the code. The host is always admitted. */
+    admitted: { [id: string]: number };
     code: string;
     token: string;
     host: string;
@@ -74,12 +85,23 @@ namespace ShooterMatch {
     resultTick: number;
     replay: ReplaySummary;
     broken: string;
+    /** Sticky: set when the match ends for any reason. Nothing reopens it. */
+    ended: boolean;
+    /** Set by matchTerminate. Every later loop only cleans up and returns null. */
+    terminated: boolean;
+    /** HUB_FAULT_INJECT only: the next loop's director call throws. */
+    faultThrow: boolean;
     cleaned: boolean;
     liveCleared: boolean;
     endReason: string;
     doneTick: number;
-    /** Server clock origin: now = startMs + loop tick × 1000/30 (+ warpMs in fault tests). */
+    /** Server clock origin (wall ms at init). */
     startMs: number;
+    /** The match clock: monotonic, follows wall time, at most MAX_CLOCK_STEP_MS per loop. */
+    clockMs: number;
+    /** The wall clock at the last loop, to measure the next step. */
+    wallMs: number;
+    /** HUB_FAULT_INJECT time warp, added on top of the clock. */
     warpMs: number;
     serverSeq: number;
     samples: number[];
@@ -133,8 +155,8 @@ namespace ShooterMatch {
     return HubMatch.sanitizeName(typeof raw === "string" ? raw : "");
   }
 
-  function blankReplay(): ReplaySummary {
-    return { status: "pending", verified: false, policy: "", mismatch: [], ms: 0, stored: false };
+  function blankReplay(on: boolean): ReplaySummary {
+    return { status: on ? "pending" : "off", verified: false, policy: "", mismatch: [], ms: 0, stored: false };
   }
 
   function blank(): State {
@@ -144,6 +166,7 @@ namespace ShooterMatch {
       spawnSeed: 1,
       combatCommit: "",
       privateRoom: false,
+      admitted: {},
       code: "",
       token: "",
       host: "",
@@ -157,13 +180,18 @@ namespace ShooterMatch {
       result: null,
       resultSent: false,
       resultTick: 0,
-      replay: blankReplay(),
+      replay: blankReplay(false),
       broken: "",
+      ended: false,
+      terminated: false,
+      faultThrow: false,
       cleaned: false,
       liveCleared: false,
       endReason: "",
       doneTick: 0,
       startMs: now,
+      clockMs: now,
+      wallMs: now,
       warpMs: 0,
       serverSeq: 0,
       samples: [],
@@ -208,9 +236,25 @@ namespace ShooterMatch {
     return n;
   }
 
-  /** Monotonic server clock from the loop tick, never the wall clock. */
-  function nowOf(state: State, tick: number): number {
-    return state.startMs + (tick * 1000) / ShooterProto.TICK_RATE + state.warpMs;
+  /**
+   * The match clock for this loop: it advances by the wall time since the last
+   * loop, so a late or slow loop catches up (the director steps at most 4 ticks
+   * per advance), but never backwards and never more than MAX_CLOCK_STEP_MS per
+   * loop when the wall clock jumps.
+   */
+  function advanceClock(state: State): number {
+    var wall = Date.now();
+    var step = wall - state.wallMs;
+    if (!(step > 0)) step = 0;
+    if (step > ShooterProto.MAX_CLOCK_STEP_MS) step = ShooterProto.MAX_CLOCK_STEP_MS;
+    state.wallMs = wall;
+    state.clockMs += step;
+    return state.clockMs + state.warpMs;
+  }
+
+  function markEnded(state: State): void {
+    state.phase = "done";
+    state.ended = true;
   }
 
   function noteGuest(nk: nkruntime.Nakama, state: State, userId: string): void {
@@ -256,6 +300,13 @@ namespace ShooterMatch {
       state.dropped += 1;
       return;
     }
+    if (op === ShooterProto.OP_REJECT && rejectsThisLoop) {
+      // One REJECT per sender and reason per loop: a burst of bad frames costs one reply.
+      var reason = message.body ? String(message.body["reason"] || "") : "";
+      var key = to[0].userId + ":" + to[0].sessionId + ":" + reason;
+      if (rejectsThisLoop[key]) return;
+      rejectsThisLoop[key] = true;
+    }
     var stamped: { [key: string]: unknown } = {};
     var body = message.body || {};
     for (var key in body) stamped[key] = body[key];
@@ -285,7 +336,7 @@ namespace ShooterMatch {
   }
 
   function mirror(state: State, director: ShooterPvpDirector): void {
-    state.phase = director.phase;
+    if (!state.ended) state.phase = director.phase;
     state.seated = director.occupied();
     state.tick = director.sim ? director.sim.tick : 0;
     if (director.result) {
@@ -299,7 +350,7 @@ namespace ShooterMatch {
         ticketsMinted: 0,
         stakes: false,
       };
-      state.phase = "done";
+      markEnded(state);
       state.endReason = director.result.reason;
       if (!state.tick) state.tick = director.result.tick;
     }
@@ -322,10 +373,13 @@ namespace ShooterMatch {
    * director reached its own. A finished match already sent the director's.
    */
   function finishShutdown(d: nkruntime.MatchDispatcher, state: State, director: ShooterPvpDirector | null): void {
-    if (state.resultSent || state.phase === "done") return;
+    if (state.resultSent || state.ended) {
+      state.ended = true;
+      return;
+    }
     var body = shutdownBody(state, director);
     state.result = body;
-    state.phase = "done";
+    markEnded(state);
     state.endReason = body.reason;
     state.resultSent = true;
     send(d, state, {
@@ -383,7 +437,8 @@ namespace ShooterMatch {
   function keepRecord(nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State, director: ShooterPvpDirector, matchId: string): void {
     if (state.replay.status !== "pending") return;
     var sim = ShooterProto.api();
-    if (!sim) {
+    // No sim (a lobby cancel) or no director RESULT (shutdown first): nothing worth replaying.
+    if (!sim || !director.sim || !director.result) {
       state.replay.status = "skipped";
       return;
     }
@@ -437,6 +492,35 @@ namespace ShooterMatch {
       state.replay.stored = true;
     } catch (e) {
       logger.error("sproto_shooter_free replay store failed " + matchId);
+    }
+    sweepRecords(nk, logger);
+  }
+
+  /**
+   * Delete replay records past REPLAY_RETENTION_DAYS. Runs after a store, at most
+   * once an hour per node, over at most REPLAY_SWEEP_PAGES pages of 100.
+   */
+  function sweepRecords(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
+    var key = "shooter-pvp:replay-sweep";
+    try {
+      if (nk.localcacheGet(key)) return;
+      nk.localcachePut(key, "1", 3600);
+      var cutoff = Date.now() - ShooterProto.REPLAY_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+      var cursor = "";
+      for (var page = 0; page < ShooterProto.REPLAY_SWEEP_PAGES; page++) {
+        var list = nk.storageList(ShooterMm.SYSTEM_USER, ShooterProto.REPLAY_COLLECTION, 100, cursor);
+        var objects = list && list.objects ? list.objects : [];
+        var old: nkruntime.StorageDeleteRequest[] = [];
+        for (var i = 0; i < objects.length; i++) {
+          var at = Number(objects[i].value ? objects[i].value["storedAt"] : 0);
+          if (!(at > cutoff)) old.push({ collection: ShooterProto.REPLAY_COLLECTION, key: objects[i].key, userId: ShooterMm.SYSTEM_USER });
+        }
+        if (old.length) nk.storageDelete(old);
+        cursor = list && list.cursor ? list.cursor : "";
+        if (!cursor) break;
+      }
+    } catch (e) {
+      logger.warn("sproto_shooter_free replay sweep failed");
     }
   }
 
@@ -511,6 +595,7 @@ namespace ShooterMatch {
       outcome: state.result ? state.result.outcome : "",
       winner: state.result ? state.result.winner : null,
       combatCommit: state.combatCommit,
+      private: state.privateRoom,
       replay: {
         status: state.replay.status,
         verified: state.replay.verified,
@@ -566,12 +651,81 @@ namespace ShooterMatch {
     return director;
   }
 
+  /** One loop of director work: route each message, advance the clock, mirror the result. */
+  function runDirector(nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, director: ShooterPvpDirector, messages: nkruntime.MatchMessage[], now: number): void {
+    var handled: { [userId: string]: number } = {};
+    var rated: { [userId: string]: boolean } = {};
+    for (var i = 0; i < messages.length; i++) {
+      var message = messages[i];
+      var sender = message.sender;
+      if (!sender || !sender.userId || !sender.sessionId) continue;
+      var current = state.present[sender.userId];
+      if (!current || current.sessionId !== sender.sessionId) {
+        // A replaced or departed socket: not this seat's presence any more.
+        state.dropped += 1;
+        continue;
+      }
+      var size = typeof message.data === "string" ? message.data.length : message.data ? message.data.byteLength : 0;
+      state.inBytes += size;
+      var count = (handled[sender.userId] || 0) + 1;
+      handled[sender.userId] = count;
+      if (count > ShooterProto.MAX_MSGS_PER_SENDER) {
+        state.rateDrops += 1;
+        if (!rated[sender.userId]) {
+          rated[sender.userId] = true;
+          rejectTo(d, state, sender, "rate");
+        }
+        continue;
+      }
+      var op = message.opCode;
+      var packet: string | Uint8Array = "";
+      if (op === ShooterProto.OP_INPUT) {
+        var bytes = ShooterProto.bytesOf(nk, message.data);
+        if (bytes.length !== ShooterProto.FRAME_BYTES) {
+          rejectTo(d, state, sender, "malformed");
+          continue;
+        }
+        packet = bytes;
+      } else {
+        var text = ShooterProto.textOf(nk, message.data);
+        if (text.length > ShooterProto.MAX_JSON) {
+          rejectTo(d, state, sender, "malformed");
+          continue;
+        }
+        if (op === ShooterProto.OP_HELLO || op === ShooterProto.OP_READY || op === ShooterProto.OP_RESYNC) {
+          var parsed = bodyOf(text);
+          if (parsed && ShooterProto.hostile(parsed)) {
+            rejectTo(d, state, sender, "client_result");
+            continue;
+          }
+        }
+        packet = text;
+      }
+      // HELLO is the only rebind; RESYNC serves the bound session only.
+      var actor: ShooterPvpSender = { userId: sender.userId, sessionId: sender.sessionId, username: displayName(sender.username) };
+      var out = director.handle(actor, op, packet, now);
+      publish(d, state, out && out.messages ? out.messages : [], sender, tick);
+    }
+    var advanced = director.advance(now);
+    publish(d, state, advanced && advanced.messages ? advanced.messages : [], null, tick);
+    mirror(state, director);
+  }
+
+  /** The caller of a metrics signal: "" for the server, else a user that must hold a seat. */
+  function signalUser(data: string, name: string): string | null {
+    if (data === name) return "";
+    if (data.indexOf(name + ":") === 0) return data.slice(name.length + 1);
+    return null;
+  }
+
   export var handler: nkruntime.MatchHandler<State> = {
     matchInit: function (ctx, logger, nk, params) {
       var state = blank();
       var mismatch = ShooterProto.verifyRuntime();
       var matchId = ctx.matchId || "";
       state.privateRoom = params["private"] === "1";
+      var env = ctx.env || null;
+      state.replay = blankReplay(!!env && env[ShooterProto.REPLAY_ENV] === "1");
       state.code = typeof params["code"] === "string" ? params["code"] : "";
       state.token = typeof params["token"] === "string" ? params["token"] : "";
       state.host = typeof params["host"] === "string" ? params["host"] : "";
@@ -597,7 +751,7 @@ namespace ShooterMatch {
         }
       }
       logger.info("sproto_shooter_free init " + matchId);
-      return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor() };
+      return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor(state.privateRoom) };
     },
 
     matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, _metadata) {
@@ -612,14 +766,17 @@ namespace ShooterMatch {
       var known = state.sids[userId] || "";
       if (known && known !== sid) return { state: state, accept: false, rejectMessage: "wrong_sender" };
       var director = directorBag()[ctx.matchId || ""];
-      if (!director || state.cleaned) return { state: state, accept: false, rejectMessage: "ended" };
-      if (director.phase === "done" || state.phase === "done") {
+      if (!director || state.cleaned || state.terminated) return { state: state, accept: false, rejectMessage: "ended" };
+      if (state.ended || director.phase === "done") {
         // A seated account may come back to a finished match: its HELLO gets
         // WELCOME, the final snapshot and a copy of RESULT. Nobody else.
         if (known && director.seatOf(userId) >= 0) return { state: state, accept: true };
         return { state: state, accept: false, rejectMessage: "ended" };
       }
       if (!known) {
+        if (state.privateRoom && userId !== state.host && !state.admitted[userId]) {
+          return { state: state, accept: false, rejectMessage: "not_admitted" };
+        }
         if (!onRoster(state, userId)) return { state: state, accept: false, rejectMessage: "not_in_roster" };
         if (accountCount(state) >= ShooterProto.SEATS) return { state: state, accept: false, rejectMessage: "match_full" };
         var verdict = director.joinAttempt(userId);
@@ -649,7 +806,7 @@ namespace ShooterMatch {
         }
         // The whole presence, node included: routed messages go to exactly this one.
         state.present[presence.userId] = presence;
-        if (state.phase !== "done") ShooterMm.setLive(nk, presence.userId, matchId);
+        if (!state.ended && !state.terminated) ShooterMm.setLive(nk, presence.userId, matchId);
       }
       return { state: state };
     },
@@ -669,80 +826,46 @@ namespace ShooterMatch {
       var started = Date.now();
       var matchId = ctx.matchId || "";
       var director = directorBag()[matchId];
-      if (state.broken || !director) {
+      if (state.terminated || state.broken || !director) {
         finishShutdown(d, state, director || null);
         cleanup(nk, state, matchId);
         sample(state, started);
         return null;
       }
-      if (state.phase === "done" && state.resultSent && state.replay.status === "pending" && tick > state.resultTick) {
+      if (state.ended && state.resultSent && state.replay.status === "pending" && tick > state.resultTick) {
         // Deferred: never on the loop that stepped the sim and sent RESULT, and
         // kept out of the per-loop samples (the match is over).
         keepRecord(nk, logger, state, director, matchId);
         started = Date.now();
       }
-      var now = nowOf(state, tick);
-      var handled: { [userId: string]: number } = {};
-      var rated: { [userId: string]: boolean } = {};
-      for (var i = 0; i < messages.length; i++) {
-        var message = messages[i];
-        var sender = message.sender;
-        if (!sender || !sender.userId || !sender.sessionId) continue;
-        var size = typeof message.data === "string" ? message.data.length : message.data ? message.data.byteLength : 0;
-        state.inBytes += size;
-        var count = (handled[sender.userId] || 0) + 1;
-        handled[sender.userId] = count;
-        if (count > ShooterProto.MAX_MSGS_PER_SENDER) {
-          state.rateDrops += 1;
-          if (!rated[sender.userId]) {
-            rated[sender.userId] = true;
-            rejectTo(d, state, sender, "rate");
-          }
-          continue;
-        }
-        var op = message.opCode;
-        var packet: string | Uint8Array = "";
-        if (op === ShooterProto.OP_INPUT) {
-          var bytes = ShooterProto.bytesOf(nk, message.data);
-          if (bytes.length !== ShooterProto.FRAME_BYTES) {
-            rejectTo(d, state, sender, "malformed");
-            continue;
-          }
-          packet = bytes;
-        } else {
-          var text = ShooterProto.textOf(nk, message.data);
-          if (text.length > ShooterProto.MAX_JSON) {
-            rejectTo(d, state, sender, "malformed");
-            continue;
-          }
-          if (op === ShooterProto.OP_HELLO || op === ShooterProto.OP_READY || op === ShooterProto.OP_RESYNC) {
-            var parsed = bodyOf(text);
-            if (parsed && ShooterProto.hostile(parsed)) {
-              rejectTo(d, state, sender, "client_result");
-              continue;
-            }
-          }
-          packet = text;
-        }
-        // HELLO is the only rebind; RESYNC serves the bound session only.
-        var actor: ShooterPvpSender = { userId: sender.userId, sessionId: sender.sessionId, username: displayName(sender.username) };
-        var out = director.handle(actor, op, packet, now);
-        publish(d, state, out && out.messages ? out.messages : [], sender, tick);
+      var now = advanceClock(state);
+      rejectsThisLoop = {};
+      try {
+        if (state.faultThrow) throw new Error("fault_inject");
+        // A match the hub ended while the director still sat in its lobby (nobody
+        // said HELLO) stays shut: no late HELLO seats anyone during the linger.
+        if (!state.ended || director.phase === "done") runDirector(nk, d, tick, state, director, messages, now);
+      } catch (e) {
+        rejectsThisLoop = null;
+        // The error text is not logged: it could carry director internals.
+        logger.error("sproto_shooter_free director failed " + matchId);
+        finishShutdown(d, state, director);
+        cleanup(nk, state, matchId);
+        sample(state, started);
+        return null;
       }
-      var advanced = director.advance(now);
-      publish(d, state, advanced && advanced.messages ? advanced.messages : [], null, tick);
-      mirror(state, director);
+      rejectsThisLoop = null;
       if (director.phase === "live" && director.sim && now - state.startMs > ShooterProto.MAX_MATCH_MS && director.sim.phase !== "done" && !director.result) {
         logger.warn("sproto_shooter_free duration " + matchId);
       }
-      if (director.phase === "lobby" && director.occupied() === 0 && now - state.startMs >= ShooterProto.READY_MS) {
+      if (!state.ended && director.phase === "lobby" && director.occupied() === 0 && now - state.startMs >= ShooterProto.READY_MS) {
         // Nobody said HELLO: there is no seat to tell, so no RESULT. The match closes.
         state.result = { outcome: "cancel", winner: null, reason: "ready_timeout", tick: 0, stateHash: null, ticketsMinted: 0, stakes: false };
-        state.phase = "done";
+        markEnded(state);
         state.endReason = "ready_timeout";
-        state.replay.status = "skipped";
+        if (state.replay.status === "pending") state.replay.status = "skipped";
       }
-      if (state.phase === "done") {
+      if (state.ended) {
         if (!state.doneTick) state.doneTick = tick;
         clearLive(nk, state, matchId);
         if (tick - state.doneTick > ShooterProto.LINGER_S * ShooterProto.TICK_RATE) {
@@ -760,23 +883,48 @@ namespace ShooterMatch {
       var matchId = ctx.matchId || "";
       var director = directorBag()[matchId] || null;
       if (director) mirror(state, director);
+      // Only a match whose director RESULT went out has a record; a shutdown first has none.
+      if (director && director.result && state.resultSent && state.replay.status === "pending") keepRecord(nk, logger, state, director, matchId);
+      if (state.replay.status === "pending") state.replay.status = "skipped";
       finishShutdown(d, state, director);
-      if (director && (director.sim || director.result) && state.replay.status === "pending") keepRecord(nk, logger, state, director, matchId);
+      state.terminated = true;
       cleanup(nk, state, matchId);
       return { state: state };
     },
 
     matchSignal: function (ctx, _logger, _nk, _d, _tick, state, data) {
-      if (data === "reset-metrics") {
-        state.samples = [];
-        state.sampleOver = 0;
-        state.overBudget = 0;
-      } else if (data.indexOf("advance:") === 0) {
-        var env = ctx.env || null;
-        if (env && env["HUB_FAULT_INJECT"] === "1") {
+      var env = ctx.env || null;
+      var faults = !!env && env["HUB_FAULT_INJECT"] === "1";
+      if (data.indexOf("admit:") === 0) {
+        // Server-only (nk.matchSignal): shooter.room_join admits the account that used the code.
+        var uid = data.slice("admit:".length);
+        var ok = state.privateRoom && !state.ended && !state.terminated && UUID.test(uid);
+        if (ok && !state.admitted[uid] && uid !== state.host) {
+          var n = 0;
+          for (var id in state.admitted) if (id) n++;
+          if (n >= ShooterProto.MAX_ADMITTED) ok = false;
+          else state.admitted[uid] = 1;
+        }
+        return { state: state, data: JSON.stringify(ok ? { ok: true } : { ok: false, error: "room_closed" }) };
+      }
+      if (data.indexOf("advance:") === 0) {
+        if (faults) {
           var delta = parseInt(data.slice("advance:".length), 10);
           if (delta > 0 && delta < 3600000) state.warpMs += delta;
         }
+      } else if (data === "fault:throw") {
+        if (faults) state.faultThrow = true;
+      }
+      var reset = signalUser(data, "reset-metrics");
+      var who = reset !== null ? reset : signalUser(data, "metrics");
+      if (who) {
+        // A game session may read (or reset) only a match it holds a seat in.
+        if (!state.sids[who]) return { state: state, data: JSON.stringify({ error: "not_in_match" }) };
+      }
+      if (reset !== null) {
+        state.samples = [];
+        state.sampleOver = 0;
+        state.overBudget = 0;
       }
       return { state: state, data: JSON.stringify(metricsOf(state, directorBag()[ctx.matchId || ""] || null)) };
     },
@@ -831,9 +979,11 @@ namespace ShooterMatch {
     if (req["content"] !== undefined && String(req["content"]) !== ShooterProto.FINGERPRINT) return fail("version_mismatch", "Version mismatch");
     if (!ShooterMm.rateAllow(nk, ctx.userId || "", "create")) return fail("rate_limited", "Too many rooms");
     if (ShooterMm.liveMatch(nk, ctx.userId || "")) return fail("already_in_match", "Already in a match");
+    // A queued account would be live in two matches: leave the queue first (MatchmakerRemove).
+    if (ShooterMm.queued(nk, ctx.userId || "")) return fail("already_queued", "Leave the queue first");
     var code = "";
     for (var attempt = 0; attempt < 5 && !code; attempt++) {
-      var candidate = ShooterProto.roomCode();
+      var candidate = ShooterProto.roomCode(nk);
       if (ShooterMm.reserveCode(nk, candidate)) code = candidate;
     }
     if (!code) return fail("room_code_busy", "Could not allocate a room code");
@@ -887,6 +1037,14 @@ namespace ShooterMatch {
     if (!matchId) return fail("room_not_found", "Room not found");
     var existing = ShooterMm.liveMatch(nk, ctx.userId || "");
     if (existing && existing !== matchId) return fail("already_in_match", "Already in a match");
+    if (ShooterMm.queued(nk, ctx.userId || "")) return fail("already_queued", "Leave the queue first");
+    // The code is the invitation: admit this account. Finding the match id is not enough to join.
+    try {
+      var admitted = JSON.parse(nk.matchSignal(matchId, "admit:" + (ctx.userId || "")) || "{}") as { ok?: boolean };
+      if (!admitted.ok) return fail("room_not_found", "Room not found");
+    } catch (e) {
+      return fail("room_not_found", "Room not found");
+    }
     return JSON.stringify({
       matchId: matchId,
       protocol: ShooterProto.PROTOCOL,
@@ -922,17 +1080,29 @@ namespace ShooterMatch {
     });
   }
 
+  /**
+   * Loop metrics for one match. The server (http key, no user) may read any
+   * match; a game session only a match it holds a seat in. Anyone else gets
+   * match_missing, so the RPC does not confirm that a match exists.
+   */
   export function rpcMetrics(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var denied = gate(ctx);
-    if (denied) return denied;
+    var server = !ctx.userId;
+    if (!server) {
+      var denied = gate(ctx);
+      if (denied) return denied;
+    }
     var req = bodyOf(payload);
     if (!req) return fail("bad_json", "Bad request");
     var id = String(req["matchId"] || "");
     if (!id || id.length > 128) return fail("match_missing", "No match");
     if (!nk.matchGet(id)) return fail("match_missing", "No match");
+    var signal = req["reset"] === true ? "reset-metrics" : "metrics";
+    if (!server) signal += ":" + ctx.userId;
     try {
-      var raw = nk.matchSignal(id, req["reset"] === true ? "reset-metrics" : "metrics");
-      return raw || "{}";
+      var raw = nk.matchSignal(id, signal) || "{}";
+      var parsed = JSON.parse(raw) as { error?: string };
+      if (parsed && parsed.error) return fail("match_missing", "No match");
+      return raw;
     } catch (e) {
       return fail("match_missing", "No match");
     }

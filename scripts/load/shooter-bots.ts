@@ -294,8 +294,9 @@ for (let i = 0; i < BENCH_MATCHES; i += 1) {
   await call('shooter.metrics', { matchId, reset: true }, ada.gameToken);
 }
 await sleep(BENCH_MS);
-for (const id of ids) {
-  const row = await call('shooter.metrics', { matchId: id }, benchAccounts[0]!.gameToken);
+for (let i = 0; i < ids.length; i += 1) {
+  // shooter.metrics answers only the match's own seats (or the server's http key).
+  const row = await call('shooter.metrics', { matchId: ids[i]! }, benchAccounts[i * 2]!.gameToken);
   samples.push(row.body as unknown as Metrics);
 }
 for (const rt of rts) rt.disconnect();

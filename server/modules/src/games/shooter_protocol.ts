@@ -65,6 +65,14 @@ namespace ShooterProto {
    * director stays the limit that decides. The rest get REJECT rate.
    */
   export var MAX_MSGS_PER_SENDER = 56;
+  /**
+   * The match clock follows wall time between loops (so a late loop catches up,
+   * up to the director's 4-tick cap), never runs backwards, and moves at most
+   * this much per loop when the wall clock jumps.
+   */
+  export var MAX_CLOCK_STEP_MS = 250;
+  /** Codes a private room admits besides the host (shooter.room_join). */
+  export var MAX_ADMITTED = 8;
   export var BUDGET_MS = 10;
   export var SAMPLE_CAP = 240;
   export var LOOKUP_MAX = 8;
@@ -94,8 +102,16 @@ namespace ShooterProto {
 
   export var QUERY = "+properties.game:sproto-shooter +properties.mode:free +properties.protocol:" + PROTOCOL + " +properties.content:" + FINGERPRINT;
 
-  /** Server-only storage of the replay record once RESULT is out (no wager yet: groundwork). */
+  /**
+   * Server-only storage of the replay record once RESULT is out (no wager yet: groundwork).
+   * Off unless the runtime env sets SHOOTER_PVP_REPLAY=1 (a full replay costs ~0.5 s of goja
+   * CPU on the match goroutine and the record is ~110 KB). Wagers will require it.
+   */
   export var REPLAY_COLLECTION = "sproto_shooter_replay";
+  export var REPLAY_ENV = "SHOOTER_PVP_REPLAY";
+  /** Records older than this are deleted by the sweep that runs after a store (at most hourly per node). */
+  export var REPLAY_RETENTION_DAYS = 30;
+  export var REPLAY_SWEEP_PAGES = 10;
 
   /** The arena bundle, loaded on first use. Null when the wrapper is absent. */
   export function api(): ShooterPvpApi | null {
@@ -122,6 +138,8 @@ namespace ShooterProto {
     if (!op || op.HELLO !== OP_HELLO || op.WELCOME !== OP_WELCOME || op.REJECT !== OP_REJECT || op.READY !== OP_READY) return "opcode_mismatch";
     if (op.PHASE !== OP_PHASE || op.INPUT !== OP_INPUT || op.SNAPSHOT !== OP_SNAPSHOT || op.RESULT !== OP_RESULT || op.RESYNC !== OP_RESYNC) return "opcode_mismatch";
     if (op.PING !== OP_PING || op.PONG !== OP_PONG) return "opcode_mismatch";
+    // The bundle does not export its tick rate today; check it if a later build does.
+    if (typeof sim.TICK_HZ === "number" && sim.TICK_HZ !== TICK_RATE) return "tick_mismatch";
     var limits = sim.INPUT_LIMITS;
     if (!limits || limits.frameBytes !== FRAME_BYTES || limits.maxFramesPerSecond !== 45 || limits.futureFrames !== 8) return "limits_mismatch";
     if (limits.maxFramesPerCursor !== 9 || limits.maxHelloPerSecond !== 2 || limits.maxReadyPerSecond !== 2) return "limits_mismatch";
@@ -160,9 +178,11 @@ namespace ShooterProto {
     return nk.sha256Hash(nk.uuidv4() + ":" + nk.uuidv4()).toLowerCase();
   }
 
-  export function roomCode(): string {
+  /** 12 chars from a 32-letter alphabet (60 bits) out of Nakama's CSPRNG uuids. */
+  export function roomCode(nk: nkruntime.Nakama): string {
+    var hex = nk.sha256Hash(nk.uuidv4() + ":" + nk.uuidv4());
     var out = "";
-    for (var i = 0; i < CODE_LEN; i++) out += CODE_ALPHABET.charAt(Math.floor(Math.random() * CODE_ALPHABET.length) % CODE_ALPHABET.length);
+    for (var i = 0; i < CODE_LEN; i++) out += CODE_ALPHABET.charAt(parseInt(hex.substr(i * 2, 2), 16) & 31);
     return out;
   }
 
@@ -173,11 +193,13 @@ namespace ShooterProto {
     return code;
   }
 
-  export function labelFor(): string {
+  /** A private room says so: ListMatches shows it, but only the host and code holders may join. */
+  export function labelFor(privateRoom: boolean): string {
     return JSON.stringify({
       kind: KIND,
       game: GAME_ID,
       mode: MODE,
+      private: privateRoom,
       protocol: PROTOCOL,
       sim: SIM,
       content: FINGERPRINT,
@@ -185,19 +207,15 @@ namespace ShooterProto {
     });
   }
 
-  /** Nakama delivers match data as an ArrayBuffer. INPUT must stay raw bytes. */
-  export function bytesOf(nk: nkruntime.Nakama, data: string | ArrayBuffer | null): Uint8Array {
-    if (data === null || data === undefined) return new Uint8Array(0);
-    if (typeof data === "string") {
-      var text = new Uint8Array(data.length);
-      for (var i = 0; i < data.length; i++) text[i] = data.charCodeAt(i) & 255;
-      return text;
-    }
-    if (typeof (data as ArrayBuffer).byteLength === "number") return new Uint8Array(data as ArrayBuffer);
-    var raw = nk.binaryToString(data as ArrayBuffer);
-    var out = new Uint8Array(raw.length);
-    for (var j = 0; j < raw.length; j++) out[j] = raw.charCodeAt(j) & 255;
-    return out;
+  /**
+   * Nakama delivers match data as an ArrayBuffer. INPUT must stay raw bytes, so
+   * anything else (a string, a view, an unknown object) fails closed as empty,
+   * which the caller rejects as malformed. Never re-decoded through text.
+   */
+  export function bytesOf(_nk: nkruntime.Nakama, data: string | ArrayBuffer | null): Uint8Array {
+    if (data === null || data === undefined || typeof data !== "object") return new Uint8Array(0);
+    if (Object.prototype.toString.call(data) !== "[object ArrayBuffer]") return new Uint8Array(0);
+    return new Uint8Array(data as ArrayBuffer);
   }
 
   export function textOf(nk: nkruntime.Nakama, data: string | ArrayBuffer | null): string {

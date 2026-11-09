@@ -257,6 +257,8 @@ interface ShooterPvpApi {
   CONTENT_FINGERPRINT: string;
   LOADOUT_HASH: string;
   LEAD_IN_TICKS: number;
+  /** Not exported by the protocol 2 bundle; verifyRuntime checks it when present. */
+  TICK_HZ?: number;
   SOURCE_COMMIT: string;
   ECONOMY: ShooterPvpEconomy;
   INPUT_LIMITS: ShooterPvpLimits;
