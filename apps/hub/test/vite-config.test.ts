@@ -55,3 +55,16 @@ assert.match(config, /__NAKAMA_SERVER_KEY__:\s*JSON\.stringify\(\s*nakamaServerK
 assert.doesNotMatch(config, /process\.env\.VITE_NAKAMA_SERVER_KEY/, 'vite_config_does_not_bypass_env_files');
 
 console.log('vite config server key guard ok');
+
+// Every portal slug needs a dev row, or `/play/<slug>/#t=` 404s instead of opening the fetched
+// build. Sproto Shooter and Coop Battle were missing, so their portals did nothing in dev.
+{
+  const { GAME_URLS } = await import('../src/games');
+  const block = config.match(/const PLAY_GAMES = \[([\s\S]*?)\] as const;/);
+  assert.ok(block, 'vite_config_has_play_games');
+  const rows = [...block[1]!.matchAll(/slug:\s*'([^']+)',\s*env:\s*'([^']+)'/g)].map(m => ({ slug: m[1], env: m[2] }));
+  for (const game of GAME_URLS) {
+    assert.deepEqual(rows.find(row => row.slug === game.slug), { slug: game.slug, env: game.env }, `play_games_serves_${game.slug}`);
+  }
+  console.log('vite config play routes ok');
+}

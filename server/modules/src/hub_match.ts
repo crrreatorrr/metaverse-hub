@@ -535,6 +535,11 @@ namespace HubMatch {
     } catch (e) {
       logger.warn("hub meta rollup failed " + errorText(e));
     }
+    try {
+      SprotoDuel.maybeSweepWagers(nk, logger, Date.now());
+    } catch (e) {
+      logger.warn("sproto wager sweep failed " + errorText(e));
+    }
 
     recount(state);
     updateLabel(dispatcher, state);
