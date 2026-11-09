@@ -15,12 +15,7 @@ fi
 
 id="$1"
 src="$2"
-# Shooter and Coop Battle are dark registrations. lib.sh still names the older ids;
-# these two are accepted here so a build can be published without a public flag change.
-case "$id" in
-  sproto-shooter|sproto-coop-battle) ;;
-  *) assert_game_id "$id" ;;
-esac
+assert_game_id "$id"
 
 base="/srv/play/${id}"
 install -d -m 755 "$base"

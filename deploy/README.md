@@ -41,6 +41,8 @@ Builds you produce elsewhere and copy to the VPS:
 | `https://play.<domain>/sproto-duel/` | `/srv/play/sproto-duel/current` | `sproto` |
 | `https://play.<domain>/sproto-fighter/` | `/srv/play/sproto-fighter/current` | `sproto-fighter` (the Bar's arcade cabinet, no plaza ring) |
 | `https://play.<domain>/sproto-arcade/` | `/srv/play/sproto-arcade/current` | `sproto-arcade` (the Bar's arcade cabinet, no plaza ring) |
+| `https://play.<domain>/sproto-shooter/` | `/srv/play/sproto-shooter/current` | `sproto-shooter` (plaza ring) |
+| `https://play.<domain>/sproto-coop-battle/` | `/srv/play/sproto-coop-battle/current` | `sproto-coop-battle` (the Bar's arcade cabinet, no plaza ring) |
 
 Sproto Duel's public path is `sproto-duel`. The game id stored by Nakama in this repo is `sproto`. Portal URLs in `apps/hub/src/config.ts` still point at `/play/<id>/` on the hub origin. Point them at `https://play.<domain>/<path>/` when you build the hub for production. HPOS10I's web build includes a file of about 37.7 MiB. The cache notes below are written for that file.
 
@@ -127,7 +129,7 @@ On the server:
 5. Deploy the hub and each game. Build the hub with `VITE_NAKAMA_SERVER_KEY` set to this server's `NAKAMA_SERVER_KEY`; the build refuses an empty key. On the build machine, before the upload:
 
    ```bash
-   deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade
+   deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade dist/sproto-shooter dist/sproto-coop-battle
    ```
 
    `rsync` the complete trees to the VPS, including the hub’s `realm-pages.txt` and every listed realm page, then publish only when authorized. `deploy-hub.sh` and `deploy-game.sh` run the same check again and refuse the swap when it fails.
@@ -140,6 +142,8 @@ On the server:
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-duel /tmp/sproto-duel
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-fighter /tmp/sproto-fighter
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-arcade /tmp/sproto-arcade
+   /opt/metaverse/deploy/scripts/deploy-game.sh sproto-shooter /tmp/sproto-shooter
+   /opt/metaverse/deploy/scripts/deploy-game.sh sproto-coop-battle /tmp/sproto-coop-battle
    ```
 
    Precompression uses `gzip -9` and `brotli -q 11`. The HPOS10I wasm can take a few minutes.
@@ -196,7 +200,7 @@ Caddy's `precompressed` serves a sibling `.br` or `.gz` and sets `Content-Type: 
 
 ## COOP / COEP
 
-Off for every game unless `GAME_COOP_<ID>=1` in `deploy/.env`. The names are `GAME_COOP_HPOS10I`, `GAME_COOP_NOBU`, `GAME_COOP_PEOPLES_BITCOIN`, `GAME_COOP_SPROTO_DUEL`, `GAME_COOP_SPROTO_FIGHTER`, and `GAME_COOP_SPROTO_ARCADE`. `1` sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on that game only. Then re-run `deploy/scripts/install-caddy.sh`. Turn it on only for a build that needs `SharedArrayBuffer`, and only when that build's assets are same-origin. A cross-origin script or font will fail once COEP is on.
+Off for every game unless `GAME_COOP_<ID>=1` in `deploy/.env`. The names are `GAME_COOP_HPOS10I`, `GAME_COOP_NOBU`, `GAME_COOP_PEOPLES_BITCOIN`, `GAME_COOP_SPROTO_DUEL`, `GAME_COOP_SPROTO_FIGHTER`, `GAME_COOP_SPROTO_ARCADE`, `GAME_COOP_SPROTO_SHOOTER`, and `GAME_COOP_SPROTO_COOP_BATTLE`. `1` sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on that game only. Then re-run `deploy/scripts/install-caddy.sh`. Turn it on only for a build that needs `SharedArrayBuffer`, and only when that build's assets are same-origin. A cross-origin script or font will fail once COEP is on.
 
 ## Firewall
 
