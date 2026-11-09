@@ -263,6 +263,15 @@ deploy/scripts/bootstrap.sh
 
 `HUB_FAULT_INJECT` is not set. The duplication-suite hook stays inert.
 
+### Nakama shutdown grace
+
+A restart (`bootstrap.sh`, `docker compose up -d` after a rebuild, `stop`, `restart`) sends Nakama `SIGTERM`. Nakama then gives every running match `shutdown_grace_sec` (60 s, in `nakama/config.yml`) to run `matchTerminate`, which refunds held wager escrow, writes coop checkpoints and saves People's Bitcoin worlds. `compose.yml` sets `stop_grace_period: 90s` on the `nakama` service, so Docker waits that long before it sends `SIGKILL`. Docker's default is 10 s, which killed Nakama before terminate could finish.
+
+- Keep `stop_grace_period` at least 15 s above `shutdown_grace_sec`, and `shutdown_grace_sec` at 30 s or more. `scripts/deploy-grace.test.mjs` (part of `npm test`) fails if either rule breaks.
+- A restart currently takes about 60 s. Every hub match handler's `matchTerminate` still returns its state instead of `null`, so Nakama waits out the whole grace window even when the match work is done. The 60 s is an upper bound only once `matchTerminate` returns `null` when finished (a separate server ticket). That wait is expected. Do not follow it with `docker kill`.
+- Passing `-t`/`--timeout` to `docker compose stop|restart|up` overrides `stop_grace_period`. Leave it off, or give at least 90.
+- The local stack (`server/docker-compose.yml`) keeps Nakama's default grace of 0 so the duplication suite's kill and restart cases stay fast. Graceful terminate is a production setting.
+
 ## Checks
 
 ```bash
