@@ -3,17 +3,18 @@ import type { RelicId } from '@metaverse/hub-sdk';
 import { CHARACTERS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
 
-export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
+export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'pets';
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
   { id: 'items', label: 'Items', key: '1', icon: 'bag' },
   { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
   { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
   { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
+  { id: 'pets', label: 'Pets', key: '5', icon: 'paw' },
 ];
 
 /** Pixel art made with Higgsfield, in `public/world/ui/`. */
-type PixelIcon = 'bag' | 'helmet' | 'palette' | 'gem' | 'coin' | 'pet' | 'lock' | 'star' | 'staff';
+type PixelIcon = 'bag' | 'helmet' | 'palette' | 'gem' | 'coin' | 'pet' | 'lock' | 'star' | 'staff' | 'paw';
 
 function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
   const img = document.createElement('img');
@@ -85,6 +86,12 @@ export interface MenuOptions {
   hiddenRelics: () => readonly string[];
   /** Store and apply a new switched-off list. */
   setHiddenRelics: (ids: readonly string[]) => void;
+  /** Catalog ids that have a hub model (`EQUIPPABLE_PET_IDS`), so they can be deployed. */
+  deployablePets: readonly string[];
+  /** The pet following the avatar, or null. */
+  activePet: () => string | null;
+  /** Deploy a pet (it follows the avatar) or recall it (null). */
+  setActivePet: (id: string | null) => void;
 }
 
 export interface Menu {
@@ -97,6 +104,8 @@ export interface Menu {
   setRelics(ids: readonly string[]): void;
   /** `owned` from `profile.get` once the server sends `pets`; null until then. */
   setPets(owned: readonly string[] | null): void;
+  /** Repaint the Pets page after the following pet changed outside the menu. */
+  refreshPets(): void;
   setVerse(balance: number): void;
   setGuest(label: string): void;
 }
@@ -169,10 +178,22 @@ export function createMenu(options: MenuOptions): Menu {
   const walletText = el('div', 'menu-wallet-text');
   walletText.append(verseLine, relicCount);
   wallet.append(pixelIcon('coin', 'menu-wallet-coin'), walletText);
-  const petHead = el('h3', 'menu-h', 'Pets');
-  const petNote = el('p', 'menu-note', 'Equipping a pet comes with the hub pet slot. Relic pets are already yours once the Relic is.');
+  itemsPage.append(wallet);
+
+  // ---------- Pets
+  const petsPage = bodies.get('pets') as HTMLElement;
+  const petNote = el('p', 'menu-note', 'Deploy a pet you own and it follows you around the plaza. Relic pets are yours once the Relic is.');
+  const following = el('div', 'pet-following');
+  const followingText = el('span', 'pet-following-text');
+  const recall = el('button', 'pet-deploy', 'Recall');
+  recall.type = 'button';
+  recall.addEventListener('click', () => {
+    options.setActivePet(null);
+    paintPets();
+  });
+  following.append(pixelIcon('paw', 'pet-following-icon'), followingText, recall);
   const petGrid = el('ul', 'menu-grid pets');
-  itemsPage.append(wallet, petHead, petNote, petGrid);
+  petsPage.append(el('h3', 'menu-h', 'Pets'), petNote, following, petGrid);
 
   // ---------- Avatar
   const avatarPage = bodies.get('avatar') as HTMLElement;
@@ -434,21 +455,46 @@ export function createMenu(options: MenuOptions): Menu {
   function paintItems(): void {
     verseLine.textContent = `Verse ${verse.toLocaleString('en-US')}`;
     relicCount.textContent = `${RELICS.filter((socket) => relics.has(socket.id)).length} of ${RELICS.length} Relics`;
+  }
+
+  function paintPets(): void {
+    const active = options.activePet();
+    const activeInfo = PETS.find((pet) => pet.id === active);
+    followingText.textContent = active ? `${activeInfo?.name ?? 'Your pet'} is following you` : 'No pet is following you';
+    recall.hidden = !active;
+    following.classList.toggle('on', Boolean(active));
     petGrid.replaceChildren();
     const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
       Boolean(serverPets?.has(pet.id)) ||
       (pet.relic ? relics.has(pet.relic) : false) ||
       (pet.id === 'pet_four_lights_sproto' && all && !serverPets);
-    const sorted = [...PETS].sort((a, b) => Number(owned(b)) - Number(owned(a)));
+    const deployable = (pet: PetInfo) => owned(pet) && options.deployablePets.includes(pet.id);
+    const rank = (pet: PetInfo) => (pet.id === active ? 3 : deployable(pet) ? 2 : owned(pet) ? 1 : 0);
+    const sorted = [...PETS].sort((a, b) => rank(b) - rank(a));
     for (const pet of sorted) {
       const has = owned(pet);
-      const card = el('li', `pet-card${has ? ' owned' : ''}`);
+      const on = pet.id === active;
+      const card = el('li', `pet-card${has ? ' owned' : ''}${on ? ' active' : ''}`);
+      card.dataset.pet = pet.id;
       const icon = el('span', 'pet-icon');
       icon.append(pixelIcon(has ? 'pet' : 'lock'));
       const text = el('div', 'pet-text');
       text.append(el('strong', '', pet.name), el('span', 'pet-from', pet.from));
-      card.append(icon, text, el('span', 'pet-state', has ? 'Owned' : 'Locked'));
+      card.append(icon, text);
+      if (deployable(pet)) {
+        const deploy = el('button', 'pet-deploy', on ? 'Following' : 'Deploy');
+        deploy.type = 'button';
+        deploy.setAttribute('aria-pressed', String(on));
+        deploy.setAttribute('aria-label', on ? `Recall ${pet.name}` : `Deploy ${pet.name}`);
+        deploy.addEventListener('click', () => {
+          options.setActivePet(on ? null : pet.id);
+          paintPets();
+        });
+        card.append(deploy);
+      } else {
+        card.append(el('span', 'pet-state', has ? 'Model soon' : 'Locked'));
+      }
       petGrid.append(card);
     }
   }
@@ -491,6 +537,7 @@ export function createMenu(options: MenuOptions): Menu {
     setTab(next);
     paintLook();
     paintItems();
+    paintPets();
     paintRelics();
     if (open) return;
     open = true;
@@ -527,12 +574,16 @@ export function createMenu(options: MenuOptions): Menu {
       if (open) {
         paintLook();
         paintItems();
+        paintPets();
         paintRelics();
       }
     },
     setPets(owned) {
       serverPets = owned ? new Set(owned) : null;
-      if (open) paintItems();
+      if (open) paintPets();
+    },
+    refreshPets() {
+      if (open) paintPets();
     },
     setVerse(balance) {
       verse = balance;

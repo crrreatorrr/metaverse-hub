@@ -871,7 +871,7 @@ button:disabled {
 
 .menu-tabs {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   gap: 8px;
   margin: 12px 4px 14px;
 }
@@ -1752,6 +1752,11 @@ button:disabled {
     display: none;
   }
 
+  .menu-tab-icon {
+    width: 40px;
+    height: 40px;
+  }
+
   .menu-panel {
     margin: 12px auto;
   }
@@ -2249,4 +2254,73 @@ button:disabled {
 
 .overhead.remote {
   font-size: 16px;
+}
+
+/* ----- Pets tab: deploy a pet that follows you. */
+
+.pet-following {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 4px 16px;
+  padding: 8px 10px;
+  background: #1b2147;
+  box-shadow:
+    0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink),
+    inset 4px 4px 0 0 #262e5e, inset -4px -4px 0 0 #121736;
+}
+
+.pet-following.on {
+  background: var(--navy);
+  box-shadow:
+    0 -4px 0 0 var(--ink), 0 4px 0 0 var(--ink), -4px 0 0 0 var(--ink), 4px 0 0 0 var(--ink),
+    inset 4px 4px 0 0 var(--blue-2), inset -4px -4px 0 0 #061450;
+}
+
+.pet-following-icon {
+  flex: none;
+  width: 32px;
+  height: 31px;
+  image-rendering: pixelated;
+}
+
+.pet-following:not(.on) .pet-following-icon {
+  filter: grayscale(1) brightness(0.7);
+}
+
+.pet-following-text {
+  flex: 1;
+  font-size: 20px;
+  line-height: 1;
+  color: var(--cream);
+}
+
+.pet-following:not(.on) .pet-following-text {
+  color: #8ea2d8;
+}
+
+.pet-deploy {
+  flex: none;
+  padding: 5px 7px 4px;
+  font: 7px var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--ink);
+  background: var(--yellow);
+  border: 0;
+  box-shadow: 0 0 0 2px var(--ink);
+  cursor: pointer;
+}
+
+.pet-deploy:hover {
+  background: var(--cream);
+}
+
+.pet-deploy[aria-pressed="true"] {
+  color: var(--yellow);
+  background: var(--red);
+}
+
+.pet-card.active {
+  outline: 2px solid var(--yellow);
+  outline-offset: 4px;
 }
