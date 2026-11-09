@@ -299,6 +299,16 @@ const HOSTED_SESSION = `(function () {
   assert.throws(() => api.createHostedDirector({ spawnSeed: 7, matchId: 'm' }), /combatSeed/);
 }
 
+// WELCOME names use HubMatch.cleanName (the #92 rule), with "player" when nothing is left.
+{
+  const mod = load();
+  const displayName = (mod.global.ShooterMatch as { displayName(raw: unknown): string }).displayName;
+  assert.equal(displayName('ada\u202e<b>'), 'adab');
+  assert.equal(displayName('<>'), 'player');
+  assert.equal(displayName(undefined), 'player');
+  assert.equal(displayName('x'.repeat(40)).length, 24);
+}
+
 // One guest seat, one signed-in seat, server seeds, cleaned names, hostile and oversized traffic.
 {
   const mod = load();
