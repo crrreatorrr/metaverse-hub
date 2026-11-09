@@ -208,19 +208,37 @@ namespace ShooterMm {
     return true;
   }
 
+  /** Fixed 10-Ticket queue. The stake is not a client-chosen amount. */
+  function wagerProps(props: { [key: string]: string | number }): boolean {
+    if (prop(props, "game") !== ShooterProto.GAME_ID) return false;
+    if (prop(props, "mode") !== "wager") return false;
+    if (prop(props, "protocol") !== String(ShooterProto.PROTOCOL)) return false;
+    if (prop(props, "sim") !== String(ShooterProto.SIM)) return false;
+    if (prop(props, "content") !== ShooterProto.FINGERPRINT) return false;
+    if (prop(props, "stake") !== String(ShooterWagers.STAKE)) return false;
+    return true;
+  }
+
   /**
    * One free-queue ticket per socket. A dead socket's row is replaced.
    * Runs after the hub scope check. Other games are ignored.
    * Practice and any stake are rejected. Guests are not given a second queue row.
    */
-  export function noteAdd(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): void {
+  export function noteAdd(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): void {
     var add = envelope.matchmakerAdd;
     if (!add || !ctx.userId || !ctx.sessionId) return;
     var props = add.stringProperties || {};
     if (props["game"] !== ShooterProto.GAME_ID) return;
     if (props["mode"] === "practice") throw new Error("practice_offline");
-    if (props["stake"] !== undefined && props["stake"] !== "0") throw new Error("stakes_disabled");
-    if (!freeProps(props as { [key: string]: string | number })) throw new Error("version_mismatch");
+    var asProps = props as { [key: string]: string | number };
+    if (props["mode"] === "wager" || props["stake"] === String(ShooterWagers.STAKE)) {
+      if (!ShooterWagers.enabled(nk, ctx.userId, logger)) throw new Error("stakes_disabled");
+      if (HubChat.isGuest(nk, logger, ctx.userId)) throw new Error("wager_guest");
+      if (!wagerProps(asProps)) throw new Error("version_mismatch");
+    } else {
+      if (props["stake"] !== undefined && props["stake"] !== "0") throw new Error("stakes_disabled");
+      if (!freeProps(asProps)) throw new Error("version_mismatch");
+    }
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
     claimQueue(nk, ctx.userId, ctx.sessionId);
   }
@@ -245,13 +263,27 @@ namespace ShooterMm {
    */
   export function onMatched(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
     if (!matches || matches.length !== ShooterProto.SEATS) return;
+    var wagered = true;
+    var freed = true;
+    for (var p = 0; p < matches.length; p++) {
+      var peek = matches[p];
+      if (!peek || !peek.presence || !peek.presence.userId) return;
+      var peeked = peek.properties || {};
+      if (!wagerProps(peeked)) wagered = false;
+      if (!freeProps(peeked)) freed = false;
+    }
+    // A free ticket and a wager ticket are not a match. Leave both queued.
+    if (!wagered && !freed) return;
+    if (wagered) {
+      for (var g = 0; g < matches.length; g++) {
+        var who = matches[g].presence.userId;
+        if (!ShooterWagers.enabled(nk, who, logger) || HubChat.isGuest(nk, logger, who)) return;
+      }
+    }
     var ids: string[] = [];
     var seen: { [id: string]: boolean } = {};
     for (var i = 0; i < matches.length; i++) {
       var entry = matches[i];
-      if (!entry || !entry.presence || !entry.presence.userId) return;
-      var props = entry.properties || {};
-      if (!freeProps(props)) return;
       var uid = entry.presence.userId;
       if (seen[uid]) return;
       seen[uid] = true;
@@ -278,10 +310,11 @@ namespace ShooterMm {
       token: token,
       spawnSeed: String(spawnSeed),
       seedSource: "server",
+      wager: wagered ? "1" : "0",
     });
     rememberGroup(nk, token, id);
     for (var s = 0; s < ids.length; s++) setLive(nk, ids[s], id);
-    logger.info("sproto_shooter_free queue " + id);
+    logger.info((wagered ? "sproto_shooter_wager queue " : "sproto_shooter_free queue ") + id);
     return id;
   }
 }

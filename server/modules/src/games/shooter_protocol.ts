@@ -193,17 +193,21 @@ namespace ShooterProto {
     return code;
   }
 
-  /** A private room says so: ListMatches shows it, but only the host and code holders may join. */
-  export function labelFor(privateRoom: boolean): string {
+  /**
+   * A private room says so: ListMatches shows it, but only the host and code holders may join.
+   * stake 10 is a wager lobby (mode wager). Anything else stays the free lobby (stake 0).
+   */
+  export function labelFor(privateRoom: boolean, stake?: number): string {
+    var wager = stake === 10;
     return JSON.stringify({
       kind: KIND,
       game: GAME_ID,
-      mode: MODE,
+      mode: wager ? "wager" : MODE,
       private: privateRoom,
       protocol: PROTOCOL,
       sim: SIM,
       content: FINGERPRINT,
-      stake: 0,
+      stake: wager ? 10 : 0,
     });
   }
 

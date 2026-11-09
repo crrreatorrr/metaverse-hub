@@ -19,6 +19,7 @@ import { runShooterRewards } from './shooter_rewards.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
 import { runWagers } from './wagers.ts';
+import { runShooterWagers } from './shooter_wagers.ts';
 import { runStandalone } from './standalone.ts';
 import { runGameBeaten } from './game_beaten.ts';
 import { runGated } from './gated.ts';
@@ -1715,7 +1716,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-free', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1733,6 +1734,14 @@ function report(): number {
     if (pass === 0) {
       failed += 1;
       console.log('shooter-free: category produced no pass, failing the suite');
+    }
+  }
+  if (selected('shooter-wager')) {
+    const rows = outcomes.filter((item) => item.category === 'shooter-wager');
+    const pass = rows.filter((item) => item.status === 'pass').length;
+    if (pass === 0) {
+      failed += 1;
+      console.log('shooter-wager: category produced no pass, failing the suite');
     }
   }
   const notes = findingsList();
@@ -1987,6 +1996,7 @@ export async function main(): Promise<void> {
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
+    if (selected('shooter-wager')) await runShooterWagers(test);
     if (selected('hub-gate')) await runHubGate({ test, pending });
     if (selected('standalone')) await runStandalone(test);
   } finally {

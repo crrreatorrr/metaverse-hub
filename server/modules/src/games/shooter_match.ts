@@ -1,8 +1,9 @@
 // Nakama-authoritative free 1v1 on director v2 (sproto-shooter protocol 2 /
 // sim 2). The vendored director owns spawn seed, combat seed, loadout, ready,
 // the input jitter buffer, lag compensation, KO, stall, and the result. This
-// file routes presences, sessions, and messages. It does not mint, stake, or
-// settle Tickets.
+// file routes presences, sessions, and messages. A free match does not mint,
+// stake, or settle Tickets. A wager match (both server flags on) escrows 10
+// Tickets a seat through ShooterWagers and settles only from the director.
 //
 // The director object stays LIVE in a let binding created in matchInit, for
 // the whole match. Each match runs in its own goja VM, so the binding lives
@@ -114,6 +115,18 @@ namespace ShooterMatch {
     dropped: number;
     loopCount: number;
     createdMs: number;
+    /** True when both server flags allowed this match to escrow. Free matches stay false. */
+    wager: boolean;
+    /** sha256 of the immutable rule text. Empty on a free match. */
+    ruleHash: string;
+    /** Accounts that have sent READY. The second one holds the stakes before the director goes live. */
+    wagerReady: { [id: string]: number };
+    /** Both debits and the escrow row committed. */
+    wagerHeld: boolean;
+    /** The hold has moved to settled or refunded, or the match ended with nothing in escrow. */
+    wagerClosed: boolean;
+    /** The one ledger receipt, when the hold closed. */
+    wagerReceipt: { [key: string]: unknown } | null;
   }
 
   function fail(code: string, message: string): string {
@@ -201,6 +214,12 @@ namespace ShooterMatch {
       dropped: 0,
       loopCount: 0,
       createdMs: now,
+      wager: false,
+      ruleHash: "",
+      wagerReady: {},
+      wagerHeld: false,
+      wagerClosed: false,
+      wagerReceipt: null,
     };
   }
 
@@ -437,6 +456,7 @@ namespace ShooterMatch {
     // No sim (a lobby cancel) or no director RESULT (shutdown first): nothing worth replaying.
     if (!sim || !director.sim || !director.result) {
       state.replay.status = "skipped";
+      closeWager(nk, logger, state, director, matchId);
       return;
     }
     var started = Date.now();
@@ -491,6 +511,7 @@ namespace ShooterMatch {
       logger.error("sproto_shooter_free replay store failed " + matchId);
     }
     sweepRecords(nk, logger);
+    closeWager(nk, logger, state, director, matchId);
   }
 
   /**
@@ -603,8 +624,9 @@ namespace ShooterMatch {
       },
       seats: seatMetrics(director),
       ticketsMinted: 0,
-      stakes: false,
-      stake: 0,
+      stakes: state.wagerHeld,
+      stake: state.wagerHeld ? ShooterWagers.STAKE : 0,
+      wagerClosed: state.wagerClosed,
       seated: state.seated,
       accounts: accounts,
       guests: guests,
@@ -631,8 +653,8 @@ namespace ShooterMatch {
       combatSeed: combatSeed,
       matchId: matchId,
       build: { bundleSha256: ShooterProto.BUNDLE_SHA256, sourceCommit: ShooterProto.COMMIT },
-      // rttCeilingMs stays unset: free play has no wager to protect.
     };
+    if (state.wager) options.rttCeilingMs = ShooterWagers.RTT_CEILING_MS;
     // A matchmade pair fixes seat order. A private room seats in HELLO order.
     if (state.roster.length === ShooterProto.SEATS && state.roster[0] !== state.roster[1]) {
       options.accounts = [state.roster[0], state.roster[1]];
@@ -648,8 +670,123 @@ namespace ShooterMatch {
     return director;
   }
 
+  /** Seat 0 and seat 1. A matchmade roster must be that same pair, in that order. */
+  function pairOf(state: State, director: ShooterPvpDirector): [string, string] | null {
+    var a = "";
+    var b = "";
+    for (var id in state.sids) {
+      var seat = director.seatOf(id);
+      if (seat === 0) a = id;
+      else if (seat === 1) b = id;
+    }
+    if (!a || !b || a === b) return null;
+    if (state.roster.length === 2 && (a !== state.roster[0] || b !== state.roster[1])) return null;
+    return [a, b];
+  }
+
+  /** End a wager match that never took a hold. No ledger call. */
+  function endUnheld(d: nkruntime.MatchDispatcher, state: State, reason: string): void {
+    if (state.ended) {
+      state.wagerClosed = true;
+      return;
+    }
+    state.result = {
+      outcome: "cancel",
+      winner: null,
+      reason: reason,
+      tick: state.tick,
+      stateHash: null,
+      ticketsMinted: 0,
+      stakes: false,
+    };
+    markEnded(state);
+    state.endReason = reason;
+    state.wagerClosed = true;
+    if (state.replay.status === "pending") state.replay.status = "skipped";
+    send(d, state, {
+      op: ShooterProto.OP_RESULT,
+      body: {
+        outcome: "cancel",
+        winner: null,
+        reason: reason,
+        tick: state.tick,
+        stateHash: null,
+        ticketsMinted: 0,
+        stakes: false,
+      },
+      to: null,
+    }, null);
+  }
+
+  /**
+   * On the READY that completes the pair, debit both seats before the director
+   * is allowed to go live. A refusal ends the match and does not deliver READY.
+   */
+  function armHold(nk: nkruntime.Nakama, logger: nkruntime.Logger, d: nkruntime.MatchDispatcher, state: State, director: ShooterPvpDirector, matchId: string, userId: string): boolean {
+    if (!state.wager || state.wagerHeld || state.ended) return true;
+    state.wagerReady[userId] = 1;
+    var pair = pairOf(state, director);
+    if (!pair) {
+      var readyN = 0;
+      for (var id in state.wagerReady) if (state.wagerReady[id]) readyN += 1;
+      if (readyN >= 2 && director.occupied() >= 2) {
+        endUnheld(d, state, "version_mismatch");
+        return false;
+      }
+      return true;
+    }
+    if (!state.wagerReady[pair[0]] || !state.wagerReady[pair[1]]) return true;
+    if (state.guest[pair[0]] === 1 || state.guest[pair[1]] === 1) {
+      endUnheld(d, state, "wager_guest");
+      return false;
+    }
+    if (!ShooterWagers.enabled(nk, pair[0], logger) || !ShooterWagers.enabled(nk, pair[1], logger)) {
+      endUnheld(d, state, "stakes_disabled");
+      return false;
+    }
+    var held = ShooterWagers.hold(nk, matchId, pair[0], pair[1], state.ruleHash);
+    if (!held || held["error"] || held["status"] !== "held") {
+      endUnheld(d, state, held && held["error"] ? String(held["error"]) : "hold_failed");
+      return false;
+    }
+    state.wagerHeld = true;
+    return true;
+  }
+
+  /** Move a held pot to settled or refunded once. Waits until the replay is no longer pending. */
+  function closeWager(nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State, director: ShooterPvpDirector | null, matchId: string): void {
+    if (!state.wager || state.wagerClosed) return;
+    if (state.replay.status === "pending") return;
+    if (!state.wagerHeld) {
+      state.wagerClosed = true;
+      return;
+    }
+    var live = director && director.result ? director.result : null;
+    var outcome = live ? live.outcome : (state.result ? state.result.outcome : "");
+    var reason = live ? live.reason : (state.result ? state.result.reason : "");
+    var winner = live ? live.winner : (state.result ? state.result.winner : null);
+    var money = ShooterWagers.plan(outcome, reason, winner, state.replay.policy || "", state.replay.verified === true);
+    var pair: [string, string] | null = null;
+    if (state.roster.length === 2 && state.roster[0] !== state.roster[1]) pair = [state.roster[0], state.roster[1]];
+    else if (director) pair = pairOf(state, director);
+    var receipt: { [key: string]: unknown };
+    if (money.op === "settle" && money.winnerSeat !== null && pair && pair[money.winnerSeat]) {
+      receipt = ShooterWagers.settle(nk, matchId, pair[money.winnerSeat], money.reason);
+      if (receipt["error"]) {
+        logger.error("shooter wager settle " + matchId + " " + String(receipt["error"]));
+        receipt = ShooterWagers.refund(nk, matchId, "replay_refuse");
+      }
+    } else {
+      receipt = ShooterWagers.refund(nk, matchId, money.reason);
+    }
+    state.wagerClosed = true;
+    state.wagerReceipt = receipt;
+    if (receipt["error"]) logger.error("shooter wager close " + matchId + " " + String(receipt["error"]));
+    else logger.info("shooter wager " + String(receipt["status"] || "closed") + " " + matchId);
+  }
+
   /** One loop of director work: route each message, advance the clock, mirror the result. */
-  function runDirector(nk: nkruntime.Nakama, d: nkruntime.MatchDispatcher, tick: number, state: State, director: ShooterPvpDirector, messages: nkruntime.MatchMessage[], now: number): void {
+  function runDirector(nk: nkruntime.Nakama, logger: nkruntime.Logger, d: nkruntime.MatchDispatcher, tick: number, state: State, director: ShooterPvpDirector, messages: nkruntime.MatchMessage[], now: number, matchId: string): void {
     var handled: { [userId: string]: number } = {};
     var rated: { [userId: string]: boolean } = {};
     for (var i = 0; i < messages.length; i++) {
@@ -698,14 +835,30 @@ namespace ShooterMatch {
         }
         packet = text;
       }
+      var justHeld = false;
+      if (op === ShooterProto.OP_READY) {
+        var wasHeld = state.wagerHeld;
+        if (!armHold(nk, logger, d, state, director, matchId, sender.userId)) break;
+        justHeld = !wasHeld && state.wagerHeld;
+      }
       // HELLO is the only rebind; RESYNC serves the bound session only.
       var actor: ShooterPvpSender = { userId: sender.userId, sessionId: sender.sessionId, username: displayName(sender.username) };
       var out = director.handle(actor, op, packet, now);
+      if (justHeld && !state.ended && director.phase !== "live" && director.phase !== "done") {
+        // The hold committed and the director refused to start. Put both stakes back.
+        ShooterWagers.refund(nk, matchId, "ready_timeout");
+        state.wagerHeld = false;
+        state.wagerClosed = true;
+        endUnheld(d, state, "ready_timeout");
+        break;
+      }
       publish(d, state, out && out.messages ? out.messages : [], sender, tick);
     }
-    var advanced = director.advance(now);
-    publish(d, state, advanced && advanced.messages ? advanced.messages : [], null, tick);
-    mirror(state, director);
+    if (!state.ended) {
+      var advanced = director.advance(now);
+      publish(d, state, advanced && advanced.messages ? advanced.messages : [], null, tick);
+      mirror(state, director);
+    }
   }
 
   /** The caller of a metrics signal: "" for the server, else a user that must hold a seat. */
@@ -728,6 +881,20 @@ namespace ShooterMatch {
       state.host = typeof params["host"] === "string" ? params["host"] : "";
       state.roster = parseRoster(params["roster"]);
       state.spawnSeed = spawnSeedOf(nk, params);
+      var wantWager = params["wager"] === "1";
+      if (wantWager && !mismatch) {
+        var rosterOk = state.roster.length === 0 || (state.roster.length === 2 && state.roster[0] !== state.roster[1]);
+        var flagged = false;
+        if (state.roster.length === 2) flagged = ShooterWagers.enabled(nk, state.roster[0], logger) && ShooterWagers.enabled(nk, state.roster[1], logger);
+        else if (state.host) flagged = ShooterWagers.enabled(nk, state.host, logger);
+        if (rosterOk && flagged) {
+          state.wager = true;
+          state.ruleHash = ShooterWagers.ruleHash(nk);
+          state.replay = blankReplay(true);
+        } else {
+          logger.info("sproto_shooter_free wager refused");
+        }
+      }
       if (mismatch) {
         state.broken = mismatch;
         logger.error("sproto_shooter_free pin " + mismatch);
@@ -748,10 +915,10 @@ namespace ShooterMatch {
         }
       }
       logger.info("sproto_shooter_free init " + matchId);
-      return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor(state.privateRoom) };
+      return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor(state.privateRoom, state.wager ? ShooterWagers.STAKE : 0) };
     },
 
-    matchJoinAttempt: function (ctx, _logger, nk, _d, _tick, state, presence, _metadata) {
+    matchJoinAttempt: function (ctx, logger, nk, _d, _tick, state, presence, _metadata) {
       var vars = ctx.vars || null;
       if (!presence || !presence.userId || !presence.sessionId) return { state: state, accept: false, rejectMessage: "malformed" };
       if (!vars || vars["scope"] !== "game" || vars["game"] !== ShooterProto.GAME_ID || !vars["sid"] || !UUID.test(vars["sid"])) {
@@ -780,6 +947,11 @@ namespace ShooterMatch {
         if (!verdict.accept) return { state: state, accept: false, rejectMessage: verdict.reason || "match_full" };
         var elsewhere = ShooterMm.liveMatch(nk, userId);
         if (elsewhere && elsewhere !== (ctx.matchId || "")) return { state: state, accept: false, rejectMessage: "already_in_match" };
+      }
+      if (state.wager) {
+        noteGuest(nk, state, userId);
+        if (state.guest[userId] === 1) return { state: state, accept: false, rejectMessage: "wager_guest" };
+        if (!ShooterWagers.enabled(nk, userId, logger)) return { state: state, accept: false, rejectMessage: "stakes_disabled" };
       }
       if (!known) {
         state.sids[userId] = sid;
@@ -825,6 +997,8 @@ namespace ShooterMatch {
       var director = directorBag()[matchId];
       if (state.terminated || state.broken || !director) {
         finishShutdown(d, state, director || null);
+        if (state.replay.status === "pending") state.replay.status = "skipped";
+        closeWager(nk, logger, state, director || null, matchId);
         cleanup(nk, state, matchId);
         sample(state, started);
         return null;
@@ -841,12 +1015,14 @@ namespace ShooterMatch {
         if (state.faultThrow) throw new Error("fault_inject");
         // A match the hub ended while the director still sat in its lobby (nobody
         // said HELLO) stays shut: no late HELLO seats anyone during the linger.
-        if (!state.ended || director.phase === "done") runDirector(nk, d, tick, state, director, messages, now);
+        if (!state.ended || director.phase === "done") runDirector(nk, logger, d, tick, state, director, messages, now, matchId);
       } catch (e) {
         rejectsThisLoop = null;
         // The error text is not logged: it could carry director internals.
         logger.error("sproto_shooter_free director failed " + matchId);
         finishShutdown(d, state, director);
+        if (state.replay.status === "pending") state.replay.status = "skipped";
+        closeWager(nk, logger, state, director, matchId);
         cleanup(nk, state, matchId);
         sample(state, started);
         return null;
@@ -863,6 +1039,7 @@ namespace ShooterMatch {
         if (state.replay.status === "pending") state.replay.status = "skipped";
       }
       if (state.ended) {
+        closeWager(nk, logger, state, director, matchId);
         if (!state.doneTick) state.doneTick = tick;
         clearLive(nk, state, matchId);
         if (tick - state.doneTick > ShooterProto.LINGER_S * ShooterProto.TICK_RATE) {
@@ -884,6 +1061,7 @@ namespace ShooterMatch {
       if (director && director.result && state.resultSent && state.replay.status === "pending") keepRecord(nk, logger, state, director, matchId);
       if (state.replay.status === "pending") state.replay.status = "skipped";
       finishShutdown(d, state, director);
+      closeWager(nk, logger, state, director, matchId);
       state.terminated = true;
       cleanup(nk, state, matchId);
       return { state: state };
@@ -954,6 +1132,9 @@ namespace ShooterMatch {
       stake: 0,
       ticketsMinted: 0,
       stakes: false,
+      wagerEnabled: ShooterWagers.enabled(nk, ctx.userId || "", logger),
+      wagerStake: ShooterWagers.STAKE,
+      wagerPot: ShooterWagers.POT,
       guests: "one_seat",
       practice: "offline",
     });
@@ -970,6 +1151,11 @@ namespace ShooterMatch {
     var req = bodyOf(payload);
     if (!req) return fail("bad_json", "Bad request");
     if (req["mode"] === "practice") return fail("practice_offline", "Practice stays on this machine");
+    var wantWager = req["mode"] === "wager";
+    if (wantWager) {
+      if (!ShooterWagers.enabled(nk, ctx.userId || "", logger)) return fail("stakes_disabled", "Wagers are off");
+      if (HubChat.isGuest(nk, logger, ctx.userId || "")) return fail("wager_guest", "Sign in to wager");
+    }
     if (ShooterProto.hostile(req) || req["seed"] !== undefined || req["state"] !== undefined) return fail("rejected", "The server chooses the match");
     if (req["v"] !== undefined && Number(req["v"]) !== ShooterProto.PROTOCOL) return fail("version_mismatch", "Version mismatch");
     if (req["sim"] !== undefined && Number(req["sim"]) !== ShooterProto.SIM) return fail("version_mismatch", "Version mismatch");
@@ -994,6 +1180,7 @@ namespace ShooterMatch {
         host: ctx.userId || "",
         spawnSeed: String(spawnSeed),
         seedSource: "server",
+        wager: wantWager ? "1" : "0",
       });
     } catch (e) {
       ShooterMm.releaseCode(nk, code);
@@ -1010,10 +1197,11 @@ namespace ShooterMatch {
       sim: ShooterProto.SIM,
       content: ShooterProto.FINGERPRINT,
       loadoutHash: ShooterProto.LOADOUT_HASH,
-      stake: 0,
+      stake: wantWager ? ShooterWagers.STAKE : 0,
+      pot: wantWager ? ShooterWagers.POT : 0,
       ticketsMinted: 0,
-      stakes: false,
-      mode: ShooterProto.MODE,
+      stakes: wantWager,
+      mode: wantWager ? "wager" : ShooterProto.MODE,
     });
   }
 

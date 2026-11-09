@@ -3246,6 +3246,270 @@ namespace HubSchema {
         "DELETE FROM game.relic_claim_pending WHERE relic_id = 'hpos10i_core'",
       ],
     },
+    {
+      // Shooter 1v1 escrow (H4-S). A fixed 10 Tickets from each seat, pot 20,
+      // no mint and no fee. Moves sproto-shooter balances only. Does not alter
+      // game.sproto_wager or any Fighter function. No pair cap, no daily win
+      // cap, and no anomaly table: Ken (Nov 7 2026) accepts Ticket transfers
+      // between accounts through these wagers. Conservation is wallets plus
+      // held pots, checked by game.shooter_wager_drift.
+      id: "0046_shooter_wager_escrow",
+      statements: [
+        "ALTER TABLE game.tickets_ledger DROP CONSTRAINT IF EXISTS tickets_ledger_kind",
+        "ALTER TABLE game.tickets_ledger ADD CONSTRAINT tickets_ledger_kind CHECK (kind IS NULL OR kind IN ('earn', 'exchange', 'spend', 'shop_sell', 'duel_stake', 'duel_payout', 'duel_refund', 'godmode', 'shooter_stake', 'shooter_payout', 'shooter_refund'))",
+        `CREATE TABLE IF NOT EXISTS game.shooter_wager (
+          wager_id uuid PRIMARY KEY,
+          match_id text NOT NULL UNIQUE CHECK (char_length(match_id) BETWEEN 1 AND 128),
+          stake bigint NOT NULL CHECK (stake = 10),
+          pot bigint NOT NULL CHECK (pot = 20 AND pot = stake * 2),
+          player_a uuid NOT NULL,
+          player_b uuid NOT NULL,
+          rule_hash text NOT NULL CHECK (rule_hash ~ '^[0-9a-f]{64}$'),
+          accounting_day date NOT NULL,
+          status text NOT NULL,
+          winner uuid,
+          reason text,
+          receipt jsonb,
+          created_at timestamptz NOT NULL DEFAULT now(),
+          closed_at timestamptz,
+          CONSTRAINT shooter_wager_players CHECK (player_a <> player_b),
+          CONSTRAINT shooter_wager_status CHECK (status IN ('held', 'settled', 'refunded')),
+          CONSTRAINT shooter_wager_terminal CHECK (
+            (status = 'held' AND winner IS NULL AND receipt IS NULL AND closed_at IS NULL)
+            OR (status = 'settled' AND winner IS NOT NULL AND (winner = player_a OR winner = player_b) AND receipt IS NOT NULL AND closed_at IS NOT NULL)
+            OR (status = 'refunded' AND winner IS NULL AND receipt IS NOT NULL AND closed_at IS NOT NULL)
+          )
+        )`,
+        "CREATE INDEX IF NOT EXISTS shooter_wager_open ON game.shooter_wager (created_at) WHERE status = 'held'",
+        `CREATE TABLE IF NOT EXISTS game.shooter_wager_active (
+          user_id uuid PRIMARY KEY,
+          match_id text NOT NULL,
+          wager_id uuid NOT NULL
+        )`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_move(
+          p_user_id uuid, p_delta bigint, p_kind text, p_reason text, p_wager_id uuid
+        ) RETURNS bigint LANGUAGE plpgsql AS $fn$
+        DECLARE v_balance bigint;
+        BEGIN
+          IF p_kind NOT IN ('shooter_stake', 'shooter_payout', 'shooter_refund') THEN
+            RAISE EXCEPTION 'shooter_wager_kind';
+          END IF;
+          IF p_reason <> p_kind THEN
+            RAISE EXCEPTION 'shooter_wager_kind';
+          END IF;
+          SELECT balance INTO v_balance FROM game.tickets_balance
+          WHERE user_id = p_user_id AND game_id = 'sproto-shooter' FOR UPDATE;
+          IF NOT FOUND THEN v_balance := 0; END IF;
+          IF v_balance + p_delta < 0 THEN RETURN NULL; END IF;
+          INSERT INTO game.tickets_balance (user_id, game_id, balance)
+          VALUES (p_user_id, 'sproto-shooter', v_balance + p_delta)
+          ON CONFLICT (user_id, game_id) DO UPDATE SET balance = EXCLUDED.balance
+          RETURNING balance INTO v_balance;
+          INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+          VALUES (gen_random_uuid(), p_user_id, 'sproto-shooter', p_delta, v_balance, p_reason, p_wager_id, p_kind);
+          RETURN v_balance;
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_lock(p_match_id text, p_a uuid, p_b uuid)
+         RETURNS void LANGUAGE plpgsql AS $fn$
+        DECLARE v_lo text; v_hi text;
+        BEGIN
+          PERFORM pg_advisory_xact_lock(hashtextextended('shooter-wager-match:' || p_match_id, 0));
+          IF p_a::text < p_b::text THEN
+            v_lo := p_a::text; v_hi := p_b::text;
+          ELSE
+            v_lo := p_b::text; v_hi := p_a::text;
+          END IF;
+          PERFORM pg_advisory_xact_lock(hashtextextended('shooter-wager:' || v_lo, 0));
+          PERFORM pg_advisory_xact_lock(hashtextextended('shooter-wager:' || v_hi, 0));
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_hold(
+          p_match_id text, p_a uuid, p_b uuid, p_rule_hash text, p_at timestamptz DEFAULT NULL
+        ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+        DECLARE
+          v_existing game.shooter_wager%ROWTYPE;
+          v_wager uuid;
+          v_day date;
+          v_busy uuid;
+          v_a bigint;
+          v_b bigint;
+        BEGIN
+          IF p_a IS NULL OR p_b IS NULL OR p_a = p_b THEN
+            RETURN jsonb_build_object('error', 'same_player');
+          END IF;
+          IF p_match_id IS NULL OR char_length(p_match_id) < 1 OR char_length(p_match_id) > 128 THEN
+            RETURN jsonb_build_object('error', 'bad_match');
+          END IF;
+          IF p_rule_hash IS NULL OR p_rule_hash !~ '^[0-9a-f]{64}$' THEN
+            RETURN jsonb_build_object('error', 'rule_mismatch');
+          END IF;
+          IF game.user_is_guest(p_a) OR game.user_is_guest(p_b) THEN
+            RETURN jsonb_build_object('error', 'wager_guest');
+          END IF;
+          PERFORM game.shooter_wager_lock(p_match_id, p_a, p_b);
+          SELECT * INTO v_existing FROM game.shooter_wager WHERE match_id = p_match_id;
+          IF FOUND THEN
+            IF v_existing.player_a IS DISTINCT FROM p_a OR v_existing.player_b IS DISTINCT FROM p_b THEN
+              RETURN jsonb_build_object('error', 'participant_mismatch');
+            END IF;
+            IF v_existing.rule_hash IS DISTINCT FROM p_rule_hash OR v_existing.stake <> 10 THEN
+              RETURN jsonb_build_object('error', 'rule_mismatch');
+            END IF;
+            RETURN jsonb_build_object(
+              'wagerId', v_existing.wager_id, 'status', v_existing.status, 'stake', v_existing.stake,
+              'pot', v_existing.pot, 'ruleHash', v_existing.rule_hash,
+              'accountingDay', v_existing.accounting_day, 'repeat', true, 'receipt', v_existing.receipt
+            );
+          END IF;
+          SELECT user_id INTO v_busy FROM game.shooter_wager_active WHERE user_id IN (p_a, p_b) LIMIT 1;
+          IF FOUND THEN
+            RETURN jsonb_build_object('error', 'active_wager', 'user', v_busy);
+          END IF;
+          v_day := (COALESCE(p_at, now()) AT TIME ZONE 'utc')::date;
+          v_wager := gen_random_uuid();
+          v_a := game.shooter_wager_move(p_a, -10, 'shooter_stake', 'shooter_stake', v_wager);
+          IF v_a IS NULL THEN
+            RETURN jsonb_build_object('error', 'insufficient_tickets', 'user', p_a);
+          END IF;
+          v_b := game.shooter_wager_move(p_b, -10, 'shooter_stake', 'shooter_stake', v_wager);
+          IF v_b IS NULL THEN
+            RAISE EXCEPTION 'shooter_wager_insufficient_b';
+          END IF;
+          INSERT INTO game.shooter_wager (
+            wager_id, match_id, stake, pot, player_a, player_b, rule_hash, accounting_day, status
+          ) VALUES (v_wager, p_match_id, 10, 20, p_a, p_b, p_rule_hash, v_day, 'held');
+          INSERT INTO game.shooter_wager_active (user_id, match_id, wager_id) VALUES
+            (p_a, p_match_id, v_wager),
+            (p_b, p_match_id, v_wager);
+          RETURN jsonb_build_object(
+            'wagerId', v_wager, 'status', 'held', 'stake', 10, 'pot', 20, 'fee', 0, 'minted', 0,
+            'ruleHash', p_rule_hash, 'accountingDay', v_day,
+            'balances', jsonb_build_object(p_a::text, v_a, p_b::text, v_b)
+          );
+        EXCEPTION
+          WHEN unique_violation THEN
+            RETURN jsonb_build_object('error', 'active_wager');
+          WHEN raise_exception THEN
+            IF SQLERRM = 'shooter_wager_insufficient_b' THEN
+              RETURN jsonb_build_object('error', 'insufficient_tickets', 'user', p_b);
+            END IF;
+            RAISE;
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_settle(p_match_id text, p_winner uuid, p_reason text)
+         RETURNS jsonb LANGUAGE plpgsql AS $fn$
+        DECLARE
+          w game.shooter_wager%ROWTYPE;
+          v_balance bigint;
+          v_a bigint;
+          v_b bigint;
+          v_receipt jsonb;
+          v_delta_a bigint;
+          v_delta_b bigint;
+        BEGIN
+          IF p_match_id IS NULL THEN RETURN jsonb_build_object('error', 'no_wager'); END IF;
+          PERFORM pg_advisory_xact_lock(hashtextextended('shooter-wager-match:' || p_match_id, 0));
+          SELECT * INTO w FROM game.shooter_wager WHERE match_id = p_match_id;
+          IF NOT FOUND THEN RETURN jsonb_build_object('error', 'no_wager'); END IF;
+          PERFORM game.shooter_wager_lock(p_match_id, w.player_a, w.player_b);
+          SELECT * INTO w FROM game.shooter_wager WHERE match_id = p_match_id FOR UPDATE;
+          IF w.status <> 'held' THEN
+            RETURN w.receipt || jsonb_build_object('repeat', true);
+          END IF;
+          IF p_reason NOT IN ('ko', 'time', 'forfeit') THEN
+            RETURN jsonb_build_object('error', 'bad_reason');
+          END IF;
+          IF p_winner IS DISTINCT FROM w.player_a AND p_winner IS DISTINCT FROM w.player_b THEN
+            RETURN jsonb_build_object('error', 'not_a_player');
+          END IF;
+          v_balance := game.shooter_wager_move(p_winner, w.stake * 2, 'shooter_payout', 'shooter_payout', w.wager_id);
+          IF v_balance IS NULL THEN RAISE EXCEPTION 'shooter_wager_credit_failed'; END IF;
+          SELECT balance INTO v_a FROM game.tickets_balance WHERE user_id = w.player_a AND game_id = 'sproto-shooter';
+          SELECT balance INTO v_b FROM game.tickets_balance WHERE user_id = w.player_b AND game_id = 'sproto-shooter';
+          v_delta_a := CASE WHEN p_winner = w.player_a THEN w.stake ELSE -w.stake END;
+          v_delta_b := CASE WHEN p_winner = w.player_b THEN w.stake ELSE -w.stake END;
+          v_receipt := jsonb_build_object(
+            'status', 'settled', 'winner', p_winner, 'reason', p_reason,
+            'stake', w.stake, 'pot', w.pot, 'payout', w.stake * 2, 'fee', 0, 'minted', 0,
+            'wagerId', w.wager_id, 'matchId', w.match_id, 'ruleHash', w.rule_hash,
+            'accountingDay', w.accounting_day,
+            'deltas', jsonb_build_object(w.player_a::text, v_delta_a, w.player_b::text, v_delta_b),
+            'balances', jsonb_build_object(w.player_a::text, v_a, w.player_b::text, v_b)
+          );
+          UPDATE game.shooter_wager
+          SET status = 'settled', winner = p_winner, reason = p_reason, receipt = v_receipt, closed_at = now()
+          WHERE wager_id = w.wager_id;
+          DELETE FROM game.shooter_wager_active WHERE match_id = w.match_id;
+          RETURN v_receipt;
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_refund(p_match_id text, p_reason text)
+         RETURNS jsonb LANGUAGE plpgsql AS $fn$
+        DECLARE
+          w game.shooter_wager%ROWTYPE;
+          v_a bigint;
+          v_b bigint;
+          v_receipt jsonb;
+        BEGIN
+          IF p_match_id IS NULL THEN RETURN jsonb_build_object('status', 'none'); END IF;
+          PERFORM pg_advisory_xact_lock(hashtextextended('shooter-wager-match:' || p_match_id, 0));
+          SELECT * INTO w FROM game.shooter_wager WHERE match_id = p_match_id;
+          IF NOT FOUND THEN RETURN jsonb_build_object('status', 'none'); END IF;
+          PERFORM game.shooter_wager_lock(p_match_id, w.player_a, w.player_b);
+          SELECT * INTO w FROM game.shooter_wager WHERE match_id = p_match_id FOR UPDATE;
+          IF w.status <> 'held' THEN
+            RETURN w.receipt || jsonb_build_object('repeat', true);
+          END IF;
+          IF p_reason NOT IN ('draw', 'both_absent', 'server_shutdown', 'version_mismatch', 'ready_timeout', 'expired', 'replay_refuse', 'replay_review') THEN
+            RETURN jsonb_build_object('error', 'bad_reason');
+          END IF;
+          v_a := game.shooter_wager_move(w.player_a, w.stake, 'shooter_refund', 'shooter_refund', w.wager_id);
+          v_b := game.shooter_wager_move(w.player_b, w.stake, 'shooter_refund', 'shooter_refund', w.wager_id);
+          IF v_a IS NULL OR v_b IS NULL THEN RAISE EXCEPTION 'shooter_wager_credit_failed'; END IF;
+          v_receipt := jsonb_build_object(
+            'status', 'refunded', 'winner', NULL, 'reason', p_reason,
+            'stake', w.stake, 'pot', w.pot, 'payout', 0, 'fee', 0, 'minted', 0,
+            'wagerId', w.wager_id, 'matchId', w.match_id, 'ruleHash', w.rule_hash,
+            'accountingDay', w.accounting_day,
+            'deltas', jsonb_build_object(w.player_a::text, 0, w.player_b::text, 0),
+            'balances', jsonb_build_object(w.player_a::text, v_a, w.player_b::text, v_b)
+          );
+          UPDATE game.shooter_wager
+          SET status = 'refunded', reason = p_reason, receipt = v_receipt, closed_at = now()
+          WHERE wager_id = w.wager_id;
+          DELETE FROM game.shooter_wager_active WHERE match_id = w.match_id;
+          RETURN v_receipt;
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_expire(p_age interval)
+         RETURNS integer LANGUAGE plpgsql AS $fn$
+        DECLARE m text; n integer := 0; v jsonb;
+        BEGIN
+          FOR m IN
+            SELECT match_id FROM game.shooter_wager
+            WHERE status = 'held' AND created_at < now() - p_age
+            ORDER BY match_id
+          LOOP
+            v := game.shooter_wager_refund(m, 'expired');
+            IF v->>'status' = 'refunded' AND COALESCE(v->>'repeat', '') <> 'true' THEN
+              n := n + 1;
+            END IF;
+          END LOOP;
+          RETURN n;
+        END;
+        $fn$`,
+        `CREATE OR REPLACE FUNCTION game.shooter_wager_drift()
+         RETURNS bigint LANGUAGE sql STABLE AS $fn$
+          SELECT
+            COALESCE((SELECT SUM(balance) FROM game.tickets_balance WHERE game_id = 'sproto-shooter'), 0)
+            + COALESCE((SELECT SUM(stake * 2) FROM game.shooter_wager WHERE status = 'held'), 0)
+            - COALESCE((SELECT SUM(delta) FROM game.tickets_ledger
+                        WHERE game_id = 'sproto-shooter'
+                          AND COALESCE(kind, '') NOT IN ('shooter_stake', 'shooter_payout', 'shooter_refund')), 0)
+        $fn$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3364,6 +3628,8 @@ namespace HubSchema {
   // 0045_coop_shooter_relics is registered from src/games/stage_relics.ts. It widens the Relic
   // checks (relic_claim, relic_claim_pending) and game_beaten for marina_anchor (Coop stage 1) and
   // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
+  // 0046_shooter_wager_escrow is the hub's (MIGRATIONS above): Shooter-only 10-Ticket escrow.
+  // It does not change Fighter wagers. 0036 and 0038 stay unused.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
