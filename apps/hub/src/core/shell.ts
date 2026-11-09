@@ -812,6 +812,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       sproto: import.meta.env.VITE_GAME_URL_SPROTO_DUEL,
       'sproto-fighter': import.meta.env.VITE_GAME_URL_SPROTO_FIGHTER,
       'sproto-arcade': import.meta.env.VITE_GAME_URL_SPROTO_ARCADE,
+      'sproto-shooter': import.meta.env.VITE_GAME_URL_SPROTO_SHOOTER,
     },
   };
 

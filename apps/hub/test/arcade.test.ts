@@ -1,8 +1,7 @@
 // Bar arcade cabinet: picker keys, cabinet choices, URLs and the return spawn.
 import assert from 'node:assert/strict';
 import { canonicalGameId } from '@metaverse/hub-sdk';
-import { SOCKETS } from '../src/realms/plaza/config';
-import { ARCADE_GAMES } from '../src/realms/plaza/config';
+import { ARCADE_GAMES, PORTALS, SOCKETS } from '../src/realms/plaza/config';
 import { GAME_URLS, gameUrl } from '../src/games';
 import { parseReturnGame } from '../src/travel';
 import { PICKER_CLOSED, pickerHelp, pickerKey } from '../src/v2/arcade-picker';
@@ -47,6 +46,19 @@ import { PICKER_CLOSED, pickerHelp, pickerKey } from '../src/v2/arcade-picker';
   assert.equal(gameUrl('sproto-arcade', { dev: true }), '/play/sproto-arcade/');
   assert.equal(gameUrl('sproto-arcade', { dev: false, playDomain: 'example.com' }), 'https://play.example.com/sproto-arcade/');
   assert.equal(gameUrl('sproto-arcade', { dev: false, overrides: { 'sproto-arcade': 'http://127.0.0.1:8765/legacy.html' } }), 'http://127.0.0.1:8765/legacy.html');
+}
+
+// Sproto Shooter stays the live Range ring and is not a Bar cabinet.
+{
+  assert.equal(canonicalGameId('sproto-shooter'), 'sproto-shooter');
+  assert.equal(parseReturnGame('#from=sproto-shooter'), 'sproto-shooter');
+  assert.equal(gameUrl('sproto-shooter', { dev: true }), '/play/sproto-shooter/');
+  assert.equal(gameUrl('sproto-shooter', { dev: false, playDomain: 'example.com' }), 'https://play.example.com/sproto-shooter/');
+  const cabinetIds = ARCADE_GAMES.map((game) => game.id as string);
+  assert.equal(cabinetIds.includes('sproto-shooter'), false);
+  const range = PORTALS.find((portal) => portal.id === 'sproto-shooter');
+  assert.equal(range?.place, 'The Range');
+  assert.equal(range?.label, 'Sproto Shooter');
 }
 
 // The Breakwater Coin has a monument socket.

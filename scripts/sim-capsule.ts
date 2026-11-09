@@ -56,7 +56,7 @@ for (let i = 0; i < 8; i += 1) {
   assert.ok(radius < CURB_RADIUS - 0.05, `left the plaza at angle ${angle} r=${radius}`);
 }
 
-const games: (GameId | null)[] = [null, 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto'];
+const games: (GameId | null)[] = [null, 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-shooter'];
 for (const game of games) {
   const spawn = spawnFor(game);
   assert.equal(portalContaining(PORTALS, spawn.x, spawn.z), null, `${game ?? 'default'} spawn is inside a portal`);

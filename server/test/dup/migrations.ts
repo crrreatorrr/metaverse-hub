@@ -388,7 +388,7 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-const LATER_GAMES = "('sproto-fighter', 'sproto-arcade')";
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter')";
 const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
 /** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
 const LATER_RELICS = "('breakwater_coin')";
