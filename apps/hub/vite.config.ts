@@ -11,8 +11,9 @@ const proxy = {
 
 /**
  * Real game web builds, pulled by `npm run fetch:games` into public/play/<slug>/
- * (gitignored). Slugs match GAME_URLS in src/games.ts. Served same-origin so the
- * `#t=` ticket and the /v2 proxy work as they will on play.<domain>.
+ * (gitignored). Slugs match GAME_URLS in src/games.ts; every game there needs a row
+ * here, or its portal URL `/play/<slug>/` 404s in dev (apps/hub/test/vite-config.test.ts).
+ * Served same-origin so the `#t=` ticket and the /v2 proxy work as they will on play.<domain>.
  */
 const PLAY_ROOT = resolve(__dirname, 'public/play');
 const PLAY_GAMES = [
@@ -22,6 +23,8 @@ const PLAY_GAMES = [
   { slug: 'sproto-duel', env: 'VITE_GAME_URL_SPROTO_DUEL' },
   { slug: 'sproto-fighter', env: 'VITE_GAME_URL_SPROTO_FIGHTER' },
   { slug: 'sproto-arcade', env: 'VITE_GAME_URL_SPROTO_ARCADE' },
+  { slug: 'sproto-shooter', env: 'VITE_GAME_URL_SPROTO_SHOOTER' },
+  { slug: 'sproto-coop-battle', env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE' },
 ] as const;
 
 function fetchedBuild(slug: string): boolean {

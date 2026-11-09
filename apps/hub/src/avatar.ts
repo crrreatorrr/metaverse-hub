@@ -8,6 +8,7 @@ import {
   CylinderGeometry,
   DoubleSide,
   Group,
+  MathUtils,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -24,6 +25,7 @@ import {
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {
+  AVATAR_ASSET,
   AVATAR_BLEND,
   AVATAR_CLIPS,
   AVATAR_HEIGHT,
@@ -40,14 +42,42 @@ import {
   type StaffId,
 } from './config';
 import type { AvatarLook } from './look';
+import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
+import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
+
+/** Airborne state for the jump clip. `vy` is vertical velocity (m/s, up positive). */
+export interface AvatarAir {
+  airborne: boolean;
+  vy: number;
+}
+
+type Gait = 'idle' | 'walk' | 'run';
+type Pose = Gait | 'air';
+
+/**
+ * Gait playback stays in this band even when a rig's stride is far from the controller speed. The Midget's
+ * short legs need about 2.2x at the jog to keep his feet planted ("Quick feet").
+ */
+const TIME_SCALE_MIN = 0.5;
+const TIME_SCALE_MAX = 2.5;
+/** Part of the Sproto Duel `jump` clip used in the air (fractions of its length): arms-up launch to tuck. */
+const AIR_WINDOW = [0.15, 0.85] as const;
+/** Crossfades into and out of the jump clip (s). */
+const AIR_BLEND = { takeoff: 0.08, land: 0.14 } as const;
+/** Bank into turns: radians of roll per rad/s of yaw rate at sprint, capped. */
+const BANK_GAIN = 0.045;
+const BANK_MAX = 0.2;
+/** A yaw step larger than this in one frame is a teleport or respawn, not a turn. */
+const BANK_SNAP = 1.2;
 
 export interface AvatarRig {
   readonly group: Group;
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
-  update(dt: number, moving: boolean, sprint: boolean): void;
+  /** `air` drives the jump clip; leave it out for a rig that is always grounded. */
+  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void;
   /** Tint, glow, height and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
@@ -67,8 +97,10 @@ export function createAvatarRig(): AvatarRig {
   const group = new Group();
   group.name = 'player-avatar';
   let mixer: AnimationMixer | null = null;
-  let actions: Record<'idle' | 'walk' | 'run', AnimationAction> | null = null;
-  let gait: 'idle' | 'walk' | 'run' = 'idle';
+  let actions: (Record<Gait, AnimationAction> & { air: AnimationAction | null }) | null = null;
+  let pose: Pose = 'idle';
+  let bank = 0;
+  let lastYaw: number | null = null;
   let started = false;
   let materials: MeshStandardMaterial[] = [];
   let look: AvatarLook | null = null;
@@ -85,9 +117,14 @@ export function createAvatarRig(): AvatarRig {
   let staffToken = 0;
   let staffObject: Object3D | null = null;
   let staffMixer: AnimationMixer | null = null;
+  // Lean pivots at the feet, so banking into a turn does not swing the legs sideways.
+  const lean = new Group();
+  lean.name = 'avatar-lean';
+  lean.position.y = -STAND_Y;
+  group.add(lean);
   const body = new Group();
   body.name = 'avatar-body';
-  group.add(body);
+  lean.add(body);
   const aura = createAura();
   group.add(aura.group);
 
@@ -104,11 +141,15 @@ export function createAvatarRig(): AvatarRig {
     const token = ++loadToken;
     const character = characterById(id);
     const url = `${import.meta.env.BASE_URL}${character.asset}`;
+    const donorUrl = `${import.meta.env.BASE_URL}${AVATAR_ASSET}`;
     void loadGLTF(url)
       .then(async (gltf) => {
         if (token !== loadToken) return;
         const prepared = SkeletonUtils.clone(gltf.scene) as Group;
-        const clips = character.borrow ? await borrowMixamoGait(prepared) : gltf.animations;
+        // Duel-skeleton rigs without P4's jog / dash get the wizard's, retargeted, so their feet stay planted.
+        const clips = character.borrow
+          ? await borrowMixamoGait(prepared)
+          : await locomotionFor(character.asset, gltf, () => loadGLTF(donorUrl));
         if (token !== loadToken) return;
         const next = fitModel(prepared, characterHeight(character), characterYaw(character));
         const nextMaterials = ownMaterials(next);
@@ -120,6 +161,7 @@ export function createAvatarRig(): AvatarRig {
           idle: playClip(nextMixer, clips, 'idle', claimed),
           walk: playClip(nextMixer, clips, 'walk', claimed),
           run: playClip(nextMixer, clips, 'run', claimed),
+          air: airClip(nextMixer, clips),
         };
         unmountStaff();
         if (model) disposeModel(model, materials);
@@ -130,7 +172,9 @@ export function createAvatarRig(): AvatarRig {
         actions = nextActions;
         body.add(next);
         if (look) paint(look);
-        actions[gait].play();
+        retime();
+        if (pose === 'air' && !actions.air) pose = 'idle';
+        poseAction(pose).play();
         mountStaff();
       })
       .catch((error: unknown) => {
@@ -143,25 +187,76 @@ export function createAvatarRig(): AvatarRig {
       });
   }
 
-  function update(dt: number, moving: boolean, sprint: boolean): void {
+  function poseAction(which: Pose): AnimationAction {
+    if (!actions) throw new Error('avatar actions are not ready');
+    return which === 'air' ? (actions.air ?? actions.idle) : actions[which];
+  }
+
+  /**
+   * Gait playback rate from the ground speed each clip was animated for, the fit scale and the look height,
+   * so the planted foot moves with the floor. Clips with no measured stride keep the rate `playClip` set.
+   */
+  function retime(): void {
+    if (!actions || !model) return;
+    const scale = model.scale.y * body.scale.y;
+    for (const gait of ['walk', 'run'] as const) {
+      const action = actions[gait];
+      const ground = groundSpeedOf(action.getClip()) * scale;
+      if (!(ground > 0)) continue;
+      const actual = gait === 'run' ? SPRINT_SPEED : WALK_SPEED;
+      action.timeScale = MathUtils.clamp(actual / ground, TIME_SCALE_MIN, TIME_SCALE_MAX);
+    }
+  }
+
+  function blendTime(from: Pose, to: Pose): number {
+    if (to === 'air') return AIR_BLEND.takeoff;
+    if (from === 'air') return AIR_BLEND.land;
+    if (from === 'idle') return AVATAR_BLEND.idleToMove;
+    if (to === 'idle') return AVATAR_BLEND.moveToIdle;
+    return to === 'run' ? AVATAR_BLEND.jogToDash : AVATAR_BLEND.dashToJog;
+  }
+
+  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (!mixer || !actions) return;
-    const next: 'idle' | 'walk' | 'run' = !moving ? 'idle' : sprint ? 'run' : 'walk';
-    if (next !== gait) {
-      const from = actions[gait];
-      const to = actions[next];
-      const fade =
-        gait === 'idle' ? AVATAR_BLEND.idleToMove
-        : next === 'idle' ? AVATAR_BLEND.moveToIdle
-        : next === 'run' ? AVATAR_BLEND.jogToDash
-        : AVATAR_BLEND.dashToJog;
-      to.reset();
-      // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
-      if (gait !== 'idle' && next !== 'idle') to.time = (from.time / from.getClip().duration) * to.getClip().duration;
-      to.setEffectiveWeight(1).play();
-      from.crossFadeTo(to, fade, false);
-      gait = next;
+    const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
+    const next: Pose = air?.airborne && actions.air ? 'air' : gait;
+    if (next !== pose) {
+      const from = poseAction(pose);
+      const to = poseAction(next);
+      if (from !== to) {
+        to.reset();
+        // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
+        if ((pose === 'walk' || pose === 'run') && (next === 'walk' || next === 'run')) {
+          to.time = (from.time / from.getClip().duration) * to.getClip().duration;
+        }
+        to.setEffectiveWeight(1).play();
+        from.crossFadeTo(to, blendTime(pose, next), false);
+      }
+      pose = next;
+    }
+    if (pose === 'air' && actions.air) {
+      // The jump clip is scrubbed by vertical velocity: launch at full jump speed, the tuck through the apex,
+      // and the tuck held through any longer fall. The clip's own wind-up and landing recovery are left out;
+      // the crossfades cover them.
+      const clip = actions.air.getClip();
+      const phase = MathUtils.clamp((MOVEMENT.jump - (air?.vy ?? 0)) / (2 * MOVEMENT.jump), 0, 1);
+      actions.air.time = (AIR_WINDOW[0] + phase * (AIR_WINDOW[1] - AIR_WINDOW[0])) * clip.duration;
     }
     mixer.update(dt);
+  }
+
+  /** Roll into turns while moving, from the yaw the owner set on `group` this frame. */
+  function bankInto(dt: number, moving: boolean, sprint: boolean): void {
+    const yaw = group.rotation.y;
+    let step = lastYaw === null ? 0 : yaw - lastYaw;
+    lastYaw = yaw;
+    step = Math.atan2(Math.sin(step), Math.cos(step));
+    if (Math.abs(step) > BANK_SNAP) step = 0;
+    const rate = dt > 0 ? step / dt : 0;
+    const speed = moving ? (sprint ? 1 : 0.55) : 0;
+    const target = MathUtils.clamp(rate * BANK_GAIN * speed, -BANK_MAX, BANK_MAX);
+    bank = MathUtils.damp(bank, target, 8, dt);
+    lean.rotation.z = bank;
   }
 
   function setStaff(id: StaffId): void {
@@ -223,16 +318,17 @@ export function createAvatarRig(): AvatarRig {
     look = next;
     setStaff(next.staff);
     if (started) show(next.character);
-    // Scale about the feet: the rig origin is the capsule top, STAND_Y above the floor.
+    // Scale about the feet: `lean` sits on the floor, STAND_Y below the rig origin (the capsule top).
     body.scale.setScalar(next.height);
-    body.position.y = -STAND_Y * (1 - next.height);
+    body.position.y = STAND_Y * next.height;
+    retime();
     paint(next);
     const socket = RELICS.find((entry) => entry.id === next.aura);
     aura.group.visible = Boolean(socket);
     if (socket) aura.setColor(socket.color);
   }
 
-  function tick(dt: number, moving: boolean, sprint: boolean): void {
+  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (aura.group.visible) {
       auraClock += dt;
       aura.ring.rotation.z += dt * 0.9;
@@ -240,7 +336,8 @@ export function createAvatarRig(): AvatarRig {
       aura.ringMat.opacity = 0.55 + pulse * 0.35;
       aura.columnMat.opacity = 0.22 + pulse * 0.16;
     }
-    update(dt, moving, sprint);
+    bankInto(dt, moving && !air?.airborne, sprint);
+    update(dt, moving, sprint, air);
     staffMixer?.update(dt);
     if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
   }
@@ -476,6 +573,7 @@ function requiredClip(
   throw new Error(`Avatar is missing the ${GAIT_CLIP_NAMES[gait][0]} clip (${gait})`);
 }
 
+/** Gait actions. Clips with a measured stride get their walk / run rate from `retime` once the fit is known. */
 function playClip(
   mixer: AnimationMixer,
   clips: readonly AnimationClip[],
@@ -490,6 +588,15 @@ function playClip(
   action.timeScale = authored > 0 && actual > 0 ? actual / authored : AVATAR_CLIPS[gait].timeScale;
   // The dragon's idle is its fly clip (the clones used for walking are renamed). Keep the hover calm.
   if (clip.name === 'fly' && !(authored > 0)) action.timeScale = 0.45;
+  return action;
+}
+
+/** The jump clip, held still: `update` scrubs it by vertical velocity. Null when the rig has none. */
+function airClip(mixer: AnimationMixer, clips: readonly AnimationClip[]): AnimationAction | null {
+  const clip = clips.find((entry) => entry.name === 'jump');
+  if (!clip) return null;
+  const action = mixer.clipAction(clip);
+  action.timeScale = 0;
   return action;
 }
 
