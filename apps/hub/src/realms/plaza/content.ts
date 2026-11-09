@@ -2,9 +2,9 @@ import { createRealmGate } from '../../core/gates';
 import { SANDBOX_GATE } from './layout';
 import { createArcadePicker } from '../../v2/arcade-picker';
 import { createSprotelTalk } from '../../v2/sprotel-talk';
-import { createLiveLeaderboardProvider } from '../../leaderboards';
+import { createLiveLeaderboardProvider, verseTotals, type VerseRow } from '../../leaderboards';
 import { parseReturnGame } from '../../travel';
-import { ARCADE_GAMES, PORTALS } from './config';
+import { ARCADE_GAMES, PORTALS, STATUE_PORTALS } from './config';
 import { ARCADE_PROMPT } from './arcade-layout';
 import type { EngineOptions } from '../../core/engine';
 import type { RealmContent, FrameState, RealmContext } from '../../core/realm';
@@ -33,6 +33,7 @@ import { INTERIOR_ORIGIN } from './interior';
 import { SPROTEL_PROMPT } from './sprotel-npc';
 import { barBillboard } from './billboard';
 import { buildFloor, buildPedestal, buildPortal } from './plaza';
+import { portalPosition } from '../../layout';
 import { loadSignFont } from '../../v2/signs';
 
 
@@ -188,9 +189,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     });
   }
 
-  const [statue, portals, lamps, benches, palms, billboard] = await Promise.all([
+  const [statue, portals, statuePortals, lamps, benches, palms, billboard] = await Promise.all([
     part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
     Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
+    Promise.all(STATUE_PORTALS.map((gate) => buildPortal(gate.color, 8))),
     instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
     instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
     instanced('B5-palm', palmT, { h: 20 }),
@@ -206,6 +208,15 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     const uz = -Math.cos(slot.a);
     portal.position.set(ux * 96, 0, uz * 96);
     portal.rotation.y = Math.atan2(-ux, -uz);
+    outdoor.add(portal);
+  });
+  statuePortals.forEach((portal, index) => {
+    const gate = STATUE_PORTALS[index];
+    if (!gate) return;
+    const at = portalPosition(gate.angle, gate.distance);
+    portal.position.set(at.x, 0, at.z);
+    portal.rotation.y = Math.atan2(-Math.sin(gate.angle), Math.cos(gate.angle));
+    portal.name = `statue-portal-${gate.id}`;
     outdoor.add(portal);
   });
   outdoor.add(lamps);
@@ -547,7 +558,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
 
   type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
-  interface EarnedRow { name?: string; gameId?: string; lifetime?: number }
+  type EarnedRow = VerseRow;
 
   const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
     hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
@@ -590,12 +601,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   }
 
   function totals(rows: EarnedRow[]): (readonly [string, number])[] {
-    const sums = new Map<string, number>();
-    for (const row of rows) {
-      if (!row.name || typeof row.lifetime !== 'number' || !row.gameId) continue;
-      sums.set(row.name, (sums.get(row.name) ?? 0) + row.lifetime);
-    }
-    return [...sums.entries()];
+    return verseTotals(rows).map((row) => [row.name, row.score] as const);
   }
 
   if (barTabs instanceof HTMLElement) {
@@ -687,10 +693,11 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     render,
     cameraFloor: () => inside ? -Infinity : 0.45,
     groundHeight: () => inside ? -300 : 0,
-    portals: PORTALS,
+    portals: [...PORTALS, ...STATUE_PORTALS],
     portalsEnabled: () => !inside,
     interactions,
     handleKey: event => sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
+    overlayOpen: () => arcadePicker.open || sprotelTalk.open,
     async onSession(session) {
       const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
       boardRows = board.rows ?? [];
