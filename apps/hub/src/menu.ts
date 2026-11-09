@@ -2,14 +2,18 @@ import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
 import { CHARACTERS, STAFFS, type CharacterId, type StaffId } from './config';
 import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
+import { PERSONAS, QUIET } from './sims/director';
+import { MAX_SIMS } from './sims/sims';
+import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
 
-export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
+export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims';
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
   { id: 'items', label: 'Items', key: '1', icon: 'bag' },
   { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
   { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
   { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
+  { id: 'sims', label: 'Sims', key: '5', icon: 'star' },
 ];
 
 /** Pixel art made with Higgsfield, in `public/world/ui/`. */
@@ -85,6 +89,13 @@ export interface MenuOptions {
   hiddenRelics: () => readonly string[];
   /** Store and apply a new switched-off list. */
   setHiddenRelics: (ids: readonly string[]) => void;
+  /** Sims (this screen only): the list and story speed. */
+  sims: () => SimSettings;
+  setSims: (settings: SimSettings) => void;
+  /** Start the sims' story over from the first act. */
+  restartSims: () => void;
+  /** The act the sims' story is in, for the Sims page. */
+  simAct: () => string;
 }
 
 export interface Menu {
@@ -492,6 +503,7 @@ export function createMenu(options: MenuOptions): Menu {
     paintLook();
     paintItems();
     paintRelics();
+    paintSims();
     if (open) return;
     open = true;
     root.hidden = false;
@@ -508,6 +520,170 @@ export function createMenu(options: MenuOptions): Menu {
       document.activeElement.blur();
     }
     options.onClose();
+  }
+
+  // ---------- Sims
+  const simsPage = bodies.get('sims') as HTMLElement;
+  let simCharacter: CharacterId = CHARACTERS[0].id;
+  let simPersona: string = PERSONAS[0]?.id ?? QUIET;
+  simsPage.append(
+    el('h3', 'menu-h', 'Sims'),
+    el('p', 'menu-note', 'Characters that walk the plaza and talk. Only you can see them; they never post to chat.'),
+  );
+  const simCharGrid = el('ul', 'menu-grid chars sims-chars');
+  const simCharButtons = new Map<CharacterId, HTMLButtonElement>();
+  for (const character of CHARACTERS) {
+    const item = el('li');
+    const button = el('button', 'char-card');
+    button.type = 'button';
+    const portrait = el('span', 'char-portrait');
+    const img = el('img');
+    img.src = `${import.meta.env.BASE_URL}${character.portrait}`;
+    img.alt = '';
+    img.loading = 'lazy';
+    portrait.append(img);
+    button.append(portrait, el('span', 'char-name', character.label));
+    button.addEventListener('click', () => {
+      simCharacter = character.id;
+      paintSims();
+    });
+    simCharButtons.set(character.id, button);
+    item.append(button);
+    simCharGrid.append(item);
+  }
+  const personaRow = el('div', 'chip-row');
+  const personaButtons = new Map<string, HTMLButtonElement>();
+  for (const persona of [...PERSONAS, { id: QUIET, name: 'Quiet', blurb: 'Walks around, never talks.' }]) {
+    const chip = el('button', 'chip', persona.name);
+    chip.type = 'button';
+    chip.title = persona.blurb;
+    chip.addEventListener('click', () => {
+      simPersona = persona.id;
+      paintSims();
+    });
+    personaButtons.set(persona.id, chip);
+    personaRow.append(chip);
+  }
+  const personaNote = el('span', 'menu-note small');
+  const simName = el('input', 'menu-input');
+  simName.type = 'text';
+  simName.maxLength = 12;
+  simName.autocomplete = 'off';
+  simName.spellcheck = false;
+  simName.addEventListener('input', () => {
+    const clean = simName.value.replace(/[^A-Za-z0-9 _-]/g, '');
+    if (clean !== simName.value) simName.value = clean;
+  });
+  const addSim = el('button', 'menu-reset', 'Add sim');
+  addSim.type = 'button';
+  addSim.addEventListener('click', () => {
+    const current = options.sims();
+    if (current.list.length >= MAX_SIMS) return;
+    const name = cleanSimName(simName.value) || defaultSimName(simPersona, simCharacter);
+    options.setSims({ ...current, list: [...current.list, { id: newSimId(), name, character: simCharacter, persona: simPersona }] });
+    simName.value = '';
+    paintSims();
+  });
+  const addCast = el('button', 'menu-reset', 'Add the whole cast');
+  addCast.type = 'button';
+  addCast.title = 'One sim per dialogue, each with the next character.';
+  addCast.addEventListener('click', () => {
+    const current = options.sims();
+    const room = MAX_SIMS - current.list.length;
+    const cast = PERSONAS.slice(0, Math.max(0, room)).map((persona, i) => ({
+      id: newSimId(),
+      name: persona.name,
+      character: CHARACTERS[i % CHARACTERS.length]!.id,
+      persona: persona.id,
+    }));
+    options.setSims({ ...current, list: [...current.list, ...cast] });
+    paintSims();
+  });
+  const addRow = el('div', 'menu-pair');
+  addRow.append(addSim, addCast);
+
+  const simList = el('ul', 'sim-list');
+  const simCount = el('span', 'menu-value');
+  const speedRow = el('div', 'chip-row');
+  const speedButtons = new Map<number, HTMLButtonElement>();
+  for (const speed of SIM_SPEEDS) {
+    const chip = el('button', 'chip', speed === 1 ? 'Normal (10 min)' : `${speed}× faster`);
+    chip.type = 'button';
+    chip.addEventListener('click', () => {
+      options.setSims({ ...options.sims(), speed });
+      paintSims();
+    });
+    speedButtons.set(speed, chip);
+    speedRow.append(chip);
+  }
+  const actLine = el('span', 'menu-note small');
+  const restartStory = el('button', 'chip', 'Restart story');
+  restartStory.type = 'button';
+  restartStory.addEventListener('click', () => {
+    options.restartSims();
+    paintSims();
+  });
+  speedRow.append(restartStory);
+  const clearSims = el('button', 'menu-reset', 'Remove all sims');
+  clearSims.type = 'button';
+  clearSims.addEventListener('click', () => {
+    options.setSims({ ...options.sims(), list: [] });
+    paintSims();
+  });
+  const listLabel = section('Your sims', simList);
+  listLabel.querySelector('.menu-label')?.append(simCount);
+
+  simsPage.append(
+    section('Character', simCharGrid),
+    section('Dialogue', personaRow),
+    personaNote,
+    labelled('Name', simName, 'Blank uses the dialogue\'s name.'),
+    addRow,
+    listLabel,
+    section('Story speed', speedRow),
+    actLine,
+    clearSims,
+  );
+
+  function paintSims(): void {
+    const settings = options.sims();
+    for (const [id, button] of simCharButtons) {
+      const on = id === simCharacter;
+      button.classList.toggle('on', on);
+      button.setAttribute('aria-pressed', String(on));
+    }
+    for (const [id, chip] of personaButtons) {
+      chip.classList.toggle('on', id === simPersona);
+      chip.setAttribute('aria-pressed', String(id === simPersona));
+    }
+    personaNote.textContent = personaButtons.get(simPersona)?.title ?? '';
+    simName.placeholder = defaultSimName(simPersona, simCharacter);
+    for (const [speed, chip] of speedButtons) chip.classList.toggle('on', speed === settings.speed);
+    const full = settings.list.length >= MAX_SIMS;
+    addSim.disabled = full;
+    addCast.disabled = full;
+    clearSims.disabled = settings.list.length === 0;
+    simCount.textContent = `${settings.list.length}/${MAX_SIMS}`;
+    actLine.textContent = settings.list.length ? `Story act: ${options.simAct()}.` : 'Add a sim to start the story.';
+    simList.replaceChildren();
+    if (settings.list.length === 0) simList.append(el('li', 'menu-note small', 'None yet.'));
+    for (const sim of settings.list) {
+      const row = el('li', 'sim-row');
+      const character = CHARACTERS.find((c) => c.id === sim.character);
+      const persona = PERSONAS.find((p) => p.id === sim.persona);
+      const text = el('div', 'sim-text');
+      text.append(el('strong', '', sim.name), el('span', 'menu-note small', `${character?.label ?? sim.character} · ${persona?.name ?? 'Quiet'}`));
+      const remove = el('button', 'chip', 'Remove');
+      remove.type = 'button';
+      remove.setAttribute('aria-label', `Remove ${sim.name}`);
+      remove.addEventListener('click', () => {
+        const current = options.sims();
+        options.setSims({ ...current, list: current.list.filter((s) => s.id !== sim.id) });
+        paintSims();
+      });
+      row.append(text, remove);
+      simList.append(row);
+    }
   }
 
   setTab(tab);
