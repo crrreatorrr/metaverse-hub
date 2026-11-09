@@ -27,6 +27,7 @@
     "src/hub_realms.ts",
     "src/hub_games.ts",
     "src/server_economy.ts",
+    "src/flags.ts",
     "src/shards.ts",
     "src/leaderboard.ts",
     "src/effects.ts",

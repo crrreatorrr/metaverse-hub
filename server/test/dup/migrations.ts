@@ -754,6 +754,29 @@ export async function runMigrations(test: DupTest): Promise<void> {
     assert.match(stored, /^[0-9a-f]{64}$/);
   });
 
+  await test('migration', '0042 server_flags seeds every launch flag off and enforces its checks', async () => {
+    const rows = psql(`SELECT key || '=' || state || ':' || percent || ':' || cardinality(allowlist) FROM game.server_flags ORDER BY key`);
+    assert.deepEqual(rows.split('\n'), [
+      'diagnostics_prompt=off:0:0',
+      'hub_exchange=off:0:0',
+      'maint=off:0:0',
+      'relic_unhold=off:0:0',
+      'shooter_pvp=off:0:0',
+      'shooter_pvp_ranked=off:0:0',
+      'shooter_pvp_wager=off:0:0',
+      'verse_store=off:0:0',
+    ]);
+    const refused = (sql: string, label: string) => {
+      assert.throws(() => psql(sql), /violates check constraint|invalid input syntax/, label);
+    };
+    refused(`INSERT INTO game.server_flags (key, state) VALUES ('dup_flag_bad_state', 'maybe')`, 'unknown state');
+    refused(`INSERT INTO game.server_flags (key, state, percent) VALUES ('dup_flag_pct', 'percent', 101)`, 'percent above 100');
+    refused(`INSERT INTO game.server_flags (key, state, percent) VALUES ('dup_flag_pct', 'percent', -1)`, 'negative percent');
+    refused(`INSERT INTO game.server_flags (key, state) VALUES ('Bad Key', 'on')`, 'malformed key');
+    refused(`INSERT INTO game.server_flags (key, state, allowlist) VALUES ('dup_flag_list', 'allowlist', '{not-a-uuid}')`, 'allowlist is uuid[]');
+    assert.equal(num(`SELECT count(*) FROM game.server_flags WHERE key LIKE 'dup_flag_%'`), 0);
+  });
+
   await test('migration', '(a) ledger sums equal balances after 0003', async () => {
     const fix = await prepare();
     const bad = mismatches();
