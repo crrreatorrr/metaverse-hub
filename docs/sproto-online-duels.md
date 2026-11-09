@@ -56,7 +56,8 @@ the winner takes the 20-Ticket pot. Tickets have no real-money value.
 | Either player is a guest | `CANCEL` `wager_guest`, nothing held |
 | A player can't cover the stake, or hits a limit | `CANCEL`, nothing held |
 | Server shutdown mid-match | Refund (`server_shutdown`) |
-| Escrow still held after 15 minutes | Refunded by `sproto_wager_expire` (`expired`) |
+| Escrow still held after 20 minutes (the 15-minute play limit plus a 5-minute margin) | Refunded by `sproto_wager_expire` (`expired`): when the next pair is matched, and by a sweep from the plaza shard loops at most every 5 minutes |
+| Nakama killed or restarted (escrow left `held`) | Every held wager is refunded at module start, right after migrations (`expired`). This relies on a single Nakama node: no match survives a restart |
 
 ## Escrow
 
