@@ -22,6 +22,8 @@ import { connectPlaza, type Plaza, type PlazaStatus } from '../net/plaza';
 import { animIndex } from '../net/protocol';
 import { createRemoteWorld } from '../net/remoteWorld';
 import { createRemotes } from '../remotes';
+import { createSims } from '../sims/sims';
+import { loadSims, saveSims } from '../sims/store';
 import { createOverheads } from '../overheads';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
@@ -37,6 +39,18 @@ import { createEngine } from './engine';
 import { PAD, PAD_TUNING, createPadReader, padPrompt, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
+
+/** Body turn rate toward the facing (1/s, exponential): a 180° flip settles in about 0.2 s. */
+const TURN_RATE = 18;
+/** Airborne for the jump pose: rising faster than this (m/s), or off the ground longer than AIR_GRACE (s). */
+const AIR_RISE = 1;
+const AIR_GRACE = 0.12;
+
+/** `MathUtils.damp` along the short arc. */
+function dampAngle(from: number, to: number, lambda: number, dt: number): number {
+  const delta = Math.atan2(Math.sin(to - from), Math.cos(to - from));
+  return from + delta * (1 - Math.exp(-lambda * dt));
+}
 
 export async function startRealm(definition: RealmDefinition): Promise<void> {
   const CONTROLS_HINT = 'WASD or arrows move  ·  Mouse look  ·  Z / C turn camera  ·  Shift run  ·  Space jump  ·  E use  ·  Enter chat  ·  Esc menu';
@@ -104,6 +118,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   /** Left stick click toggles running until the stick comes back to rest. */
   let padRun = false;
   let yaw = initial.yaw;
+  /** Yaw the body shows: eases toward the controller's facing instead of snapping. */
+  let bodyYaw = initial.yaw;
+  /** Seconds off the ground, so a step down a curb does not flash the jump pose. */
+  let airTime = 0;
   let pitch: number = MOVEMENT.initialPitch;
   let dragging = false;
   let jumpQueued = false;
@@ -156,6 +174,21 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
   });
   const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : document.body);
+
+  // Sims (Menu → Sims): characters only this screen sees. They join the RemoteWorld so
+  // remotes.ts draws them; their lines go to the chat log and bubbles, never the channel.
+  let simSettings = loadSims();
+  const simsHere = definition.id === 'plaza';
+  const sims = createSims({
+    world: remoteWorld,
+    speed: simSettings.speed,
+    seed: Date.now() % 100_000,
+    onLine(userId, name, text) {
+      chat.local(`${name} (sim)`, text);
+      overheads.show(userId, { color: 'cyan', effect: null, text });
+    },
+  });
+  if (simsHere) sims.set(simSettings.list);
   let plaza: Plaza | null = null;
   let plazaLine = '';
   let chatRoom = '';
@@ -176,6 +209,15 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   const menu = createMenu({
+    sims: () => simSettings,
+    setSims(next) {
+      if (next.speed !== simSettings.speed) sims.setSpeed(next.speed);
+      simSettings = { list: [...next.list], speed: next.speed };
+      saveSims(simSettings);
+      if (simsHere) sims.set(simSettings.list);
+    },
+    restartSims: () => sims.restart(),
+    simAct: () => (simsHere ? sims.act() : 'only in the plaza'),
     hiddenRelics: () => hiddenRelics,
     setHiddenRelics(ids) {
       hiddenRelics = [...ids];
@@ -311,9 +353,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const moving = Math.hypot(input.forward, input.strafe) > 0;
+    airTime = player.grounded ? 0 : airTime + dt;
+    const air = { airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE, vy: player.velocity.y };
     // P4: the jog / dash clips bake their own bounce, so the procedural bob stays at 0.
     world.bob.position.y = 0;
-    world.avatar.rotation.y = -player.facingYaw;
+    bodyYaw = dampAngle(bodyYaw, player.facingYaw, TURN_RATE, dt);
+    world.avatar.rotation.y = -bodyYaw;
     world.rig.position.copy(player.position);
 
     const floorY = content.groundHeight?.(player.position) ?? 0;
@@ -322,7 +367,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     world.shadow.scale.setScalar((1.15 + lift * 0.25) * AVATAR_SCALE);
     world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
-    engine.update(dt, moving, input.sprint);
+    engine.update(dt, moving, input.sprint, air);
     content.update(dt, { moving, sprint: input.sprint, position: player.position });
     remotes.update(dt, performance.now(), world.camera, player.position);
     overheads.update(dt, world.camera, (id, out) => remotes.positionOf(id, out), { width: window.innerWidth, height: window.innerHeight });
@@ -330,8 +375,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       player.position.x,
       player.position.y,
       player.position.z,
-      player.facingYaw,
-      animIndex(moving ? (input.sprint ? 'run' : 'walk') : 'idle'),
+      bodyYaw,
+      animIndex(air.airborne ? 'jump' : moving ? (input.sprint ? 'run' : 'walk') : 'idle'),
     );
     const warp = content.consumeWarp?.();
     if (warp) {
@@ -339,7 +384,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       yaw = warp.yaw;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
       world.rig.position.copy(player.position);
-      world.avatar.rotation.y = -player.facingYaw;
+      bodyYaw = player.facingYaw;
+      airTime = 0;
+      world.avatar.rotation.y = -bodyYaw;
     }
     if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
     placeOverhead(dt);

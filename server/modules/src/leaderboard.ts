@@ -300,7 +300,25 @@ namespace HubBoards {
     if (limit < 1) limit = 1;
     if (limit > 50) limit = 50;
     var order = boardId === "meta" || BOARD_MODE[boardId] !== "asc" ? "desc" : "asc";
-    return JSON.stringify(queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]));
+    var result = queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]);
+    var rows = result.rows;
+    if (Object.prototype.toString.call(rows) === "[object Array]") for (var i = 0; i < (rows as unknown[]).length; i++) cleanRowName((rows as unknown[])[i]);
+    cleanRowName(result.me);
+    return JSON.stringify(result);
+  }
+
+  /**
+   * Board names are usernames: clean them for display (HubMatch.cleanName; accounts are never renamed).
+   * A name that cleans to "" shows the first 8 characters of the row's userId, like the SQL
+   * fallback for a missing username. Clients group rows by userId, never by name.
+   */
+  export function cleanRowName(row: unknown): void {
+    if (!isObject(row)) return;
+    var r = row as { [key: string]: unknown };
+    if (r.name === undefined) return;
+    var name = HubMatch.cleanName(r.name);
+    if (!name && typeof r.userId === "string") name = r.userId.slice(0, 8);
+    r.name = name;
   }
 
   /**

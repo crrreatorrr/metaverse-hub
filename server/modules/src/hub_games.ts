@@ -3,7 +3,7 @@
 // (RPC, match and matchmaker VMs), so every lookup sees every game.
 namespace HubGames {
   export interface GameReg {
-    /** Contract C1 game id: nobu, sproto, sproto-fighter, peoples-bitcoin, hpos10i. */
+    /** Contract C1 game id, one of the SDK's GAME_IDS (packages/hub-sdk/src/types.ts), e.g. nobu, sproto, sproto-fighter. */
     game: string;
     /** Called by the single hub matchmaker dispatcher when every matched entry has properties.game === game. */
     matchmaker?: (ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]) => string | void;

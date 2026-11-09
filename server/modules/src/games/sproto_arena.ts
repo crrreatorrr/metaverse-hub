@@ -438,7 +438,7 @@ namespace SprotoArena {
       var names: { [userId: string]: string } = {};
       try {
         players = JSON.parse(String(params["players"] || "[]")) as string[];
-        names = JSON.parse(String(params["names"] || "{}")) as { [userId: string]: string };
+        names = HubMatch.cleanNameMap(JSON.parse(String(params["names"] || "{}")), 32);
       } catch (e) {
         players = [];
       }
@@ -495,7 +495,7 @@ namespace SprotoArena {
       if (seat < 0) {
         if (!state.isPrivate || state.players.length >= 2 || state.phase !== "joining") return { state: state, accept: false, rejectMessage: "match_full" };
         state.players.push(uid);
-        state.names[uid] = String(presence.username || "").slice(0, 32);
+        state.names[uid] = HubMatch.cleanName(presence.username, 32);
       }
       if (state.present[uid] && state.present[uid]!.sessionId !== presence.sessionId && state.phase === "joining") {
         return { state: state, accept: false, rejectMessage: "already_joined" };
@@ -515,7 +515,7 @@ namespace SprotoArena {
         var back = state.leftTick[p.userId] !== undefined;
         state.present[p.userId] = p;
         delete state.leftTick[p.userId];
-        if (!state.names[p.userId]) state.names[p.userId] = String(p.username || "").slice(0, 32);
+        if (!state.names[p.userId]) state.names[p.userId] = HubMatch.cleanName(p.username, 32);
         SprotoMm.setLive(nk, p.userId, ctx.matchId || "");
         SprotoMm.clearQueue(nk, p.userId);
         if (state.phase === "accept") sendFound(d, state, seat);
@@ -766,8 +766,8 @@ namespace SprotoArena {
       return;
     }
     var names: { [userId: string]: string } = {};
-    names[a.presence.userId] = String(a.presence.username || "").slice(0, 32);
-    names[b.presence.userId] = String(b.presence.username || "").slice(0, 32);
+    names[a.presence.userId] = HubMatch.cleanName(a.presence.username, 32);
+    names[b.presence.userId] = HubMatch.cleanName(b.presence.username, 32);
     var id = nk.matchCreate(MATCH_NAME, {
       players: JSON.stringify([a.presence.userId, b.presence.userId]), names: JSON.stringify(names), v: NET_VERSION, private: "0", token: token,
     });
@@ -801,7 +801,7 @@ namespace SprotoArena {
     }
     if (!code) throw new Error("room_code_busy");
     var names: { [userId: string]: string } = {};
-    names[ctx.userId!] = String(ctx.username || "").slice(0, 32);
+    names[ctx.userId!] = HubMatch.cleanName(ctx.username, 32);
     var matchId = nk.matchCreate(MATCH_NAME, { players: JSON.stringify([ctx.userId]), names: JSON.stringify(names), v: NET_VERSION, private: "1", code: code });
     SprotoMm.setLive(nk, ctx.userId || "", matchId);
     logger.info("sproto_arena room " + code + " " + matchId);
