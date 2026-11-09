@@ -28,6 +28,7 @@ import { createOverheads } from '../overheads';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
+import { EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
@@ -39,6 +40,14 @@ import { createEngine } from './engine';
 import { PAD, PAD_TUNING, createPadReader, padPrompt, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
+
+/** loadout.set_hub reply (server/modules/src/pets.ts `ack`). */
+interface HubPetAck {
+  ok: boolean;
+  seq: number;
+  slots?: { pet: string | null };
+  reason?: string;
+}
 
 /** Body turn rate toward the facing (1/s, exponential): a 180° flip settles in about 0.2 s. */
 const TURN_RATE = 18;
@@ -105,10 +114,80 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const player = createPlayerController(world.collider.bvh);
   const initial = definition.spawn(window.location.hash);
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
-  // M6 pets: profile.get / loadout.set_hub are not wired yet (docs/m6-server-prep.md), so the equipped pet
-  // comes from ?pet=<catalog id> for previews until the profile hook lands.
+  // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
+  // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
+  // visits. ?pet=<pet asset id> previews any pet for this visit and is not saved.
+  const PET_KEY = 'hub:pet';
   const petParam = new URLSearchParams(window.location.search).get('pet');
-  if (petParam) void world.setPet(petParam);
+  let activePet: string | null = petParam ?? loadStoredPet();
+  if (activePet) void world.setPet(activePet);
+
+  function loadStoredPet(): string | null {
+    try {
+      const stored = localStorage.getItem(PET_KEY);
+      return stored && (EQUIPPABLE_PET_IDS as readonly string[]).includes(stored) ? stored : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function storePet(id: string | null): void {
+    try {
+      if (id) localStorage.setItem(PET_KEY, id);
+      else localStorage.removeItem(PET_KEY);
+    } catch {
+      // Storage may be off (private window). The pet still follows for this visit.
+    }
+  }
+
+  /** Show `id` following the avatar (null: none) here and to the plaza. */
+  function applyPet(id: string | null): void {
+    if (id === activePet) return;
+    activePet = id;
+    void world.setPet(id);
+    plaza?.profile({ character: look.character, staff: look.staff, pet: activePet });
+    menu.refreshPets();
+  }
+
+  /** The pet the server has on this account (profile.get pets.active). */
+  function adoptServerPet(pets: ProfileResult['pets']): void {
+    if (!pets || petParam) return;
+    const id = pets.active && (EQUIPPABLE_PET_IDS as readonly string[]).includes(pets.active) ? pets.active : null;
+    storePet(id);
+    applyPet(id);
+  }
+
+  /** Pets menu: deploy (id) or recall (null) a pet, then save it on the account. */
+  function deployPet(id: string | null): void {
+    applyPet(id);
+    storePet(id);
+    void savePet(id);
+  }
+
+  async function savePet(id: string | null): Promise<void> {
+    if (!sessionPromise) return; // offline: this browser's copy is all there is
+    let session: HubSession;
+    try {
+      session = await sessionPromise;
+    } catch {
+      return;
+    }
+    const send = (seq: number) =>
+      session.client.rpc<HubPetAck>('loadout.set_hub', { v: 1, pet: id, seq }, { token: session.token });
+    try {
+      let ack = await send(Date.now());
+      // Another device saved with a later clock: go one past its seq.
+      if (!ack.ok && ack.reason === 'stale_seq') ack = await send(Math.max(Date.now(), ack.seq + 1));
+      // Not owned (or still stale): show what the server has, unless another deploy came since.
+      if (!ack.ok && activePet === id) {
+        const kept = ack.slots?.pet ?? null;
+        storePet(kept);
+        applyPet(kept);
+      }
+    } catch (error) {
+      console.warn('[pets] could not save the deployed pet', error);
+    }
+  }
 
   const keys = new Set<string>();
   const pad = createPadReader();
@@ -233,7 +312,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       look = next;
       world.setLook(look);
       saveLook(look);
-      plaza?.profile({ character: look.character, staff: look.staff, pet: petParam });
+      plaza?.profile({ character: look.character, staff: look.staff, pet: activePet });
     },
     onOpen() {
       keys.clear();
@@ -251,6 +330,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     onSpin(delta) {
       previewSpin += delta;
     },
+    deployablePets: EQUIPPABLE_PET_IDS,
+    activePet: () => activePet,
+    setActivePet: deployPet,
   });
 
   function displayName(): string {
@@ -806,6 +888,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       showRelics(profile.relics);
       showVerse(profile.verse ?? 0);
       menu.setPets(profile.pets?.owned ?? null);
+      adoptServerPet(profile.pets);
       const session = { client, token: auth.token, userId: auth.userId, deviceId, username };
       await content.onSession?.(session);
       bindAccount(session);
@@ -900,6 +983,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
           showRelics(profile.relics);
           showVerse(profile.verse ?? 0);
           menu.setPets(profile.pets?.owned ?? null);
+          adoptServerPet(profile.pets);
           note.textContent = 'This device is on the recovered guest.';
           // The plaza socket belongs to the old guest: reconnect as the restored one.
           plaza?.close();
@@ -1002,7 +1086,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
         },
       });
       void joinShardChat(session, plaza.room);
-      plaza.profile({ character: look.character, staff: look.staff, pet: petParam });
+      plaza.profile({ character: look.character, staff: look.staff, pet: activePet });
       showPlazaStatus('online', '');
       remoteWorld.onRoster(() => {
         if (plaza) showPlazaStatus(plazaState, plazaDetail);
