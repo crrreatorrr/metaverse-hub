@@ -2,6 +2,7 @@
 // input, a full stage, and zero ledger writes. The Nakama load in
 // scripts/load/coop-bots.ts repeats the live socket path.
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -78,9 +79,36 @@ function stateOf(m: MatchDriver): CoopState {
   return m.state as CoopState;
 }
 
+function bag(mod: LoadedModule): { liveSession(id: string): CoopState['session']; releaseLive(id: string): void } {
+  return mod.global.CoopMatch as { liveSession(id: string): CoopState['session']; releaseLive(id: string): void };
+}
+
+function sha256(value: unknown): string {
+  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function exportHash(mod: LoadedModule, sim: unknown): string {
+  const Sim = mod.global.Sim as { exportState(state: unknown): unknown };
+  return sha256(Sim.exportState(sim));
+}
+
+/** Past the 2 s linger the handler returns null and must already have dropped the sim. */
+function finishLinger(m: MatchDriver): void {
+  assert.equal(m.ticks(CoopProtoLinger), false);
+}
+
+const CoopProtoLinger = 2 * 20 + 5;
+
 /** Nakama returns a packed sim. Rebuild it the way the next callback does, so assertions see players. */
 function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
-  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string };
+  const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string; matchId?: string };
+  const bag = mod.global.CoopMatch as { liveSession?(id: string): NonNullable<CoopState['session']> | null };
+  const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
+  if (held && held.state.players && held.state.players.length === 6) {
+    st.session = held;
+    st.cold = false;
+    return st;
+  }
   if (st.cold && st.simPacked && st.session) {
     const Sim = mod.global.Sim as { importState(data: unknown): NonNullable<CoopState['session']>['state'] };
     st.session.state = Sim.importState(st.simPacked);
@@ -529,6 +557,137 @@ function assertNoLedger(room: Room, label: string): void {
   run.m.loop([{ sender: run.p, opCode: OP.PING, data: { t: 'ping', c: 7 } }]);
   assert.equal(run.m.dispatcher.sent<{ c: number; rewards: number }>(OP.PONG)[0]?.body.c, 7);
   assertNoLedger(run, 'version');
+}
+
+// The in-VM sim is released when the fight ends, when everyone leaves, on
+// matchTerminate, and when the step fails. A soak of many matches stays empty.
+{
+  const ended = room();
+  hello(ended.m, ended.p, ['k1']);
+  ready(ended.m, ended.p);
+  assert.ok(bag(ended.mod).liveSession(ended.matchId));
+  hydrate(ended.mod, ended.m).session!.state.mode = 'gameover';
+  ended.m.loop([]);
+  assert.equal(stateOf(ended.m).endReason, 'gameover');
+  assert.ok(bag(ended.mod).liveSession(ended.matchId));
+  finishLinger(ended.m);
+  assert.equal(bag(ended.mod).liveSession(ended.matchId), null);
+
+  const left = room();
+  hello(left.m, left.p, ['k1']);
+  ready(left.m, left.p);
+  left.m.leave([left.p]);
+  assert.equal(left.m.ticks(15 * 20 + 5), true);
+  assert.equal(stateOf(left.m).endReason, 'abandoned');
+  assert.ok(bag(left.mod).liveSession(left.matchId));
+  finishLinger(left.m);
+  assert.equal(bag(left.mod).liveSession(left.matchId), null);
+
+  const stopped = room();
+  hello(stopped.m, stopped.p, ['k1']);
+  ready(stopped.m, stopped.p);
+  stopped.m.terminate(1);
+  assert.equal(stopped.m.dispatcher.sent<{ reason: string }>(OP.END).at(-1)?.body.reason, 'server_shutdown');
+  assert.equal(bag(stopped.mod).liveSession(stopped.matchId), null);
+
+  const faulted = room();
+  hello(faulted.m, faulted.p, ['k1']);
+  ready(faulted.m, faulted.p);
+  (stateOf(faulted.m) as CoopState & { broken: string }).broken = 'test';
+  faulted.m.loop([]);
+  assert.equal(stateOf(faulted.m).endReason, 'sim_fault');
+  assert.ok(bag(faulted.mod).liveSession(faulted.matchId));
+  finishLinger(faulted.m);
+  assert.equal(bag(faulted.mod).liveSession(faulted.matchId), null);
+
+  const soak = loadCoop();
+  const gc = (globalThis as { gc?: () => void }).gc;
+  const heap = () => {
+    gc?.();
+    return process.memoryUsage().heapUsed;
+  };
+  const wave = () => {
+    const ids: string[] = [];
+    for (let n = 0; n < 40; n += 1) {
+      const matchId = (soak.nk.matchCreate as (name: string, params: Record<string, string>) => string)('sproto_coop', {
+        private: '1', seed: '3', seedSource: 'server',
+      });
+      const driver = soak.driver(matchId);
+      const seat = presence(USERS[n % USERS.length]!, 'ada', `soak-${n}`);
+      driver.join([seat], game(USERS[n % USERS.length]!, `soak-${n}`));
+      hello(driver, seat, ['k1']);
+      ready(driver, seat);
+      driver.ticks(8);
+      driver.terminate(0);
+      ids.push(matchId);
+    }
+    for (const id of ids) assert.equal(bag(soak).liveSession(id), null);
+  };
+  wave();
+  const afterFirst = heap();
+  wave();
+  wave();
+  const afterLast = heap();
+  if (gc) assert.ok(afterLast < afterFirst + 8 * 1024 * 1024, `heap ${afterFirst} -> ${afterLast}`);
+  console.log(`coop sim soak heap ${afterFirst} -> ${afterLast} gc=${Boolean(gc)}`);
+}
+
+// A shutdown checkpoint and an in-place rehydrate both rebuild the live sim from exportState.
+{
+  const run = room();
+  hello(run.m, run.p, ['k1']);
+  ready(run.m, run.p);
+  run.m.ticks(30);
+  const wounded = hydrate(run.mod, run.m).session!.state.players[0]!;
+  wounded.lives = 1;
+  wounded.hp = 40;
+  run.m.terminate(1);
+  const shutdown = run.m.dispatcher.sent<{ stateHash: string; reason: string }>(OP.END).at(-1);
+  assert.equal(shutdown?.body.reason, 'server_shutdown');
+  assert.equal(bag(run.mod).liveSession(run.matchId), null);
+  const resumed = run.mod.call<{ matchId: string; error?: string }>('coop.resume', game(USERS[0]!), { matchId: run.matchId });
+  assert.equal(resumed.error, undefined, JSON.stringify(resumed));
+  const saved = run.mod.nk.storage.get(`sproto_coop/ckpt:${run.matchId}/00000000-0000-0000-0000-000000000000`);
+  assert.ok(saved);
+  const exported = saved.value['exported'];
+  assert.equal(sha256(exported), shutdown?.body.stateHash);
+  const Sim = run.mod.global.Sim as { importState(data: unknown): { players: { ctrl: string }[] }; exportState(state: unknown): unknown };
+  assert.equal(sha256(Sim.exportState(Sim.importState(exported))), shutdown?.body.stateHash);
+  const next = run.mod.driver(resumed.matchId);
+  const rebuilt = hydrate(run.mod, next).session!;
+  assert.equal(rebuilt.state.players.length, 6);
+  assert.equal(rebuilt.state.players[0]?.lives, 1);
+  assert.equal(rebuilt.state.players[0]?.hp, 40);
+  assert.equal(rebuilt.state.players[0]?.ctrl, 'cpu');
+  const packedPlayers = (exported as { state: { players: { ctrl: string }[] } }).state.players;
+  const livePlayers = rebuilt.state.players as { ctrl: string }[];
+  for (let i = 0; i < packedPlayers.length; i += 1) livePlayers[i]!.ctrl = packedPlayers[i]!.ctrl;
+  assert.equal(exportHash(run.mod, rebuilt.state), shutdown?.body.stateHash);
+  assert.equal(stateOf(next).session?.state.t, stateOf(run.m).session?.state.t);
+
+  const again = room();
+  hello(again.m, again.p, ['k1']);
+  ready(again.m, again.p);
+  again.m.ticks(12);
+  const live = hydrate(again.mod, again.m).session!.state as { events?: unknown[] };
+  if (live.events) live.events.length = 0;
+  const snap = SimExport(again.mod, live);
+  const hash = exportHash(again.mod, live);
+  bag(again.mod).releaseLive(again.matchId);
+  const parked = again.m.state as { simPacked: unknown; cold: boolean; phase: string; doneTick: number };
+  parked.simPacked = snap;
+  parked.cold = true;
+  parked.phase = 'done';
+  parked.doneTick = 1_000_000_000;
+  again.m.loop([]);
+  const restored = hydrate(again.mod, again.m).session!;
+  assert.equal(restored.state.players.length, 6);
+  assert.equal(exportHash(again.mod, restored.state), hash);
+  assert.ok(bag(again.mod).liveSession(again.matchId));
+}
+
+function SimExport(mod: LoadedModule, sim: unknown): unknown {
+  return (mod.global.Sim as { exportState(state: unknown): unknown }).exportState(sim);
 }
 
 console.log('coop_match tests ok');
