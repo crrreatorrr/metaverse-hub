@@ -164,7 +164,7 @@ namespace CoopMatch {
     try {
       var parsed = JSON.parse(raw) as unknown;
       if (!isObj(parsed)) return out;
-      for (var id in parsed) out[id] = String(parsed[id] || "").slice(0, 16);
+      for (var id in parsed) out[id] = HubMatch.cleanName(parsed[id], 16);
     } catch (e) {
       return out;
     }
@@ -694,7 +694,7 @@ namespace CoopMatch {
       var player = session.state.players[slot];
       if (fighterIdx >= 0) player.fid = fighterIdx;
       if (weaponIdx >= 0) player.weapon = weaponIdx;
-      player.name = (state.names[presence.userId] || presence.username || "P" + String(slot + 1)).slice(0, 16);
+      player.name = HubMatch.cleanName(state.names[presence.userId], 16) || HubMatch.cleanName(presence.username, 16) || "P" + String(slot + 1);
     }
     if (JSON.stringify(CoopProtocol.lifeFacts(session.state)) !== before) state.broken = "life-reset";
     state.present[presence.userId] = presence;
@@ -1335,6 +1335,11 @@ namespace CoopMatch {
         var seats = row.value["seats"];
         if (!exported || Object.prototype.toString.call(seats) !== "[object Array]" || (seats as unknown[]).length !== 6) throw new Error("checkpoint_invalid");
         state.session.state = Sim.importState(exported);
+        // Checkpoints written before names were cleaned may still carry a raw username.
+        for (var np = 0; np < state.session.state.players.length; np++) {
+          var restoredName = state.session.state.players[np].name;
+          if (restoredName) state.session.state.players[np].name = HubMatch.cleanName(restoredName, 16) || "P" + String(np + 1);
+        }
         state.session.seats = seats as CoopSeat[];
         state.session.seq = isObj(row.value["seq"]) ? row.value["seq"] as { [key: string]: number } : {};
         state.session.limiters = isObj(row.value["limiters"]) ? row.value["limiters"] as { [key: string]: { tokens: number; last: number } } : {};
@@ -1345,7 +1350,7 @@ namespace CoopMatch {
         state.clockMs = Number(row.value["clockMs"]) || state.clockMs;
         state.privateRoom = row.value["privateRoom"] === true;
         state.roster = parseStringList(JSON.stringify(row.value["roster"] || []));
-        state.names = isObj(row.value["names"]) ? row.value["names"] as { [id: string]: string } : {};
+        state.names = HubMatch.cleanNameMap(row.value["names"], 16);
         var playing = String(row.value["phase"] || "playing") === "playing";
         state.phase = playing ? "playing" : "lobby";
         state.accounts = restoreAccounts(row.value["accounts"], playing);
@@ -1415,7 +1420,7 @@ namespace CoopMatch {
           if (account.generation > 4294967295) account.generation = 1;
         }
         state.present[presence.userId] = presence;
-        if (!state.names[presence.userId]) state.names[presence.userId] = String(presence.username || "").slice(0, 16);
+        if (!state.names[presence.userId]) state.names[presence.userId] = HubMatch.cleanName(presence.username, 16);
         CoopMm.setLive(nk, presence.userId, _ctx.matchId || "");
       }
       return ret(state);
@@ -1680,7 +1685,7 @@ namespace CoopMatch {
     if (!code) return fail("room_code_busy", "Could not allocate a room code");
     var seed = CoopProto.serverSeed();
     var names: { [id: string]: string } = {};
-    names[ctx.userId || ""] = String(ctx.username || "").slice(0, 16);
+    names[ctx.userId || ""] = HubMatch.cleanName(ctx.username, 16);
     var matchId = "";
     try {
       matchId = nk.matchCreate(CoopProto.MATCH_NAME, {

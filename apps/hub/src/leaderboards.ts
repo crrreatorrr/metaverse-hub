@@ -12,7 +12,7 @@ import {
 } from './m3/types';
 
 interface TopRow { userId?: string; name?: string; value?: number; rank?: number }
-interface VerseRow { name?: string; gameId?: string; lifetime?: number; userId?: string }
+export interface VerseRow { name?: string; gameId?: string; lifetime?: number; userId?: string }
 
 const VERSE_GAME: Partial<Record<HubBoardId, string>> = {
   verse_by_game_hpos10i: 'hpos10i',
@@ -30,6 +30,24 @@ function rank(rows: { playerId: string; name: string; score: number }[], order: 
     last = row.score;
     return { rank: place, ...row };
   });
+}
+
+/**
+ * Sums verse.board lifetimes per player, optionally for one game. Rows group by userId,
+ * because distinct usernames can clean to the same display name; rows from a server
+ * without userId fall back to the name. Order follows the first row of each player.
+ */
+export function verseTotals(rows: readonly VerseRow[], game?: string): { playerId: string; name: string; score: number }[] {
+  const sums = new Map<string, { playerId: string; name: string; score: number }>();
+  for (const row of rows) {
+    if (!row.name || typeof row.lifetime !== 'number' || !row.gameId) continue;
+    if (game && row.gameId !== game) continue;
+    const key = row.userId ?? row.name;
+    const prev = sums.get(key) ?? { playerId: key, name: row.name, score: 0 };
+    prev.score += row.lifetime;
+    sums.set(key, prev);
+  }
+  return [...sums.values()];
 }
 
 export function createLiveLeaderboardProvider(client: NakamaClient, token: () => string): LeaderboardProvider {
@@ -63,17 +81,7 @@ export function createLiveLeaderboardProvider(client: NakamaClient, token: () =>
         };
       }
       const rows = await verseRows();
-      const game = VERSE_GAME[boardId];
-      const sums = new Map<string, { playerId: string; name: string; score: number }>();
-      for (const row of rows) {
-        if (!row.name || typeof row.lifetime !== 'number') continue;
-        if (game && row.gameId !== game) continue;
-        const key = row.userId ?? row.name;
-        const prev = sums.get(key) ?? { playerId: key, name: row.name, score: 0 };
-        prev.score += row.lifetime;
-        sums.set(key, prev);
-      }
-      return { ...base, rows: rank([...sums.values()], meta.order) };
+      return { ...base, rows: rank(verseTotals(rows, VERSE_GAME[boardId]), meta.order) };
     },
   };
 }

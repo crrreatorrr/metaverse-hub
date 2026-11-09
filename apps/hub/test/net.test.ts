@@ -8,7 +8,7 @@ import { createInterp } from '../src/net/interp';
 import { connectPlaza, sessionMatchKey } from '../src/net/plaza';
 import { ANIMS, OP, TICK_RATE, byteToYaw, decodeRow, encodePose, parseDelta, parseRoster, parseSnapshot, yawToByte, zoneOf, type PoseRow } from '../src/net/protocol';
 import { createRemoteWorld } from '../src/net/remoteWorld';
-import { createLiveLeaderboardProvider } from '../src/leaderboards';
+import { createLiveLeaderboardProvider, verseTotals } from '../src/leaderboards';
 import { BOARD_META, HUB_BOARD_IDS, formatBoardScore, formatTrialMs, gameForBoard, serverBoard } from '../src/m3/types';
 import { createStubLeaderboardProvider } from '../src/m3/stub';
 import type { NakamaClient } from '@metaverse/hub-sdk';
@@ -194,6 +194,20 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   const byNobu = await provider.load('verse_by_game_nobu');
   assert.deepEqual(byNobu.rows.map((r) => r.name), ['b', 'a']);
   assert.equal(calls.filter((c) => c.id === 'verse.board').length, 1, 'verse rows cached');
+}
+
+// Review fix (HUB-W-1-01): Verse totals group by userId, so two players whose names
+// clean to the same string stay two rows. Rows without a userId still group by name.
+{
+  const rows = [
+    { userId: 'u1', name: 'ada', gameId: 'nobu', lifetime: 5 },
+    { userId: 'u2', name: 'ada', gameId: 'nobu', lifetime: 4 },
+    { userId: 'u1', name: 'ada', gameId: 'sproto', lifetime: 2 },
+    { name: 'old', gameId: 'nobu', lifetime: 1 },
+    { name: 'old', gameId: 'pb', lifetime: 1 },
+  ];
+  assert.deepEqual(verseTotals(rows).map((r) => [r.playerId, r.name, r.score]), [['u1', 'ada', 7], ['u2', 'ada', 4], ['old', 'old', 2]], 'verse totals by userId');
+  assert.deepEqual(verseTotals(rows, 'nobu').map((r) => [r.playerId, r.score]), [['u1', 5], ['u2', 4], ['old', 1]], 'verse totals for one game');
 }
 
 console.log('hub net tests ok');
