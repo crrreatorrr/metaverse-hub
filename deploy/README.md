@@ -41,6 +41,8 @@ Builds you produce elsewhere and copy to the VPS:
 | `https://play.<domain>/sproto-duel/` | `/srv/play/sproto-duel/current` | `sproto` |
 | `https://play.<domain>/sproto-fighter/` | `/srv/play/sproto-fighter/current` | `sproto-fighter` (the Bar's arcade cabinet, no plaza ring) |
 | `https://play.<domain>/sproto-arcade/` | `/srv/play/sproto-arcade/current` | `sproto-arcade` (the Bar's arcade cabinet, no plaza ring) |
+| `https://play.<domain>/sproto-shooter/` | `/srv/play/sproto-shooter/current` | `sproto-shooter` (plaza ring) |
+| `https://play.<domain>/sproto-coop-battle/` | `/srv/play/sproto-coop-battle/current` | `sproto-coop-battle` (the Bar's arcade cabinet, no plaza ring) |
 
 Sproto Duel's public path is `sproto-duel`. The game id stored by Nakama in this repo is `sproto`. Portal URLs in `apps/hub/src/config.ts` still point at `/play/<id>/` on the hub origin. Point them at `https://play.<domain>/<path>/` when you build the hub for production. HPOS10I's web build includes a file of about 37.7 MiB. The cache notes below are written for that file.
 
@@ -57,6 +59,7 @@ deploy/scripts/install-caddy.sh    Caddyfile, cert paths, reload
 deploy/scripts/cloudflare-ufw.sh   80/443 from Cloudflare ranges only
 deploy/scripts/deploy-hub.sh
 deploy/scripts/deploy-game.sh
+deploy/scripts/deploy-server.sh    zero-kill Nakama upgrade (see Upgrades)
 deploy/scripts/check-dist-secrets.sh
 deploy/scripts/backup-postgres.sh
 deploy/scripts/check-env.sh
@@ -128,7 +131,7 @@ On the server:
 5. Deploy the hub and each game. Build the hub with `VITE_NAKAMA_SERVER_KEY` set to this server's `NAKAMA_SERVER_KEY`; the build refuses an empty key. On the build machine, before the upload:
 
    ```bash
-   deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade
+   deploy/scripts/check-dist-secrets.sh dist/hub dist/hpos10i dist/nobu dist/peoples-bitcoin dist/sproto-duel dist/sproto-fighter dist/sproto-arcade dist/sproto-shooter dist/sproto-coop-battle
    ```
 
    `rsync` the complete trees to the VPS, including the hub’s `realm-pages.txt` and every listed realm page, then publish only when authorized. `deploy-hub.sh` and `deploy-game.sh` run the same check again and refuse the swap when it fails.
@@ -141,6 +144,8 @@ On the server:
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-duel /tmp/sproto-duel
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-fighter /tmp/sproto-fighter
    /opt/metaverse/deploy/scripts/deploy-game.sh sproto-arcade /tmp/sproto-arcade
+   /opt/metaverse/deploy/scripts/deploy-game.sh sproto-shooter /tmp/sproto-shooter
+   /opt/metaverse/deploy/scripts/deploy-game.sh sproto-coop-battle /tmp/sproto-coop-battle
    ```
 
    Precompression uses `gzip -9` and `brotli -q 11`. The HPOS10I wasm can take a few minutes.
@@ -197,7 +202,7 @@ Caddy's `precompressed` serves a sibling `.br` or `.gz` and sets `Content-Type: 
 
 ## COOP / COEP
 
-Off for every game unless `GAME_COOP_<ID>=1` in `deploy/.env`. The names are `GAME_COOP_HPOS10I`, `GAME_COOP_NOBU`, `GAME_COOP_PEOPLES_BITCOIN`, `GAME_COOP_SPROTO_DUEL`, `GAME_COOP_SPROTO_FIGHTER`, and `GAME_COOP_SPROTO_ARCADE`. `1` sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on that game only. Then re-run `deploy/scripts/install-caddy.sh`. Turn it on only for a build that needs `SharedArrayBuffer`, and only when that build's assets are same-origin. A cross-origin script or font will fail once COEP is on.
+Off for every game unless `GAME_COOP_<ID>=1` in `deploy/.env`. The names are `GAME_COOP_HPOS10I`, `GAME_COOP_NOBU`, `GAME_COOP_PEOPLES_BITCOIN`, `GAME_COOP_SPROTO_DUEL`, `GAME_COOP_SPROTO_FIGHTER`, `GAME_COOP_SPROTO_ARCADE`, `GAME_COOP_SPROTO_SHOOTER`, and `GAME_COOP_SPROTO_COOP_BATTLE`. `1` sends `Cross-Origin-Opener-Policy: same-origin` and `Cross-Origin-Embedder-Policy: require-corp` on that game only. Then re-run `deploy/scripts/install-caddy.sh`. Turn it on only for a build that needs `SharedArrayBuffer`, and only when that build's assets are same-origin. A cross-origin script or font will fail once COEP is on.
 
 ## Firewall
 
@@ -254,13 +259,63 @@ That `psql` command shows the password in the process list for the length of the
 
 Unattended upgrades install Ubuntu security updates and do not reboot. Reboot for a kernel on purpose.
 
-After a git pull that changes the Nakama module or this folder:
+### Upgrading Nakama without killing live matches
+
+`deploy/scripts/deploy-server.sh` is the runbook for a server change (the Nakama module, `compose.yml` or `nakama/`). It is run by you, by hand, on the VPS. A hub deploy must not end a live duel, arena or coop match, so the script drains the single Nakama node before it restarts it. Two Nakama nodes at once are not safe on OSS Nakama.
 
 ```bash
 cd /opt/metaverse
 git pull
-deploy/scripts/bootstrap.sh
+DRY_RUN=1 deploy/scripts/deploy-server.sh   # optional: prints the plan and the live match count, changes nothing
+deploy/scripts/deploy-server.sh             # add --game <id>=<build-dir> (repeatable) to publish game pages last
 ```
+
+What it does, in order:
+
+1. Backs up Postgres with `backup-postgres.sh` (and rsyncs it off the host when `BACKUP_RSYNC_TARGET` is set).
+2. Builds `metaverse-nakama:<git sha>` while the old container keeps serving. It refuses a checkout with uncommitted tracked changes (`ALLOW_DIRTY=1` overrides).
+3. Starts maintenance: calls the `maint.begin` RPC with the http key from `deploy/.env`, with a deadline 20 minutes out (`DRAIN_MINUTES`). New hard matches are refused and players get a notice.
+4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live` (duel, arena, coop, shooter PvP), until there are none or the deadline passes.
+5. Waits 60 s more (`NOTICE_SEC`) so the notice reaches everyone.
+6. Retags `metaverse-nakama:prod` to the new image and recreates only the `nakama` container (`up -d --no-build --no-deps --force-recreate`). Postgres is not restarted. Matches that are still running get the 60 s shutdown grace below.
+7. Waits for the container healthcheck and `127.0.0.1:7350/healthcheck`.
+8. Ends maintenance with `maint.end`. An EXIT trap also calls it, so Ctrl-C or a failure ends maintenance too. If that call fails (Nakama down), maintenance turns itself off at its deadline.
+9. With `--game <id>=<build-dir>`, publishes those game pages with `deploy-game.sh`, after the server is healthy.
+
+`:prod` always names the live image, so `bootstrap.sh`, the backup timer and plain `docker compose` commands keep working. The sha tags are the rollback history (`docker image ls metaverse-nakama`). Before switching, the script prints the tag of the image it replaces; when that image has no sha tag yet (it was built by `bootstrap.sh`), it tags it `rollback-<stamp>` first.
+
+The `maint.*` RPCs come with the server drain ticket. Until the running server has them, `maint.begin` returns 404: the script prints a warning, waits 60 s (`NO_MAINT_WAIT_SEC`, Ctrl-C to stop) and restarts without a drain or a notice. Any other `maint.begin` error stops the script before anything restarts. The contract the script expects, all called with `?http_key=...&unwrap=true`:
+
+| RPC | Body | Answer |
+| --- | --- | --- |
+| `maint.begin` | `{"reason": "deploy <tag>", "deadline": <unix seconds>}` | 200 when maintenance is on |
+| `maint.live` | `{}` | `{"hard": N, "soft": N, "kinds": {"duel": N, "arena": N, "coop": N, "shooter": N}}` |
+| `maint.end` | `{}` | 200 |
+
+The http key goes to `curl` in a config read from stdin, so it does not show in the process list.
+
+**What players see** once the server drain and the game-side retries have landed (until then, only the restart and the shutdown grace apply). During the drain, a "Maintenance in N min" notice. Matches that are already running carry on. Starting a new duel, arena, coop or Shooter match is refused until the restart, while the plaza, People's Bitcoin worlds and `coop.resume` stay open. At the restart, the plaza and PB reconnect, and a coop team that was still playing resumes from its checkpoint. Expect about a minute without the server.
+
+**Checks after a deploy:**
+
+```bash
+cd /opt/metaverse/deploy
+docker compose --env-file .env -f compose.yml ps        # nakama "healthy", created a minute ago
+docker compose --env-file .env -f compose.yml logs --since 10m nakama | grep -iE 'error|panic' || true
+# Held wager escrow: this should fall back to 0 within minutes of the restart.
+docker compose --env-file .env -f compose.yml exec -T postgres psql -U postgres -d nakama -c \
+  "SELECT count(*) AS held, coalesce(sum(stake), 0) AS stake FROM game.sproto_wager WHERE status = 'held'"
+```
+
+**Rollback.** Deploy the previous image again, without a drain and without a rebuild:
+
+```bash
+IMAGE_TAG=<previous sha> deploy/scripts/deploy-server.sh --no-drain
+```
+
+A rollback only swaps the image. It does not undo database migrations, which is why migrations must be additive: the previous image has to run on the new schema. To go back further, restore a dump (see Backups).
+
+`bootstrap.sh` still rebuilds and recreates Nakama immediately (`up -d --build`), with no drain. Use it for the first boot and for host changes, not for a routine server upgrade.
 
 `HUB_FAULT_INJECT` is not set. The duplication-suite hook stays inert.
 

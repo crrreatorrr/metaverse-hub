@@ -12,7 +12,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { promisify } from 'node:util';
-import { call, guest, num, psql, sleep, sqlId, ticketBalance, type Guest } from './harness.ts';
+import { call, compose, guest, num, psql, sleep, sqlId, ticketBalance, waitReady, type Guest } from './harness.ts';
 
 const execFileAsync = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -464,5 +464,33 @@ export async function runWagers(test: TestFn): Promise<void> {
     assert.equal(ticketBalance(b.userId, GAME), startB - STAKE);
     assert.equal(escrowPot(a.userId, b.userId), 0);
     assertConserved(a.userId, b.userId, startA, startB);
+  });
+
+  // HUB-W-1-03: a held escrow from a match that died with Nakama is refunded at boot
+  // (sproto_wager_expire(interval '0') after HubSchema.apply), and a second restart
+  // does not refund it again.
+  await test('wager', 'nakama restart refunds a held wager once', async () => {
+    const a = await claimed();
+    const b = await claimed();
+    const tag = a.userId.replace(/-/g, '').slice(0, 8);
+    fund(a.userId, 40, `wra${tag}`);
+    fund(b.userId, 40, `wrb${tag}`);
+    const startA = ticketBalance(a.userId, GAME);
+    const startB = ticketBalance(b.userId, GAME);
+    const id = matchKey();
+    const opened = hold(id, a.userId, b.userId);
+    assert.equal(opened.status, 'held', JSON.stringify(opened));
+    assert.equal(ticketBalance(a.userId, GAME), startA - STAKE);
+    for (let round = 0; round < 2; round += 1) {
+      compose(['restart', 'nakama'], 180_000);
+      await waitReady();
+      assert.equal(psql(`SELECT status || ':' || COALESCE(reason, '') FROM game.sproto_wager WHERE match_id = '${id}'`), 'refunded:expired', `restart ${round + 1}`);
+      assert.equal(kindRows(id, 'duel_refund'), 2, `restart ${round + 1} refunds each seat once`);
+      assert.equal(ticketBalance(a.userId, GAME), startA);
+      assert.equal(ticketBalance(b.userId, GAME), startB);
+      assert.equal(escrowPot(a.userId, b.userId), 0);
+    }
+    assertLockFree(a.userId);
+    assertLockFree(b.userId);
   });
 }

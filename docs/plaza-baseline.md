@@ -38,7 +38,7 @@ The Coin adds an instance to the existing gem draw and requires no additional do
 1. Open `/hub/` without saved state. Verify login/sign-up tabs, field errors, guest entry and
    loading progress. With a local test account, sign in, reload and check the account persists.
 2. Verify default south spawn `(0, 1.775, 42)`, facing the monument. Walk with arrows, sprint with
-   Shift, jump with Space, turn with WASD and mouse, and check camera collision and pitch limits.
+   Shift, jump with Space, move with WASD or the arrows, turn with the mouse or Z / C, and check camera collision and pitch limits.
 3. Open `/hub/#from=hpos10i`, `#from=nobu`, `#from=peoples-bitcoin`, and `#from=sproto`.
    Verify each spawn faces its own ring, 7.5 m short of the portal at radius 96. Open
    `#from=sproto-fighter` and `#from=sproto-arcade`: both return to the Bar cabinet after loading.

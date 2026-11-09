@@ -50,7 +50,8 @@ body.gated #hud {
   cursor: not-allowed;
 }
 
-.login :focus-visible {
+.login :focus-visible,
+.login .pad-focus {
   outline: 4px dashed var(--yellow-2);
   outline-offset: 6px;
 }
