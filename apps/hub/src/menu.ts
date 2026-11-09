@@ -9,7 +9,7 @@ import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets';
 
 /** Tab order, for the controller's LB / RB. */
-export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'pets'];
+export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'sims', 'pets'];
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
   { id: 'items', label: 'Items', key: '1', icon: 'bag' },
