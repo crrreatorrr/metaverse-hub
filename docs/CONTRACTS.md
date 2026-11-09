@@ -19,7 +19,7 @@ The numbers come from the frozen "CONTRACT" section of the hub's realtime plan. 
 | C1 | **Ids.** Game ids (`ctx.vars.game`, matchmaker `properties.game`, label `game`), match module names and RPC names. RPC ids added since the realtime contract are prefixed by their owner (`hub.`, `chat.`, `sproto.`, `pb.`, `coop.`, `shooter.`); older ones such as `profile.get`, `portal.enter` and `tickets.*` have no prefix ([realtime.md](realtime.md#ids)). | hub | `server/modules/src/hub_games.ts:6`, `games/pb_rpcs.ts:1`, `packages/hub-sdk/src/types.ts`; sproto-duel `src/net/protocol.ts:9` |
 | C2 | **Unknown; cited nowhere.** Guess: file ownership, where game agents do not edit `tsconfig.json`, `append-vendor.mjs`, `package.json`, `nakama.d.ts`, `sproto_nakama.d.ts`, `schema.ts` or `rpcs.ts` ([realtime.md](realtime.md#adding-a-games-server-code)). | hub | none |
 | C3 | **Build order and typings.** Game files in `server/modules/src/games/` compile after the hub files. `vendor/*.js` bundles are appended in alphabetical order. Extra Nakama typings go in `games/<game>_nakama.d.ts` by interface merging only. | hub | `server/modules/append-vendor.mjs:3`, `games/pb_nakama.d.ts:1` |
-| C4 | **Game registry and migrations.** `HubGames.register({ game, matchmaker })` routes the one matchmaker hook and the RT hooks by game. `HubSchema.register` adds migrations inside the game's id range (§3). | hub | `hub_games.ts:1`, `main.ts:146`, `rt_hooks.ts:3`, `schema.ts:3332`, `games/sproto_arcade.ts:8`, `server/test/dup/migrations.ts:129`, `server/test/unit/scaffold.test.ts:82`, `docs/m6-server-prep.md:7` |
+| C4 | **Game registry and migrations.** `HubGames.register({ game, matchmaker })` routes the one matchmaker hook and the RT hooks by game. `HubSchema.register` adds migrations inside the game's id range (§3). | hub | `hub_games.ts:1`, `main.ts:146`, `rt_hooks.ts:3`, `schema.ts:3345`, `games/sproto_arcade.ts:8`, `server/test/dup/migrations.ts:129`, `server/test/unit/scaffold.test.ts:82`, `docs/m6-server-prep.md:7` |
 | C5 | **Registrations in `InitModule`.** A game adds `registerMatch` / `registerRpc` calls only between its `// >>> game:` markers in `main.ts`. Every handler is a top-level named function, because Nakama finds handlers by global name. | hub | `main.ts:259`, `games/pb_world.ts:327` |
 | C6 | **Server-paid Tickets.** Matches credit Tickets only through `HubEconomy` with `srv_*` reasons and sealed, deterministic idempotency keys. `tickets.earn` rejects `srv_*`. `sproto_wins` is written by the server only. | hub | `server_economy.ts:1`, `rpcs.ts:598`, `packages/hub-sdk/test/sdk.test.ts:293` |
 | C7 | **Labels and placement.** An authoritative label is JSON with `game` and `kind`. `HubShards.place` picks the least-full open instance. A new match shows in `matchList` about 1 s after `matchCreate`. | hub | `shards.ts:2`, `hub_rpcs.ts:2`, `games/pb_world.ts:1`, `games/pb_rpcs.ts:5`, `server/test/games/sproto_arena.test.ts:153`; sproto-duel `src/net/protocol.ts:245` |
@@ -87,7 +87,7 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 
 ## 3. Migration id ranges
 
-`schema.ts` (`MIGRATIONS`) and game files (`HubSchema.register`) share one numbered sequence. The runner refuses an unapplied id below the highest recorded id, so PRs merge and deploy in id order. Migrations are forward-only and additive. The source of truth is the comment at `server/modules/src/schema.ts:3331-3347`.
+`schema.ts` (`MIGRATIONS`) and game files (`HubSchema.register`) share one numbered sequence. The runner refuses an unapplied id below the highest recorded id, so PRs merge and deploy in id order. Migrations are forward-only and additive. The source of truth is the comment at `server/modules/src/schema.ts:3344-3361`.
 
 | Ids | Owner | Registered by | Used |
 |---|---|---|---|
@@ -103,9 +103,10 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0040 | sproto-shooter | `games/shooter_rewards.ts` | `0040_shooter_boss_receipt` |
 | 0041 | sproto-coop-battle | `games/coop_rewards.ts` | `0041_coop_boss_receipt` |
 | 0042 | hub | `schema.ts` | `0042_server_flags` (`game.server_flags`, read by `src/flags.ts`) |
-| 0043+ | next free | | none on `main`. Open PRs propose `0043_hpos10i_core_live` (#103) and `0044_pb_godmode` (#101); check open PRs before taking an id |
+| 0043 | hub | `schema.ts` | `0043_hpos10i_core_live` (takes the HPOS10I Core off the 0033 hold) |
+| 0044+ | next free | | none on `main`. An open PR proposes `0044_pb_godmode` (#101); check open PRs before taking an id |
 
-The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0042 did.
+The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0043 did.
 
 ## 4. The games
 

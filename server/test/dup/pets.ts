@@ -112,21 +112,25 @@ async function spiral(): Promise<void> {
 }
 
 async function relicStillGrants(): Promise<void> {
+  // 0043: hpos10i_core is live again. The first Z1A1 clear grants it once; no items, no Tickets.
   const session = await login(HPOS);
   const user = session.hub.userId;
   const result = await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   const detail = JSON.stringify(result.body);
   assert.equal(body(result).error, undefined, detail);
-  assert.equal(body(result).granted, undefined, detail);
+  assert.equal(body(result).granted, 'hpos10i_core', detail);
   assert.deepEqual(body(result).granted_items ?? [], [], detail);
-  assert.deepEqual(owned(user), [], 'a held relic clear wrote item_owned');
+  assert.deepEqual(owned(user), [], 'a relic clear wrote item_owned');
   assert.equal(grantRows(user), 0);
-  assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(user)}'`), 0);
-  assert.equal(pendingRelics(user, 'hpos10i_core'), 1);
-  assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'hpos10i_core'`), 0);
-  assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'hpos10i'`), 0);
+  assert.equal(num(`SELECT count(*) FROM game.relic_claim WHERE user_id = '${sqlId(user)}' AND relic_id = 'hpos10i_core'`), 1);
+  assert.equal(pendingRelics(user, 'hpos10i_core'), 0);
+  assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'hpos10i_core' AND op = 'grant_relic'`), 1);
+  assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'hpos10i'`), 1);
   assert.equal(ticketBalance(user, HPOS), 0);
   assert.equal(verseBalance(user), 0);
+  const again = await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
+  assert.equal(body(again).granted, undefined, JSON.stringify(again.body));
+  assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = 'hpos10i_core' AND op = 'grant_relic'`), 1);
 }
 
 async function wrongGameOrPayload(): Promise<void> {
@@ -155,14 +159,16 @@ async function profileAndLoadout(): Promise<void> {
   await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
+  // The Z1A1 clear grants hpos10i_core (live since 0043), which derives pet_speed_sproto.
+  // The act-2 clear's pet_honk_sproto is still held and stays out.
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
-    { owned: [], active: null },
+    { owned: ['pet_speed_sproto'], active: null },
     JSON.stringify(profile.body),
   );
   assert.equal(
     ((profile.body as { relics?: string[] }).relics ?? []).includes('hpos10i_core'),
-    false,
+    true,
     JSON.stringify(profile.body),
   );
 
@@ -201,7 +207,7 @@ async function profileAndLoadout(): Promise<void> {
 export async function runPets(test: TestFn): Promise<void> {
   await test('pets', 'hpos10i z1 act 2 holds pet_honk_sproto once and a replay stays empty', honkOnce);
   await test('pets', 'hpos10i z2 act 2 holds pet_spiral_sproto', spiral);
-  await test('pets', 'hpos10i z1 act 1 holds hpos10i_core with no items', relicStillGrants);
+  await test('pets', 'hpos10i z1 act 1 grants hpos10i_core once with no items', relicStillGrants);
   await test('pets', 'wrong game, named item, or other zone grants no pet', wrongGameOrPayload);
   await test('pets', 'profile.get omits held pets and loadout.set_hub equips a live one', profileAndLoadout);
 }
