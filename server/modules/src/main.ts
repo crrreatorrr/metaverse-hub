@@ -206,8 +206,9 @@ function InitModule(
 ): void {
   CoopMatch.attach();
   HubSchema.apply(nk, logger);
-  // Single Nakama node: no duel match survives a restart, so every held wager is refunded now.
+  // Single Nakama node: no duel or Shooter match survives a restart, so every held wager is refunded now.
   SprotoDuel.expireAllHeldAtBoot(nk, logger);
+  bootShooterWagers(nk, logger);
   initializer.registerRpc("healthcheck", rpcHealthcheck);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
@@ -289,6 +290,7 @@ function InitModule(
   initializer.registerRpc("shooter.queue_cancel", rpcShooterQueueCancel);
   initializer.registerRpc("shooter.resume", rpcShooterResume);
   initializer.registerRpc("shooter.metrics", rpcShooterMetrics);
+  initializer.registerMatch("shooter_wager_sweep", { matchInit: shooterWagerSweepInit, matchJoinAttempt: shooterWagerSweepJoinAttempt, matchJoin: shooterWagerSweepJoin, matchLeave: shooterWagerSweepLeave, matchLoop: shooterWagerSweepLoop, matchTerminate: shooterWagerSweepTerminate, matchSignal: shooterWagerSweepSignal });
   // <<< game: sproto-shooter
   // ----
   // >>> game: peoples-bitcoin registrations
@@ -319,6 +321,8 @@ function InitModule(
   initializer.registerBeforeLink(beforeClosed);
   initializer.registerBeforeUnlink(beforeClosed);
   // Plaza shard 1 lives for the whole process; more shards open on demand (hub.join).
+  // The Shooter escrow sweep lives with it: stale holds refund without a new queue.
+  nk.matchCreate("shooter_wager_sweep", {});
   nk.matchCreate("hub", { shard: "1" });
   logger.info("metaverse hub runtime ready");
 }
