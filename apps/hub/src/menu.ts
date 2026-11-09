@@ -5,6 +5,9 @@ import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLo
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics';
 
+/** Tab order, for the controller's LB / RB. */
+export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics'];
+
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
   { id: 'items', label: 'Items', key: '1', icon: 'bag' },
   { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },

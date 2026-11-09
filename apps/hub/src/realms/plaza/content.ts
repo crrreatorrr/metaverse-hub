@@ -693,6 +693,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     portalsEnabled: () => !inside,
     interactions,
     handleKey: event => arcadePicker.handleKey(event),
+    overlayOpen: () => arcadePicker.open,
     async onSession(session) {
       const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
       boardRows = board.rows ?? [];
