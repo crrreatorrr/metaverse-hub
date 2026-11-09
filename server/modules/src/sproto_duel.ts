@@ -55,12 +55,72 @@ namespace SprotoDuel {
   /** Net Tickets a player may win from wagers per UTC day. */
   export var DAILY_WIN_CAP = 200;
 
+  /** Longest duel, in seconds of play: the loop closes a match as "timeout" after this (MAX_PLAY). */
+  export var MAX_PLAY_S = 15 * 60;
+  /**
+   * Extra time before a held wager counts as abandoned. The stake is held right before
+   * startedTick and a slow loop stretches MAX_PLAY in wall time, so the sweep age must
+   * exceed MAX_PLAY_S or the sweep could refund a live match and the winner lose the pot.
+   */
+  export var WAGER_EXPIRE_MARGIN_S = 5 * 60;
+  /** Wager escrow sweep (plan R.9 step 5): held rows older than this are refunded (20 minutes). */
+  export var WAGER_EXPIRE_AGE = String(MAX_PLAY_S + WAGER_EXPIRE_MARGIN_S) + " seconds";
+  /** At most one periodic sweep per this many ms on the node (node-wide localcache stamp). */
+  export var WAGER_SWEEP_EVERY_MS = 5 * 60 * 1000;
+  var WAGER_SWEEP_KEY = "sproto:wager_sweep:last";
+
+  function expireHeld(nk: nkruntime.Nakama, age: string): number {
+    var rows = nk.sqlQuery("SELECT game.sproto_wager_expire(interval '" + age + "') AS n", []);
+    return rows && rows.length ? Number(rows[0]["n"]) || 0 : 0;
+  }
+
+  /**
+   * Called once from InitModule, after HubSchema.apply: refunds EVERY held wager,
+   * whatever its age (interval '0').
+   *
+   * SINGLE-NODE ASSUMPTION: this hub runs one Nakama node (OSS Nakama cannot share
+   * matches across nodes; plan R.9). Matches live in process memory, so at boot no
+   * duel match can be running and every 'held' row belongs to a match that died
+   * with the previous process. If the hub ever runs two nodes at once, this must
+   * become age-based or match-aware, or it would refund a live match on the other node.
+   * Refunds are idempotent (sproto_wager_refund locks the row and skips non-held rows).
+   * A failure is logged and does not stop the runtime: the periodic sweep retries.
+   */
+  export function expireAllHeldAtBoot(nk: nkruntime.Nakama, logger: nkruntime.Logger): void {
+    try {
+      var n = expireHeld(nk, "0");
+      logger.info("sproto wager boot sweep refunded " + String(n) + " held wager(s)");
+    } catch (e) {
+      logger.error("sproto wager boot sweep failed " + String(e));
+    }
+  }
+
+  /**
+   * Periodic escrow sweep, called from every hub shard loop (shard 1 is always on).
+   * The node-wide localcache stamp limits it to one run per WAGER_SWEEP_EVERY_MS;
+   * the SQL is safe to repeat if two shards race. The first call after boot only
+   * stamps (the boot sweep just ran), so the first periodic sweep is one window later.
+   * The lazy call in onMatched stays.
+   */
+  export function maybeSweepWagers(nk: nkruntime.Nakama, logger: nkruntime.Logger, nowMs: number): boolean {
+    var last = Number(nk.localcacheGet(WAGER_SWEEP_KEY) || 0);
+    if (!last) {
+      nk.localcachePut(WAGER_SWEEP_KEY, nowMs, 0);
+      return false;
+    }
+    if (nowMs - last < WAGER_SWEEP_EVERY_MS) return false;
+    nk.localcachePut(WAGER_SWEEP_KEY, nowMs, 0);
+    var n = expireHeld(nk, WAGER_EXPIRE_AGE);
+    if (n > 0) logger.info("sproto wager sweep refunded " + String(n) + " held wager(s)");
+    return true;
+  }
+
   var TICK_RATE = 20;
   var JOIN_TIMEOUT = 30 * TICK_RATE;
   var RECONNECT = 10 * TICK_RATE;
   /** A player whose input stream stops this long while the other's continues forfeits. */
   var STALL = 10 * TICK_RATE;
-  var MAX_PLAY = 15 * 60 * TICK_RATE;
+  var MAX_PLAY = MAX_PLAY_S * TICK_RATE;
   var LINGER = 2 * TICK_RATE;
 
   export interface DuelState {
@@ -196,7 +256,7 @@ namespace SprotoDuel {
   export var handler: nkruntime.MatchHandler<DuelState> = {
     matchInit: function (_ctx, _logger, _nk, params) {
       var players = JSON.parse(String(params["players"])) as string[];
-      var names = JSON.parse(String(params["names"] || "{}")) as { [userId: string]: string };
+      var names = HubMatch.cleanNameMap(JSON.parse(String(params["names"] || "{}")), 32);
       var state: DuelState = {
         players: players, wager: params["wager"] === "1", sim: String(params["sim"]), names: names,
         present: {}, hello: {}, phase: "joining", createdTick: 0, startedTick: -1, leftTick: {},
@@ -312,10 +372,10 @@ namespace SprotoDuel {
     if (a.presence.userId === b.presence.userId) return;
     if (a.properties["wager"] !== b.properties["wager"] || a.properties["sim"] !== b.properties["sim"]) return;
     // Refund anything a crashed match left in escrow.
-    nk.sqlQuery("SELECT game.sproto_wager_expire(interval '15 minutes')", []);
+    expireHeld(nk, WAGER_EXPIRE_AGE);
     var names: { [userId: string]: string } = {};
-    names[a.presence.userId] = String(a.presence.username || "").slice(0, 32);
-    names[b.presence.userId] = String(b.presence.username || "").slice(0, 32);
+    names[a.presence.userId] = HubMatch.cleanName(a.presence.username, 32);
+    names[b.presence.userId] = HubMatch.cleanName(b.presence.username, 32);
     var id = nk.matchCreate(MATCH_NAME, {
       players: JSON.stringify([a.presence.userId, b.presence.userId]), names: JSON.stringify(names),
       wager: a.properties["wager"] === "1" ? "1" : "0", sim: String(a.properties["sim"]),

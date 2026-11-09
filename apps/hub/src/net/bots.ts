@@ -4,7 +4,7 @@
 import { encodePose, type PoseRow, type RosterEntry } from './protocol';
 import type { RemoteWorld } from './remoteWorld';
 
-const CHARACTERS = ['wizard', 'sahil', 'agent', 'tinubu', 'broccoli'];
+const CHARACTERS = ['wizard', 'soldier', 'laser', 'monster', 'dragon', 'beast', 'sahil', 'flyer', 'shooterbot', 'mole'];
 
 export function startBots(world: RemoteWorld, count: number, now: () => number = () => performance.now()): () => void {
   const n = Math.max(1, Math.min(99, Math.floor(count)));

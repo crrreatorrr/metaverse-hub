@@ -12,12 +12,14 @@
 namespace HubBoards {
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true };
   var BOARD_GAME: { [id: string]: string } = {
     hpos10i_act_time: "hpos10i",
     nobu_trial_time: "nobu",
     pb_total_xp: "peoples-bitcoin",
     sproto_wins: "sproto",
+    shooter_story_clear_ms_v1: "sproto-shooter",
+    coop_stage_clear_ms_v1: "sproto-coop-battle",
   };
   /** asc keeps the lower time. desc keeps the higher total. incr adds wins. */
   var BOARD_MODE: { [id: string]: string } = {
@@ -25,6 +27,8 @@ namespace HubBoards {
     nobu_trial_time: "asc",
     pb_total_xp: "desc",
     sproto_wins: "incr",
+    shooter_story_clear_ms_v1: "asc",
+    coop_stage_clear_ms_v1: "asc",
   };
 
   /** Integer ms floors per NOBU level (same numbers as NOBU's src/config/trials.js) and the ceiling. */
@@ -217,6 +221,8 @@ namespace HubBoards {
     }
     var boardId = text(body, "boardId");
     if (!boardId && text(body, "board_id")) boardId = text(body, "board_id");
+    // Clients cannot post a Shooter or Coop clear. Settlement writes the row in the same receipt.
+    if (boardId === "shooter_story_clear_ms_v1" || boardId === "coop_stage_clear_ms_v1") return fail("bad_board");
     if (SERVER_BOARDS[boardId]) return JSON.stringify({ accepted: false, reason: "server_board" });
     var mode = BOARD_MODE[boardId];
     if (!mode) return fail("bad_board");
@@ -294,7 +300,25 @@ namespace HubBoards {
     if (limit < 1) limit = 1;
     if (limit > 50) limit = 50;
     var order = boardId === "meta" || BOARD_MODE[boardId] !== "asc" ? "desc" : "asc";
-    return JSON.stringify(queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]));
+    var result = queryJson(nk, TOP_SQL, [boardId, order, ctx.userId, variant, limit]);
+    var rows = result.rows;
+    if (Object.prototype.toString.call(rows) === "[object Array]") for (var i = 0; i < (rows as unknown[]).length; i++) cleanRowName((rows as unknown[])[i]);
+    cleanRowName(result.me);
+    return JSON.stringify(result);
+  }
+
+  /**
+   * Board names are usernames: clean them for display (HubMatch.cleanName; accounts are never renamed).
+   * A name that cleans to "" shows the first 8 characters of the row's userId, like the SQL
+   * fallback for a missing username. Clients group rows by userId, never by name.
+   */
+  export function cleanRowName(row: unknown): void {
+    if (!isObject(row)) return;
+    var r = row as { [key: string]: unknown };
+    if (r.name === undefined) return;
+    var name = HubMatch.cleanName(r.name);
+    if (!name && typeof r.userId === "string") name = r.userId.slice(0, 8);
+    r.name = name;
   }
 
   /**

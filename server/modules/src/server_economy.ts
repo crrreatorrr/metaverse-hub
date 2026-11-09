@@ -56,6 +56,7 @@ namespace HubEconomy {
     if (invalid) return invalid;
     if (!wholeCount(amount)) return { error: "bad_amount" };
     if (!reason || reason.length > 64) return { error: "bad_reason" };
+    if (ShooterRewards.clientBlocked(reason) || CoopRewards.clientBlocked(reason)) return { error: "server_reason" };
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
     return queryJson(
       nk,

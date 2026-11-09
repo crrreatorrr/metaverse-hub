@@ -166,6 +166,24 @@ function deadSession(error: unknown): boolean {
   return error.code === 'rpc_failed' && error.status === 401;
 }
 
+/** The access token itself was refused (an expired 2 h JWT). A refresh can cure it. */
+function expiredToken(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  return error.code === 'unauthorized' || (error.code === 'rpc_failed' && error.status === 401);
+}
+
+/**
+ * The refresh itself was refused: the refresh token is expired or revoked, or the answer
+ * had no token. A network failure, a 5xx, a 408 or a 429 is not a refusal.
+ */
+function refreshRefused(error: unknown): boolean {
+  if (!(error instanceof HubSdkError)) return false;
+  // 408 (timeout) and 429 (throttled) say "try again later", not "this token is no good".
+  if (error.status === 408 || error.status === 429) return false;
+  if (error.status !== undefined) return error.status >= 400 && error.status < 500;
+  return error.code === 'auth_failed' || error.code === 'bad_token' || error.code === 'unauthorized';
+}
+
 /** Codes a server can answer in a 2xx body that a later attempt of the same write can still pass. */
 const RETRY_CODES = new Set(['rate_limited', 'missing_ticket_key', 'missing_recovery_pepper']);
 
@@ -352,21 +370,92 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
     return transmit(row);
   }
 
-  async function drain(): Promise<void> {
-    const rows = await listWrites();
+  /** End the active session: closed by a newer portal or by exit, or past its lease. */
+  function dropActive(): void {
+    if (active) resolved.session.removeItem(sessionKey(active.game));
+    active = null;
+    shownItems = undefined;
+    shownGates = undefined;
+  }
+
+  /**
+   * One refresh in flight per refresh token, shared by init(), refreshSession() and the
+   * realtime getToken path (which calls refreshSession). Nakama may rotate refresh tokens,
+   * so sending the same one twice can get the second call refused.
+   */
+  let refreshing: { refreshToken: string; promise: Promise<{ token: string; refreshToken: string }> } | null = null;
+
+  function refreshShared(refreshToken: string): Promise<{ token: string; refreshToken: string }> {
+    if (refreshing && refreshing.refreshToken === refreshToken) return refreshing.promise;
+    if (!client.sessionRefresh) return Promise.reject(new HubSdkError('auth_failed', 'Session refresh is unavailable'));
+    const promise = client.sessionRefresh(refreshToken).finally(() => {
+      if (refreshing && refreshing.promise === promise) refreshing = null;
+    });
+    refreshing = { refreshToken, promise };
+    return promise;
+  }
+
+  /** A session for this game holding a different token than `staleToken`: someone already refreshed. */
+  function newerSession(game: GameId, staleToken: string): LiveSession | null {
+    if (active && active.game === game && active.token !== staleToken) return active;
+    const cached = readCached(game);
+    return cached && cached.token !== staleToken ? cached : null;
+  }
+
+  function warnRow(what: string, error: unknown): void {
+    // A HubSdkError is a server or session answer and is expected here. Anything else may be
+    // a bug, so say so instead of hiding it.
+    if (error instanceof HubSdkError) return;
+    console.warn(`hub-sdk: ${what}; left queued`, error);
+  }
+
+  /**
+   * Send the queued rows. Every game shares the `hub-outbox` database on one origin.
+   *
+   * - This game's rows may move onto this session's token (rebind).
+   * - Another game's row (or one with no game) goes out on its own stored token only, so a
+   *   game the player never relaunches still gets its writes delivered. It is never
+   *   re-pointed, it is dropped only on its own final refusal, and its failure never
+   *   affects this game.
+   *
+   * No single row fails init:
+   * - a final refusal is dropped by transmit (the write that queued it already got that error);
+   * - a row on a dead session this session cannot carry waits for its own player's next session;
+   * - a network failure, an HTTP error or a storage error leaves the row queued for the
+   *   next init, and the rows after it are still sent.
+   *
+   * profile.get does not report a closed session today, so a row on this session's own token
+   * that comes back dead is the signal: the session ends (standalone, cache cleared) and no
+   * more rows go out on that token.
+   */
+  async function drain(game: GameId): Promise<void> {
+    let rows: OutboxRecord[];
+    try {
+      rows = await listWrites();
+    } catch (error) {
+      console.warn('hub-sdk: could not read the outbox; queued writes wait for the next init', error);
+      return;
+    }
+    let deadToken: string | null = null;
     for (const queued of rows) {
-      const row = await rebind(queued);
+      const own = typeof queued.gameId === 'string' && canonicalGameId(queued.gameId) === game;
+      if (!own) {
+        // Another game's row on an expired token can only land through its own game's rebind.
+        const expiresAt = tokenExpiryMs(queued.token);
+        if (expiresAt && expiresAt <= resolved.now()) continue;
+      }
+      let row = queued;
       try {
+        if (own) row = await rebind(queued);
+        if (deadToken !== null && row.token === deadToken) continue;
         await transmit(row);
       } catch (error) {
-        // The server refused the row for good and transmit dropped it. The write that
-        // queued it already got that error; this init must not fail on it again.
-        if (finalRefusal(error)) continue;
-        // A row on a dead session that this session cannot carry stays queued for a
-        // later session of its own player and game. It must not fail this init, or
-        // one stale row keeps every later launch from reaching the hub.
-        if (row.token !== active?.token && deadSession(error)) continue;
-        throw error;
+        if (own && active && row.token === active.token && deadSession(error)) {
+          deadToken = active.token;
+          dropActive();
+          continue;
+        }
+        warnRow(`outbox row ${queued.key} failed`, error);
       }
     }
   }
@@ -450,27 +539,71 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
         if (!cached) {
           active = null;
         } else {
+          type Profile = {
+            playerId?: string;
+            relics?: unknown;
+            ticketsCapLeft?: number;
+            serverTime?: number;
+            items?: unknown;
+            gates?: unknown;
+          };
+          const loadProfile = (sessionToken: string) => client.rpc<Profile>('profile.get', {}, { token: sessionToken });
+          let profile: Profile | null = null;
+          let dead = false;
+          let current = cached;
+          const retryProfile = async (): Promise<void> => {
+            try {
+              profile = await loadProfile(current.token);
+            } catch (retryError) {
+              dead = deadSession(retryError);
+            }
+          };
           try {
-            const profile = await client.rpc<{
-              playerId?: string;
-              relics?: unknown;
-              ticketsCapLeft?: number;
-              serverTime?: number;
-              items?: unknown;
-              gates?: unknown;
-            }>('profile.get', {}, { token: cached.token });
-            cached.relics = asRelics(profile.relics);
-            readInventory(profile);
-            if (profile.playerId) cached.playerId = profile.playerId;
-            if (typeof profile.ticketsCapLeft === 'number') cached.ticketsCapLeft = profile.ticketsCapLeft;
-            serverTime = clockMs(profile.serverTime);
-            writeCached(cached);
-          } catch {
-            active = cached;
+            profile = await loadProfile(current.token);
+          } catch (error) {
+            if (expiredToken(error) && current.refreshToken && client.sessionRefresh) {
+              // The 2 h access token lapsed (a tab restored after sleep) while the refresh
+              // token and the lease may still hold: refresh, keep it, and retry once.
+              const staleToken = current.token;
+              try {
+                const fresh = await refreshShared(current.refreshToken);
+                current.token = fresh.token;
+                current.refreshToken = fresh.refreshToken || current.refreshToken;
+                writeCached(current);
+                await retryProfile();
+              } catch (refreshError) {
+                // Another path may already have rotated the token: keep that session.
+                const newer = refreshRefused(refreshError) ? newerSession(game, staleToken) : null;
+                if (newer) {
+                  current = newer;
+                  await retryProfile();
+                } else {
+                  dead = refreshRefused(refreshError);
+                }
+              }
+            } else {
+              dead = deadSession(error);
+            }
+          }
+          if (dead) {
+            // Run standalone until the hub sends a fresh ticket. Do not keep showing it as live.
+            resolved.session.removeItem(sessionKey(game));
+            active = null;
+          } else if (profile) {
+            const loaded: Profile = profile;
+            current.relics = asRelics(loaded.relics);
+            readInventory(loaded);
+            if (loaded.playerId) current.playerId = loaded.playerId;
+            if (typeof loaded.ticketsCapLeft === 'number') current.ticketsCapLeft = loaded.ticketsCapLeft;
+            serverTime = clockMs(loaded.serverTime);
+            writeCached(current);
+          } else {
+            // Offline or a server hiccup: the token may still be good. The next init retries.
+            active = current;
           }
         }
       }
-      await drain();
+      await drain(game);
       return withInventory(active ? profileOf(active, serverTime) : standalone(serverTime));
     },
 
@@ -504,8 +637,18 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       const expiresAt = tokenExpiryMs(session.token);
       if (!expiresAt || expiresAt - resolved.now() > 300_000) return sessionInfo(session);
       if (!client.sessionRefresh || !session.refreshToken) return sessionInfo(session);
-      const fresh = await client.sessionRefresh(session.refreshToken);
+      const staleToken = session.token;
+      let fresh: { token: string; refreshToken: string };
+      try {
+        fresh = await refreshShared(session.refreshToken);
+      } catch (error) {
+        // init() or another instance already rotated the token: use that session.
+        const newer = active ? newerSession(active.game, staleToken) : null;
+        if (newer) return sessionInfo(newer);
+        throw error;
+      }
       if (active !== session) return active ? sessionInfo(active) : null;
+      if (session.token !== staleToken) return sessionInfo(session);
       session.token = fresh.token;
       session.refreshToken = fresh.refreshToken;
       writeCached(session);

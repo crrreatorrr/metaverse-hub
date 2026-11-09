@@ -21,6 +21,14 @@ export type PickerAction =
 
 export const PICKER_CLOSED: PickerState = { open: false, index: 0 };
 
+/** Help line for the games currently shown. Count follows the visible list, up to the 1–9 keys. */
+export function pickerHelp(count: number): string {
+  const shown = Math.max(0, Math.min(9, Math.floor(count)));
+  if (shown <= 0) return 'Esc to step away';
+  const digits = Array.from({ length: shown }, (_, index) => String(index + 1)).join(' / ');
+  return `${digits} or ↑ ↓ · Enter to play · Esc to step away`;
+}
+
 /**
  * Keyboard for the cabinet picker. 1–9 picks directly; arrows, W/S/A/D move; Enter, Space or E
  * confirms; Escape or Q closes. Pure, so the hub's keydown handler and the tests share it.
@@ -90,7 +98,7 @@ export function createArcadePicker(
   const list = document.createElement('div');
   list.style.cssText = 'display:grid;gap:8px';
   const help = document.createElement('div');
-  help.textContent = '1 / 2 or ↑ ↓ · Enter to play · Esc to step away';
+  help.textContent = pickerHelp(0);
   help.style.cssText = 'margin-top:12px;font-size:12px;color:#b9a9c9';
   card.append(title, list, help);
   root.append(card);
@@ -116,6 +124,7 @@ export function createArcadePicker(
       button.addEventListener('click', () => choose(index));
       list.append(button);
     });
+    help.textContent = pickerHelp(shown.length);
   }
 
   function choose(index: number): void {

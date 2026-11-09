@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { findBuildOutput, planClone } from './fetch-game-web.mjs';
+import { GAMES, findBuildOutput, planClone } from './fetch-game-web.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'fetch-game-web-test-'));
 function repo(name, files) {
@@ -44,6 +44,15 @@ try {
   const stale = repo('out-stale', { 'dist/index.html': page });
   utimesSync(join(stale, 'dist/index.html'), new Date(0), new Date(0));
   assert.equal(findBuildOutput(stale, since), null);
+
+  assert.equal(GAMES['sproto-shooter'].repo, 'crrreatorrr/sproto-shooter');
+  assert.equal(GAMES['sproto-shooter'].entry, 'ring');
+  assert.equal(GAMES['sproto-shooter'].artifact, undefined);
+  assert.equal(GAMES['sproto-coop-battle'].repo, 'crrreatorrr/Sproto-Coop-Battle.');
+  assert.equal(GAMES['sproto-coop-battle'].entry, 'cabinet');
+  assert.equal(GAMES['sproto-fighter'].entry, 'cabinet');
+  assert.equal(GAMES['sproto-arcade'].entry, 'cabinet');
+  assert.equal(GAMES['hpos10i'].entry, 'ring');
 } finally {
   rmSync(root, { recursive: true, force: true });
 }

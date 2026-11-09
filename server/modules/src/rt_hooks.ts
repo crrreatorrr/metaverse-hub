@@ -38,7 +38,10 @@ namespace HubRt {
     var game = ctx.vars && ctx.vars.game ? ctx.vars.game : "";
     if (!target) throw new Error("bad_game");
     if (scope === "game" && game !== target) throw new Error("wrong_game");
-    if (!HubGames.matchmakingAllowed(scope, game, target)) throw new Error("wrong_scope");
+    if (!HubGames.matchmakingAllowed(scope, game, target)) {
+      _logger.warn("matchmaker denied scope " + scope + " game " + game + " target " + target + " registered " + (HubGames.matchmakerFor(target) ? "yes" : "no"));
+      throw new Error("wrong_scope");
+    }
     return envelope;
   }
 

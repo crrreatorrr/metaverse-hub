@@ -3205,6 +3205,34 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Feature flags (plan R.12.2): launch work merges dark and is enabled per flag.
+      // Read only through Flags.on (src/flags.ts). Nothing reads a flag yet.
+      // state: off (nobody) | allowlist (allowlist uuids) | percent (stable bucket of
+      // key+user below percent, plus the allowlist) | on (everybody).
+      // Seeds are all 'off'. ON CONFLICT DO NOTHING keeps a flag the owner already
+      // changed if this migration is ever replayed.
+      id: "0042_server_flags",
+      statements: [
+        `CREATE TABLE IF NOT EXISTS game.server_flags (
+           key text PRIMARY KEY CHECK (key ~ '^[a-z][a-z0-9_]{0,63}$'),
+           state text NOT NULL DEFAULT 'off' CHECK (state IN ('off', 'allowlist', 'percent', 'on')),
+           allowlist uuid[] NOT NULL DEFAULT '{}',
+           percent integer NOT NULL DEFAULT 0 CHECK (percent BETWEEN 0 AND 100),
+           updated_at timestamptz NOT NULL DEFAULT now()
+         )`,
+        `INSERT INTO game.server_flags (key, state) VALUES
+           ('shooter_pvp', 'off'),
+           ('shooter_pvp_wager', 'off'),
+           ('shooter_pvp_ranked', 'off'),
+           ('hub_exchange', 'off'),
+           ('verse_store', 'off'),
+           ('relic_unhold', 'off'),
+           ('diagnostics_prompt', 'off'),
+           ('maint', 'off')
+         ON CONFLICT (key) DO NOTHING`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3306,7 +3334,16 @@ namespace HubSchema {
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
   // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
   // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
-  // 0038_sproto_shooter widens the game-id checks for the shooter portal. It grants nothing.
+  // 0038 stays unregistered: an unmerged shooter patch proposed it, and this phase does not take it.
+  // 0039_sproto_shooter_coop is registered from src/games/sproto_shooter.ts. It widens game_session
+  // and auth_ticket only, and the new checks still list vcoin.
+  // 0040_shooter_boss_receipt is registered from src/games/shooter_rewards.ts. It adds the
+  // shooter run, digest, and receipt tables and the internal settle function. It does not
+  // add a client event_rule. 0036 and 0038 stay unused.
+  // 0041_coop_boss_receipt is registered from src/games/coop_rewards.ts. It adds the coop
+  // eligibility and receipt tables and the internal settle function. It does not add a
+  // client event_rule, and it does not change V Coin or any other game's payout.
+  // 0042_server_flags is the hub's (MIGRATIONS above): game.server_flags, read by src/flags.ts.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

@@ -1,5 +1,14 @@
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
-export const GAME_IDS = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'sproto-shooter'] as const;
+export const GAME_IDS = [
+  'hpos10i',
+  'nobu',
+  'peoples-bitcoin',
+  'sproto',
+  'sproto-fighter',
+  'sproto-arcade',
+  'sproto-shooter',
+  'sproto-coop-battle',
+] as const;
 export type GameId = (typeof GAME_IDS)[number];
 
 /** Earn-once relics. The primary key on the server is (user, relic). */
@@ -20,8 +29,8 @@ export type RelicId = (typeof RELIC_IDS)[number];
  */
 export const FOUR_LIGHTS_RELIC_IDS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown'] as const;
 
-/** Games with no entry do not grant a Relic. Sproto Shooter is one of those. */
-export const RELIC_BY_GAME: { [K in GameId]?: RelicId } = {
+/** Games with no entry here have no Relic. Shooter and Coop Battle are in that set. */
+export const RELIC_BY_GAME: Partial<Record<GameId, RelicId>> = {
   hpos10i: 'hpos10i_core',
   'peoples-bitcoin': 'genesis_shard',
   nobu: 'cones_tip',

@@ -3,7 +3,7 @@
 // (RPC, match and matchmaker VMs), so every lookup sees every game.
 namespace HubGames {
   export interface GameReg {
-    /** Contract C1 game id: nobu, sproto, sproto-fighter, peoples-bitcoin, hpos10i. */
+    /** Contract C1 game id, one of the SDK's GAME_IDS (packages/hub-sdk/src/types.ts), e.g. nobu, sproto, sproto-fighter. */
     game: string;
     /** Called by the single hub matchmaker dispatcher when every matched entry has properties.game === game. */
     matchmaker?: (ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]) => string | void;
@@ -22,6 +22,19 @@ namespace HubGames {
 
   var regs: { [game: string]: GameReg } = {};
   var order: string[] = [];
+
+  /**
+   * Add a matchmaker to a game id that was registered earlier. A second
+   * matchmaker for that id throws. The id itself is not registered again.
+   */
+  export function attach(game: string, patch: { matchmaker?: GameReg["matchmaker"] }): void {
+    var reg = regs[game];
+    if (!reg) throw new Error("hub_games_missing " + game);
+    if (!patch || !patch.matchmaker) return;
+    if (reg.matchmaker === patch.matchmaker) return;
+    if (reg.matchmaker) throw new Error("hub_games_matchmaker_set " + game);
+    reg.matchmaker = patch.matchmaker;
+  }
 
   /** Call at top level of the game file. A duplicate game id throws. */
   export function register(reg: GameReg): void {

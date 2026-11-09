@@ -43,7 +43,7 @@ namespace HubMatch {
   export var MAX_V_STEP_CM = 300;
   export var SPAWN = [0, 178, 4200];
 
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true };
   var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin"];
   var ID = /^[a-z0-9_-]{1,32}$/;
 
@@ -87,14 +87,38 @@ namespace HubMatch {
     return String(value);
   }
 
-  export function sanitizeName(raw: string): string {
+  /**
+   * Display-safe copy of a username for every name the server sends to clients
+   * (plaza shards, Duel arena, Fighter duel, Coop, boards, PB friends). Keeps only
+   * A-Z a-z 0-9, space, _ - and ., up to `max` characters (24 by default), and
+   * returns "" when nothing is left so each caller keeps its own fallback.
+   * Accounts are never renamed (owner decision, plan R.6 #1): unsafe legacy names
+   * are cleaned wherever they are shown.
+   */
+  export function cleanName(raw: unknown, max?: number): string {
+    var text = typeof raw === "string" ? raw : raw === null || raw === undefined ? "" : String(raw);
+    var limit = typeof max === "number" && max > 0 ? max : 24;
     var out = "";
-    for (var i = 0; i < raw.length && out.length < 24; i++) {
-      var code = raw.charCodeAt(i);
+    for (var i = 0; i < text.length && out.length < limit; i++) {
+      var code = text.charCodeAt(i);
       var ok = (code >= 48 && code <= 57) || (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 32 || code === 95 || code === 45 || code === 46;
-      if (ok) out += raw.charAt(i);
+      if (ok) out += text.charAt(i);
     }
-    return out || "player";
+    return out;
+  }
+
+  /** cleanName with the plaza fallback "player". */
+  export function sanitizeName(raw: string): string {
+    return cleanName(raw) || "player";
+  }
+
+  /** Copy of a parsed name map with every value cleaned (cleanName); non-object input gives {}. */
+  export function cleanNameMap(raw: unknown, max?: number): { [userId: string]: string } {
+    var out: { [userId: string]: string } = {};
+    if (!raw || typeof raw !== "object" || Object.prototype.toString.call(raw) === "[object Array]") return out;
+    var src = raw as { [key: string]: unknown };
+    for (var id in src) if (Object.prototype.hasOwnProperty.call(src, id)) out[id] = cleanName(src[id], max);
+    return out;
   }
 
   /** plaza above y -50 m, the club interior below -250 m (its root is at -300 m). */
@@ -510,6 +534,11 @@ namespace HubMatch {
       HubBoards.maybeRecomputeMeta(nk, logger, Date.now());
     } catch (e) {
       logger.warn("hub meta rollup failed " + errorText(e));
+    }
+    try {
+      SprotoDuel.maybeSweepWagers(nk, logger, Date.now());
+    } catch (e) {
+      logger.warn("sproto wager sweep failed " + errorText(e));
     }
 
     recount(state);

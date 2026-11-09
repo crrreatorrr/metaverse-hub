@@ -192,13 +192,22 @@ function beforeLinkDevice(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: 
   return HubRpc.beforeLinkDevice(ctx, logger, nk, data);
 }
 
+function rtBeforeMatchmakerRemove(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, envelope: nkruntime.Envelope): nkruntime.Envelope {
+  var after = rtBeforeSprotoMatchmakerRemove(ctx, logger, nk, envelope);
+  after = rtBeforeCoopMatchmakerRemove(ctx, logger, nk, after);
+  return rtBeforeShooterMatchmakerRemove(ctx, logger, nk, after);
+}
+
 function InitModule(
   _ctx: nkruntime.Context,
   logger: nkruntime.Logger,
   nk: nkruntime.Nakama,
   initializer: nkruntime.Initializer,
 ): void {
+  CoopMatch.attach();
   HubSchema.apply(nk, logger);
+  // Single Nakama node: no duel match survives a restart, so every held wager is refunded now.
+  SprotoDuel.expireAllHeldAtBoot(nk, logger);
   initializer.registerRpc("healthcheck", rpcHealthcheck);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
@@ -255,9 +264,32 @@ function InitModule(
   initializer.registerRpc("sproto.room_create", rpcSprotoRoomCreate);
   initializer.registerRpc("sproto.room_join", rpcSprotoRoomJoin);
   initializer.registerRpc("sproto.online_count", rpcSprotoOnlineCount);
-  initializer.registerRtBefore("MatchmakerRemove", rtBeforeSprotoMatchmakerRemove);
+  initializer.registerRtBefore("MatchmakerRemove", rtBeforeMatchmakerRemove);
   initializer.registerRpc("sproto.standalone_session", rpcSprotoStandaloneSession);
   // <<< game: sproto
+  // ----
+  // >>> game: sproto-coop-battle registrations
+  initializer.registerMatch("sproto_coop", { matchInit: sprotoCoopInit, matchJoinAttempt: sprotoCoopJoinAttempt, matchJoin: sprotoCoopJoin, matchLeave: sprotoCoopLeave, matchLoop: sprotoCoopLoop, matchTerminate: sprotoCoopTerminate, matchSignal: sprotoCoopSignal });
+  initializer.registerRpc("coop.version", rpcCoopVersion);
+  initializer.registerRpc("coop.room_create", rpcCoopRoomCreate);
+  initializer.registerRpc("coop.room_join", rpcCoopRoomJoin);
+  initializer.registerRpc("coop.queue_cancel", rpcCoopQueueCancel);
+  initializer.registerRpc("coop.resume", rpcCoopResume);
+  initializer.registerRpc("coop.metrics", rpcCoopMetrics);
+  initializer.registerRpc("coop.golden", rpcCoopGolden);
+  // <<< game: sproto-coop-battle
+  // ----
+  // >>> game: sproto-shooter registrations
+  initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
+  initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  initializer.registerMatch("sproto_shooter_free", { matchInit: sprotoShooterFreeInit, matchJoinAttempt: sprotoShooterFreeJoinAttempt, matchJoin: sprotoShooterFreeJoin, matchLeave: sprotoShooterFreeLeave, matchLoop: sprotoShooterFreeLoop, matchTerminate: sprotoShooterFreeTerminate, matchSignal: sprotoShooterFreeSignal });
+  initializer.registerRpc("shooter.version", rpcShooterVersion);
+  initializer.registerRpc("shooter.room_create", rpcShooterRoomCreate);
+  initializer.registerRpc("shooter.room_join", rpcShooterRoomJoin);
+  initializer.registerRpc("shooter.queue_cancel", rpcShooterQueueCancel);
+  initializer.registerRpc("shooter.resume", rpcShooterResume);
+  initializer.registerRpc("shooter.metrics", rpcShooterMetrics);
+  // <<< game: sproto-shooter
   // ----
   // >>> game: peoples-bitcoin registrations
   initializer.registerMatch("pb_world", { matchInit: pbWorldInit, matchJoinAttempt: pbWorldJoinAttempt, matchJoin: pbWorldJoin, matchLeave: pbWorldLeave, matchLoop: pbWorldLoop, matchTerminate: pbWorldTerminate, matchSignal: pbWorldSignal });

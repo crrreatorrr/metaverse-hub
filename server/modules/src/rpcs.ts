@@ -1,6 +1,6 @@
 namespace HubRpc {
   // vcoin is the coming-soon arcade session. It is not an alias of sproto-arcade.
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, vcoin: true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, vcoin: true, "sproto-shooter": true, "sproto-coop-battle": true };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   export function fail(code: string, message: string): string {
@@ -417,13 +417,14 @@ namespace HubRpc {
     try {
       rows = queryList(
         nk,
-        "SELECT COALESCE((SELECT json_agg(json_build_object('name', name, 'gameId', game_id, 'lifetime', lifetime) ORDER BY lifetime DESC) FROM (SELECT COALESCE(u.username, left(e.user_id::text, 8)) AS name, e.game_id, e.lifetime FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.lifetime DESC LIMIT LEAST($1::int, 100)) s), '[]'::json)::text AS result",
+        "SELECT COALESCE((SELECT json_agg(json_build_object('userId', user_id, 'name', name, 'gameId', game_id, 'lifetime', lifetime) ORDER BY lifetime DESC) FROM (SELECT e.user_id, COALESCE(u.username, left(e.user_id::text, 8)) AS name, e.game_id, e.lifetime FROM game.verse_earned e LEFT JOIN users u ON u.id = e.user_id ORDER BY e.lifetime DESC LIMIT LEAST($1::int, 100)) s), '[]'::json)::text AS result",
         [limit],
       );
     } catch (e) {
       _logger.warn("verse board query failed " + String(e));
       rows = [];
     }
+    for (var i = 0; i < rows.length; i++) HubBoards.cleanRowName(rows[i]);
     return ok({ rows: rows });
   }
 
@@ -475,6 +476,7 @@ namespace HubRpc {
     var data = body.data;
     var seq: number | null = null;
     if (!eventId || eventId.length > 80) return fail("bad_event", "Event id is required");
+    if (ShooterRewards.clientBlocked(eventId) || CoopRewards.clientBlocked(eventId)) return fail("server_reason", "This event is granted by the server");
     if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       return fail("bad_event", "Event data must be an object");
@@ -594,7 +596,8 @@ namespace HubRpc {
     }
     if (!reason || reason.length > 64) return fail("bad_reason", "Reason must be 1 to 64 characters");
     // srv_* reasons are granted by match handlers through HubEconomy only (Contract C6).
-    if (reason.indexOf("srv_") === 0) return fail("server_reason", "This reason is granted by the server");
+    // Shooter boss clears are settled inside the server. A client cannot name that reason.
+    if (reason.indexOf("srv_") === 0 || ShooterRewards.clientBlocked(reason) || CoopRewards.clientBlocked(reason)) return fail("server_reason", "This reason is granted by the server");
     var amount = Math.floor(body.amount);
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));

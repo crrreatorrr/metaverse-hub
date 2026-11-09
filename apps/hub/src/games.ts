@@ -25,7 +25,13 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_SPROTO_DUEL'
     | 'VITE_GAME_URL_SPROTO_FIGHTER'
     | 'VITE_GAME_URL_SPROTO_ARCADE'
-    | 'VITE_GAME_URL_SPROTO_SHOOTER';
+    | 'VITE_GAME_URL_SPROTO_SHOOTER'
+    | 'VITE_GAME_URL_SPROTO_COOP_BATTLE';
+  /**
+   * `ring` is a plaza portal. `cabinet` is a Bar arcade-machine choice and has no ring.
+   * Registering the URL does not add a ring or a menu row.
+   */
+  entry: 'ring' | 'cabinet';
   /**
    * Page confirmed from that game's own repo. Omitted when none was found.
    * HPOS10I: README "Play" section and the repo GitHub Pages site.
@@ -38,40 +44,55 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     id: 'hpos10i',
     slug: 'hpos10i',
     env: 'VITE_GAME_URL_HPOS10I',
+    entry: 'ring',
     current: 'https://crrreatorrr.github.io/HPOS10I/',
   },
   {
     id: 'nobu',
     slug: 'nobu',
     env: 'VITE_GAME_URL_NOBU',
+    entry: 'ring',
   },
   {
     id: 'peoples-bitcoin',
     slug: 'peoples-bitcoin',
     env: 'VITE_GAME_URL_PEOPLES_BITCOIN',
+    entry: 'ring',
   },
   {
     id: 'sproto',
     slug: 'sproto-duel',
     env: 'VITE_GAME_URL_SPROTO_DUEL',
+    entry: 'ring',
   },
   {
     // Entered from the Bar's arcade cabinet, not a plaza ring. Id and slug are the same.
     id: 'sproto-fighter',
     slug: 'sproto-fighter',
     env: 'VITE_GAME_URL_SPROTO_FIGHTER',
+    entry: 'cabinet',
   },
   {
     // The Bar cabinet's second game. Static classic-script build; the page is the repo root.
     id: 'sproto-arcade',
     slug: 'sproto-arcade',
     env: 'VITE_GAME_URL_SPROTO_ARCADE',
+    entry: 'cabinet',
   },
   {
-    // Fifth plaza ring, on the Bahamas club avenue. Same ticket handoff as the other rings.
+    // Fifth plaza ring, on the empty artist slot in front of the Bar. No Relic and no Ticket earn.
     id: 'sproto-shooter',
     slug: 'sproto-shooter',
     env: 'VITE_GAME_URL_SPROTO_SHOOTER',
+    entry: 'ring',
+  },
+  {
+    // Bar cabinet choice, alongside Sproto Fighter and Sproto Arcade. No plaza portal.
+    // No Relic and no Ticket earn.
+    id: 'sproto-coop-battle',
+    slug: 'sproto-coop-battle',
+    env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE',
+    entry: 'cabinet',
   },
 ];
 
@@ -99,11 +120,28 @@ export function playOrigin(domain: string | undefined): string | null {
   return `https://play.${host}`;
 }
 
+/**
+ * Page override. An own property, including `''`, wins. Shooter and Coop Battle are not listed in
+ * the shell's override map, so a missing key reads their `VITE_GAME_URL_*` variable. Empty means
+ * Coming soon. Other games stay on the map the shell passes.
+ */
+function pageOverride(id: GameId, ctx: GameUrlContext): string | undefined {
+  if (ctx.overrides && Object.prototype.hasOwnProperty.call(ctx.overrides, id)) return ctx.overrides[id];
+  const env = import.meta.env;
+  if (!env) return undefined;
+  const value = id === 'sproto-shooter'
+    ? import.meta.env.VITE_GAME_URL_SPROTO_SHOOTER
+    : id === 'sproto-coop-battle'
+      ? import.meta.env.VITE_GAME_URL_SPROTO_COOP_BATTLE
+      : undefined;
+  return typeof value === 'string' ? value : undefined;
+}
+
 /** Hub page for this game, or null when the portal should say Coming soon. */
 export function gameUrl(id: GameId, ctx: GameUrlContext): string | null {
   const entry = gameById(id);
   if (!entry) return null;
-  const override = ctx.overrides?.[id];
+  const override = pageOverride(id, ctx);
   if (typeof override === 'string') return acceptPage(override);
   if (!ctx.dev) {
     const origin = playOrigin(ctx.playDomain);

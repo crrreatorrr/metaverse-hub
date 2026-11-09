@@ -66,8 +66,10 @@ const GAME_ID_TABLES = [
  * so they never hold a pb row for that migration to rewrite.
  * auth_ticket: 0006_hashed_portal_tickets. item_rule: 0030_m6_item_grants.
  * relic_claim_pending and item_owned_pending: 0033_hold_client_relic_grants.
+ * shooter_receipt: 0040_shooter_boss_receipt. Its game_id is only sproto-shooter.
+ * coop_eligibility and coop_receipt: 0041_coop_boss_receipt. Their game_id is only sproto-coop-battle.
  */
-const POST_PB_TABLES = ['auth_ticket', 'item_rule', 'relic_claim_pending', 'item_owned_pending'] as const;
+const POST_PB_TABLES = ['auth_ticket', 'item_rule', 'relic_claim_pending', 'item_owned_pending', 'shooter_receipt', 'coop_eligibility', 'coop_receipt'] as const;
 
 export type DupTest = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
@@ -750,6 +752,29 @@ export async function runMigrations(test: DupTest): Promise<void> {
     writeFileSync('/tmp/migration-0002-checksum.txt', `stored=${stored}\nfile=${file}\n`);
     assert.equal(stored, file, 'schema_migrations.checksum for 0002_baseline differs from schema.ts');
     assert.match(stored, /^[0-9a-f]{64}$/);
+  });
+
+  await test('migration', '0042 server_flags seeds every launch flag off and enforces its checks', async () => {
+    const rows = psql(`SELECT key || '=' || state || ':' || percent || ':' || cardinality(allowlist) FROM game.server_flags ORDER BY key`);
+    assert.deepEqual(rows.split('\n'), [
+      'diagnostics_prompt=off:0:0',
+      'hub_exchange=off:0:0',
+      'maint=off:0:0',
+      'relic_unhold=off:0:0',
+      'shooter_pvp=off:0:0',
+      'shooter_pvp_ranked=off:0:0',
+      'shooter_pvp_wager=off:0:0',
+      'verse_store=off:0:0',
+    ]);
+    const refused = (sql: string, label: string) => {
+      assert.throws(() => psql(sql), /violates check constraint|invalid input syntax/, label);
+    };
+    refused(`INSERT INTO game.server_flags (key, state) VALUES ('dup_flag_bad_state', 'maybe')`, 'unknown state');
+    refused(`INSERT INTO game.server_flags (key, state, percent) VALUES ('dup_flag_pct', 'percent', 101)`, 'percent above 100');
+    refused(`INSERT INTO game.server_flags (key, state, percent) VALUES ('dup_flag_pct', 'percent', -1)`, 'negative percent');
+    refused(`INSERT INTO game.server_flags (key, state) VALUES ('Bad Key', 'on')`, 'malformed key');
+    refused(`INSERT INTO game.server_flags (key, state, allowlist) VALUES ('dup_flag_list', 'allowlist', '{not-a-uuid}')`, 'allowlist is uuid[]');
+    assert.equal(num(`SELECT count(*) FROM game.server_flags WHERE key LIKE 'dup_flag_%'`), 0);
   });
 
   await test('migration', '(a) ledger sums equal balances after 0003', async () => {

@@ -30,7 +30,10 @@ services:
     build:
       context: ../server
       dockerfile: Dockerfile
-    image: metaverse-nakama:prod
+    # :prod is always the live image. scripts/deploy-server.sh builds
+    # metaverse-nakama:<git sha> (IMAGE_TAG) and retags :prod to it, so the sha tags are
+    # the rollback history. Unset, this is today's tag and bootstrap.sh builds it as before.
+    image: metaverse-nakama:${IMAGE_TAG:-prod}
     entrypoint: ["/bin/sh", "/etc/nakama/render-config.sh"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
@@ -54,6 +57,10 @@ services:
         condition: service_healthy
     restart: unless-stopped
     init: true
+    # Docker's default is 10 s, then SIGKILL. Nakama needs shutdown_grace_sec (60 s in
+    # nakama/config.yml) to run matchTerminate: escrow refunds, coop checkpoints and PB
+    # saves. Keep this at least 15 s above that value.
+    stop_grace_period: 90s
     healthcheck:
       test: ["CMD", "/nakama/nakama", "healthcheck"]
       interval: 5s

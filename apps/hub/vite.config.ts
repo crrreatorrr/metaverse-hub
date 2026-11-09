@@ -1,6 +1,7 @@
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
+import { nakamaServerKeyFromEnv } from './server-key.ts';
 
 const nakama = 'http://127.0.0.1:7350';
 const proxy = {
@@ -10,8 +11,9 @@ const proxy = {
 
 /**
  * Real game web builds, pulled by `npm run fetch:games` into public/play/<slug>/
- * (gitignored). Slugs match GAME_URLS in src/games.ts. Served same-origin so the
- * `#t=` ticket and the /v2 proxy work as they will on play.<domain>.
+ * (gitignored). Slugs match GAME_URLS in src/games.ts; every game there needs a row
+ * here, or its portal URL `/play/<slug>/` 404s in dev (apps/hub/test/vite-config.test.ts).
+ * Served same-origin so the `#t=` ticket and the /v2 proxy work as they will on play.<domain>.
  */
 const PLAY_ROOT = resolve(__dirname, 'public/play');
 const PLAY_GAMES = [
@@ -22,6 +24,7 @@ const PLAY_GAMES = [
   { slug: 'sproto-fighter', env: 'VITE_GAME_URL_SPROTO_FIGHTER' },
   { slug: 'sproto-arcade', env: 'VITE_GAME_URL_SPROTO_ARCADE' },
   { slug: 'sproto-shooter', env: 'VITE_GAME_URL_SPROTO_SHOOTER' },
+  { slug: 'sproto-coop-battle', env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE' },
 ] as const;
 
 function fetchedBuild(slug: string): boolean {
@@ -111,8 +114,9 @@ function realmPages(): Plugin {
   // Plaza at /hub/. Portals open /play/<slug>/: a fetched real build, or the
   // Sproto Duel mock at /play/sproto/ until that build is fetched. Nakama at /v2.
   // The dev server key is inlined only for `vite dev`. Production builds take
-  // VITE_NAKAMA_SERVER_KEY and never embed the compose default.
-  export default defineConfig(({ command, mode }) => {
+  // VITE_NAKAMA_SERVER_KEY (shell or apps/hub/.env.<mode>), never embed the compose
+  // default, and fail when it is empty.
+  export default defineConfig(({ command, mode, isPreview }) => {
     if (command === 'serve') preferFetchedBuilds();
     return {
     base: '/',
@@ -132,9 +136,7 @@ function realmPages(): Plugin {
       proxy,
     },
     define: {
-      __NAKAMA_SERVER_KEY__: JSON.stringify(
-        mode === 'development' ? 'defaultkey' : (process.env.VITE_NAKAMA_SERVER_KEY ?? ''),
-      ),
+      __NAKAMA_SERVER_KEY__: JSON.stringify(nakamaServerKeyFromEnv({ command, mode, isPreview }, __dirname)),
     },
     build: {
       target: 'es2022',
