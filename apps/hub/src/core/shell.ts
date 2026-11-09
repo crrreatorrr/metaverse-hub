@@ -22,6 +22,8 @@ import { connectPlaza, type Plaza, type PlazaStatus } from '../net/plaza';
 import { animIndex } from '../net/protocol';
 import { createRemoteWorld } from '../net/remoteWorld';
 import { createRemotes } from '../remotes';
+import { createSims } from '../sims/sims';
+import { loadSims, saveSims } from '../sims/store';
 import { createOverheads } from '../overheads';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
@@ -156,6 +158,21 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
   });
   const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : document.body);
+
+  // Sims (Menu → Sims): characters only this screen sees. They join the RemoteWorld so
+  // remotes.ts draws them; their lines go to the chat log and bubbles, never the channel.
+  let simSettings = loadSims();
+  const simsHere = definition.id === 'plaza';
+  const sims = createSims({
+    world: remoteWorld,
+    speed: simSettings.speed,
+    seed: Date.now() % 100_000,
+    onLine(userId, name, text) {
+      chat.local(`${name} (sim)`, text);
+      overheads.show(userId, { color: 'cyan', effect: null, text });
+    },
+  });
+  if (simsHere) sims.set(simSettings.list);
   let plaza: Plaza | null = null;
   let plazaLine = '';
   let chatRoom = '';
@@ -176,6 +193,15 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   const menu = createMenu({
+    sims: () => simSettings,
+    setSims(next) {
+      if (next.speed !== simSettings.speed) sims.setSpeed(next.speed);
+      simSettings = { list: [...next.list], speed: next.speed };
+      saveSims(simSettings);
+      if (simsHere) sims.set(simSettings.list);
+    },
+    restartSims: () => sims.restart(),
+    simAct: () => (simsHere ? sims.act() : 'only in the plaza'),
     hiddenRelics: () => hiddenRelics,
     setHiddenRelics(ids) {
       hiddenRelics = [...ids];
