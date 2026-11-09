@@ -32,6 +32,17 @@ const STOP_TO_IDLE = 0.5;
 const IDLE_TO_SIT = 10;
 const FADE = 0.2;
 const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy']);
+/**
+ * Follow clips play at 1x at the avatar's jog (follow_walk) and dash (follow_run) and scale with the pet's
+ * real speed, so legs slow down as the spring settles instead of paddling at full rate. Run starts above
+ * RUN_ENTER m/s and ends below RUN_EXIT, from the pet's own speed (it lags the avatar).
+ */
+const WALK_REF = 7.8;
+const RUN_REF = 16;
+const RUN_ENTER = 11;
+const RUN_EXIT = 9;
+const RATE_MIN = 0.45;
+const RATE_MAX = 1.5;
 
 export function isPetAssetId(id: string): id is PetAssetId {
   return (PET_ASSET_IDS as string[]).includes(id);
@@ -193,7 +204,8 @@ export function createPetFollower(parent: Object3D): PetFollower {
         stillFor = 0;
         idleFor = 0;
         group.rotation.y = Math.atan2(velocity.x, velocity.z); // +Z forward
-        if (!busy) play(sprint && moved > 0 ? 'follow_run' : 'follow_walk');
+        const running = current === 'follow_run' ? speed > RUN_EXIT : speed > RUN_ENTER || (sprint && moved > 0 && speed > RUN_EXIT);
+        if (!busy) play(running ? 'follow_run' : 'follow_walk');
       } else {
         stillFor += dt;
         if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play('idle');
@@ -202,7 +214,11 @@ export function createPetFollower(parent: Object3D): PetFollower {
           if (idleFor > IDLE_TO_SIT) play('sit_enter', 0.1);
         } else if (current !== 'sit' && current !== 'sit_enter') idleFor = 0;
       }
+      const rate = current === 'follow_run' ? speed / RUN_REF : current === 'follow_walk' ? speed / WALK_REF : 1;
+      const timeScale = current === 'follow_run' || current === 'follow_walk' ? Math.min(RATE_MAX, Math.max(RATE_MIN, rate)) : 1;
       for (const level of levels) {
+        const action = level.actions.get(current);
+        if (action) action.timeScale = timeScale;
         level.mixer.update(dt);
         for (const { mat, pulse } of level.mats) {
           mat.emissiveIntensity = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(time * Math.PI * 2 * pulse.hz));

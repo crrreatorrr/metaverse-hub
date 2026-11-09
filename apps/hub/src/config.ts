@@ -125,15 +125,12 @@ export function characterYaw(character: CharacterConfig): number {
 }
 
 /**
- * Logical gait → clip inside the GLB. P4: arrow keys play `jog` (authored for
- * 7.8 m/s), Shift plays `dash` (authored for 16 m/s). Each clip's glTF extras
- * carry `speed_mps`; the avatar sets timeScale = actual speed / speed_mps so the
- * planted foot never slides. Both clips put the left foot down at t = 0, so
- * jog ↔ dash crossfades keep the step phase.
- */
-/**
- * Gait clips. `name` is P4's clip (it carries `speed_mps`, so its time scale comes from the
- * controller speed). Rigs without it use `fallback` at `timeScale`.
+ * Gait clips. `name` is P4's clip: arrow keys play `jog`, Shift plays `dash`, both in place with the left
+ * foot down at t = 0, so jog ↔ dash crossfades keep the step phase. The wizard ships them; the other rigs on
+ * its skeleton (the Sproto Duel cast) get the wizard's, retargeted (`rig/locomotion.ts`), and are measured for
+ * the ground speed each clip was animated for, so the avatar sets timeScale = controller speed / that speed
+ * and the planted foot never slides. Other skeletons resolve their own clips in `avatar.ts` and play them at
+ * `timeScale` (or their `speed_mps`).
  */
 export const AVATAR_CLIPS = {
   idle: { name: 'idle', fallback: 'idle', timeScale: 1 },
