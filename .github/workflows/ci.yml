@@ -35,11 +35,18 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/check-shooter-sim-version.mjs
+      - name: Check Shooter free-arena pin
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/check-shooter-pvp-sim-version.mjs
       - run: npm test
         env:
           SHOOTER_REQUIRE_GOJA: '1'
           GOTOOLCHAIN: local
       - run: npm run build
+        env:
+          # Placeholder so the production build passes its empty-key guard. No server accepts it.
+          VITE_NAKAMA_SERVER_KEY: ci-build-placeholder-not-a-server-key
 
   duplication:
     runs-on: ubuntu-latest
@@ -85,6 +92,9 @@ jobs:
         timeout-minutes: 10
       - name: Coop authoritative match
         run: npx tsx scripts/load/coop-bots.ts
+        timeout-minutes: 15
+      - name: Shooter free match
+        run: npx tsx scripts/load/shooter-bots.ts
         timeout-minutes: 15
       - name: Economy audit
         if: always()
