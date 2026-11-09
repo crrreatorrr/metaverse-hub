@@ -45,6 +45,20 @@ const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; figh
     fighter: 'Pissing Sproto',
     unlock: "Repeats Cone's Tip: Nobu's staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
   },
+  marina_anchor: {
+    game: 'Sproto Coop Battle (Bar arcade)',
+    how: 'Clear stage 1, Tidebreak Marina, alone or online. God mode counts.',
+    pet: '',
+    fighter: '',
+    unlock: 'Marina Anchor aura · no items in other games yet',
+  },
+  dragon_scale: {
+    game: 'Sproto Shooter (The Range)',
+    how: 'Clear wave 1 of Wave Mode. God mode counts.',
+    pet: '',
+    fighter: '',
+    unlock: 'Dragon Scale aura · no items in other games yet',
+  },
 };
 
 interface PetInfo {

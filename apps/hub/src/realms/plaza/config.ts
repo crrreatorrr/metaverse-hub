@@ -42,8 +42,8 @@ export const PILLAR_HEIGHT = 3.05;
 export const PILLAR_WIDTH = 0.44;
 export const BOLLARD_RADIUS = 13.5;
 
-/** Monument angles stay in plaza ring order. */
-const SOCKET_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4, -Math.PI / 4, 0, Math.PI];
+/** Monument angles stay in plaza ring order. Eight Relics sit 45° apart. */
+const SOCKET_ANGLES = [Math.PI / 4, (3 * Math.PI) / 4, (-3 * Math.PI) / 4, -Math.PI / 4, 0, Math.PI, Math.PI / 2, -Math.PI / 2];
 export const SOCKETS = RELICS.map((relic, index) => ({ ...relic, relic: relic.name, angle: SOCKET_ANGLES[index]! }));
 export const PEDESTAL_COLORS = RELICS.map(relic => relic.color);
 export const ARCADE_RELIC = SOCKETS[4];

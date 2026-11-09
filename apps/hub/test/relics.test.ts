@@ -10,6 +10,17 @@ assert.deepEqual(RELIC_GEMS.map(({ id }) => id), [...RELIC_IDS], 'relic_ids_all_
 assert.deepEqual(SOCKETS.map(({ id }) => id), [...RELIC_IDS], 'relic_ids_all_have_sockets');
 const server = readFileSync(new URL('../../../server/modules/src/hub_match.ts', import.meta.url), 'utf8');
 for (const id of RELIC_IDS) assert.ok(server.includes(id), `server_knows_all_relics: ${id}`);
+// The Coop and Shooter Relics orbit and socket like the rest but are not Four Lights.
+for (const id of ['marina_anchor', 'dragon_scale'] as const) {
+  assert.ok(RELICS.some((relic) => relic.id === id), `${id} is shown`);
+  assert.ok(RELIC_GEMS.some((gem) => gem.id === id), `${id} orbits`);
+  assert.equal((FOUR_LIGHTS_RELIC_IDS as readonly string[]).includes(id), false, `${id} is not a Four Lights Relic`);
+}
+assert.equal(new Set(RELIC_GEMS.map((gem) => `${gem.radius}:${gem.height}`)).size, RELIC_GEMS.length, 'orbits do not overlap');
+assert.ok(!ownsFourLights(new Set(['tidebreaker_belt', 'breakwater_coin', 'marina_anchor', 'dragon_scale'])), 'later Relics never open the Hall');
+const ringOffsets = readFileSync(new URL('../src/realms/plaza/plaza.ts', import.meta.url), 'utf8').match(/\[(-?[\d.]+(?:, -?[\d.]+)+)\]\.forEach\(\(a, i\)/);
+assert.ok(ringOffsets, 'pedestal ring offsets');
+assert.equal(ringOffsets[1]!.split(',').length, RELIC_IDS.length, 'one pedestal ring per Relic');
 console.log('Relic ids ok');
 
 // Shared engine code must never reach into a particular realm.

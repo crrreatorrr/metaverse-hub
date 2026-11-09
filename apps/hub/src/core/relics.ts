@@ -8,6 +8,8 @@ export const RELICS: readonly { id: RelicId; name: string; color: string }[] = [
   { id: 'tinubu_crown', name: "Tinubu's Crown", color: '#8d6bff' },
   { id: 'tidebreaker_belt', name: 'Tidebreaker Belt', color: '#66d7e8' },
   { id: 'breakwater_coin', name: 'Breakwater Coin', color: '#3ec6ff' },
+  { id: 'marina_anchor', name: 'Marina Anchor', color: '#2ee6c8' },
+  { id: 'dragon_scale', name: 'Dragon Scale', color: '#ff5a2a' },
 ];
 
 export function ownsFourLights(relics: ReadonlySet<string>): boolean {
