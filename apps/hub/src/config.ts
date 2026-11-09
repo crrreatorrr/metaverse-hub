@@ -98,15 +98,11 @@ export function characterHeight(character: CharacterConfig): number {
 }
 
 /**
- * Logical gait → clip inside the GLB. P4: arrow keys play `jog` (authored for
- * 7.8 m/s), Shift plays `dash` (authored for 16 m/s). Each clip's glTF extras
- * carry `speed_mps`; the avatar sets timeScale = actual speed / speed_mps so the
- * planted foot never slides. Both clips put the left foot down at t = 0, so
- * jog ↔ dash crossfades keep the step phase.
- */
-/**
- * Gait clips. `name` is P4's clip (it carries `speed_mps`, so its time scale comes from the
- * controller speed). Rigs without it use `fallback` at `timeScale`.
+ * Gait clips. `name` is P4's clip: arrow keys play `jog`, Shift plays `dash`, both in place with the left
+ * foot down at t = 0, so jog ↔ dash crossfades keep the step phase. The wizard ships them; the other rigs
+ * get the wizard's, retargeted (`rig/locomotion.ts`). Every gait clip is measured for the ground speed it
+ * was animated for, and the avatar sets timeScale = controller speed / that speed so the planted foot never
+ * slides. `fallback` at `timeScale` is used only when a rig has neither clip nor a measurable stride.
  */
 export const AVATAR_CLIPS = {
   idle: { name: 'idle', fallback: 'idle', timeScale: 1 },
