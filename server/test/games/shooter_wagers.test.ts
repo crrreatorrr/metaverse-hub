@@ -87,6 +87,8 @@ function wagerApi(mod: LoadedModule): WagerApi {
     assert.equal(/settle|refund|winner|wager/i.test(id), false, id);
   }
   const props = { game: 'sproto-shooter', mode: 'free', protocol: '2', sim: '2', content: FP };
+  assert.throws(() => mod.rtBefore('MatchmakerAdd', game(A, 'sa'), { matchmakerAdd: { minCount: 2, maxCount: 2, query: '*', stringProperties: props } }), /pvp_off/);
+  assert.equal((mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), {})).error, 'pvp_off');
   assert.throws(() => mod.rtBefore('MatchmakerAdd', game(A, 'sa'), { matchmakerAdd: { minCount: 2, maxCount: 2, query: '*', stringProperties: { ...props, stake: '10' } } }), /stakes_disabled/);
   assert.throws(() => mod.rtBefore('MatchmakerAdd', game(A, 'sa'), { matchmakerAdd: { minCount: 2, maxCount: 2, query: '*', stringProperties: { ...props, mode: 'wager', stake: '10' } } }), /stakes_disabled/);
   const created = mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { mode: 'wager' });

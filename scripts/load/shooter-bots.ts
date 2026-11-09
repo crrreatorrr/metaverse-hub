@@ -14,7 +14,7 @@ import { cpus, totalmem } from 'node:os';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchData, type MatchHandle } from '../../packages/hub-sdk/src/index.ts';
-import { call, login, ticketBalance, waitReady, type GameLogin } from '../../server/test/dup/harness.ts';
+import { call, login, psql, sleep as sqlSleep, ticketBalance, waitReady, type GameLogin } from '../../server/test/dup/harness.ts';
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
@@ -168,6 +168,9 @@ function resultOf(seat: Seat): { outcome?: string; reason?: string; winner?: num
 }
 
 await waitReady();
+psql(`UPDATE game.server_flags SET state = 'on', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
+await sqlSleep(6500);
+try {
 const probe = await login(GAME);
 const version = await call('shooter.version', {}, probe.gameToken);
 const info = version.body as unknown as Version;
@@ -346,4 +349,7 @@ try {
 if (failures.length) {
   console.error(`${failures.length} shooter bot check(s) failed`);
   process.exit(1);
+}
+} finally {
+  psql(`UPDATE game.server_flags SET state = 'off', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
 }

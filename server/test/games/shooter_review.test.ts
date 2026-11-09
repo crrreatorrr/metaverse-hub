@@ -24,7 +24,16 @@ interface State {
 interface Api { encodeInput(wish: { [key: string]: unknown }): Uint8Array }
 
 function load(env: Record<string, string> = {}): LoadedModule {
-  return loadModule({ env: { HUB_FAULT_INJECT: '1', ...env }, clock: 1_800_000_000_000, jsonState: true });
+  return loadModule({
+    env: { HUB_FAULT_INJECT: '1', ...env },
+    clock: 1_800_000_000_000,
+    jsonState: true,
+    sql: [[/FROM game\.server_flags/, (args: unknown[]) => (
+      String(args[0] || '') === 'shooter_pvp'
+        ? [{ result: JSON.stringify({ state: 'on', allowlist: [], percent: 100 }) }]
+        : []
+    )]],
+  });
 }
 
 function game(userId: string, sessionId: string, sid = SID) {

@@ -238,6 +238,8 @@ namespace ShooterMm {
     } else {
       if (props["stake"] !== undefined && props["stake"] !== "0") throw new Error("stakes_disabled");
       if (!freeProps(asProps)) throw new Error("version_mismatch");
+      // shooter_pvp off stops a new free queue. A live match is not touched here.
+      if (!Flags.on(nk, ShooterWagers.FLAG_PVP, ctx.userId, logger)) throw new Error("pvp_off");
     }
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
     claimQueue(nk, ctx.userId, ctx.sessionId);
@@ -278,6 +280,11 @@ namespace ShooterMm {
       for (var g = 0; g < matches.length; g++) {
         var who = matches[g].presence.userId;
         if (!ShooterWagers.enabled(nk, who, logger) || HubChat.isGuest(nk, logger, who)) return;
+      }
+    } else {
+      // A free pair does not open a new match while shooter_pvp is off. Leave the tickets queued.
+      for (var f = 0; f < matches.length; f++) {
+        if (!Flags.on(nk, ShooterWagers.FLAG_PVP, matches[f].presence.userId, logger)) return;
       }
     }
     var ids: string[] = [];

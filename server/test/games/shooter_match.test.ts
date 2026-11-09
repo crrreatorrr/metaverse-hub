@@ -88,9 +88,20 @@ interface StoredReplay {
   receipt: { verified: boolean; verdict: { policy: string } | null; stateSha256: string | null };
 }
 
-/** Fake wall clock (one tick per loop), state copied through JSON between callbacks, replay on. */
-function load() {
-  return loadModule({ env: { HUB_FAULT_INJECT: '1', SHOOTER_PVP_REPLAY: '1' }, clock: 1_800_000_000_000, jsonState: true });
+function pvpFlag(args: unknown[], state: 'on' | 'off'): Record<string, unknown>[] {
+  if (String(args[0] || '') !== 'shooter_pvp') return [];
+  return [{ result: JSON.stringify({ state, allowlist: [], percent: state === 'on' ? 100 : 0 }) }];
+}
+
+/** Fake wall clock (one tick per loop), state copied through JSON between callbacks, replay on.
+ *  Free play in these tests turns shooter_pvp on in the fake. The committed row stays off. */
+function load(pvp: 'on' | 'off' = 'on') {
+  return loadModule({
+    env: { HUB_FAULT_INJECT: '1', SHOOTER_PVP_REPLAY: '1' },
+    clock: 1_800_000_000_000,
+    jsonState: true,
+    sql: [[/FROM game\.server_flags/, (args: unknown[]) => pvpFlag(args, pvp)]],
+  });
 }
 
 function game(userId: string, sessionId: string, sid = SID, scope = 'game', gameId = 'sproto-shooter') {
@@ -260,6 +271,7 @@ const HOSTED_SESSION = `(function () {
   assert.equal((mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { seed: 7 })).error, 'rejected');
   assert.equal((mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { stake: 10 })).error, 'rejected');
   assert.equal((mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { v: 1 })).error, 'version_mismatch');
+  assert.equal((mod.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { mode: 'wager' })).error, 'stakes_disabled');
   const created = mod.call<{ matchId: string; code: string; stake: number; ticketsMinted: number; error?: string }>('shooter.room_create', game(A, 'sa'), {});
   assert.equal(created.error, undefined, JSON.stringify(created));
   assert.equal(created.stake, 0);
@@ -677,6 +689,19 @@ const HOSTED_SESSION = `(function () {
   assert.equal(mod.nk.matches.get(id!)?.module, 'sproto_shooter_free');
   assert.equal(mod.matchmake([{ presence: a, properties: props }, { presence: b, properties: props }]), id);
   assert.equal(mod.matchmake([{ presence: a, properties: props }, { presence: presence(A, 'ada', 'other'), properties: props }]), undefined);
+
+  const dark = load('off');
+  assert.throws(() => dark.rtBefore('MatchmakerAdd', game(A, 'sa'), { matchmakerAdd: { minCount: 2, maxCount: 2, query: '*', stringProperties: props } }), /pvp_off/);
+  assert.equal((dark.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), {})).error, 'pvp_off');
+  assert.equal((dark.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { v: 1 })).error, 'version_mismatch');
+  assert.equal((dark.call<{ error?: string }>('shooter.room_create', game(A, 'sa'), { mode: 'wager' })).error, 'stakes_disabled');
+  assert.equal(dark.matchmake([{ presence: a, properties: props }, { presence: b, properties: props }]), undefined);
+  const kept = dark.startMatch('sproto_shooter_free', { spawnSeed: '7', seedSource: 'server', private: '1', host: A });
+  kept.signal(`admit:${B}`);
+  assert.equal(kept.join([a], game(A, 'sa'))[0]?.accept, true);
+  hello(kept, a);
+  ready(kept, a);
+  assert.equal(kept.loop([]), true, 'a match already open keeps running while the flag is off');
   const queued = mod.driver(id!);
   assert.equal((JSON.parse(queued.match.label) as { private: boolean }).private, false);
   assert.equal(queued.joinAttempt(presence(C, 'cy', 'sc'), game(C, 'sc')).rejectMessage, 'not_in_roster');
