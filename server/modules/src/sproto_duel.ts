@@ -196,7 +196,7 @@ namespace SprotoDuel {
   export var handler: nkruntime.MatchHandler<DuelState> = {
     matchInit: function (_ctx, _logger, _nk, params) {
       var players = JSON.parse(String(params["players"])) as string[];
-      var names = JSON.parse(String(params["names"] || "{}")) as { [userId: string]: string };
+      var names = HubMatch.cleanNameMap(JSON.parse(String(params["names"] || "{}")), 32);
       var state: DuelState = {
         players: players, wager: params["wager"] === "1", sim: String(params["sim"]), names: names,
         present: {}, hello: {}, phase: "joining", createdTick: 0, startedTick: -1, leftTick: {},
@@ -314,8 +314,8 @@ namespace SprotoDuel {
     // Refund anything a crashed match left in escrow.
     nk.sqlQuery("SELECT game.sproto_wager_expire(interval '15 minutes')", []);
     var names: { [userId: string]: string } = {};
-    names[a.presence.userId] = String(a.presence.username || "").slice(0, 32);
-    names[b.presence.userId] = String(b.presence.username || "").slice(0, 32);
+    names[a.presence.userId] = HubMatch.cleanName(a.presence.username, 32);
+    names[b.presence.userId] = HubMatch.cleanName(b.presence.username, 32);
     var id = nk.matchCreate(MATCH_NAME, {
       players: JSON.stringify([a.presence.userId, b.presence.userId]), names: JSON.stringify(names),
       wager: a.properties["wager"] === "1" ? "1" : "0", sim: String(a.properties["sim"]),

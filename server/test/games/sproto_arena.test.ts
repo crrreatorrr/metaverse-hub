@@ -55,6 +55,8 @@ function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
     wins.push(args);
     return [{ result: JSON.stringify({ recorded: true }) }];
   });
+  // Alice owns the Nobu Staff (Cone's Tip); Bob owns only the starter.
+  ownStaffs(mod, { [A]: ['duel_staff_nobu', 'duel_staff_sproto'], [B]: ['duel_staff_sproto'] });
   const pa = presence(A, 'alice'), pb = presence(B, 'bob');
   const id = mod.matchmake([
     { presence: pa, properties: { game: 'sproto', v: V } },
@@ -81,6 +83,17 @@ function start(opts: { paid?: boolean; ranked?: string } = {}): Arena {
   const host = hostSeat === 0 ? pa : pb, guest = hostSeat === 0 ? pb : pa;
   m.dispatcher.clear();
   return { mod, m, pa, pb, host, guest, hostSeat, earns, wins, payRows, ticketSql: ticketSqlCount(mod) };
+}
+
+/** Scripts game.owned_item_ids (and the Breakwater Coin check) per user for the staff ownership read. */
+function ownStaffs(mod: LoadedModule, owned: Record<string, string[]>, coin: Record<string, boolean> = {}): unknown[][] {
+  const reads: unknown[][] = [];
+  mod.nk.onSql('game.owned_item_ids', (args) => {
+    reads.push(args);
+    const uid = String(args[0]);
+    return [{ result: JSON.stringify({ owned: owned[uid] ?? ['duel_staff_sproto'], coin: coin[uid] === true }) }];
+  });
+  return reads;
 }
 
 function ticketSqlCount(mod: LoadedModule): number {
@@ -422,6 +435,102 @@ function expectUnpaid(a: Arena, label: string): void {
     agreeSeat0(a);
     expectUnpaid(a, `ranked ${JSON.stringify(ranked)}`);
   }
+}
+
+// HUB-W-1-02 staff ownership: a client may only bring a staff it owns (plan R.11 #8).
+// Ownership is game.owned_item_ids (starter, relic-derived, item_owned) plus the
+// Breakwater Coin, which Sproto Duel maps to the Nobu Staff. Anything else, and
+// any read error, falls back to the starter. OP_START echoes the accepted staffs.
+function staffMatch(mod: LoadedModule, helloA: unknown, helloB: unknown, via: 'hello' | 'accept' = 'hello'): { m: MatchDriver; staffs: string[] } {
+  const pa = presence(A, 'alice'), pb = presence(B, 'bob');
+  const id = mod.matchmake([
+    { presence: pa, properties: { game: 'sproto', v: V } },
+    { presence: pb, properties: { game: 'sproto', v: V } },
+  ]);
+  const m = mod.driver(id!);
+  m.join([pa], { vars: vars(SID_A) });
+  m.join([pb], { vars: vars(SID_B) });
+  if (via === 'hello') {
+    m.loop([
+      { sender: pa, opCode: OP.HELLO, data: { v: V, staff: helloA } },
+      { sender: pb, opCode: OP.HELLO, data: { v: V, staff: helloB } },
+      { sender: pa, opCode: OP.ACCEPT, data: { v: V } },
+      { sender: pb, opCode: OP.ACCEPT, data: { v: V } },
+    ]);
+  } else {
+    m.loop([
+      { sender: pa, opCode: OP.ACCEPT, data: { v: V, staff: helloA } },
+      { sender: pb, opCode: OP.ACCEPT, data: { v: V, staff: helloB } },
+    ]);
+  }
+  const starts = m.dispatcher.sent<{ staffs: string[] }>(OP.START);
+  assert.equal(starts.length, 2);
+  assert.deepEqual(plain(starts[0]!.body.staffs), plain(starts[1]!.body.staffs), 'both seats see the same staffs');
+  return { m, staffs: plain(starts[0]!.body.staffs) };
+}
+{
+  // Unowned staffs fall back to the starter; owned ones are kept and echoed.
+  const mod = loadModule();
+  const reads = ownStaffs(mod, { [A]: ['duel_staff_momentum', 'duel_staff_sproto'], [B]: ['duel_staff_sproto'] });
+  const { staffs } = staffMatch(mod, 'duel_staff_momentum', 'duel_staff_moonward');
+  assert.deepEqual(staffs, ['duel_staff_momentum', 'duel_staff_sproto'], 'an unowned listed staff is replaced by the starter');
+  assert.deepEqual(reads.map((r) => r[0]).sort(), [A, B], 'one ownership read per player');
+}
+{
+  // The starter needs no ownership row; an unknown id is the starter.
+  const mod = loadModule();
+  ownStaffs(mod, { [A]: [], [B]: [] });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_sproto', 'not_a_staff').staffs, ['duel_staff_sproto', 'duel_staff_sproto']);
+}
+{
+  // Breakwater Coin owns the Nobu Staff (as in Sproto Duel's loadout); it does not own Moonward.
+  const mod = loadModule();
+  ownStaffs(mod, { [A]: ['duel_staff_sproto'], [B]: ['duel_staff_sproto'] }, { [A]: true, [B]: true });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_nobu', 'duel_staff_moonward').staffs, ['duel_staff_nobu', 'duel_staff_sproto']);
+}
+{
+  // Fighter's Might: game.owned_item_ids lists it for a Tidebreaker Belt owner, so the owner keeps it
+  // and a player without the Belt gets the starter.
+  const mod = loadModule();
+  ownStaffs(mod, { [A]: ['duel_staff_sproto', 'duel_staff_fighters_might'], [B]: ['duel_staff_sproto'] });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_fighters_might', 'duel_staff_fighters_might').staffs, ['duel_staff_fighters_might', 'duel_staff_sproto']);
+}
+{
+  // A failed ownership read fails closed to the starter.
+  const mod = loadModule();
+  mod.nk.onSql('game.owned_item_ids', () => {
+    throw new Error('db down');
+  });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_nobu', 'duel_staff_momentum').staffs, ['duel_staff_sproto', 'duel_staff_sproto']);
+}
+{
+  // No ownership row at all (empty result) is the starter too.
+  const mod = loadModule();
+  assert.deepEqual(staffMatch(mod, 'duel_staff_nobu', 'duel_staff_momentum').staffs, ['duel_staff_sproto', 'duel_staff_sproto']);
+}
+{
+  // ACCEPT carries the staff too (first message and a later change): same check, one read per player.
+  const mod = loadModule();
+  const reads = ownStaffs(mod, { [A]: ['duel_staff_moonward', 'duel_staff_sproto'], [B]: ['duel_staff_sproto'] });
+  assert.deepEqual(staffMatch(mod, 'duel_staff_moonward', 'duel_staff_nobu', 'accept').staffs, ['duel_staff_moonward', 'duel_staff_sproto']);
+  const mod2 = loadModule();
+  const reads2 = ownStaffs(mod2, { [A]: ['duel_staff_sproto'], [B]: ['duel_staff_sproto'] });
+  const pa = presence(A, 'alice'), pb = presence(B, 'bob');
+  const id = mod2.matchmake([{ presence: pa, properties: { game: 'sproto', v: V } }, { presence: pb, properties: { game: 'sproto', v: V } }]);
+  const m = mod2.driver(id!);
+  m.join([pa], { vars: vars(SID_A) });
+  m.join([pb], { vars: vars(SID_B) });
+  m.loop([{ sender: pa, opCode: OP.HELLO, data: { v: V, staff: 'duel_staff_sproto' } }]);
+  m.loop([{ sender: pa, opCode: OP.ACCEPT, data: { v: V, staff: 'duel_staff_momentum' } }]);
+  m.loop([{ sender: pa, opCode: OP.ACCEPT, data: { v: V, staff: 'duel_staff_moonward' } }]);
+  m.loop([{ sender: pb, opCode: OP.ACCEPT, data: { v: V, staff: 'duel_staff_sproto' } }]);
+  const starts = m.dispatcher.sent<{ staffs: string[] }>(OP.START);
+  assert.deepEqual(plain(starts[0]!.body.staffs), ['duel_staff_sproto', 'duel_staff_sproto'], 'a later ACCEPT cannot swap in an unowned staff');
+  assert.equal(reads.length, 2);
+  assert.equal(reads2.filter((r) => r[0] === A).length, 1, 'ownership is read once per player per match');
+  // The cached ownership is plain JSON in match state.
+  const st = plain(m.state) as { ownedStaffs: Record<string, string[]> };
+  assert.deepEqual(st.ownedStaffs[A], ['duel_staff_sproto']);
 }
 
 console.log('sproto_arena tests ok');

@@ -8,6 +8,7 @@ import {
   CylinderGeometry,
   DoubleSide,
   Group,
+  MathUtils,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
@@ -24,6 +25,7 @@ import {
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import {
+  AVATAR_ASSET,
   AVATAR_BLEND,
   AVATAR_CLIPS,
   AVATAR_HEIGHT,
@@ -33,20 +35,49 @@ import {
   STAFFS,
   WALK_SPEED,
   characterHeight,
+  characterYaw,
   staffScale,
   type CharacterConfig,
   type CharacterId,
   type StaffId,
 } from './config';
 import type { AvatarLook } from './look';
+import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
+import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
+
+/** Airborne state for the jump clip. `vy` is vertical velocity (m/s, up positive). */
+export interface AvatarAir {
+  airborne: boolean;
+  vy: number;
+}
+
+type Gait = 'idle' | 'walk' | 'run';
+type Pose = Gait | 'air';
+
+/**
+ * Gait playback stays in this band even when a rig's stride is far from the controller speed. The Midget's
+ * short legs need about 2.2x at the jog to keep his feet planted ("Quick feet").
+ */
+const TIME_SCALE_MIN = 0.5;
+const TIME_SCALE_MAX = 2.5;
+/** Part of the Sproto Duel `jump` clip used in the air (fractions of its length): arms-up launch to tuck. */
+const AIR_WINDOW = [0.15, 0.85] as const;
+/** Crossfades into and out of the jump clip (s). */
+const AIR_BLEND = { takeoff: 0.08, land: 0.14 } as const;
+/** Bank into turns: radians of roll per rad/s of yaw rate at sprint, capped. */
+const BANK_GAIN = 0.045;
+const BANK_MAX = 0.2;
+/** A yaw step larger than this in one frame is a teleport or respawn, not a turn. */
+const BANK_SNAP = 1.2;
 
 export interface AvatarRig {
   readonly group: Group;
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
-  update(dt: number, moving: boolean, sprint: boolean): void;
+  /** `air` drives the jump clip; leave it out for a rig that is always grounded. */
+  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void;
   /** Tint, glow, height and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
@@ -66,8 +97,10 @@ export function createAvatarRig(): AvatarRig {
   const group = new Group();
   group.name = 'player-avatar';
   let mixer: AnimationMixer | null = null;
-  let actions: Record<'idle' | 'walk' | 'run', AnimationAction> | null = null;
-  let gait: 'idle' | 'walk' | 'run' = 'idle';
+  let actions: (Record<Gait, AnimationAction> & { air: AnimationAction | null }) | null = null;
+  let pose: Pose = 'idle';
+  let bank = 0;
+  let lastYaw: number | null = null;
   let started = false;
   let materials: MeshStandardMaterial[] = [];
   let look: AvatarLook | null = null;
@@ -84,9 +117,14 @@ export function createAvatarRig(): AvatarRig {
   let staffToken = 0;
   let staffObject: Object3D | null = null;
   let staffMixer: AnimationMixer | null = null;
+  // Lean pivots at the feet, so banking into a turn does not swing the legs sideways.
+  const lean = new Group();
+  lean.name = 'avatar-lean';
+  lean.position.y = -STAND_Y;
+  group.add(lean);
   const body = new Group();
   body.name = 'avatar-body';
-  group.add(body);
+  lean.add(body);
   const aura = createAura();
   group.add(aura.group);
 
@@ -103,19 +141,27 @@ export function createAvatarRig(): AvatarRig {
     const token = ++loadToken;
     const character = characterById(id);
     const url = `${import.meta.env.BASE_URL}${character.asset}`;
+    const donorUrl = `${import.meta.env.BASE_URL}${AVATAR_ASSET}`;
     void loadGLTF(url)
-      .then((gltf) => {
+      .then(async (gltf) => {
         if (token !== loadToken) return;
-        const next = fitModel(gltf.scene, characterHeight(character));
+        const prepared = SkeletonUtils.clone(gltf.scene) as Group;
+        // Duel-skeleton rigs without P4's jog / dash get the wizard's, retargeted, so their feet stay planted.
+        const clips = character.borrow
+          ? await borrowMixamoGait(prepared)
+          : await locomotionFor(character.asset, gltf, () => loadGLTF(donorUrl));
+        if (token !== loadToken) return;
+        const next = fitModel(prepared, characterHeight(character), characterYaw(character));
         const nextMaterials = ownMaterials(next);
         // Before the mixer runs, so the socket is placed against the rest pose.
         const nextSocket = staffSocket(next, staffScale(character));
         const nextMixer = new AnimationMixer(next);
         const claimed = new WeakSet<AnimationClip>();
         const nextActions = {
-          idle: playClip(nextMixer, gltf.animations, 'idle', claimed),
-          walk: playClip(nextMixer, gltf.animations, 'walk', claimed),
-          run: playClip(nextMixer, gltf.animations, 'run', claimed),
+          idle: playClip(nextMixer, clips, 'idle', claimed),
+          walk: playClip(nextMixer, clips, 'walk', claimed),
+          run: playClip(nextMixer, clips, 'run', claimed),
+          air: airClip(nextMixer, clips),
         };
         unmountStaff();
         if (model) disposeModel(model, materials);
@@ -126,7 +172,9 @@ export function createAvatarRig(): AvatarRig {
         actions = nextActions;
         body.add(next);
         if (look) paint(look);
-        actions[gait].play();
+        retime();
+        if (pose === 'air' && !actions.air) pose = 'idle';
+        poseAction(pose).play();
         mountStaff();
       })
       .catch((error: unknown) => {
@@ -139,25 +187,76 @@ export function createAvatarRig(): AvatarRig {
       });
   }
 
-  function update(dt: number, moving: boolean, sprint: boolean): void {
+  function poseAction(which: Pose): AnimationAction {
+    if (!actions) throw new Error('avatar actions are not ready');
+    return which === 'air' ? (actions.air ?? actions.idle) : actions[which];
+  }
+
+  /**
+   * Gait playback rate from the ground speed each clip was animated for, the fit scale and the look height,
+   * so the planted foot moves with the floor. Clips with no measured stride keep the rate `playClip` set.
+   */
+  function retime(): void {
+    if (!actions || !model) return;
+    const scale = model.scale.y * body.scale.y;
+    for (const gait of ['walk', 'run'] as const) {
+      const action = actions[gait];
+      const ground = groundSpeedOf(action.getClip()) * scale;
+      if (!(ground > 0)) continue;
+      const actual = gait === 'run' ? SPRINT_SPEED : WALK_SPEED;
+      action.timeScale = MathUtils.clamp(actual / ground, TIME_SCALE_MIN, TIME_SCALE_MAX);
+    }
+  }
+
+  function blendTime(from: Pose, to: Pose): number {
+    if (to === 'air') return AIR_BLEND.takeoff;
+    if (from === 'air') return AIR_BLEND.land;
+    if (from === 'idle') return AVATAR_BLEND.idleToMove;
+    if (to === 'idle') return AVATAR_BLEND.moveToIdle;
+    return to === 'run' ? AVATAR_BLEND.jogToDash : AVATAR_BLEND.dashToJog;
+  }
+
+  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (!mixer || !actions) return;
-    const next: 'idle' | 'walk' | 'run' = !moving ? 'idle' : sprint ? 'run' : 'walk';
-    if (next !== gait) {
-      const from = actions[gait];
-      const to = actions[next];
-      const fade =
-        gait === 'idle' ? AVATAR_BLEND.idleToMove
-        : next === 'idle' ? AVATAR_BLEND.moveToIdle
-        : next === 'run' ? AVATAR_BLEND.jogToDash
-        : AVATAR_BLEND.dashToJog;
-      to.reset();
-      // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
-      if (gait !== 'idle' && next !== 'idle') to.time = (from.time / from.getClip().duration) * to.getClip().duration;
-      to.setEffectiveWeight(1).play();
-      from.crossFadeTo(to, fade, false);
-      gait = next;
+    const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
+    const next: Pose = air?.airborne && actions.air ? 'air' : gait;
+    if (next !== pose) {
+      const from = poseAction(pose);
+      const to = poseAction(next);
+      if (from !== to) {
+        to.reset();
+        // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
+        if ((pose === 'walk' || pose === 'run') && (next === 'walk' || next === 'run')) {
+          to.time = (from.time / from.getClip().duration) * to.getClip().duration;
+        }
+        to.setEffectiveWeight(1).play();
+        from.crossFadeTo(to, blendTime(pose, next), false);
+      }
+      pose = next;
+    }
+    if (pose === 'air' && actions.air) {
+      // The jump clip is scrubbed by vertical velocity: launch at full jump speed, the tuck through the apex,
+      // and the tuck held through any longer fall. The clip's own wind-up and landing recovery are left out;
+      // the crossfades cover them.
+      const clip = actions.air.getClip();
+      const phase = MathUtils.clamp((MOVEMENT.jump - (air?.vy ?? 0)) / (2 * MOVEMENT.jump), 0, 1);
+      actions.air.time = (AIR_WINDOW[0] + phase * (AIR_WINDOW[1] - AIR_WINDOW[0])) * clip.duration;
     }
     mixer.update(dt);
+  }
+
+  /** Roll into turns while moving, from the yaw the owner set on `group` this frame. */
+  function bankInto(dt: number, moving: boolean, sprint: boolean): void {
+    const yaw = group.rotation.y;
+    let step = lastYaw === null ? 0 : yaw - lastYaw;
+    lastYaw = yaw;
+    step = Math.atan2(Math.sin(step), Math.cos(step));
+    if (Math.abs(step) > BANK_SNAP) step = 0;
+    const rate = dt > 0 ? step / dt : 0;
+    const speed = moving ? (sprint ? 1 : 0.55) : 0;
+    const target = MathUtils.clamp(rate * BANK_GAIN * speed, -BANK_MAX, BANK_MAX);
+    bank = MathUtils.damp(bank, target, 8, dt);
+    lean.rotation.z = bank;
   }
 
   function setStaff(id: StaffId): void {
@@ -219,16 +318,17 @@ export function createAvatarRig(): AvatarRig {
     look = next;
     setStaff(next.staff);
     if (started) show(next.character);
-    // Scale about the feet: the rig origin is the capsule top, STAND_Y above the floor.
+    // Scale about the feet: `lean` sits on the floor, STAND_Y below the rig origin (the capsule top).
     body.scale.setScalar(next.height);
-    body.position.y = -STAND_Y * (1 - next.height);
+    body.position.y = STAND_Y * next.height;
+    retime();
     paint(next);
     const socket = RELICS.find((entry) => entry.id === next.aura);
     aura.group.visible = Boolean(socket);
     if (socket) aura.setColor(socket.color);
   }
 
-  function tick(dt: number, moving: boolean, sprint: boolean): void {
+  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (aura.group.visible) {
       auraClock += dt;
       aura.ring.rotation.z += dt * 0.9;
@@ -236,7 +336,8 @@ export function createAvatarRig(): AvatarRig {
       aura.ringMat.opacity = 0.55 + pulse * 0.35;
       aura.columnMat.opacity = 0.22 + pulse * 0.16;
     }
-    update(dt, moving, sprint);
+    bankInto(dt, moving && !air?.airborne, sprint);
+    update(dt, moving, sprint, air);
     staffMixer?.update(dt);
     if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
   }
@@ -272,7 +373,9 @@ const socketScale = new Vector3();
 function staffSocket(model: Object3D, scale: number): Object3D | null {
   const authored = model.getObjectByName('socket_staff');
   if (authored) return authored;
-  const hand = model.getObjectByName('RightHand');
+  const hand = model.getObjectByName('RightHand')
+    ?? model.getObjectByName('mixamorigRightHand')
+    ?? model.getObjectByName('R_Hand');
   const forearm = hand?.parent;
   if (!hand || !forearm) return null;
   model.updateMatrixWorld(true);
@@ -416,26 +519,61 @@ function columnTexture(): CanvasTexture {
 }
 
 /**
- * Resolve idle / walk / run through `AVATAR_CLIPS`. The wizard carries P4's `jog` and `dash`;
- * rigs without them (the Sproto Duel bosses) fall back to `run` at the old time scales.
+ * Resolve idle / walk / run. The wizard carries P4's `jog` and `dash`; duel bosses fall back
+ * to `run`. Shooter rigs use `walk`, and the jade dragon uses `fly`.
  */
+const GAIT_CLIP_NAMES: Record<keyof typeof AVATAR_CLIPS, readonly string[]> = {
+  idle: ['idle', 'fly'],
+  walk: ['jog', 'run', 'walk', 'fly'],
+  run: ['dash', 'run', 'walk', 'fly'],
+};
+
+function claimClip(clip: AnimationClip, gait: string, claimed: WeakSet<AnimationClip>): AnimationClip {
+  if (!claimed.has(clip)) {
+    claimed.add(clip);
+    return clip;
+  }
+  const copy = clip.clone();
+  copy.name = gait;
+  return copy;
+}
+
+/**
+ * One frame of a locomotion clip, held. Used when a rig has a walk and no idle
+ * (Blue Monster, Sproto Beast) so standing still is a planted pose, not a T-pose.
+ */
+function holdPose(source: AnimationClip): AnimationClip {
+  const tracks = source.tracks.map((track) => {
+    const size = track.getValueSize();
+    const values = new Float32Array(size * 2);
+    for (let i = 0; i < size; i += 1) {
+      const sample = track.values[i] ?? 0;
+      values[i] = sample;
+      values[size + i] = sample;
+    }
+    const Track = track.constructor as new (name: string, times: Float32Array, values: Float32Array) => AnimationClip['tracks'][number];
+    return new Track(track.name, new Float32Array([0, 1]), values);
+  });
+  return new AnimationClip('idle', 1, tracks);
+}
+
 function requiredClip(
   clips: readonly AnimationClip[],
   gait: keyof typeof AVATAR_CLIPS,
   claimed: WeakSet<AnimationClip>,
 ): AnimationClip {
-  const { name, fallback } = AVATAR_CLIPS[gait];
-  const found = clips.find((clip) => clip.name === name) ?? clips.find((clip) => clip.name === fallback);
-  if (!found) throw new Error(`Avatar is missing the ${name} clip (${gait})`);
-  if (claimed.has(found)) {
-    const copy = found.clone();
-    copy.name = gait;
-    return copy;
+  const found = GAIT_CLIP_NAMES[gait]
+    .map((name) => clips.find((clip) => clip.name === name))
+    .find((clip): clip is AnimationClip => Boolean(clip));
+  if (found) return claimClip(found, gait, claimed);
+  if (gait === 'idle') {
+    const move = clips.find((clip) => clip.name === 'walk' || clip.name === 'run' || clip.name === 'jog');
+    if (move) return holdPose(move);
   }
-  claimed.add(found);
-  return found;
+  throw new Error(`Avatar is missing the ${GAIT_CLIP_NAMES[gait][0]} clip (${gait})`);
 }
 
+/** Gait actions. Clips with a measured stride get their walk / run rate from `retime` once the fit is known. */
 function playClip(
   mixer: AnimationMixer,
   clips: readonly AnimationClip[],
@@ -448,21 +586,41 @@ function playClip(
   const authored = Number((clip.userData as { speed_mps?: number }).speed_mps);
   const actual = gait === 'run' ? SPRINT_SPEED : gait === 'walk' ? WALK_SPEED : 0;
   action.timeScale = authored > 0 && actual > 0 ? actual / authored : AVATAR_CLIPS[gait].timeScale;
+  // The dragon's idle is its fly clip (the clones used for walking are renamed). Keep the hover calm.
+  if (clip.name === 'fly' && !(authored > 0)) action.timeScale = 0.45;
   return action;
 }
 
-/** Height-fit the body. Props held in the hands (staff, phone, vape) stay in the mesh and are left out of the bounds. */
-function fitModel(source: Group, height: number): Object3D {
-  const model = SkeletonUtils.clone(source);
-  model.rotation.y = Math.PI;
+/** The jump clip, held still: `update` scrubs it by vertical velocity. Null when the rig has none. */
+function airClip(mixer: AnimationMixer, clips: readonly AnimationClip[]): AnimationAction | null {
+  const clip = clips.find((entry) => entry.name === 'jump');
+  if (!clip) return null;
+  const action = mixer.clipAction(clip);
+  action.timeScale = 0;
+  return action;
+}
+
+/**
+ * Height-fit a clone. Props held in the hands (staff, phone, vape) stay in the mesh and are left out of the bounds.
+ * A creature much longer than it is tall (the dragon, the mole) is scaled down so its longest side stays near the
+ * plaza height instead of stretching across a doorway.
+ */
+function fitModel(model: Group, height: number, yaw: number): Object3D {
+  model.rotation.y = yaw;
   model.updateMatrixWorld(true);
   const body = bodySpan(model);
   if (body.height < 0.2 || body.height > 20) {
     throw new Error(`Avatar body height is implausible (${body.height.toFixed(3)} m)`);
   }
-  model.scale.setScalar(height / body.height);
+  let scale = height / body.height;
+  const long = Math.max(body.maxX - body.minX, body.maxZ - body.minZ);
+  // A creature much longer than the plaza body (dragon, mole) would otherwise span a doorway.
+  if (long * scale > height * 1.65) scale = (height * 1.65) / long;
+  model.scale.setScalar(scale);
+  model.updateMatrixWorld(true);
   const fitted = bodySpan(model);
-  model.position.y = -STAND_Y - fitted.minY;
+  // Feet on the ground, body over the capsule. A mesh whose origin sits at one end would otherwise orbit it.
+  model.position.set(-(fitted.minX + fitted.maxX) / 2, -STAND_Y - fitted.minY, -(fitted.minZ + fitted.maxZ) / 2);
   model.traverse((obj) => {
     const mesh = obj as Mesh;
     if (mesh.isMesh) mesh.frustumCulled = false;
@@ -470,18 +628,66 @@ function fitModel(source: Group, height: number): Object3D {
   return model;
 }
 
+/** Laser Bot's idle and run, retargeted onto a Mixamo body that shipped without clips (Sproto Soldier). */
+async function borrowMixamoGait(model: Object3D): Promise<AnimationClip[]> {
+  const donor = CHARACTERS.find((entry) => entry.id === 'laser');
+  if (!donor) throw new Error('Laser Bot is missing, so Sproto Soldier has no gait');
+  const gltf = await loadGLTF(`${import.meta.env.BASE_URL}${donor.asset}`);
+  const sourceRoot = SkeletonUtils.clone(gltf.scene);
+  const source = firstSkinned(sourceRoot);
+  const target = firstSkinned(model);
+  if (!source || !target) throw new Error('Sproto Soldier has no skeleton to retarget');
+  const options = { fps: 30, hip: 'mixamorigHips', getBoneName: (bone: Object3D) => bone.name };
+  const clips = (['idle', 'run'] as const).map((name) => {
+    const clip = gltf.animations.find((entry) => entry.name === name);
+    if (!clip) throw new Error(`Laser Bot is missing the ${name} clip`);
+    const retargeted = SkeletonUtils.retargetClip(target, source, clip, options);
+    return renameRetarget(retargeted, name);
+  });
+  target.skeleton.pose();
+  return clips;
+}
+
+function firstSkinned(root: Object3D): SkinnedMesh | null {
+  let found: SkinnedMesh | null = null;
+  root.traverse((obj) => {
+    const mesh = obj as SkinnedMesh;
+    if (!found && mesh.isSkinnedMesh) found = mesh;
+  });
+  return found;
+}
+
+/** `retargetClip` names tracks for a skinned mesh. The plaza mixer is rooted on the scene, which uses bone names. */
+function renameRetarget(clip: AnimationClip, name: string): AnimationClip {
+  const tracks = clip.tracks.map((track) => {
+    const match = /^\.bones\[(.+)\]\.(position|quaternion|scale)$/.exec(track.name);
+    const next = match ? `${match[1]}.${match[2]}` : track.name;
+    const Track = track.constructor as new (trackName: string, times: Float32Array, values: Float32Array) => AnimationClip['tracks'][number];
+    return new Track(next, track.times as Float32Array, track.values as Float32Array);
+  });
+  return new AnimationClip(name, clip.duration, tracks);
+}
+
 /** Staffs and props are skinned to the hands and can reach above the head. */
-const STAFF_BONES = new Set(['LeftHand', 'RightHand']);
+const STAFF_BONES = new Set([
+  'LeftHand', 'RightHand',
+  'mixamorigLeftHand', 'mixamorigRightHand',
+  'L_Hand', 'R_Hand',
+]);
 
 /**
  * Vertical span of the skinned body. Hand-weighted vertices are the baked
  * staff, so they do not set the fit. Raw positions are a quantized bind pose
  * and only land on the body after the joints run.
  */
-function bodySpan(root: Object3D): { minY: number; height: number } {
+function bodySpan(root: Object3D): { minY: number; height: number; minX: number; maxX: number; minZ: number; maxZ: number } {
   root.updateMatrixWorld(true);
   let minY = Infinity;
   let maxY = -Infinity;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
   let found = false;
   root.traverse((obj) => {
     const mesh = obj as SkinnedMesh;
@@ -517,14 +723,18 @@ function bodySpan(root: Object3D): { minY: number; height: number } {
       }
       skinned.applyMatrix4(mesh.bindMatrixInverse);
       point.set(skinned.x, skinned.y, skinned.z).applyMatrix4(mesh.matrixWorld);
+      if (point.x < minX) minX = point.x;
+      if (point.x > maxX) maxX = point.x;
       if (point.y < minY) minY = point.y;
       if (point.y > maxY) maxY = point.y;
+      if (point.z < minZ) minZ = point.z;
+      if (point.z > maxZ) maxZ = point.z;
       found = true;
     }
   });
   if (!found) {
     const box = new Box3().setFromObject(root);
-    return { minY: box.min.y, height: box.getSize(size).y };
+    return { minY: box.min.y, height: box.getSize(size).y, minX: box.min.x, maxX: box.max.x, minZ: box.min.z, maxZ: box.max.z };
   }
-  return { minY, height: maxY - minY };
+  return { minY, height: maxY - minY, minX, maxX, minZ, maxZ };
 }

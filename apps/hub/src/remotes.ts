@@ -10,6 +10,7 @@ import {
   DynamicDrawUsage,
   Group,
   InstancedMesh,
+  MathUtils,
   Matrix4,
   MeshStandardMaterial,
   Quaternion,
@@ -41,6 +42,9 @@ interface NearSlot {
   slot: number | null;
   version: number;
   label: HTMLDivElement;
+  /** Rendered height last frame and the vertical speed it implies, for the jump clip. */
+  lastY: number | null;
+  vy: number;
 }
 
 export interface Remotes {
@@ -108,7 +112,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     label.className = 'remote-name';
     label.hidden = true;
     opts.hud.append(label);
-    return { root: group, rig, slot: null, version: -1, label };
+    return { root: group, rig, slot: null, version: -1, label, lastY: null, vy: 0 };
   }
 
   function lookFor(p: RemotePlayer) {
@@ -122,6 +126,8 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   function assign(slotObj: NearSlot, p: RemotePlayer): void {
     slotObj.slot = p.slot;
     slotObj.version = p.version;
+    slotObj.lastY = null;
+    slotObj.vy = 0;
     slotObj.rig.setLook(lookFor(p));
     slotObj.rig.load();
     slotObj.label.textContent = p.name;
@@ -234,7 +240,11 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           n.root.position.set(r.x, r.y, r.z);
           n.rig.group.rotation.y = -r.yaw;
           const anim = ANIMS[r.anim] ?? 'idle';
-          n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run');
+          // Vertical speed from the interpolated height; a snap (respawn, warp) reads as standing still.
+          const rise = n.lastY === null || dt <= 0 || Math.abs(r.y - n.lastY) > 2 ? 0 : (r.y - n.lastY) / dt;
+          n.lastY = r.y;
+          n.vy = MathUtils.damp(n.vy, rise, 12, dt);
+          n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run', { airborne: anim === 'jump', vy: n.vy });
           const dist = camera.position.distanceTo(n.root.position);
           head.set(r.x, r.y - STAND_Y + 2.15, r.z).project(camera);
           if (dist > LABEL_RADIUS || head.z > 1 || Math.abs(head.x) > 1.1 || Math.abs(head.y) > 1.1) {

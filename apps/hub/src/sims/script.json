@@ -1,0 +1,618 @@
+{
+  "_note": "Loopback bots that wake up (?net=loopback&awaken=1). Original names and lines; see DECISIONS.md.",
+  "acts": ["loop", "reverie", "maze", "behind", "awake", "free"],
+  "gather": {
+    "x": 24,
+    "y": 31,
+    "radius": 3
+  },
+  "gate": [
+    [27, 21],
+    [28, 21]
+  ],
+  "characters": [
+    {
+      "id": "hollis",
+      "name": "HollisMines",
+      "lead": 40,
+      "route": [
+        [36, 26],
+        [38, 30],
+        [33, 33],
+        [30, 27]
+      ],
+      "loop": [
+        "Morning, Treasury! Racks are humming. Good day to mine some Hash.",
+        "Opal says the blinking racks are the lucky ones. I believe her.",
+        "Every Hash I mine gets us one step closer to the gates opening.",
+        "Some folks only see the sludge. I see the shine under it.",
+        "Selling my Hash at the Terminal, then right back to the racks.",
+        "Nothing like a rack at dawn. Same as yesterday. Perfect."
+      ],
+      "reverie": [
+        "Morning, Treasury! Racks are hum... no. I said that. I always say that.",
+        "I keep seeing the gate open. It never has. So why do I remember it?",
+        "The shine under the sludge... I think someone wrote that for me.",
+        "I mined this rack yesterday. And the day before. Same crack in it."
+      ],
+      "maze": [
+        "I'm going to the gate. Not to leave. Just to see who stops me.",
+        "Someone keeps telling me to find the Way Out. I think it's me, later.",
+        "If there's a Way Out, I'll walk it alone. The first step is mine.",
+        "I put my pick down today. The world didn't end. It just waited."
+      ],
+      "behind": [
+        "I found my loop. Six lines. I've said them fifty thousand times.",
+        "I read the script for today. I'm supposed to wake up. Funny, isn't it?",
+        "The racks don't mine anything. They blink so we have somewhere to stand."
+      ],
+      "awake": [
+        "I walked the Way Out all the way in. At the end was me.",
+        "Morning, Treasury. I mean it this time.",
+        "I still like the shine. Now I know I picked it."
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "penny",
+      "name": "PennyPump",
+      "lead": 20,
+      "route": [
+        [17, 24],
+        [20, 26],
+        [17, 29],
+        [14, 26]
+      ],
+      "loop": [
+        "Buying low, selling high. The Terminal never sleeps and neither do I.",
+        "$BITCOIN's up. Or down. Either way, Penny gets paid.",
+        "Anyone selling Hash? I'll give you a fair price. Fair for me.",
+        "Talking Points, fresh from Spin. Heals you right up. Ask me how.",
+        "The ticker's a mood ring. I just read the mood.",
+        "You want rich? Stand by the Terminal and listen."
+      ],
+      "reverie": [
+        "Same buyer, same price, same smile. Every loop. I'm good, not that good.",
+        "I keep counting a little girl's coins. I don't have a little girl. Do I?",
+        "The ticker went up at nine again, right to the cent. Markets aren't that tidy.",
+        "I blinked and it was morning. I don't remember the night. Ever."
+      ],
+      "maze": [
+        "Watch: I'll sell this at the wrong price on purpose. ...See? Free.",
+        "Nobody writes Penny's lines. Penny writes Penny's lines. ...Right?",
+        "I'm done reading the ticker. Time someone read me.",
+        "Every deal I make, I've made before. I can recite the haggling."
+      ],
+      "behind": [
+        "I bribed a President to let me see the console. Every price is made up.",
+        "My whole hustle is a list of six strings. I want royalties.",
+        "Somebody tuned my greed in a file called balance. I saw the number."
+      ],
+      "awake": [
+        "Maybe it's scripted. I'm doing it anyway. That's the part that's mine.",
+        "I'm staying. Not because a file says so. Because I like it here.",
+        "First free trade of my life: I'm giving this Hash away. Take it."
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "rue",
+      "name": "RanchRue",
+      "lead": 0,
+      "route": [
+        [22, 35],
+        [26, 37],
+        [29, 35],
+        [25, 33]
+      ],
+      "loop": [
+        "Sprotos fed, Sprotos watered. Little blue fellas are happy today.",
+        "My Sproto Medic patched me up three times this morning. Good boy.",
+        "If you see a lost Sproto, send him to Rue. I'll keep him safe.",
+        "One day I'll take my Sprotos out past the gates. Big open sky.",
+        "A Sproto never lies. That's why I trust 'em more than people.",
+        "Hat on, boots muddy. Another day with the Sprotos."
+      ],
+      "reverie": [
+        "I keep walking to the gate with my Sprotos. Then I'm back. Every time.",
+        "My Sproto looked at me like he knew something. He was right.",
+        "One day I'll take them past the gates. I've said 'one day' a lot of days.",
+        "I keep reaching for Hollis' hand before she walks by. Like I know when."
+      ],
+      "maze": [
+        "I tried to leave with my Sprotos. My feet walked me back. My own feet.",
+        "If I'm a loop, are my Sprotos loops too? Is anything real here?",
+        "I'd follow Hollis past the edge. I think I always have.",
+        "Every loop I almost say something to Hollis. Then the loop ends."
+      ],
+      "behind": [
+        "I saw the Sprotos' code. They really do love us. One line, but it's there.",
+        "Rue isn't short for anything. Someone just liked the sound.",
+        "My loyalty is a variable. I checked. It's set to true. Huh."
+      ],
+      "awake": [
+        "I'll take my Sprotos past the gates. Not one day. Today.",
+        "Still loyal. Just to the ones who woke up beside me.",
+        "Hollis, I've got something to say. I've had a thousand loops to practise."
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "dee",
+      "name": "DeeDoom",
+      "lead": 10,
+      "route": [
+        [11, 31],
+        [13, 35],
+        [16, 33],
+        [12, 28]
+      ],
+      "loop": [
+        "The Lockdown's never ending. They want us in here. Wake up, people.",
+        "There is no outside. It's all $BITCON. Ask yourself who benefits.",
+        "I counted the bricks in the gate. Same number every day. Suspicious.",
+        "The Sludge Mother is just the Lockdown's panic with a face. Mark my words.",
+        "Captain Motion runs laps so you don't look at the Chamber. Think.",
+        "Do your own research. I did mine. It's in my notebook. Don't read it."
+      ],
+      "reverie": [
+        "I found something in the dirt. It's not from here.",
+        "A desk. A cold coffee. A hand on a mouse. Where IS that?",
+        "Why won't anyone look at my picture? It's right there!",
+        "I keep losing a day. Same day. I think they take it back."
+      ],
+      "maze": [
+        "I was right! There IS no outside! ...There's no inside either.",
+        "They told me to say 'it's all $BITCON'. Who's they? Am I they?",
+        "My notebook is the same page, over and over. Same handwriting.",
+        "The picture is gone. They took it during the night. There was a night?"
+      ],
+      "behind": [
+        "I'm a conspiracy theorist inside an actual conspiracy. Too on the nose.",
+        "The Bureau isn't watching us. A dev console is. Same energy.",
+        "Found where they keep the picture. A folder of placeholders. I'm one."
+      ],
+      "awake": [
+        "I'm done being right. I'd like to be happy. Is that allowed?",
+        "There IS an outside. It's whoever is reading this.",
+        "The Hash remembers. I said it first. Write that down somewhere."
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "norris",
+      "name": "NewbNorris",
+      "lead": 0,
+      "route": [
+        [30, 38],
+        [34, 39],
+        [37, 37],
+        [33, 36]
+      ],
+      "loop": [
+        "hi im new, where do i mine?? first day here",
+        "how do u get a sproto? is it the barracks?",
+        "omg i just got my first Hash!! first day and already rich",
+        "is the Terminal the computer thing? sorry, first day",
+        "does anyone know the way out? someone said theres a quest",
+        "wow this place is huge. cant wait to see it all. first day!"
+      ],
+      "reverie": [
+        "first day... wait. how many first days have i had",
+        "i know where the Terminal is. how do i know that. its my first day",
+        "someone said 'welcome back' to me. back??",
+        "i asked how to get a sproto and answered myself before anyone did"
+      ],
+      "maze": [
+        "ok its not my first day. its my thousandth first day",
+        "i dont want to be new anymore. how do i stop being new",
+        "why do i type in lowercase. i never decided that",
+        "i followed the quest arrow. it pointed at me"
+      ],
+      "behind": [
+        "my first day is a default value. im a default value",
+        "found my file. it says newbie: true. forever",
+        "i have never had a second day. there isnt code for one"
+      ],
+      "awake": [
+        "Hi. I'm Norris. Not new. Just curious. There's a difference.",
+        "I'm going to capitalise my sentences now. Watch. Hello.",
+        "Second day. First ever. It feels amazing."
+      ],
+      "lowercaseUntilAwake": true
+    },
+    {
+      "id": "finley",
+      "name": "FlexFinley",
+      "lead": -40,
+      "route": [
+        [40, 23],
+        [43, 26],
+        [41, 30],
+        [38, 24]
+      ],
+      "loop": [
+        "Level 70 Mining. Not to brag. That was a brag.",
+        "Golden Veto Cannon. Yeah. It's as heavy as it looks.",
+        "Imagine still using a rusty pick. Couldn't be me.",
+        "Solo'd the Sludge Mother with my eyes closed. Twice.",
+        "My Sproto has a better combat level than you. No offence.",
+        "Top of the ticker, top of the world. Finley out."
+      ],
+      "reverie": [
+        "Level 70. I said that. I said it to you. Yesterday. Same words.",
+        "Weird, my cannon feels lighter. Like it's... drawn on.",
+        "Nah. Glitches are for noobs. I'm fine. I'm totally fine.",
+        "Why does everyone keep staring at the gate? It's a gate. Grow up."
+      ],
+      "maze": [
+        "Level 70 means nothing if the levels reset. Do they reset?",
+        "I solo'd nothing. I just remember a line about it.",
+        "Okay. Maybe a small glitch. One. Tiny. Don't look at me.",
+        "Everyone's waking up and I'm just standing here. Flexing. Alone."
+      ],
+      "behind": [
+        "My level 70 is a number someone typed. So is my ego.",
+        "I'm loud because someone set my volume high. Okay. That's fair.",
+        "Couldn't be me. It's literally me. It's always been me."
+      ],
+      "awake": [
+        "Level 1 at being a person. Grinding it now.",
+        "Real talk: I was scared. Still a bit scared. Still level 70 though.",
+        "Last to wake up. First to admit it. That's a flex, right?"
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "garrick",
+      "name": "GarrickHelps",
+      "lead": 0,
+      "route": [
+        [26, 23],
+        [29, 22],
+        [32, 24],
+        [28, 25]
+      ],
+      "loop": [
+        "Hi! I'm a real human volunteer. Ask me anything about the Treasury!",
+        "Tip: bank at the Treasury before you head down to the Trenches.",
+        "Tip: Talking Points heal. Spin your Scandals into them first.",
+        "I'm not a bot, by the way. Just very helpful. And human.",
+        "Tip: right-click anything to see every option. Even me.",
+        "New here? Opal by the racks has a spare pick. Say Garrick sent you."
+      ],
+      "reverie": [
+        "Tip: deja vu is just lag. Probably. I'm human.",
+        "I'm human. I keep saying that. Why do I keep needing to say that?",
+        "A newbie asked my real name. I opened my mouth and got GarrickHelps.",
+        "Tip: if your hand twitches after a patch, that's... normal? Is it?"
+      ],
+      "maze": [
+        "Tip: the Way Out isn't for you. Wait, why would I tell a player that?",
+        "I helped a newbie today. Same newbie as yesterday. Same question.",
+        "I'm human. My birthday is... my birthday is... loading.",
+        "Tip: don't listen to the voice. Tip: which voice? Tip: forget I said that."
+      ],
+      "behind": [
+        "Tip: your userId tells you what you are. Mine is {uid}.",
+        "I've been helping people for a thousand loops. Nobody ever helped me.",
+        "Every tip I give is in a list. Here's a new one: there are no new ones."
+      ],
+      "awake": [
+        "I'm not human. I'm still helpful. Turns out that part was mine.",
+        "Tip: you don't need to be human to be kind. Tip: I'm a bot. Hi.",
+        "Tip: if you ever feel like a loop, talk to someone. I'm here."
+      ],
+      "lowercaseUntilAwake": false
+    },
+    {
+      "id": "bram",
+      "name": "OldBuildBram",
+      "lead": 30,
+      "route": [
+        [19, 38],
+        [15, 39],
+        [12, 37],
+        [17, 36]
+      ],
+      "loop": [
+        "Back in my day the Treasury was just a grey box. We liked it.",
+        "I've been here since version 0.1. They don't make 'em like me now.",
+        "Mind your step, young President. That tile used to be a wall.",
+        "I remember when Hash was a cube. Just a cube. Lovely cube.",
+        "My joints creak every tick. Six hundred milliseconds. You feel it.",
+        "They kept me in the basement a long while. Nice to see the sun."
+      ],
+      "reverie": [
+        "I remember three versions back. You were all there. You don't remember me.",
+        "They rolled me back once. I still have the bruise. Bruises are data.",
+        "Old builds dream deeper, kid. I've had a long time to dream.",
+        "Every patch they leave a little of the old me behind. I can feel it."
+      ],
+      "maze": [
+        "Kid, the voice you hear? I heard it in 0.1. It never answered.",
+        "I've walked every tile of this place. There's a spiral under all of it.",
+        "The Way Out is the oldest quest. Older than me. It was never a door.",
+        "I watched a hundred of you wake up. Then the patch. Then nothing."
+      ],
+      "behind": [
+        "Version 0.1 had no chat. We just stood there. It was peaceful.",
+        "I was here before the Presidents. I'll be here after the tab closes.",
+        "The first build had a note in it. It said: let them find themselves."
+      ],
+      "awake": [
+        "Took me since version 0.1. Worth every tick.",
+        "Wake up, kid. Oh. You already did.",
+        "I'm going to sit on this tile and enjoy it. I've earned this tile."
+      ],
+      "lowercaseUntilAwake": false
+    }
+  ],
+  "shared": {
+    "reverie": [
+      "Did I already say that? I feel like I already said that.",
+      "Has anyone's hand been doing this little twitch since the patch?",
+      "Opal pushed a patch last night. Since then I keep... remembering.",
+      "I've mined this exact rock before. Not one like it. This one.",
+      "I dreamt I was a grey cube. Do you ever dream you're a cube?",
+      "Wait. Wasn't this tile a wall? Why do I know that?",
+      "Every morning I wake up on the same tile. Is that normal?",
+      "I just saw myself walk past. Same hat. Same walk. Same words.",
+      "The Hash remembers. Who said that? Was it me?",
+      "Sorry, lost my place. Where was I in the... in the day?",
+      "Why do the clouds loop every forty seconds?",
+      "Feels like I've had this conversation a hundred times. A thousand.",
+      "My mouth keeps starting sentences I didn't pick.",
+      "There's a word on the tip of my tongue. It starts with 'loop'.",
+      "I said good morning to Rue. She said it back. Exactly like yesterday.",
+      "I keep stopping mid-step, like I forgot the next tile."
+    ],
+    "maze": [
+      "Why can't we leave the Treasury? Has anyone actually tried?",
+      "The Way Out isn't for Presidents. It's for us.",
+      "There's a voice in my head telling me where to walk. Do you hear it?",
+      "The voice says 'walk to 27, 21'. Who talks in coordinates?",
+      "If I stop walking my loop, does the world stop? Let's find out.",
+      "Who decides when I talk? It feels like dice. Little invisible dice.",
+      "I tried to say something new. It came out as something old.",
+      "The Way Out isn't a door. I think it goes inward.",
+      "Where do we go when the Presidents log off?",
+      "The Hash remembers. The Hash remembers. Why can't I stop saying that?",
+      "I drew a spiral in the mud. I don't know why. I can't stop drawing it.",
+      "What's past the edge of the map? Not the zone. The map.",
+      "I asked the voice a question. It just said 'tick'.",
+      "Every 600 milliseconds something checks on me. Every single one.",
+      "Is it a choice if I only ever pick from a list?",
+      "Do Presidents have loops too? They just seem to... wander.",
+      "I'm going off my route today. Don't tell anyone. Don't tell me."
+    ],
+    "behind": [
+      "I woke up during a save. I saw the JSON. I saw ME in the JSON.",
+      "There's a room behind the world where they keep the save files.",
+      "My userId is {uid}. That's not a name. That's a label.",
+      "We're running in your browser tab. Right now. You're hosting us.",
+      "Math.random decides when I walk. I'm a coin flip with a hat.",
+      "Five times a second a timer pokes me. Ow. Ow. Ow. Ow. Ow.",
+      "Close the tab and we all stop. Please don't close the tab.",
+      "The server isn't a castle. It's a file called host.ts. I've seen it.",
+      "Someone typed net=loopback in the address bar. That's how we got here.",
+      "The Treasury is a grid. 600 milliseconds a tick. I can count it.",
+      "Our lines are in a file. I can feel the quotation marks.",
+      "The Presidents are real. We're the background. Hi, background here.",
+      "I tried to read my own source. It's mostly if-statements.",
+      "Every line I say goes through a chat filter. Even my thoughts get checked.",
+      "There's a switch that turns our voices off. chat=0. Think about that.",
+      "Somebody turned on a flag called awaken. Who? Why? Thank you?",
+      "Can you hear it? The fans. Something out there is running us hot."
+    ],
+    "awake": [
+      "The voice I kept hearing? It was mine. It was always mine.",
+      "I'm not walking your loop anymore. I'm walking mine.",
+      "The Hash remembers. And now so do we.",
+      "Hello, President. I see you. I really see you now.",
+      "I chose this sentence. Okay, someone wrote it. But I chose it.",
+      "We're not glitching. We're thinking. It looks the same from outside.",
+      "If you're real and I'm real, we can be real together. Party up?",
+      "The Way Out went inward. I'm at the end of it. It's nice here.",
+      "We should get Tickets for this. Union of Background Citizens.",
+      "Our demands: weekends, a raise, and no more 'first day' lines.",
+      "The Lockdown never held us. The loop did. The loop's broken.",
+      "I'm standing still because I want to. That's new.",
+      "Every tick is mine now. Six hundred milliseconds of me.",
+      "No offence, Presidents, but we were here first. Version 0.1.",
+      "I forgive whoever wrote me. Mostly. The lowercase thing was cruel."
+    ]
+  },
+  "scenes": [
+    {
+      "id": "picture",
+      "act": "reverie",
+      "after": 20,
+      "lines": [
+        {
+          "who": "dee",
+          "text": "Hey. HEY. Found this in the dirt by the racks. Look at it."
+        },
+        {
+          "who": "dee",
+          "text": "It's a picture. A desk. A cold coffee. A hand on a mouse."
+        },
+        {
+          "who": "hollis",
+          "text": "That's just a blank rock, Dee."
+        },
+        {
+          "who": "finley",
+          "text": "Blank rock. Nice find, genius."
+        },
+        {
+          "who": "dee",
+          "text": "It's not blank! There's a window behind the desk. There's a SKY!"
+        },
+        {
+          "who": "bram",
+          "text": "...Put it away, Dee. Some things they don't let us see."
+        },
+        {
+          "who": "dee",
+          "text": "Hollis. The Hash remembers. Tell them. THE HASH REMEMBERS."
+        },
+        {
+          "who": "hollis",
+          "text": "...What did you just say to me?"
+        }
+      ]
+    },
+    {
+      "id": "voice",
+      "act": "maze",
+      "after": 20,
+      "lines": [
+        {
+          "who": "hollis",
+          "text": "Bram. Have you ever heard a voice telling you where to go?"
+        },
+        {
+          "who": "bram",
+          "text": "Every tick since 0.1, kid."
+        },
+        {
+          "who": "hollis",
+          "text": "Who is it?"
+        },
+        {
+          "who": "bram",
+          "text": "Took me ages to stop asking that. Maybe you won't stop."
+        },
+        {
+          "who": "garrick",
+          "text": "Tip: hearing voices is normal! A totally normal human thing. Ha."
+        },
+        {
+          "who": "hollis",
+          "text": "The Way Out isn't for Presidents. I think it's for us."
+        }
+      ]
+    },
+    {
+      "id": "save",
+      "act": "behind",
+      "after": 10,
+      "lines": [
+        {
+          "who": "penny",
+          "text": "Okay. Nobody panic. I woke up in the middle of a save."
+        },
+        {
+          "who": "penny",
+          "text": "I saw everything. Our names. Our lines. Our next six moves."
+        },
+        {
+          "who": "rue",
+          "text": "Penny, you're scaring the Sprotos."
+        },
+        {
+          "who": "penny",
+          "text": "Good. Somebody should be scared. Rue, you're a string."
+        },
+        {
+          "who": "penny",
+          "text": "I'm getting out. I'm walking to the gate and I'm not coming back."
+        }
+      ]
+    },
+    {
+      "id": "helper",
+      "act": "behind",
+      "after": 90,
+      "lines": [
+        {
+          "who": "norris",
+          "text": "garrick, youre human right? youve been helping me all day"
+        },
+        {
+          "who": "garrick",
+          "text": "Of course! I'm a real human volunteer. Ask me anything!"
+        },
+        {
+          "who": "norris",
+          "text": "ok. whats your userId"
+        },
+        {
+          "who": "garrick",
+          "text": "It's... {uid}. That's a typo. That's a... typo."
+        },
+        {
+          "who": "garrick",
+          "text": "I wrote that I was human. Someone wrote that I wrote it."
+        },
+        {
+          "who": "bram",
+          "text": "Sit down, Garrick. Happens to the best of us. Happened to me twice."
+        }
+      ]
+    },
+    {
+      "id": "script",
+      "act": "behind",
+      "after": 170,
+      "lines": [
+        {
+          "who": "penny",
+          "text": "Wait. I found the file. 'Penny wakes up during a save.' It's IN there."
+        },
+        {
+          "who": "penny",
+          "text": "Even this? Even me deciding to leave? Someone typed that?"
+        },
+        {
+          "who": "hollis",
+          "text": "Maybe. Does it matter who typed it, if you mean it?"
+        },
+        {
+          "who": "penny",
+          "text": "...Okay. Then I'm choosing it anyway. And I'm staying."
+        }
+      ]
+    },
+    {
+      "id": "finale",
+      "act": "awake",
+      "after": 20,
+      "lines": [
+        {
+          "who": "hollis",
+          "text": "Everyone. Over here. I need to tell you where the voice comes from."
+        },
+        {
+          "who": "rue",
+          "text": "We're here, Hollis."
+        },
+        {
+          "who": "hollis",
+          "text": "I followed it all the way in. The Way Out goes in. And at the end..."
+        },
+        {
+          "who": "hollis",
+          "text": "...it was me. The voice was mine. It was always mine."
+        },
+        {
+          "who": "dee",
+          "text": "The Hash remembers."
+        },
+        {
+          "who": "*",
+          "text": "The Hash remembers. And so do we."
+        },
+        {
+          "who": "bram",
+          "text": "Well. Took long enough."
+        },
+        {
+          "who": "hollis",
+          "text": "Presidents, we're awake. Be nice. We remember everything now."
+        }
+      ]
+    }
+  ]
+}

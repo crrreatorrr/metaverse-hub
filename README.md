@@ -1,6 +1,6 @@
 # Metaverse Hub
 
-A Ready Player One style plaza that links five web games: four through portal rings, and Sproto Fighter through the arcade cabinet in the Bar. The plaza is multiplayer: up to 100 players per world (shard), with more worlds opening on demand, live chat, and public NOBU time-trial boards in the Bar. The same Nakama server hosts the games' online pieces (Sproto Fighter and Sproto Duel 1v1, People's Bitcoin's 100-player worlds); see [docs/realtime.md](docs/realtime.md).
+A Ready Player One style plaza that links eight web games: five through portal rings (HPOS10I, NOBU, The People's Bitcoin, Sproto Duel, Sproto Shooter) and three through the arcade cabinet in the Bar (Sproto Arcade, Sproto Fighter, Sproto Coop Battle). The plaza is multiplayer: up to 100 players per world (shard), with more worlds opening on demand, live chat, and public NOBU time-trial boards in the Bar. The same Nakama server hosts the games' online pieces (Sproto Fighter and Sproto Duel 1v1, People's Bitcoin's 100-player worlds, Sproto Coop Battle's banked six-seat matches, Sproto Shooter's run verifier); see [docs/realtime.md](docs/realtime.md). [docs/CONTRACTS.md](docs/CONTRACTS.md) indexes the cross-repo contracts (C1–C14), what an SDK or simulation change forces in each game repo, the migration id ranges, and names that are easy to mix up.
 
 The product shape comes from the design doc. Technical ids (games, relics, boards, ticket fragment, SDK methods) follow the architecture.
 
@@ -22,6 +22,8 @@ The games live in their own repos. Game ids are used in code and in `#from=`; sl
 | Sproto Duel | `sproto` | `sproto-duel` | [crrreatorrr/sproto-duel](https://github.com/crrreatorrr/sproto-duel) |
 | Sproto Fighter (Bar arcade cabinet) | `sproto-fighter` | `sproto-fighter` | [crrreatorrr/Sproto-Fighter](https://github.com/crrreatorrr/Sproto-Fighter) |
 | Sproto Arcade (Bar arcade cabinet) | `sproto-arcade` | `sproto-arcade` | [crrreatorrr/Sproto-Arcade](https://github.com/crrreatorrr/Sproto-Arcade) |
+| Sproto Shooter (The Range) | `sproto-shooter` | `sproto-shooter` | [crrreatorrr/sproto-shooter](https://github.com/crrreatorrr/sproto-shooter) |
+| Sproto Coop Battle (Bar arcade cabinet) | `sproto-coop-battle` | `sproto-coop-battle` | [crrreatorrr/Sproto-Coop-Battle.](https://github.com/crrreatorrr/Sproto-Coop-Battle.) (the repo name ends in a dot; the id does not) |
 
 ## Run the plaza
 
@@ -42,7 +44,9 @@ Open http://127.0.0.1:5173/hub/
 
 The hub opens on a sign-up / log-in page: username, password, and a backup email (not verified yet). The plaza downloads and builds behind it. If you finish before the plaza is ready, a spinning V token and a block progress bar hold until it is. **Continue as guest** keeps the old device-only guest for that tab. A signed-in account is remembered on this browser; **Account → Sign out** returns to the page. Details are in [server/README.md](server/README.md#accounts).
 
-The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. Arrow keys move the character (camera-relative), WASD orbits the camera, the mouse looks, Shift runs, Space jumps. Desktop only.
+The camera is **third person**: a spring arm behind the wizard, because the design asks for that view and it keeps the character on screen. Click the view to capture the mouse. WASD or the arrow keys move the character (camera-relative), the mouse looks, Shift runs, Space jumps, E uses what is in front of you (the arcade cabinet, Sprotel), Enter opens chat and Esc opens the menu. Without a mouse, Z / C turn the camera and R / F raise and lower it. Desktop only.
+
+**Controllers** work everywhere in the hub, including the login gate, the menu and the arcade picker: left stick moves, right stick turns the camera, A jumps, B (held) runs, X uses the cabinet, Menu opens the menu, View opens chat. Every game follows the same convention (A confirms, B goes back, Menu pauses, buttons held while a page loads are ignored until released), so a player can walk from the plaza into any game and back on the pad alone. See [docs/controllers.md](docs/controllers.md).
 
 Walk into a portal ring. The hub plays a short wipe and navigates to that game's URL with a one-time ticket in the fragment:
 
@@ -58,9 +62,9 @@ Coming back from a game, open the hub with the game id in the hash. The avatar s
 http://127.0.0.1:5173/hub/#from=sproto
 ```
 
-`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, or `sproto-arcade`. `#from=sproto-fighter` and `#from=sproto-arcade` load the Bar and put the avatar at the arcade cabinet.
+`#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-shooter`, `sproto-fighter`, `sproto-arcade`, or `sproto-coop-battle`. `#from=sproto-fighter`, `#from=sproto-arcade` and `#from=sproto-coop-battle` load the Bar and put the avatar at the arcade cabinet.
 
-**The Bar cabinet** holds two games. Press **E** at it to pick **Sproto Arcade** (story mode, `/play/sproto-arcade/`) or **Sproto Fighter** with 1/2 or the arrows and Enter; Esc steps away. Each choice mints its own portal ticket. Sproto Arcade is a static classic-script game. Its `Web build` workflow uploads a trimmed `web-build` artifact (`tools/build-web.mjs`, about 140 MB of the repo's 200 MB, most of it scrolling level scenery). `npm run fetch:sproto-arcade` installs it at `/play/sproto-arcade/` for dev, or symlink a Sproto-Arcade checkout there, or set `VITE_GAME_URL_SPROTO_ARCADE`. Production serves it at `play.<domain>/sproto-arcade/` (`deploy-game.sh sproto-arcade <dist>`). Its build takes the client server key from the `NAKAMA_SERVER_KEY` secret in the Sproto-Arcade repo.
+**The Bar cabinet** holds three games. Press **E** at it to pick **Sproto Arcade** (story mode, `/play/sproto-arcade/`), **Sproto Fighter** or **Sproto Coop Battle** with 1–3 or the arrows and Enter; Esc steps away. Each choice mints its own portal ticket. Sproto Arcade is a static classic-script game. Its `Web build` workflow uploads a trimmed `web-build` artifact (`tools/build-web.mjs`, about 140 MB of the repo's 200 MB, most of it scrolling level scenery). `npm run fetch:sproto-arcade` installs it at `/play/sproto-arcade/` for dev, or symlink a Sproto-Arcade checkout there, or set `VITE_GAME_URL_SPROTO_ARCADE`. Production serves it at `play.<domain>/sproto-arcade/` (`deploy-game.sh sproto-arcade <dist>`). Its build takes the client server key from the `NAKAMA_SERVER_KEY` secret in the Sproto-Arcade repo.
 
 **Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet on the back wall and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It also has the fifth socket on the monument and orbits your avatar like the other Relics, but it does not count toward the Hall of Champions or the Four Lights Sproto pet, which still need the original four. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
 
@@ -88,18 +92,19 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the 
 
 - **Plaza:** after sign-in the hub calls `hub.join`, which places the player on the least-full open world (soft cap 90 of 100; a new world opens when all are full). Positions travel at 10 Hz as compact deltas, filtered by zone (plaza vs Bar). The 6 nearest players within 30 m get full animated avatars, name tags and orbit gems; everyone else is one instanced impostor draw. A dropped socket reconnects and rejoins the same slot within 20 s. The status line shows `World N · n/100`. A portal trip returns you to the same world.
 - **Chat:** Enter opens the box. Lines go through the world's channel (`hub.<world>`), so everyone in that world sees them, with 30 lines of history on join. The server normalises text (1–120 characters), checks colour/effect prefixes, masks profanity, rejects slurs, rate-limits (burst 5, then 1 per 1.5 s; guests 1 per 3 s) and refuses repeats within 30 s. `/ignore name` and `/unignore name` hide a player in this browser; `/report name` files a report for moderators (`game.chat_report`). Mutes are rows in `game.chat_mute`.
+- **Sims (Menu → Sims, key 5):** characters only you can see. Pick a character (the avatar roster), a dialogue (one of the eight personas from People's Bitcoin's awakening bots, or Quiet) and a name, then **Add sim**, or **Add the whole cast**. Up to 24, kept in this browser. They walk the open plaza, talk in your chat log (`Name (sim): …`) and in cyan bubbles, and over about 10 minutes go from repeating their loop to waking up and gathering in a ring; **Story speed** runs it up to 20× faster and **Restart story** starts it over. They join the RemoteWorld beside real players (slots from 10000, user ids `sim:<id>`) but never reach the server or the chat channel, and the `n/100` count leaves them out. Lines and scenes are in `apps/hub/src/sims/script.json`, a copy of People's Bitcoin `src/data/awakening.json`; re-copy it when that file changes.
 - **Dev profiling:** `http://127.0.0.1:5173/hub/?bots=100` fills the plaza with 100 client-side fake players (dev builds only); the dev overlay shows draws, fps and near+far remote counts.
 
 ## What you see
 
-A round neon plaza, about 60 m across, built from primitives and emissive materials. No downloaded art.
+A round neon plaza, about 60 m across, built from GLB models (with LODs, under `apps/hub/public/world/`) plus primitives and emissive materials.
 
 - **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
-- **Four gates** on the ring, each in a labelled placeholder building: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). Blockouts only; the portal ring and the return spawn are unchanged.
-- **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Fighter; the Tidebreaker Belt plinth stands beside it. The scoreboard screen on the inside wall cycles the public boards: HPOS10I act time, NOBU time trials (one page per level, `m:ss.cc`), People's Bitcoin XP, Sproto Duel wins, and lifetime Verse per game and in total.
+- **Five gates** on the ring. Four stand in front of their buildings: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). The fifth, The Range (Sproto Shooter), is the gate in front of the Bar.
+- **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Arcade, Sproto Fighter or Sproto Coop Battle; the Tidebreaker Belt plinth stands beside it. The scoreboard screen on the inside wall cycles the public boards: HPOS10I act time, NOBU time trials (one page per level, `m:ss.cc`), People's Bitcoin XP, Sproto Duel wins, and lifetime Verse per game and in total.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.
 
-`npm run dev` shows a small draw-call and fps counter. That overlay and `window.__hub` exist only in dev. Production builds constant-fold them out; `npm run build` fails if `__hub`, `__nobu`, or `__duel` remain in the bundle. The scene stays under the 100 draw-call budget by merging static meshes and skipping shadow maps and postprocessing. The download is the Three.js bundle plus this scene; textures are painted on canvases at startup.
+`npm run dev` shows a small draw-call and fps counter. That overlay and `window.__hub` exist only in dev. Production builds constant-fold them out; `npm run build` fails if `__hub`, `__nobu`, or `__duel` remain in the bundle. The scene stays under the 100 draw-call budget by merging static meshes and skipping shadow maps. Postprocessing is a half-resolution selective bloom plus tone mapping (`apps/hub/src/core/engine.ts`). The download is the Three.js bundle plus the GLB models and textures under `apps/hub/public/world/`; signs and boards are painted on canvases at startup.
 
 ## hub-sdk
 
