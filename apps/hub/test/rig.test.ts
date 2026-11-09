@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
 import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Object3D } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../src/config';
+import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
 import { buildLocomotion, groundSpeedOf, onWizardSkeleton, P4_CLIPS } from '../src/rig/locomotion';
 import { loadGLB } from './support/load-glb';
@@ -71,9 +71,13 @@ async function main(): Promise<void> {
     const rig = await loadGLB(`${PUBLIC}${character.asset}`);
     const clips = buildLocomotion(rig, wizard);
     if (!onWizardSkeleton(rig.scene)) {
-      // Mixamo shooter cast, the beast, the dragon: their own clips, untouched (avatar.ts resolves them).
+      // Mixamo shooter cast, the beast, the dragon: their own clips, not retargeted (avatar.ts resolves them).
+      // Only gait clips with a planted foot are measured; the dragon flies, so nothing of his is.
       assert.equal(clips, rig.animations, `${character.id} keeps its own clips`);
-      assert.ok(clips.every((clip) => groundSpeedOf(clip) === 0), `${character.id} clips are not re-timed`);
+      for (const gait of clips) {
+        if (groundSpeedOf(gait) > 0) assert.ok(['walk', 'run'].includes(gait.name), `${character.id} ${gait.name} is not a gait clip`);
+      }
+      if (character.id === 'dragon') assert.ok(clips.every((gait) => groundSpeedOf(gait) === 0), 'the dragon has no foot contact');
       offSkeleton += 1;
       continue;
     }
@@ -111,6 +115,43 @@ async function main(): Promise<void> {
       assert.ok(drift < 0.06, `${character.id} ${name}: toes ${drift.toFixed(3)} m off the idle floor`);
     }
   }
+  // 4. The Sproto Shooter cast ship a standing `idle` and a measured `run` (the plaza plays it for both gaits, see
+  //    `walksWithRun`); the jade dragon hovers in `idle` and flies `walk` and `run`.
+  //    The Sproto Soldier's `walk` is a jog authored for the plaza, so it keeps it.
+  const shooterCast = ['soldier', 'laser', 'shooterbot', 'monster', 'beast', 'cargolem', 'mole'];
+  for (const character of CHARACTERS.filter((entry) => shooterCast.includes(entry.id))) {
+    assert.equal(walksWithRun(character), character.id !== 'soldier', `${character.id} walk gait`);
+    const rig = await loadGLB(`${PUBLIC}${character.asset}`);
+    const clips = buildLocomotion(rig, null);
+    clip(clips, 'idle');
+    for (const name of ['walk', 'run']) assert.ok(groundSpeedOf(clip(clips, name)) > 0, `${character.id} ${name} has a planted-foot stride`);
+  }
+  {
+    const dragon = CHARACTERS.find((entry) => entry.id === 'dragon');
+    assert.ok(dragon && !walksWithRun(dragon), 'the dragon flies its own walk');
+    const rig = await loadGLB(`${PUBLIC}${dragon.asset}`);
+    for (const name of ['idle', 'walk', 'run', 'fly', 'fireball']) clip(rig.animations, name);
+  }
+
+  // 5. The Flying Midget stays airborne in the clip it moves with (avatar.ts plays its own `run` for walk and sprint).
+  {
+    const flyer = CHARACTERS.find((entry) => entry.id === 'flyer');
+    assert.ok(flyer && fliesWhenMoving(flyer), 'the Flying Midget flies when it moves');
+    assert.ok(CHARACTERS.filter((entry) => fliesWhenMoving(entry)).length === 1, 'only the Flying Midget flies');
+    const rig = await loadGLB(`${PUBLIC}${flyer.asset}`);
+    const probe = SkeletonUtils.clone(rig.scene);
+    const rest = new Box3().setFromObject(probe, true).min.y;
+    const mixer = new AnimationMixer(probe);
+    mixer.clipAction(clip(rig.animations, 'run')).play();
+    let low = Infinity;
+    for (let i = 0; i <= 40; i += 1) {
+      mixer.setTime((clip(rig.animations, 'run').duration * i) / 40);
+      probe.updateMatrixWorld(true);
+      for (const toe of ['LeftToeBase', 'RightToeBase']) low = Math.min(low, probe.getObjectByName(toe)!.getWorldPosition(new Vector3()).y);
+    }
+    assert.ok(low - rest > 0.15, `Flying Midget run: toes reach ${(low - rest).toFixed(3)} above the rest floor`);
+  }
+
   // The Sproto Duel cast (wizard, the stage-one bosses and the shooter's later stages) is on the wizard's skeleton.
   assert.ok(onSkeleton >= 15, `wizard-skeleton characters: ${onSkeleton}`);
   console.log(`rig: ${onSkeleton} characters on the wizard skeleton, ${offSkeleton} on their own clips`);

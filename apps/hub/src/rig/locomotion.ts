@@ -1,8 +1,8 @@
 // Gait clips for the characters on the wizard's skeleton. The wizard ships P4's `jog` and `dash`; the Sproto
 // Duel cast only has a short `run`, which at plaza speeds (7.8 and 16 m/s) plays far too slowly and the feet
-// skate. Those rigs get the wizard's clips, retargeted, and every gait clip is tagged with the ground speed it
-// was animated for, so the avatar can scale playback to keep the planted foot still. Other skeletons (the
-// Mixamo shooter cast, the beast, the dragon) are left on their own clips.
+// skate. Those rigs get the wizard's clips, retargeted. Every gait clip, on any skeleton, is tagged with the
+// ground speed it was animated for, so the avatar can scale playback to keep the planted foot still. Other
+// skeletons (the Mixamo shooter cast, the beast, the dragon) keep their own clips and are only measured.
 import type { AnimationClip, Object3D } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { lowestToe, measureGroundSpeed, retargetClip } from './gait';
@@ -12,7 +12,7 @@ export const P4_CLIPS = ['jog', 'dash'] as const;
 /** Bones a rig must share with the wizard to take its clips: the retarget matches bones by name. */
 const WIZARD_SKELETON = ['Hips', 'Spine', 'Head', 'LeftArm', 'RightArm', 'LeftUpLeg', 'RightUpLeg', 'LeftToeBase', 'RightToeBase'];
 /** Clips that move the feet, measured for `ground_speed`. */
-const GAIT_CLIPS = new Set(['jog', 'dash', 'run']);
+const GAIT_CLIPS = new Set(['jog', 'dash', 'run', 'walk']);
 
 export interface RigSource {
   scene: Object3D;
@@ -37,10 +37,13 @@ export function onWizardSkeleton(root: Object3D): boolean {
 /**
  * The rig's clips plus any P4 clips it lacks, retargeted from `donor`. Gait clips carry `ground_speed`.
  * Source clips are tagged in place (the tag is a pure function of the clip, so sharing is safe).
- * A rig on another skeleton comes back with its own clips, untouched.
+ * A rig on another skeleton comes back with its own clips, measured but not retargeted.
  */
 export function buildLocomotion(rig: RigSource, donor: RigSource | null): AnimationClip[] {
-  if (!onWizardSkeleton(rig.scene)) return rig.animations;
+  if (!onWizardSkeleton(rig.scene)) {
+    tagGroundSpeed(rig.scene, rig.animations);
+    return rig.animations;
+  }
   const clips = [...rig.animations];
   let floors: { source: number; target: number } | undefined;
   if (donor && donor !== rig && onWizardSkeleton(donor.scene)) {
@@ -52,13 +55,18 @@ export function buildLocomotion(rig: RigSource, donor: RigSource | null): Animat
       clips.push(retargetClip(SkeletonUtils.clone(donor.scene), source, SkeletonUtils.clone(rig.scene), floors ??= idleFloors(rig, donor)));
     }
   }
-  const probe = SkeletonUtils.clone(rig.scene);
+  tagGroundSpeed(rig.scene, clips);
+  return clips;
+}
+
+/** Tags each gait clip with the planted-foot speed it was animated for. Clips with no clear foot contact stay untagged. */
+function tagGroundSpeed(scene: Object3D, clips: readonly AnimationClip[]): void {
+  const probe = SkeletonUtils.clone(scene);
   for (const clip of clips) {
     if (!GAIT_CLIPS.has(clip.name) || groundSpeedOf(clip) > 0) continue;
     const speed = measureGroundSpeed(probe, clip);
     if (speed > 0) clip.userData = { ...clip.userData, ground_speed: speed };
   }
-  return clips;
 }
 
 /**
@@ -87,7 +95,11 @@ export function locomotionFor(
 ): Promise<AnimationClip[]> {
   const existing = cache.get(asset);
   if (existing) return existing;
-  if (!onWizardSkeleton(rig.scene)) return Promise.resolve(rig.animations);
+  if (!onWizardSkeleton(rig.scene)) {
+    const own = Promise.resolve(buildLocomotion(rig, null));
+    cache.set(asset, own);
+    return own;
+  }
   const needsDonor = P4_CLIPS.some((name) => !rig.animations.some((clip) => clip.name === name));
   const donor = needsDonor
     ? loadDonor().catch((error: unknown) => {

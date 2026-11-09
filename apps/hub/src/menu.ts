@@ -1,7 +1,7 @@
 import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
-import { CHARACTERS, STAFFS, type CharacterId, type StaffId } from './config';
-import { LOOK_PRESETS, MAX_HEIGHT, MIN_HEIGHT, applyPreset, cleanName, defaultLook, type AvatarLook } from './look';
+import { CHARACTERS, STAFFS, holdsStaff, type CharacterId, type StaffId } from './config';
+import { cleanName, defaultLook, type AvatarLook } from './look';
 import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
@@ -273,26 +273,6 @@ export function createMenu(options: MenuOptions): Menu {
   });
   const nameRow = labelled('Display name', nameField, 'Shown in front of your chat lines.');
 
-  const presetRow = el('div', 'chip-row');
-  const presetButtons = new Map<string, HTMLButtonElement>();
-  for (const preset of LOOK_PRESETS) {
-    const chip = el('button', 'chip');
-    chip.type = 'button';
-    chip.title = preset.blurb;
-    const swatch = el('span', 'chip-swatch');
-    swatch.style.background = `linear-gradient(135deg, ${preset.tint} 50%, ${preset.glowStrength > 0 ? preset.glow : preset.tint} 50%)`;
-    chip.append(swatch, el('span', '', preset.label));
-    chip.addEventListener('click', () => update(applyPreset(options.look(), preset)));
-    presetButtons.set(preset.id, chip);
-    presetRow.append(chip);
-  }
-
-  const tintField = colorInput((value) => update({ ...options.look(), tint: value, preset: 'custom' }, false));
-  const glowField = colorInput((value) => update({ ...options.look(), glow: value, preset: 'custom' }, false));
-  const glowRange = rangeInput(0, 100, 1, (value) => update({ ...options.look(), glowStrength: value / 100, preset: 'custom' }, false));
-  const heightRange = rangeInput(MIN_HEIGHT * 100, MAX_HEIGHT * 100, 1, (value) => update({ ...options.look(), height: value / 100 }, false));
-  const heightValue = el('span', 'menu-value');
-
   const auraRow = el('div', 'chip-row');
   const auraButtons = new Map<string, HTMLButtonElement>();
   const auraNone = el('button', 'chip', 'None');
@@ -320,16 +300,8 @@ export function createMenu(options: MenuOptions): Menu {
     update({ ...defaultLook(), character: current.character, name: current.name });
   });
 
-  const colorRow = el('div', 'menu-pair');
-  colorRow.append(labelled('Tint', tintField), labelled('Glow', glowField));
-  const heightLabel = labelled('Height', heightRange);
-  heightLabel.querySelector('.menu-label')?.append(heightValue);
   editPage.append(
     nameRow,
-    section('Style', presetRow),
-    colorRow,
-    labelled('Glow strength', glowRange),
-    heightLabel,
     section('Relic aura', auraRow, 'Each aura needs its Relic.'),
     reset,
   );
@@ -363,7 +335,7 @@ export function createMenu(options: MenuOptions): Menu {
   const staffNote = el('span', 'menu-note small');
   const staffSection = section('Staff', staffGrid);
   staffSection.append(staffNote);
-  editPage.insertBefore(staffSection, editPage.children[2] ?? null);
+  editPage.insertBefore(staffSection, editPage.children[1] ?? null);
 
   function paintStaffs(look: AvatarLook): void {
     const character = CHARACTERS.find((entry) => entry.id === look.character);
@@ -373,10 +345,13 @@ export function createMenu(options: MenuOptions): Menu {
       button.classList.toggle('on', on);
       button.setAttribute('aria-pressed', String(on));
     }
-    staffGrid.classList.toggle('muted', own);
+    const empty = Boolean(character && !own && !holdsStaff(character));
+    staffGrid.classList.toggle('muted', own || empty);
     staffNote.textContent = own
       ? `${character?.label ?? 'This character'} carries his own staff. Your pick returns on other avatars.`
-      : 'Staffs from Sproto Duel. Held in the right hand.';
+      : empty
+        ? `${character?.label ?? 'This character'} can't wield a staff. Your pick returns on other avatars.`
+        : 'Staffs from Sproto Duel. Held in the right hand.';
   }
 
   // ---------- Relics
@@ -445,16 +420,10 @@ export function createMenu(options: MenuOptions): Menu {
   stage.addEventListener('pointerup', stopDrag);
   stage.addEventListener('pointercancel', stopDrag);
 
+  /** `repaint` false while typing the name, so the field keeps its caret. */
   function update(next: AvatarLook, repaint = true): void {
     options.setLook(next);
     if (repaint) paintLook();
-    else paintValues();
-  }
-
-  function paintValues(): void {
-    const look = options.look();
-    heightValue.textContent = `${Math.round(look.height * 100)}%`;
-    for (const [id, button] of presetButtons) button.classList.toggle('on', id === look.preset);
   }
 
   function paintLook(): void {
@@ -465,10 +434,6 @@ export function createMenu(options: MenuOptions): Menu {
       button.setAttribute('aria-pressed', String(on));
     }
     if (document.activeElement !== nameField) nameField.value = look.name;
-    tintField.value = look.tint;
-    glowField.value = look.glow;
-    glowRange.value = String(Math.round(look.glowStrength * 100));
-    heightRange.value = String(Math.round(look.height * 100));
     for (const [id, button] of auraButtons) {
       const owned = id === 'none' || relics.has(id);
       button.classList.toggle('on', id === look.aura);
@@ -477,7 +442,6 @@ export function createMenu(options: MenuOptions): Menu {
       button.title = owned ? '' : 'Earn this Relic to unlock its aura';
     }
     paintStaffs(look);
-    paintValues();
   }
 
   function paintItems(): void {
@@ -804,19 +768,3 @@ function section(text: string, body: HTMLElement, note?: string): HTMLElement {
   return wrap;
 }
 
-function colorInput(onInput: (value: string) => void): HTMLInputElement {
-  const input = el('input', 'menu-color');
-  input.type = 'color';
-  input.addEventListener('input', () => onInput(input.value.toLowerCase()));
-  return input;
-}
-
-function rangeInput(min: number, max: number, step: number, onInput: (value: number) => void): HTMLInputElement {
-  const input = el('input', 'menu-range');
-  input.type = 'range';
-  input.min = String(min);
-  input.max = String(max);
-  input.step = String(step);
-  input.addEventListener('input', () => onInput(Number(input.value)));
-  return input;
-}
