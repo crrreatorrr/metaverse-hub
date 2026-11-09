@@ -139,6 +139,14 @@ export function makeDispatcher(onLabel?: (label: string) => void): FakeDispatche
     kicks: [],
     labels: [],
     broadcastMessage(opCode, data, presences, sender, reliable) {
+      // Like Nakama: an empty list would reach the whole match, so treat it as a bug here;
+      // a routed presence needs its user, session and node.
+      if (Array.isArray(presences)) {
+        if (presences.length === 0) throw new Error('broadcastMessage with an empty presence list reaches everyone');
+        for (const p of presences) {
+          if (!p || !p.userId || !p.sessionId || !p.node) throw new Error(`broadcastMessage presence without userId/sessionId/node: ${JSON.stringify(p)}`);
+        }
+      }
       let text: string;
       if (typeof data === 'string') text = data;
       else if (data instanceof ArrayBuffer || (data && typeof (data as ArrayBuffer).byteLength === 'number')) text = Buffer.from(data as ArrayBuffer).toString('utf8');
@@ -240,7 +248,11 @@ export interface MatchDriver {
   /** Run `count` empty loop ticks. */
   ticks(count: number): boolean;
   signal(data: string): string | undefined;
-  terminate(graceSeconds?: number): void;
+  /**
+   * matchTerminate, then (like Nakama during shutdown_grace_sec) keep calling matchLoop up to
+   * `graceLoops` times until it returns null.
+   */
+  terminate(graceSeconds?: number, graceLoops?: number): void;
 }
 
 export interface FakeNakama {
@@ -260,6 +272,8 @@ export interface FakeNakama {
 
 export interface LoadedModule {
   global: Record<string, unknown>;
+  /** Present when loadModule({ clock }) was used: the module's Date.now(). Each loop adds 1000/tickRate ms. */
+  clock: { now: number } | null;
   nk: FakeNakama;
   logger: { lines: LoggedLine[]; info(m: string): void; warn(m: string): void; error(m: string): void; debug(m: string): void };
   initializer: Record<string, (...args: unknown[]) => void>;
@@ -288,12 +302,21 @@ export interface LoadOptions {
   env?: Record<string, string>;
   /** SQL handlers installed before InitModule runs. */
   sql?: [SqlPattern, SqlAnswer][];
+  /** Fake wall clock (ms) for the module's Date.now(); every match loop advances it by one tick. */
+  clock?: number;
+  /** Copy match state through JSON between callbacks, as Nakama hands plain state back. */
+  jsonState?: boolean;
 }
 
 export function loadModule(opts: LoadOptions = {}): LoadedModule {
   const file = buildModule();
   const source = readFileSync(file, 'utf8');
   const context = vm.createContext({});
+  const clock = typeof opts.clock === 'number' ? { now: opts.clock } : null;
+  if (clock) {
+    (context as Record<string, unknown>).__hubFakeNow = () => clock.now;
+    vm.runInContext('Date.now = function () { return __hubFakeNow(); };', context);
+  }
   vm.runInContext(source, context, { filename: 'index.js' });
   const global = context as Record<string, unknown>;
 
@@ -450,6 +473,16 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
         return { collection: o.collection, key: o.key, userId: o.userId, version };
       });
     },
+    storageList(userId: string | null, collection: string, limit?: number, _cursor?: string) {
+      const objects: unknown[] = [];
+      for (const [id, row] of nk.storage) {
+        const [c, k, u] = id.split('/') as [string, string, string];
+        if (c !== collection || (userId && u !== userId)) continue;
+        objects.push({ collection: c, key: k, userId: u, value: JSON.parse(JSON.stringify(row.value)), version: row.version, permissionRead: row.permissionRead, permissionWrite: row.permissionWrite, createTime: 0, updateTime: 0 });
+        if (limit && objects.length >= limit) break;
+      }
+      return { objects, cursor: '' };
+    },
     storageDelete(objects: { collection: string; key: string; userId: string }[]) {
       for (const o of objects) nk.storage.delete(`${o.collection}/${o.key}/${o.userId}`);
     },
@@ -513,7 +546,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
         match.ended = true;
         return null;
       }
-      match.state = res.state;
+      match.state = opts.jsonState ? JSON.parse(JSON.stringify(res.state)) : res.state;
       return res;
     };
     return {
@@ -523,7 +556,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
       joinAttempt(p, ctx, metadata) {
         const res = h.matchJoinAttempt!(makeCtx({ userId: p.userId, sessionId: p.sessionId, username: p.username, matchId: match.matchId, ...(ctx ?? {}) }), logger, nk, d, match.tick, match.state, p, metadata ?? {}) as { state: unknown; accept: boolean; rejectMessage?: string } | null;
         if (!res) return { accept: false, rejectMessage: 'match_ended' };
-        match.state = res.state;
+        match.state = opts.jsonState ? JSON.parse(JSON.stringify(res.state)) : res.state;
         return { accept: res.accept, rejectMessage: res.rejectMessage };
       },
       join(presences, ctx, metadata) {
@@ -541,6 +574,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
       },
       loop(messages = []) {
         match.tick += 1;
+        if (clock) clock.now += 1000 / (match.tickRate || 1);
         const wire = messages.map((m) => ({
           sender: m.sender,
           opCode: m.opCode,
@@ -563,11 +597,12 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
           match.ended = true;
           return undefined;
         }
-        match.state = res.state;
+        match.state = opts.jsonState ? JSON.parse(JSON.stringify(res.state)) : res.state;
         return res.data;
       },
-      terminate(grace = 0) {
+      terminate(grace = 0, graceLoops = 0) {
         step('matchTerminate', grace);
+        for (let i = 0; i < graceLoops && !match.ended; i += 1) this.loop([]);
         match.ended = true;
       },
     };
@@ -575,6 +610,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
 
   const loaded: LoadedModule = {
     global,
+    clock,
     nk,
     logger,
     initializer,

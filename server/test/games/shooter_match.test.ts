@@ -8,6 +8,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import vm from 'node:vm';
 import { checkRegistrations, loadModule, presence, type Broadcast, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
@@ -79,6 +80,7 @@ interface LiveState {
   resultSent: boolean;
   replay: Replay;
   rateDrops: number;
+  dropped: number;
 }
 
 interface StoredReplay {
@@ -86,8 +88,9 @@ interface StoredReplay {
   receipt: { verified: boolean; verdict: { policy: string } | null; stateSha256: string | null };
 }
 
+/** Fake wall clock (one tick per loop), state copied through JSON between callbacks, replay on. */
 function load() {
-  return loadModule({ env: { HUB_FAULT_INJECT: '1' } });
+  return loadModule({ env: { HUB_FAULT_INJECT: '1', SHOOTER_PVP_REPLAY: '1' }, clock: 1_800_000_000_000, jsonState: true });
 }
 
 function game(userId: string, sessionId: string, sid = SID, scope = 'game', gameId = 'sproto-shooter') {
@@ -125,7 +128,8 @@ function ready(m: MatchDriver, p: Presence): void {
 function open(spawnSeed = '7', names: [string, string] = ['ada', 'bea']): { mod: LoadedModule; m: MatchDriver; a: Presence; b: Presence; ledger: number } {
   const mod = load();
   const ledger = ledgerCount(mod);
-  const m = mod.startMatch('sproto_shooter_free', { spawnSeed, seedSource: 'server', private: '1' });
+  const m = mod.startMatch('sproto_shooter_free', { spawnSeed, seedSource: 'server', private: '1', host: A });
+  m.signal(`admit:${B}`);
   const a = presence(A, names[0], 'sa');
   const b = presence(B, names[1], 'sb');
   assert.equal(m.join([a], game(A, 'sa'))[0]?.accept, true);
@@ -172,6 +176,52 @@ function noEmptyLists(broadcasts: Broadcast[]): void {
 }
 
 let timedRecord: StoredReplay['record'] | null = null;
+
+/**
+ * A whole hosted-director session (HELLO, READY, PING, firing INPUT with view claims, advance
+ * on a 30 Hz clock until RESULT, then replayJSON of its record), as one script both Node and
+ * goja run against the vendored bundle.
+ */
+const HOSTED_SESSION = `(function () {
+  var api = SprotoShooterPvp;
+  var d = api.createHostedDirector({ spawnSeed: 7, combatSeed: '5eed00c0ffee5eed00c0ffee5eed0042', matchId: 'goja-e2e', accounts: ['ada', 'bea'] });
+  if (d.combatSeedDerived !== false) throw new Error('derived seed');
+  var now = 1000;
+  var out = { msgs: 0, snaps: 0, hashes: [], pongs: 0 };
+  function count(r) {
+    for (var i = 0; i < r.messages.length; i++) {
+      var m = r.messages[i];
+      out.msgs += 1;
+      if (m.op === 7) { out.snaps += 1; if (m.body.hash) out.hashes.push(m.body.hash); }
+      if (m.op === 11) out.pongs += 1;
+    }
+  }
+  function hello(id) { return JSON.stringify({ accountId: id, protocol: 2, sim: 2, content: api.CONTENT_FINGERPRINT, interpMs: 100 }); }
+  var sessions = { ada: 'sa', bea: 'sb' };
+  count(d.handle({ userId: 'ada', sessionId: 'sa', username: 'Ada' }, 1, hello('ada'), now));
+  count(d.handle({ userId: 'bea', sessionId: 'sb', username: 'Bea' }, 1, hello('bea'), now));
+  count(d.handle({ userId: 'ada', sessionId: 'sa' }, 4, '{"accountId":"ada"}', now));
+  count(d.handle({ userId: 'bea', sessionId: 'sb' }, 4, '{"accountId":"bea"}', now));
+  var yaws = [d.sim.players[0].yaw, d.sim.players[1].yaw];
+  var ids = ['ada', 'bea'];
+  for (var i = 0; i < 600 && !d.result; i++) {
+    now += 1000 / 30;
+    var frame = d.sim.tick;
+    for (var k = 0; k < 2; k++) {
+      var bytes = api.encodeInput({ seq: i + 1, frame: frame, yaw: yaws[k], pitch: 0, moveX: 0, moveZ: 1, fire: true, zoom: true, slot: 0, viewTick: Math.max(0, frame - 3) });
+      count(d.handle({ userId: ids[k], sessionId: sessions[ids[k]] }, 6, bytes, now));
+    }
+    if (i % 15 === 0) count(d.handle({ userId: 'ada', sessionId: 'sa' }, 10, JSON.stringify({ t: i }), now));
+    count(d.advance(now));
+  }
+  var receipt = JSON.parse(api.replayJSON(d.replayRecord()));
+  var r = d.result;
+  return JSON.stringify({
+    result: r ? { outcome: r.outcome, reason: r.reason, winner: r.winner, tick: r.tick, stateHash: r.stateHash, stateSha256: r.stateSha256 } : null,
+    msgs: out.msgs, snaps: out.snaps, hashes: out.hashes, pongs: out.pongs,
+    verified: receipt.verified, policy: receipt.verdict ? receipt.verdict.policy : null,
+  });
+})()`;
 
 // Registration, pin, guest/practice policy, and no economy surface.
 {
@@ -254,11 +304,14 @@ let timedRecord: StoredReplay['record'] | null = null;
   const mod = load();
   const ledger = ledgerCount(mod);
   mod.nk.accounts.set(B, { email: 'bea@example.com', user: { userId: B, username: 'bea' } });
-  const m = mod.startMatch('sproto_shooter_free', { spawnSeed: '7', seedSource: 'server', private: '1' });
+  const m = mod.startMatch('sproto_shooter_free', { spawnSeed: '7', seedSource: 'server', private: '1', host: A });
+  m.signal(`admit:${B}`);
   const guest = presence(A, 'guest<img src=x onerror=alert(1)>', 'sa');
   const named = presence(B, 'bea', 'sb');
   assert.equal(m.join([guest], game(A, 'sa'))[0]?.accept, true);
   assert.equal(m.join([named], game(B, 'sb'))[0]?.accept, true);
+  assert.equal(m.joinAttempt(presence(C, 'cy', 'sc'), game(C, 'sc')).rejectMessage, 'not_admitted');
+  m.signal(`admit:${C}`);
   assert.equal(m.joinAttempt(presence(C, 'cy', 'sc'), game(C, 'sc')).rejectMessage, 'match_full');
   assert.equal(m.joinAttempt(presence(A, 'guest', 'sa-other'), game(A, 'sa-other', SID2)).rejectMessage, 'wrong_sender');
   hello(m, guest, { seed: 99, winner: 0 });
@@ -405,10 +458,12 @@ let timedRecord: StoredReplay['record'] | null = null;
   assert.equal(rebound.length, 1, 'a rebind answers only the rebinding seat');
   only(rebound[0]!, again);
   for (const row of m.dispatcher.sent<Wire>(OP.SNAPSHOT).filter((r) => r.to![0]!.userId === A)) only(row, again);
+  // The replaced socket is not the seat's presence any more: its traffic is dropped unanswered.
+  const droppedBefore = stateOf(m).dropped;
+  m.dispatcher.clear();
   m.loop([{ sender: a, opCode: OP.INPUT, data: packet(api, wish(12, cursor() + 1)) }]);
-  const stale = m.dispatcher.sent<Wire>(OP.REJECT).at(-1)!;
-  assert.equal(stale.body.reason, 'wrong_sender');
-  only(stale, a);
+  assert.equal(m.dispatcher.broadcasts.filter((row) => row.opCode === OP.REJECT).length, 0);
+  assert.equal(stateOf(m).dropped, droppedBefore + 1);
   m.loop([{ sender: again, opCode: OP.INPUT, data: packet(api, wish(12, cursor() + 1)) }]);
   assert.equal(stateOf(m).phase, 'live');
   assert.equal(stateOf(m).result, null);
@@ -613,6 +668,7 @@ let timedRecord: StoredReplay['record'] | null = null;
   assert.equal(mod.matchmake([{ presence: a, properties: props }, { presence: b, properties: props }]), id);
   assert.equal(mod.matchmake([{ presence: a, properties: props }, { presence: presence(A, 'ada', 'other'), properties: props }]), undefined);
   const queued = mod.driver(id!);
+  assert.equal((JSON.parse(queued.match.label) as { private: boolean }).private, false);
   assert.equal(queued.joinAttempt(presence(C, 'cy', 'sc'), game(C, 'sc')).rejectMessage, 'not_in_roster');
   assert.ok((queued.state as LiveState).spawnSeed > 0);
   assert.equal(/combatSeed/.test(JSON.stringify(queued.state)), false);
@@ -653,6 +709,15 @@ let timedRecord: StoredReplay['record'] | null = null;
   const recordText = JSON.stringify(timedRecord);
   const nodeReplay = JSON.parse(api.replayJSON(recordText)) as Wire & { verified: boolean };
   assert.equal(nodeReplay.verified, true);
+  const sandbox: Record<string, unknown> = {};
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(readFileSync(join(root, 'server/modules/vendor/shooter-pvp-sim.js'), 'utf8'), sandbox);
+  const nodeSessionText = vm.runInContext(HOSTED_SESSION, sandbox) as string;
+  const nodeSession = JSON.parse(nodeSessionText) as { result: Wire | null; verified: boolean; policy: string; snaps: number; pongs: number };
+  assert.ok(nodeSession.result, 'the hosted session reached RESULT');
+  assert.equal(nodeSession.verified, true);
+  assert.ok(nodeSession.snaps > 100 && nodeSession.pongs > 0);
   const bundlePath = join(root, 'server/modules/vendor/shooter-pvp-sim.js');
   const dir = mkdtempSync(join(tmpdir(), 'shooter-pvp-goja-'));
   writeFileSync(join(dir, 'go.mod'), `module shooter-pvp-goja
@@ -678,6 +743,12 @@ func main() {
   if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
   vm := goja.New()
   if _, err = vm.RunString(string(src)); err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+  if len(os.Args) > 2 && os.Args[2] == "script" {
+    v, err := vm.RunString(string(input))
+    if err != nil { fmt.Fprintln(os.Stderr, err); os.Exit(1) }
+    fmt.Print(v.String())
+    return
+  }
   fn, ok := goja.AssertFunction(vm.Get("SprotoShooterPvp").ToObject(vm).Get("replayJSON"))
   if !ok { fmt.Fprintln(os.Stderr, "replayJSON missing"); os.Exit(1) }
   out, err := fn(goja.Undefined(), vm.ToValue(string(input)))
@@ -700,8 +771,8 @@ func main() {
       if (process.env.SHOOTER_REQUIRE_GOJA === '1') throw new Error(tidyDetail);
       console.log(`shooter pvp goja skipped: ${tidyDetail.split('\n')[0]}`);
     } else {
-    const goja = (input: string): Wire & { verified?: boolean } => {
-      const res = spawnSync('go', ['run', '.', bundlePath], {
+    const gojaRun = (input: string, mode = 'replay'): string => {
+      const res = spawnSync('go', ['run', '.', bundlePath, mode], {
         cwd: dir,
         input,
         encoding: 'utf8',
@@ -709,8 +780,9 @@ func main() {
         env: { ...process.env, GOTOOLCHAIN: process.env.GOTOOLCHAIN || 'local' },
       });
       if (res.status !== 0) throw new Error(res.stderr || res.stdout || 'goja failed');
-      return JSON.parse(res.stdout) as Wire & { verified?: boolean };
+      return res.stdout;
     };
+    const goja = (input: string): Wire & { verified?: boolean } => JSON.parse(gojaRun(input)) as Wire & { verified?: boolean };
     const gojaReceipt = goja(JSON.stringify({ seed: 7, inputs }));
     assert.equal(gojaReceipt.stateHash, '6545ca0a');
     assert.equal(gojaReceipt.tick, 65);
@@ -719,7 +791,9 @@ func main() {
     const gojaReplay = goja(recordText);
     assert.equal(gojaReplay.verified, true);
     assert.equal(gojaReplay.stateSha256, nodeReplay.stateSha256);
-    console.log(`shooter pvp goja parity stateHash ${gojaReceipt.stateHash}, replay v2 verified ${gojaReplay.stateHash}`);
+    const gojaSession = gojaRun(HOSTED_SESSION, 'script');
+    assert.equal(gojaSession, nodeSessionText, 'a hosted-director session is identical in goja');
+    console.log(`shooter pvp goja parity stateHash ${gojaReceipt.stateHash}, replay v2 verified ${gojaReplay.stateHash}, hosted session ${nodeSession.result!.outcome}/${nodeSession.result!.reason} at ${nodeSession.result!.tick}`);
     }
   }
   console.log(`shooter free pin ${COMMIT} fingerprint ${FP}`);
