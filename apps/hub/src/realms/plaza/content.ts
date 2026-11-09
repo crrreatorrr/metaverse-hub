@@ -1,6 +1,7 @@
 import { createRealmGate } from '../../core/gates';
 import { SANDBOX_GATE } from './layout';
 import { createArcadePicker } from '../../v2/arcade-picker';
+import { createSprotelTalk } from '../../v2/sprotel-talk';
 import { createLiveLeaderboardProvider, verseTotals, type VerseRow } from '../../leaderboards';
 import { parseReturnGame } from '../../travel';
 import { ARCADE_GAMES, PORTALS, STATUE_PORTALS } from './config';
@@ -491,6 +492,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     living.update(elapsed, camera);
     hall.room.visible = hallOpen && !inside;
     hall.update(elapsed);
+    // Leaving Sprotel's trigger or the Bar closes the store flag; the talk panel follows it.
+    if (!storeOpen && sprotelTalk.open) sprotelTalk.hide();
     bar.root.visible = liveBoards && inside;
     bar.update(elapsed);
     if (barTabs) barTabs.hidden = !inside || liveBoards;
@@ -524,6 +527,12 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   const sockets = pedestal.rings.map((mesh) => ({ mesh, on: false }));
 
   const arcadePicker = createArcadePicker(ARCADE_GAMES, game => ctx.travel(game));
+  // Sprotel's talk panel. It opens on every open request and clears the store flag when it closes.
+  const sprotelTalk = createSprotelTalk(() => { storeOpen = false; });
+  openListeners.push(() => {
+    ctx.releasePointer();
+    sprotelTalk.show();
+  });
   function playArcade(): void {
     if (ctx.isBlocked() || arcadePicker.open) return;
     if (!ARCADE_GAMES.some(game => ctx.pageFor(game.id))) return;
@@ -543,7 +552,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
         if (storeOpen) return;
         storeOpen = true;
         for (const listener of openListeners) listener();
-      }, prompt: () => storeOpen ? 'Sprotel Bitcoin · Verse store' : `Press E · ${interior?.sprotel?.prompt ?? SPROTEL_PROMPT}` },
+      }, prompt: () => storeOpen ? 'Talking to Sprotel Bitcoin' : `Press E · ${interior?.sprotel?.prompt ?? SPROTEL_PROMPT}` },
   ];
   if (gate) { outdoor.add(gate.root); interactions.push(gate.interaction); }
   if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
@@ -687,8 +696,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     portals: [...PORTALS, ...STATUE_PORTALS],
     portalsEnabled: () => !inside,
     interactions,
-    handleKey: event => arcadePicker.handleKey(event),
-    overlayOpen: () => arcadePicker.open,
+    handleKey: event => sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
+    overlayOpen: () => arcadePicker.open || sprotelTalk.open,
     async onSession(session) {
       const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
       boardRows = board.rows ?? [];

@@ -150,6 +150,8 @@ play.{$DOMAIN} {
 	redir /sproto-duel /sproto-duel/ 308
 	redir /sproto-fighter /sproto-fighter/ 308
 	redir /sproto-arcade /sproto-arcade/ 308
+	redir /sproto-shooter /sproto-shooter/ 308
+	redir /sproto-coop-battle /sproto-coop-battle/ 308
 
 	import game hpos10i {$GAME_COOP_HPOS10I:0} hpos10i
 	import game nobu {$GAME_COOP_NOBU:0} nobu
@@ -157,6 +159,8 @@ play.{$DOMAIN} {
 	import game sproto-duel {$GAME_COOP_SPROTO_DUEL:0} sproto_duel
 	import game sproto-fighter {$GAME_COOP_SPROTO_FIGHTER:0} sproto_fighter
 	import game sproto-arcade {$GAME_COOP_SPROTO_ARCADE:0} sproto_arcade
+	import game sproto-shooter {$GAME_COOP_SPROTO_SHOOTER:0} sproto_shooter
+	import game sproto-coop-battle {$GAME_COOP_SPROTO_COOP_BATTLE:0} sproto_coop_battle
 
 	handle {
 		respond "play host" 404
