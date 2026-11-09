@@ -1,11 +1,14 @@
 // Live Nakama check for the free Shooter 1v1.
 //   docker compose -f server/docker-compose.yml up --build -d
 //   npx tsx scripts/load/shooter-bots.ts
-// Two guests play one seat each. Inputs are delayed 100 ms and 200 ms with jitter.
-// One quiet seat forfeits after 10 s. Both going quiet is a draw. Ten live matches
-// stay under a 25 ms p95. Tickets stay at zero.
+// Protocol 2 / sim 2. Two guests play one seat each. Inputs are delayed 100 ms and
+// 200 ms with jitter. Snapshots are per seat; PONG answers only the pinger. A
+// reconnect rebinds with HELLO. One quiet seat forfeits after 10 s, RESULT reveals
+// the committed combat seed, and the server's replay of the match verifies. Both
+// going quiet is a draw. Ten live matches stay under a 25 ms p95. Tickets stay at zero.
 // Prints SHOOTER_REPORT as one JSON line.
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { readFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { cpus, totalmem } from 'node:os';
 import { join } from 'node:path';
@@ -15,7 +18,12 @@ import { call, login, ticketBalance, waitReady, type GameLogin } from '../../ser
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
-const FP = 'f5949631';
+const FP = '17d87c54';
+const PROTOCOL = 2;
+const SIM = 2;
+const PIN = JSON.parse(readFileSync(join(process.cwd(), 'server/modules/vendor/shooter-pvp-sim.pin.json'), 'utf8')) as {
+  commit: string; sha256: string; contentFingerprint: string; loadoutHash: string; protocol: number; sim: number;
+};
 const BENCH_MATCHES = 10;
 const BENCH_MS = 4000;
 
@@ -51,6 +59,7 @@ interface Metrics {
   stakes: boolean;
   stake: number;
   seated: number;
+  replay?: { status: string; verified: boolean; policy: string; mismatch: string[]; stored: boolean };
   error?: string;
 }
 
@@ -107,7 +116,7 @@ async function pair(): Promise<{ matchId: string; ada: GameLogin; bea: GameLogin
   const created = await call('shooter.room_create', {}, ada.gameToken);
   if (created.body.error || created.body.stake !== 0) throw new Error(JSON.stringify(created.body));
   const matchId = String(created.body.matchId);
-  const joined = await call('shooter.room_join', { code: created.body.code, v: 1, sim: 1, content: FP }, bea.gameToken);
+  const joined = await call('shooter.room_join', { code: created.body.code, v: PROTOCOL, sim: SIM, content: FP }, bea.gameToken);
   if (joined.body.matchId !== matchId) throw new Error(JSON.stringify(joined.body));
   const sessions = [ada, bea];
   const seats = [] as Seat[];
@@ -119,7 +128,7 @@ async function pair(): Promise<{ matchId: string; ada: GameLogin; bea: GameLogin
     match.onMessage((msg) => mail.push(msg));
     seats.push({ rt, match, mail, userId: session.hub.userId, seat: -1, seq: 0, sentFor: -1 });
   }
-  for (const seat of seats) seat.match.send(1, { accountId: seat.userId, protocol: 1, sim: 1, content: FP });
+  for (const seat of seats) seat.match.send(1, { accountId: seat.userId, protocol: PROTOCOL, sim: SIM, content: FP, interpMs: 100 });
   for (const seat of seats) {
     const welcome = await until(`${seat.userId} welcome`, () => seat.mail.find((msg) => msg.opCode === 2 && msg.json<{ accountId?: string }>().accountId === seat.userId));
     seat.seat = welcome.json<{ seat: number }>().seat;
@@ -153,7 +162,7 @@ async function sendDelayed(seat: Seat, delayMs: number): Promise<void> {
   seat.match.send(6, bytes);
 }
 
-function resultOf(seat: Seat): { outcome?: string; reason?: string; winner?: number | null; ticketsMinted?: number } | null {
+function resultOf(seat: Seat): { outcome?: string; reason?: string; winner?: number | null; ticketsMinted?: number; combatSeed?: string } | null {
   const row = [...seat.mail].reverse().find((msg) => msg.opCode === 8);
   return row ? row.json() : null;
 }
@@ -164,7 +173,7 @@ const version = await call('shooter.version', {}, probe.gameToken);
 const info = version.body as unknown as Version;
 check(
   'version is the free arena and unpaid',
-  info.match === 'sproto_shooter_free' && info.protocol === 1 && info.sim === 1 && info.content === FP
+  info.match === 'sproto_shooter_free' && info.protocol === PROTOCOL && info.sim === SIM && info.content === FP
     && info.stake === 0 && info.ticketsMinted === 0 && info.guests === 'one_seat' && info.practice === 'offline'
     && info.budgetMs === 10 && info.stallMs === 10000,
   JSON.stringify(info),
@@ -183,6 +192,12 @@ for (let i = 0; i < delays.length; i += 1) {
 await sleep(400);
 const mid = resultOf(latency.seats[0]!);
 check('100/200 ms delayed inputs with jitter do not end the match', mid === null, JSON.stringify(mid));
+const ownSnapshots = latency.seats.every((seat) => seat.mail.filter((msg) => msg.opCode === 7).every((msg) => msg.json<{ you?: { seat?: number } }>().you?.seat === seat.seat));
+check('each socket only gets its own seat\'s snapshots', ownSnapshots);
+latency.seats[0]!.match.send(10, { t: 4242 });
+await sleep(300);
+const pongs = latency.seats.map((seat) => seat.mail.filter((msg) => msg.opCode === 11 && msg.json<{ t?: number }>().t === 4242).length);
+check('PONG goes only to the pinger', pongs[0] === 1 && pongs[1] === 0, JSON.stringify(pongs));
 latency.seats[0]!.rt.disconnect();
 await sleep(400);
 const again = socket(latency.ada.gameToken);
@@ -190,7 +205,8 @@ await again.connect();
 const rejoined = await again.joinMatch({ matchId: latency.matchId });
 const remail: MatchData[] = [];
 rejoined.onMessage((msg) => remail.push(msg));
-rejoined.send(9, { accountId: latency.ada.hub.userId });
+// A new session rebinds with HELLO; RESYNC only serves the session already bound.
+rejoined.send(1, { accountId: latency.ada.hub.userId, protocol: PROTOCOL, sim: SIM, content: FP, interpMs: 100 });
 let welcomed = false;
 try {
   await until('resync welcome', () => remail.find((msg) => msg.opCode === 2 && msg.json<{ accountId?: string }>().accountId === latency.ada.hub.userId), 4000);
@@ -217,6 +233,20 @@ check(
   'a 10 s input stall forfeits that seat',
   !!forfeited && forfeited.outcome === 'forfeit' && forfeited.reason === 'stall' && forfeited.winner === quietSeat && forfeited.ticketsMinted === 0,
   JSON.stringify({ forfeited, stallRejects }),
+);
+const committed = stall.seats[1]!.mail.find((msg) => msg.opCode === 2)?.json<{ combatCommit?: string }>().combatCommit ?? '';
+const revealed = forfeited && forfeited.combatSeed ? createHash('sha256').update(forfeited.combatSeed).digest('hex') : '';
+check('RESULT reveals the combat seed committed in WELCOME', !!committed && revealed === committed, JSON.stringify({ committed }));
+const leaked = forfeited && forfeited.combatSeed
+  ? stall.seats.some((seat) => seat.mail.some((msg) => msg.opCode !== 8 && JSON.stringify(msg.json()).includes(forfeited.combatSeed!)))
+  : true;
+check('the combat seed is in no message before RESULT', !leaked);
+await sleep(400);
+const audited = (await call('shooter.metrics', { matchId: stall.matchId }, stall.bea.gameToken)).body as unknown as Metrics;
+check(
+  'the server replay of the forfeited match verifies',
+  !!audited.replay && audited.replay.status === 'done' && audited.replay.verified && audited.replay.stored,
+  JSON.stringify(audited.replay ?? audited),
 );
 stall.seats[0]!.rt.disconnect();
 stall.seats[1]!.rt.disconnect();
@@ -252,7 +282,7 @@ for (let i = 0; i < BENCH_MATCHES; i += 1) {
     const match = await rt.joinMatch({ matchId });
     const mail: MatchData[] = [];
     match.onMessage((msg) => mail.push(msg));
-    match.send(1, { accountId: session.hub.userId, protocol: 1, sim: 1, content: FP });
+    match.send(1, { accountId: session.hub.userId, protocol: PROTOCOL, sim: SIM, content: FP, interpMs: 100 });
     joined.push({ rt, match, mail, userId: session.hub.userId });
     rts.push(rt);
   }
@@ -295,7 +325,7 @@ const hardware = { cpu: cpus()[0]?.model ?? '', cores: cpus().length, memoryByte
 const report = {
   failures,
   ledger,
-  pin: { commit: '5ccaf82a04c8e4233b257b71194ad82d8fd5f022', fingerprint: FP, loadoutHash: '9eb7cd63', protocol: 1, sim: 1, bundleSha256: 'fccd3b17d0dc089d2134007a0f1cd37ef9c68296cdeacb5b040be3ac4f1d3f85' },
+  pin: { commit: PIN.commit, fingerprint: PIN.contentFingerprint, loadoutHash: PIN.loadoutHash, protocol: PIN.protocol, sim: PIN.sim, bundleSha256: PIN.sha256 },
   campaignFingerprint: '3c657fb5',
   latencyMs: [100, 200],
   jitterMs: [0, 17, 11, 22],

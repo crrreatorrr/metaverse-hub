@@ -236,7 +236,7 @@ export interface MatchDriver {
   /** joinAttempt + join; returns the joinAttempt verdict. */
   join(presences: Presence[], ctx?: CtxInput, metadata?: Record<string, string>): { accept: boolean; rejectMessage?: string }[];
   leave(presences: Presence[]): void;
-  loop(messages?: { sender: Presence; opCode: number; data: string | object }[]): boolean;
+  loop(messages?: { sender: Presence; opCode: number; data: string | object | Uint8Array }[]): boolean;
   /** Run `count` empty loop ticks. */
   ticks(count: number): boolean;
   signal(data: string): string | undefined;
@@ -544,7 +544,10 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
         const wire = messages.map((m) => ({
           sender: m.sender,
           opCode: m.opCode,
-          data: (nk.stringToBinary as (t: string) => ArrayBuffer)(typeof m.data === 'string' ? m.data : JSON.stringify(m.data)),
+          // Raw bytes stay raw (binary INPUT); a string or object goes through utf8 like a JSON frame.
+          data: m.data instanceof Uint8Array
+            ? m.data.buffer.slice(m.data.byteOffset, m.data.byteOffset + m.data.byteLength)
+            : (nk.stringToBinary as (t: string) => ArrayBuffer)(typeof m.data === 'string' ? m.data : JSON.stringify(m.data)),
           reliable: true,
           receiveTimeMs: 0,
         }));

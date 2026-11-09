@@ -1,11 +1,22 @@
-// Nakama-authoritative free 1v1. The vendored director owns seed, loadout,
-// ready, KO, stall, and the result. This file routes presences, sessions, and
-// broadcasts. It does not mint, stake, or settle Tickets.
+// Nakama-authoritative free 1v1 on director v2 (sproto-shooter protocol 2 /
+// sim 2). The vendored director owns spawn seed, combat seed, loadout, ready,
+// the input jitter buffer, lag compensation, KO, stall, and the result. This
+// file routes presences, sessions, and messages. It does not mint, stake, or
+// settle Tickets.
 //
-// The director object (and its Map queues) stays in a let binding created on
-// the first callback. Nakama exports match state to Go between callbacks and
-// drops functions, so the returned state is plain JSON only. Each match VM is
-// its own runtime, so the binding lives for the match.
+// The director object stays LIVE in a let binding created in matchInit, for
+// the whole match. Each match runs in its own goja VM, so the binding lives
+// for the match. It is not frozen and thawed per callback (exportState +
+// restoreDirector cost 7.4 ms mean / 14 ms p95 per callback in goja late in a
+// match), and its used-input log and combat seed never go into the Nakama
+// match state, which stays plain JSON. There is no crash-recovery copy: if
+// the match VM dies the match is gone, and a free match has nothing to refund.
+//
+// Every director message is { op, body, to }. `to` null goes to every present
+// seat; otherwise it goes only to the stored presence of that user and
+// session (presences carry their node), or to the sender itself, and is
+// dropped when no presence matches. Nothing is broadcast with an empty list,
+// which Nakama would send to the whole match.
 
 namespace ShooterMatch {
   let directors: { [id: string]: ShooterPvpDirector } | null = null;
@@ -25,9 +36,22 @@ namespace ShooterMatch {
     stakes: boolean;
   }
 
+  export interface ReplaySummary {
+    /** pending until the director's RESULT has gone out, then done or skipped. */
+    status: string;
+    verified: boolean;
+    policy: string;
+    mismatch: string[];
+    ms: number;
+    stored: boolean;
+  }
+
   export interface State {
     phase: string;
-    seed: number;
+    /** Public spawn seed. The combat seed lives only in the director. */
+    spawnSeed: number;
+    /** sha256 of the combat seed, as WELCOME/PHASE send it. */
+    combatCommit: string;
     privateRoom: boolean;
     code: string;
     token: string;
@@ -39,15 +63,23 @@ namespace ShooterMatch {
     guest: { [id: string]: number };
     /** Stays 1 for the life of the seat. A new socket does not bump it. */
     generation: { [id: string]: number };
+    /** The current presence (with its node) of each account, or null after it left. */
     present: { [id: string]: nkruntime.Presence | null };
     seated: number;
     tick: number;
     result: ResultBody | null;
+    /** True once a match-wide RESULT (the director's, or the hub's shutdown one) went out. */
     resultSent: boolean;
+    /** Loop tick the director's RESULT went out on; the replay runs on a later loop. */
+    resultTick: number;
+    replay: ReplaySummary;
     broken: string;
     cleaned: boolean;
+    liveCleared: boolean;
     endReason: string;
     doneTick: number;
+    /** Server clock origin: now = startMs + loop tick × 1000/30 (+ warpMs in fault tests). */
+    startMs: number;
     warpMs: number;
     serverSeq: number;
     samples: number[];
@@ -56,6 +88,8 @@ namespace ShooterMatch {
     snapBytes: number;
     snapCount: number;
     inBytes: number;
+    rateDrops: number;
+    dropped: number;
     loopCount: number;
     createdMs: number;
   }
@@ -65,6 +99,7 @@ namespace ShooterMatch {
   }
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  var HEX_SEED = /^[0-9a-f]{32,128}$/;
 
   function gate(ctx: nkruntime.Context): string | null {
     var vars = ctx.vars || null;
@@ -90,10 +125,24 @@ namespace ShooterMatch {
     }
   }
 
+  /**
+   * The display name the director puts in WELCOME `names`, cleaned like plaza names.
+   * TODO(hub #92): switch to HubMatch.cleanName once it is on main.
+   */
+  export function displayName(raw: unknown): string {
+    return HubMatch.sanitizeName(typeof raw === "string" ? raw : "");
+  }
+
+  function blankReplay(): ReplaySummary {
+    return { status: "pending", verified: false, policy: "", mismatch: [], ms: 0, stored: false };
+  }
+
   function blank(): State {
+    var now = Date.now();
     return {
       phase: "lobby",
-      seed: 1,
+      spawnSeed: 1,
+      combatCommit: "",
       privateRoom: false,
       code: "",
       token: "",
@@ -107,10 +156,14 @@ namespace ShooterMatch {
       tick: 0,
       result: null,
       resultSent: false,
+      resultTick: 0,
+      replay: blankReplay(),
       broken: "",
       cleaned: false,
+      liveCleared: false,
       endReason: "",
       doneTick: 0,
+      startMs: now,
       warpMs: 0,
       serverSeq: 0,
       samples: [],
@@ -119,8 +172,10 @@ namespace ShooterMatch {
       snapBytes: 0,
       snapCount: 0,
       inBytes: 0,
+      rateDrops: 0,
+      dropped: 0,
       loopCount: 0,
-      createdMs: Date.now(),
+      createdMs: now,
     };
   }
 
@@ -153,8 +208,9 @@ namespace ShooterMatch {
     return n;
   }
 
-  function nowOf(state: State): number {
-    return Date.now() + state.warpMs;
+  /** Monotonic server clock from the loop tick, never the wall clock. */
+  function nowOf(state: State, tick: number): number {
+    return state.startMs + (tick * 1000) / ShooterProto.TICK_RATE + state.warpMs;
   }
 
   function noteGuest(nk: nkruntime.Nakama, state: State, userId: string): void {
@@ -170,7 +226,7 @@ namespace ShooterMatch {
     state.guest[userId] = guest;
   }
 
-  function recipients(state: State): nkruntime.Presence[] {
+  function everyone(state: State): nkruntime.Presence[] {
     var to: nkruntime.Presence[] = [];
     for (var id in state.present) {
       var presence = state.present[id];
@@ -179,8 +235,29 @@ namespace ShooterMatch {
     return to;
   }
 
-  function emit(d: nkruntime.MatchDispatcher, state: State, op: number, body: { [key: string]: unknown }): void {
+  /**
+   * Who a message goes to. `to` null: every present seat. Otherwise the sender
+   * (REJECT and PONG answer it) or the stored presence of that user + session.
+   * An empty list means drop: never hand Nakama an empty list.
+   */
+  function resolve(state: State, to: ShooterPvpTo | null, sender: nkruntime.Presence | null): nkruntime.Presence[] {
+    if (to === null || to === undefined) return everyone(state);
+    if (!to.userId || !to.sessionId) return [];
+    if (sender && sender.userId === to.userId && sender.sessionId === to.sessionId) return [sender];
+    var stored = state.present[to.userId];
+    if (stored && stored.sessionId === to.sessionId) return [stored];
+    return [];
+  }
+
+  function send(d: nkruntime.MatchDispatcher, state: State, message: ShooterPvpMessage, sender: nkruntime.Presence | null): void {
+    var op = message.op;
+    var to = resolve(state, message.to, sender);
+    if (!to.length) {
+      state.dropped += 1;
+      return;
+    }
     var stamped: { [key: string]: unknown } = {};
+    var body = message.body || {};
     for (var key in body) stamped[key] = body[key];
     if (op === ShooterProto.OP_SNAPSHOT) {
       state.serverSeq += 1;
@@ -195,8 +272,16 @@ namespace ShooterMatch {
       state.snapBytes += text.length;
       state.snapCount += 1;
     }
-    var to = recipients(state);
-    if (to.length) d.broadcastMessage(op, text, to, null, true);
+    d.broadcastMessage(op, text, to, null, true);
+  }
+
+  /** A hub-side REJECT for the sender only. */
+  function rejectTo(d: nkruntime.MatchDispatcher, state: State, sender: nkruntime.Presence, reason: string): void {
+    send(d, state, {
+      op: ShooterProto.OP_REJECT,
+      body: { accountId: sender.userId, reason: reason, lastSeq: 0, tick: state.tick, ticketsMinted: 0 },
+      to: { userId: sender.userId, sessionId: sender.sessionId },
+    }, sender);
   }
 
   function mirror(state: State, director: ShooterPvpDirector): void {
@@ -204,6 +289,7 @@ namespace ShooterMatch {
     state.seated = director.occupied();
     state.tick = director.sim ? director.sim.tick : 0;
     if (director.result) {
+      // Not the combat seed: the match state stays free of it.
       state.result = {
         outcome: director.result.outcome,
         winner: director.result.winner,
@@ -231,22 +317,39 @@ namespace ShooterMatch {
     };
   }
 
+  /**
+   * The hub's only RESULT: the match is ending (shutdown, broken pin) before the
+   * director reached its own. A finished match already sent the director's.
+   */
   function finishShutdown(d: nkruntime.MatchDispatcher, state: State, director: ShooterPvpDirector | null): void {
-    if (state.resultSent) return;
-    var body = state.result && state.phase === "done" ? state.result : shutdownBody(state, director);
-    if (!state.result) state.result = body;
+    if (state.resultSent || state.phase === "done") return;
+    var body = shutdownBody(state, director);
+    state.result = body;
     state.phase = "done";
     state.endReason = body.reason;
     state.resultSent = true;
-    emit(d, state, ShooterProto.OP_RESULT, {
-      outcome: body.outcome,
-      winner: body.winner,
-      reason: body.reason,
-      tick: body.tick,
-      stateHash: body.stateHash,
-      ticketsMinted: 0,
-      stakes: false,
-    });
+    send(d, state, {
+      op: ShooterProto.OP_RESULT,
+      body: {
+        outcome: body.outcome,
+        winner: body.winner,
+        reason: body.reason,
+        tick: body.tick,
+        stateHash: body.stateHash,
+        ticketsMinted: 0,
+        stakes: false,
+      },
+      to: null,
+    }, null);
+  }
+
+  /** Free the "one live match" rows so both accounts can queue again while the match lingers. */
+  function clearLive(nk: nkruntime.Nakama, state: State, matchId: string): void {
+    if (state.liveCleared) return;
+    state.liveCleared = true;
+    if (state.host) ShooterMm.clearLive(nk, state.host, matchId);
+    for (var id in state.sids) ShooterMm.clearLive(nk, id, matchId);
+    for (var r = 0; r < state.roster.length; r++) ShooterMm.clearLive(nk, state.roster[r], matchId);
   }
 
   function cleanup(nk: nkruntime.Nakama, state: State, matchId: string): void {
@@ -254,28 +357,86 @@ namespace ShooterMatch {
     state.cleaned = true;
     if (state.code) ShooterMm.releaseCode(nk, state.code);
     if (state.token) ShooterMm.forgetGroup(nk, state.token);
-    if (state.host) ShooterMm.clearLive(nk, state.host, matchId);
-    for (var id in state.sids) ShooterMm.clearLive(nk, id, matchId);
-    for (var r = 0; r < state.roster.length; r++) ShooterMm.clearLive(nk, state.roster[r], matchId);
+    clearLive(nk, state, matchId);
     if (directors) delete directors[matchId];
   }
 
-  function publish(d: nkruntime.MatchDispatcher, state: State, director: ShooterPvpDirector, advanced: { snapshots: { [key: string]: unknown }[]; result: ShooterPvpResult | null; phaseMessage: { [key: string]: unknown } | null }, messages: { op: number; body: { [key: string]: unknown } }[]): void {
-    for (var i = 0; i < messages.length; i++) emit(d, state, messages[i].op, messages[i].body);
-    if (advanced.phaseMessage) emit(d, state, ShooterProto.OP_PHASE, advanced.phaseMessage);
-    for (var s = 0; s < advanced.snapshots.length; s++) emit(d, state, ShooterProto.OP_SNAPSHOT, advanced.snapshots[s]);
-    mirror(state, director);
-    if (state.result && !state.resultSent) {
-      state.resultSent = true;
-      emit(d, state, ShooterProto.OP_RESULT, {
-        outcome: state.result.outcome,
-        winner: state.result.winner,
-        reason: state.result.reason,
-        tick: state.result.tick,
-        stateHash: state.result.stateHash,
-        ticketsMinted: 0,
-        stakes: false,
-      });
+  /** Send messages in order; note the director's match-wide RESULT. */
+  function publish(d: nkruntime.MatchDispatcher, state: State, messages: ShooterPvpMessage[], sender: nkruntime.Presence | null, tick: number): void {
+    for (var i = 0; i < messages.length; i++) {
+      var message = messages[i];
+      if (message.op === ShooterProto.OP_RESULT && message.to === null) {
+        if (state.resultSent) continue;
+        state.resultSent = true;
+        state.resultTick = tick;
+      }
+      send(d, state, message, sender);
+    }
+  }
+
+  /**
+   * After RESULT: re-run the director's used-input log through replayJSON v2
+   * and keep the record write-once, server-only. Free play settles nothing;
+   * this is the groundwork wagers will settle on. A mismatch is logged without
+   * the record (which holds the combat seed).
+   */
+  function keepRecord(nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State, director: ShooterPvpDirector, matchId: string): void {
+    if (state.replay.status !== "pending") return;
+    var sim = ShooterProto.api();
+    if (!sim) {
+      state.replay.status = "skipped";
+      return;
+    }
+    var started = Date.now();
+    var record = director.replayRecord();
+    var receipt: ShooterPvpReceipt;
+    try {
+      receipt = JSON.parse(sim.replayJSON(record)) as ShooterPvpReceipt;
+    } catch (e) {
+      receipt = { ok: false, reason: "replay_threw", outcome: null, winner: null, ticketsMinted: 0 };
+    }
+    var verdict = receipt.verdict || null;
+    state.replay.status = "done";
+    state.replay.verified = receipt.verified === true;
+    state.replay.policy = verdict ? verdict.policy : "refuse";
+    state.replay.mismatch = receipt.mismatch ? receipt.mismatch.slice(0, 16) : [receipt.reason || "refused"];
+    state.replay.ms = Date.now() - started;
+    if (!state.replay.verified) {
+      logger.warn("sproto_shooter_free replay mismatch " + matchId + " " + state.replay.mismatch.join(","));
+    }
+    try {
+      nk.storageWrite([{
+        collection: ShooterProto.REPLAY_COLLECTION,
+        key: matchId,
+        userId: ShooterMm.SYSTEM_USER,
+        value: {
+          v: 1,
+          matchId: matchId,
+          storedAt: Date.now(),
+          commit: ShooterProto.COMMIT,
+          bundleSha256: ShooterProto.BUNDLE_SHA256,
+          record: record,
+          receipt: {
+            ok: receipt.ok !== false,
+            verified: state.replay.verified,
+            mismatch: state.replay.mismatch,
+            verdict: verdict,
+            tick: receipt.tick === undefined ? null : receipt.tick,
+            stateHash: receipt.stateHash === undefined ? null : receipt.stateHash,
+            stateSha256: receipt.stateSha256 === undefined ? null : receipt.stateSha256,
+            outcome: receipt.outcome,
+            winner: receipt.winner,
+          },
+          ticketsMinted: 0,
+          stakes: false,
+        },
+        version: "*",
+        permissionRead: 0,
+        permissionWrite: 0,
+      }]);
+      state.replay.stored = true;
+    } catch (e) {
+      logger.error("sproto_shooter_free replay store failed " + matchId);
     }
   }
 
@@ -299,7 +460,30 @@ namespace ShooterMatch {
     return copy[idx];
   }
 
-  function metricsOf(state: State): { [key: string]: unknown } {
+  function seatMetrics(director: ShooterPvpDirector | null): { [key: string]: unknown }[] {
+    var out: { [key: string]: unknown }[] = [];
+    if (!director) return out;
+    for (var i = 0; i < ShooterProto.SEATS; i++) {
+      var stats = director.seatStats(i);
+      if (!stats) continue;
+      out.push({
+        seat: i,
+        connected: stats.connected,
+        applied: stats.applied,
+        held: stats.held,
+        neutral: stats.neutral,
+        late: stats.late,
+        buffer: stats.buffer,
+        rttMs: stats.rttMs,
+        rewindCap: stats.rewindCap,
+        clamped: stats.clamped,
+      });
+    }
+    return out;
+  }
+
+  /** Never includes the combat seed, the replay record, or the used-input log. */
+  function metricsOf(state: State, director: ShooterPvpDirector | null): { [key: string]: unknown } {
     var guests = 0;
     var accounts = 0;
     for (var id in state.sids) {
@@ -317,6 +501,8 @@ namespace ShooterMatch {
       snapBytes: state.snapBytes,
       snapCount: state.snapCount,
       inBytes: state.inBytes,
+      rateDrops: state.rateDrops,
+      dropped: state.dropped,
       loops: state.loopCount,
       tick: state.tick,
       phase: state.phase,
@@ -324,6 +510,16 @@ namespace ShooterMatch {
       stateHash: state.result ? state.result.stateHash : "",
       outcome: state.result ? state.result.outcome : "",
       winner: state.result ? state.result.winner : null,
+      combatCommit: state.combatCommit,
+      replay: {
+        status: state.replay.status,
+        verified: state.replay.verified,
+        policy: state.replay.policy,
+        mismatch: state.replay.mismatch,
+        ms: state.replay.ms,
+        stored: state.replay.stored,
+      },
+      seats: seatMetrics(director),
       ticketsMinted: 0,
       stakes: false,
       stake: 0,
@@ -337,12 +533,37 @@ namespace ShooterMatch {
     };
   }
 
-  function seedOf(nk: nkruntime.Nakama, params: { [key: string]: unknown }): number {
+  function spawnSeedOf(nk: nkruntime.Nakama, params: { [key: string]: unknown }): number {
     if (params["seedSource"] === "server") {
-      var n = parseInt(String(params["seed"] === undefined || params["seed"] === null ? "" : params["seed"]), 10);
+      var n = parseInt(String(params["spawnSeed"] === undefined || params["spawnSeed"] === null ? "" : params["spawnSeed"]), 10);
       if (n > 0 && n <= 4294967295) return n >>> 0;
     }
     return ShooterProto.serverSeed(nk);
+  }
+
+  function hostDirector(sim: ShooterPvpApi, nk: nkruntime.Nakama, state: State, matchId: string): ShooterPvpDirector | string {
+    var combatSeed = ShooterProto.combatSeed(nk);
+    if (!HEX_SEED.test(combatSeed)) return "combat_seed";
+    var options: ShooterPvpHostedOptions = {
+      spawnSeed: state.spawnSeed,
+      combatSeed: combatSeed,
+      matchId: matchId,
+      build: { bundleSha256: ShooterProto.BUNDLE_SHA256, sourceCommit: ShooterProto.COMMIT },
+      // rttCeilingMs stays unset: free play has no wager to protect.
+    };
+    // A matchmade pair fixes seat order. A private room seats in HELLO order.
+    if (state.roster.length === ShooterProto.SEATS && state.roster[0] !== state.roster[1]) {
+      options.accounts = [state.roster[0], state.roster[1]];
+    }
+    var director: ShooterPvpDirector;
+    try {
+      director = sim.createHostedDirector(options);
+    } catch (e) {
+      // The message can name the option; never the seed itself.
+      return "director_init";
+    }
+    if (director.combatSeedDerived !== false) return "combat_seed";
+    return director;
   }
 
   export var handler: nkruntime.MatchHandler<State> = {
@@ -355,7 +576,7 @@ namespace ShooterMatch {
       state.token = typeof params["token"] === "string" ? params["token"] : "";
       state.host = typeof params["host"] === "string" ? params["host"] : "";
       state.roster = parseRoster(params["roster"]);
-      state.seed = seedOf(nk, params);
+      state.spawnSeed = spawnSeedOf(nk, params);
       if (mismatch) {
         state.broken = mismatch;
         logger.error("sproto_shooter_free pin " + mismatch);
@@ -364,7 +585,16 @@ namespace ShooterMatch {
         if (!sim) {
           state.broken = "sim_missing";
           logger.error("sproto_shooter_free pin sim_missing");
-        } else directorBag()[matchId] = sim.createDirector({ seed: state.seed, matchId: matchId });
+        } else {
+          var made = hostDirector(sim, nk, state, matchId);
+          if (typeof made === "string") {
+            state.broken = made;
+            logger.error("sproto_shooter_free director " + made);
+          } else {
+            directorBag()[matchId] = made;
+            state.combatCommit = made.combatCommit;
+          }
+        }
       }
       logger.info("sproto_shooter_free init " + matchId);
       return { state: state, tickRate: ShooterProto.TICK_RATE, label: ShooterProto.labelFor() };
@@ -382,8 +612,13 @@ namespace ShooterMatch {
       var known = state.sids[userId] || "";
       if (known && known !== sid) return { state: state, accept: false, rejectMessage: "wrong_sender" };
       var director = directorBag()[ctx.matchId || ""];
-      if (!director) return { state: state, accept: false, rejectMessage: "ended" };
-      if (director.phase === "done" || state.phase === "done") return { state: state, accept: false, rejectMessage: "ended" };
+      if (!director || state.cleaned) return { state: state, accept: false, rejectMessage: "ended" };
+      if (director.phase === "done" || state.phase === "done") {
+        // A seated account may come back to a finished match: its HELLO gets
+        // WELCOME, the final snapshot and a copy of RESULT. Nobody else.
+        if (known && director.seatOf(userId) >= 0) return { state: state, accept: true };
+        return { state: state, accept: false, rejectMessage: "ended" };
+      }
       if (!known) {
         if (!onRoster(state, userId)) return { state: state, accept: false, rejectMessage: "not_in_roster" };
         if (accountCount(state) >= ShooterProto.SEATS) return { state: state, accept: false, rejectMessage: "match_full" };
@@ -412,8 +647,9 @@ namespace ShooterMatch {
             /* the previous socket may already be gone */
           }
         }
+        // The whole presence, node included: routed messages go to exactly this one.
         state.present[presence.userId] = presence;
-        ShooterMm.setLive(nk, presence.userId, matchId);
+        if (state.phase !== "done") ShooterMm.setLive(nk, presence.userId, matchId);
       }
       return { state: state };
     },
@@ -434,22 +670,34 @@ namespace ShooterMatch {
       var matchId = ctx.matchId || "";
       var director = directorBag()[matchId];
       if (state.broken || !director) {
-        if (!state.resultSent) finishShutdown(d, state, director);
+        finishShutdown(d, state, director || null);
         cleanup(nk, state, matchId);
         sample(state, started);
         return null;
       }
-      var now = nowOf(state);
-      var produced: { op: number; body: { [key: string]: unknown } }[] = [];
-      var limit = messages.length < ShooterProto.MAX_MSGS ? messages.length : ShooterProto.MAX_MSGS;
+      if (state.phase === "done" && state.resultSent && state.replay.status === "pending" && tick > state.resultTick) {
+        // Deferred: never on the loop that stepped the sim and sent RESULT, and
+        // kept out of the per-loop samples (the match is over).
+        keepRecord(nk, logger, state, director, matchId);
+        started = Date.now();
+      }
+      var now = nowOf(state, tick);
+      var handled: { [userId: string]: number } = {};
+      var rated: { [userId: string]: boolean } = {};
       for (var i = 0; i < messages.length; i++) {
         var message = messages[i];
         var sender = message.sender;
-        if (!sender || !sender.userId) continue;
+        if (!sender || !sender.userId || !sender.sessionId) continue;
         var size = typeof message.data === "string" ? message.data.length : message.data ? message.data.byteLength : 0;
         state.inBytes += size;
-        if (i >= limit) {
-          produced.push({ op: ShooterProto.OP_REJECT, body: { accountId: sender.userId, reason: "rate", lastSeq: 0, tick: state.tick, ticketsMinted: 0 } });
+        var count = (handled[sender.userId] || 0) + 1;
+        handled[sender.userId] = count;
+        if (count > ShooterProto.MAX_MSGS_PER_SENDER) {
+          state.rateDrops += 1;
+          if (!rated[sender.userId]) {
+            rated[sender.userId] = true;
+            rejectTo(d, state, sender, "rate");
+          }
           continue;
         }
         var op = message.opCode;
@@ -457,65 +705,48 @@ namespace ShooterMatch {
         if (op === ShooterProto.OP_INPUT) {
           var bytes = ShooterProto.bytesOf(nk, message.data);
           if (bytes.length !== ShooterProto.FRAME_BYTES) {
-            produced.push({ op: ShooterProto.OP_REJECT, body: { accountId: sender.userId, reason: "malformed", lastSeq: 0, tick: state.tick, ticketsMinted: 0 } });
+            rejectTo(d, state, sender, "malformed");
             continue;
           }
           packet = bytes;
         } else {
           var text = ShooterProto.textOf(nk, message.data);
           if (text.length > ShooterProto.MAX_JSON) {
-            produced.push({ op: ShooterProto.OP_REJECT, body: { accountId: sender.userId, reason: "malformed", lastSeq: 0, tick: state.tick, ticketsMinted: 0 } });
+            rejectTo(d, state, sender, "malformed");
             continue;
           }
           if (op === ShooterProto.OP_HELLO || op === ShooterProto.OP_READY || op === ShooterProto.OP_RESYNC) {
             var parsed = bodyOf(text);
             if (parsed && ShooterProto.hostile(parsed)) {
-              produced.push({ op: ShooterProto.OP_REJECT, body: { accountId: sender.userId, reason: "client_result", lastSeq: 0, tick: state.tick, ticketsMinted: 0 } });
+              rejectTo(d, state, sender, "client_result");
               continue;
             }
           }
           packet = text;
         }
-        var actor = { userId: sender.userId, sessionId: sender.sessionId };
-        if (op === ShooterProto.OP_RESYNC && director.seatOf(sender.userId) >= 0) {
-          var rebound = director.handle(actor, ShooterProto.OP_HELLO, JSON.stringify({
-            accountId: sender.userId,
-            protocol: ShooterProto.PROTOCOL,
-            sim: ShooterProto.SIM,
-            content: ShooterProto.FINGERPRINT,
-          }), now);
-          var reboundMessages = rebound && rebound.messages ? rebound.messages : [];
-          for (var r = 0; r < reboundMessages.length; r++) produced.push(reboundMessages[r]);
-          if (!rebound || !rebound.ok) continue;
-        }
+        // HELLO is the only rebind; RESYNC serves the bound session only.
+        var actor: ShooterPvpSender = { userId: sender.userId, sessionId: sender.sessionId, username: displayName(sender.username) };
         var out = director.handle(actor, op, packet, now);
-        var extra = out && out.messages ? out.messages : [];
-        for (var m = 0; m < extra.length; m++) produced.push(extra[m]);
+        publish(d, state, out && out.messages ? out.messages : [], sender, tick);
       }
       var advanced = director.advance(now);
-      if (director.phase === "live" && director.sim && now - state.createdMs > ShooterProto.MAX_MATCH_MS && director.sim.phase !== "done" && !director.result) {
+      publish(d, state, advanced && advanced.messages ? advanced.messages : [], null, tick);
+      mirror(state, director);
+      if (director.phase === "live" && director.sim && now - state.startMs > ShooterProto.MAX_MATCH_MS && director.sim.phase !== "done" && !director.result) {
         logger.warn("sproto_shooter_free duration " + matchId);
       }
-      publish(d, state, director, advanced, produced);
-      if (director.phase === "lobby" && director.occupied() === 0 && now - state.createdMs >= ShooterProto.READY_MS && !state.resultSent) {
+      if (director.phase === "lobby" && director.occupied() === 0 && now - state.startMs >= ShooterProto.READY_MS) {
+        // Nobody said HELLO: there is no seat to tell, so no RESULT. The match closes.
         state.result = { outcome: "cancel", winner: null, reason: "ready_timeout", tick: 0, stateHash: null, ticketsMinted: 0, stakes: false };
         state.phase = "done";
         state.endReason = "ready_timeout";
-        state.resultSent = true;
-        state.doneTick = tick;
-        emit(d, state, ShooterProto.OP_RESULT, {
-          outcome: "cancel",
-          winner: null,
-          reason: "ready_timeout",
-          tick: 0,
-          stateHash: null,
-          ticketsMinted: 0,
-          stakes: false,
-        });
+        state.replay.status = "skipped";
       }
       if (state.phase === "done") {
         if (!state.doneTick) state.doneTick = tick;
+        clearLive(nk, state, matchId);
         if (tick - state.doneTick > ShooterProto.LINGER_S * ShooterProto.TICK_RATE) {
+          if (state.replay.status === "pending" && state.resultSent) keepRecord(nk, logger, state, director, matchId);
           cleanup(nk, state, matchId);
           sample(state, started);
           return null;
@@ -525,11 +756,12 @@ namespace ShooterMatch {
       return { state: state };
     },
 
-    matchTerminate: function (ctx, _logger, nk, d, _tick, state, _grace) {
+    matchTerminate: function (ctx, logger, nk, d, _tick, state, _grace) {
       var matchId = ctx.matchId || "";
-      var director = directorBag()[matchId];
+      var director = directorBag()[matchId] || null;
       if (director) mirror(state, director);
       finishShutdown(d, state, director);
+      if (director && (director.sim || director.result) && state.replay.status === "pending") keepRecord(nk, logger, state, director, matchId);
       cleanup(nk, state, matchId);
       return { state: state };
     },
@@ -546,7 +778,7 @@ namespace ShooterMatch {
           if (delta > 0 && delta < 3600000) state.warpMs += delta;
         }
       }
-      return { state: state, data: JSON.stringify(metricsOf(state)) };
+      return { state: state, data: JSON.stringify(metricsOf(state, directorBag()[ctx.matchId || ""] || null)) };
     },
   };
 
@@ -605,14 +837,15 @@ namespace ShooterMatch {
       if (ShooterMm.reserveCode(nk, candidate)) code = candidate;
     }
     if (!code) return fail("room_code_busy", "Could not allocate a room code");
-    var seed = ShooterProto.serverSeed(nk);
+    // The spawn seed only. The combat seed is made inside the match and never leaves it before RESULT.
+    var spawnSeed = ShooterProto.serverSeed(nk);
     var matchId = "";
     try {
       matchId = nk.matchCreate(ShooterProto.MATCH_NAME, {
         private: "1",
         code: code,
         host: ctx.userId || "",
-        seed: String(seed),
+        spawnSeed: String(spawnSeed),
         seedSource: "server",
       });
     } catch (e) {

@@ -262,12 +262,13 @@ namespace ShooterMm {
         return;
       }
     }
-    var seed = ShooterProto.serverSeed(nk);
+    // The public spawn seed only. The secret combat seed is generated inside the match.
+    var spawnSeed = ShooterProto.serverSeed(nk);
     var id = nk.matchCreate(ShooterProto.MATCH_NAME, {
       private: "0",
       roster: JSON.stringify(ids),
       token: token,
-      seed: String(seed),
+      spawnSeed: String(spawnSeed),
       seedSource: "server",
     });
     rememberGroup(nk, token, id);

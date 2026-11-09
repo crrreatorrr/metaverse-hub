@@ -23,15 +23,23 @@ var SprotoShooterPvp = (() => {
     CONTENT_FINGERPRINT: () => CONTENT_FINGERPRINT,
     ECONOMY: () => ECONOMY,
     INPUT_LIMITS: () => INPUT_LIMITS,
+    LEAD_IN_TICKS: () => LEAD_IN_TICKS,
     LOADOUT_HASH: () => LOADOUT_HASH,
     OP: () => OP,
     PVP_PROTOCOL_VERSION: () => PVP_PROTOCOL_VERSION,
     PVP_SIM_VERSION: () => PVP_SIM_VERSION,
+    REPLAY_LIMITS: () => REPLAY_LIMITS,
+    REWIND: () => REWIND,
     SOURCE_COMMIT: () => SOURCE_COMMIT,
+    combatCommitOf: () => combatCommitOf,
     createDirector: () => createDirector,
+    createHostedDirector: () => createHostedDirector,
     decodeInput: () => decodeInput,
     encodeInput: () => encodeInput,
-    replayJSON: () => replayJSON
+    replayJSON: () => replayJSON,
+    restoreDirector: () => restoreDirector,
+    rewindCapFor: () => rewindCapFor,
+    sha256Hex: () => sha256Hex
   });
 
   // src/data/tuning.js
@@ -309,7 +317,145 @@ var SprotoShooterPvp = (() => {
     return res;
   }
   var float = (r) => next(r) / 4294967296;
-  var chance = (r, p) => float(r) < p;
+
+  // src/core/sha256.js
+  var K = [
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ];
+  function utf8Bytes(text) {
+    const out = [];
+    for (let i = 0; i < text.length; i++) {
+      let c = text.charCodeAt(i);
+      if (c >= 55296 && c <= 56319 && i + 1 < text.length) {
+        const d = text.charCodeAt(i + 1);
+        if (d >= 56320 && d <= 57343) {
+          c = 65536 + (c - 55296 << 10) + (d - 56320);
+          i += 1;
+        }
+      }
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | c >> 6, 128 | c & 63);
+      else if (c < 65536) out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+      else out.push(240 | c >> 18, 128 | c >> 12 & 63, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return out;
+  }
+  function rotr(x, n) {
+    return x >>> n | x << 32 - n;
+  }
+  function sha256Hex(text) {
+    const bytes = utf8Bytes(String(text));
+    const bitLength = bytes.length * 8;
+    bytes.push(128);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    const high = Math.floor(bitLength / 4294967296);
+    bytes.push(high >>> 24 & 255, high >>> 16 & 255, high >>> 8 & 255, high & 255);
+    bytes.push(bitLength >>> 24 & 255, bitLength >>> 16 & 255, bitLength >>> 8 & 255, bitLength & 255);
+    const h = [1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225];
+    const w = new Array(64);
+    for (let at = 0; at < bytes.length; at += 64) {
+      for (let i = 0; i < 16; i++) {
+        const j = at + i * 4;
+        w[i] = bytes[j] << 24 | bytes[j + 1] << 16 | bytes[j + 2] << 8 | bytes[j + 3] | 0;
+      }
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ w[i - 15] >>> 3;
+        const s1 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ w[i - 2] >>> 10;
+        w[i] = w[i - 16] + s0 + w[i - 7] + s1 | 0;
+      }
+      let [a, b, c, d, e, f, g, k] = h;
+      for (let i = 0; i < 64; i++) {
+        const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const ch = e & f ^ ~e & g;
+        const t1 = k + S1 + ch + K[i] + w[i] | 0;
+        const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const maj = a & b ^ a & c ^ b & c;
+        const t2 = S0 + maj | 0;
+        k = g;
+        g = f;
+        f = e;
+        e = d + t1 | 0;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2 | 0;
+      }
+      h[0] = h[0] + a | 0;
+      h[1] = h[1] + b | 0;
+      h[2] = h[2] + c | 0;
+      h[3] = h[3] + d | 0;
+      h[4] = h[4] + e | 0;
+      h[5] = h[5] + f | 0;
+      h[6] = h[6] + g | 0;
+      h[7] = h[7] + k | 0;
+    }
+    let out = "";
+    for (let i = 0; i < 8; i++) out += (h[i] >>> 0).toString(16).padStart(8, "0");
+    return out;
+  }
 
   // src/core/math.js
   var deg = (d) => d * Math.PI / 180;
@@ -417,8 +563,9 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/rules.js
-  var PVP_PROTOCOL_VERSION = 1;
-  var PVP_SIM_VERSION = 1;
+  var PVP_PROTOCOL_VERSION = 2;
+  var PVP_SIM_VERSION = 2;
+  var GAME_ID = "sproto-shooter";
   var TICK_HZ = 30;
   var DT = 1 / TICK_HZ;
   var STEP_MS = 1e3 / TICK_HZ;
@@ -431,14 +578,44 @@ var SprotoShooterPvp = (() => {
   var STAGE_ID = "arena";
   var GUN_IDS = Object.freeze(["mg", "shotgun", "sniper"]);
   var INPUT_LIMITS = Object.freeze({
-    maxInputsPerSecond: 60,
-    maxInputsPerTick: 4,
-    futureFrames: 4,
-    pastFrames: 15,
-    frameBytes: 16,
+    maxFramesPerSecond: 45,
+    // At least futureFrames + 1, so a TCP burst that delivers the whole window in one tick passes.
+    maxFramesPerCursor: 9,
+    futureFrames: 8,
+    holdTicks: 3,
+    catchUpTicks: 4,
+    maxPingsPerSecond: 10,
+    /** Per seat: HELLO and RESYNC together, and READY, each at most this many per second. */
+    maxHelloPerSecond: 2,
+    maxReadyPerSecond: 2,
+    frameBytes: 18,
     maxFrame: 1e6,
-    maxIdLength: 80
+    maxIdLength: 80,
+    maxNameLength: 32,
+    maxLeadInTicks: 90
   });
+  var REWIND = Object.freeze({
+    maxTicks: 10,
+    historyTicks: 12,
+    maxBack: 255,
+    fracSteps: 256,
+    interpMs: 100,
+    interpMinMs: 50,
+    interpMaxMs: 150,
+    extraTicks: 2,
+    rttWindow: 8,
+    /** An echo round trip longer than this is not a sample (a held-back echo inflates the cap). */
+    maxRttMs: 1e3,
+    pongMemory: 4,
+    /** Between consecutive inputs of a seat, frame - viewTick may move by at most this much. */
+    maxBackStep: 2
+  });
+  var REPLAY_LIMITS = Object.freeze({
+    maxTicks: MATCH_TICKS,
+    maxBytes: 512 * 1024
+  });
+  var LEAD_IN_TICKS = 9;
+  var HASH_EVERY_TICKS = TICK_HZ;
   function round3(n) {
     return Math.round(n * 1e3) / 1e3;
   }
@@ -456,6 +633,7 @@ var SprotoShooterPvp = (() => {
     stats.spread *= quality.spreadMult;
     stats.adsSpread *= quality.spreadMult;
     stats.elementChance = 0;
+    stats.critChance = 0;
     stats.splashRadius = 0;
     stats.splashDamage = 0;
     for (const key of Object.keys(stats)) {
@@ -499,6 +677,10 @@ var SprotoShooterPvp = (() => {
       readyMs: READY_MS,
       stallMs: STALL_MS,
       perks: [],
+      crits: false,
+      rewind: REWIND,
+      // sha256 commit, reveal in RESULT; the RNG takes 128 bits of sha256(seed).
+      combatSeed: "commit-reveal-sha256-128",
       stakes: false
     };
   }
@@ -506,6 +688,10 @@ var SprotoShooterPvp = (() => {
     return fnv1a(stableStringify(contentBody()));
   }
   var CONTENT_FINGERPRINT = contentFingerprint();
+  function matchmakerQuery(fingerprint = CONTENT_FINGERPRINT) {
+    return `+properties.game:${GAME_ID} +properties.mode:free +properties.protocol:${PVP_PROTOCOL_VERSION} +properties.content:${fingerprint}`;
+  }
+  var MATCHMAKER_QUERY = matchmakerQuery();
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
@@ -520,8 +706,18 @@ var SprotoShooterPvp = (() => {
   function q4(n) {
     return Math.round(n * 1e4) / 1e4;
   }
-  function rngOf(seed) {
-    return createRng(seed >>> 0 || 1);
+  function combatRngWords(combatSeed) {
+    const digest = sha256Hex(`sproto-shooter:combat:${combatSeed}`);
+    const words = [];
+    for (let i = 0; i < 4; i++) words.push(parseInt(digest.slice(i * 8, i * 8 + 8), 16) >>> 0);
+    return words;
+  }
+  function combatRng(combatSeed) {
+    if (typeof combatSeed !== "string") return createRng(Number(combatSeed) >>> 0 || 1);
+    const [a, b, c, d] = combatRngWords(combatSeed);
+    const r = { a, b, c, d: d || 1 };
+    for (let i = 0; i < 12; i++) next(r);
+    return r;
   }
   function spawnsFor(seed) {
     const angle = (seed >>> 0) % 360 * Math.PI / 180;
@@ -531,7 +727,7 @@ var SprotoShooterPvp = (() => {
     const b = { x: q4(-x), y: 0, z: q4(-z) };
     return [a, b];
   }
-  function makePlayer(seat, pos, yaw, seed) {
+  function makePlayer(seat, pos, yaw, rng) {
     return {
       seat,
       x: pos.x,
@@ -559,16 +755,24 @@ var SprotoShooterPvp = (() => {
       fireCd: 0,
       reloadT: 0,
       swapT: 0,
-      rng: rngOf(seed)
+      rng: { ...rng }
     };
   }
-  function createMatch(seed) {
-    const n = seed >>> 0;
+  function histEntry(tick, p) {
+    return { t: tick, x: p.x, y: p.y, z: p.z, alive: p.alive, invuln: p.invuln };
+  }
+  function record(state, tick) {
+    const slot = tick % REWIND.historyTicks;
+    for (let i = 0; i < 2; i++) state.hist[i][slot] = histEntry(tick, state.players[i]);
+  }
+  function createMatch(spawnSeed, combatSeed = spawnSeed) {
+    const n = spawnSeed >>> 0;
+    const rng = combatRng(combatSeed);
     const points = spawnsFor(n);
     const yaw0 = yawTo(points[0], points[1]);
     const yaw1 = yawTo(points[1], points[0]);
-    return {
-      seed: n,
+    const state = {
+      spawnSeed: n,
       stage: STAGE_ID,
       tick: 0,
       phase: "live",
@@ -576,16 +780,43 @@ var SprotoShooterPvp = (() => {
       winner: null,
       reason: null,
       players: [
-        makePlayer(0, points[0], yaw0, n),
-        makePlayer(1, points[1], yaw1, n)
-      ]
+        makePlayer(0, points[0], yaw0, rng),
+        makePlayer(1, points[1], yaw1, rng)
+      ],
+      hist: [[], []]
     };
+    for (let i = 0; i < REWIND.historyTicks; i++) {
+      state.hist[0].push(null);
+      state.hist[1].push(null);
+    }
+    record(state, 0);
+    return state;
   }
-  function normalizeWish(player, raw) {
+  function viewOf(wish, tick) {
+    let back = 0;
+    if (Number.isInteger(wish.rewind)) back = wish.rewind;
+    else if (Number.isInteger(wish.viewTick)) back = tick - wish.viewTick;
+    let frac = Number.isInteger(wish.viewFrac) ? Math.max(0, Math.min(REWIND.fracSteps - 1, wish.viewFrac)) : 0;
+    if (back < 0) {
+      back = 0;
+      frac = 0;
+    }
+    if (back > REWIND.maxTicks) {
+      back = REWIND.maxTicks;
+      frac = 0;
+    }
+    if (back > tick) {
+      back = tick;
+      frac = 0;
+    }
+    return { back, frac };
+  }
+  function normalizeWish(player, raw, tick = 0) {
     const wish = raw || {};
     const num = (value, fallback) => typeof value === "number" && Number.isFinite(value) ? value : fallback;
     let slot = -1;
     if (Number.isInteger(wish.slot) && wish.slot >= 0 && wish.slot <= 2) slot = wish.slot;
+    const view = viewOf(wish, tick);
     return {
       yaw: num(wish.yaw, player.yaw),
       pitch: Math.max(-1.5, Math.min(1.5, num(wish.pitch, player.pitch))),
@@ -597,10 +828,31 @@ var SprotoShooterPvp = (() => {
       jump: !!wish.jump,
       dash: !!wish.dash,
       reload: !!wish.reload,
-      slot
+      slot,
+      rewind: view.back,
+      viewFrac: view.frac
     };
   }
-  function integrate(p, wish, dt) {
+  function histAt(state, seat, tick) {
+    const entry = state.hist[seat][tick % REWIND.historyTicks];
+    return entry && entry.t === tick ? entry : null;
+  }
+  function rewoundTarget(state, seat, frame, rewind, viewFrac) {
+    const base = frame - rewind;
+    const a = histAt(state, seat, base) || histAt(state, seat, frame + 1);
+    const b = histAt(state, seat, base + 1) || a;
+    const t = viewFrac / REWIND.fracSteps;
+    return {
+      x: q4(a.x + (b.x - a.x) * t),
+      y: q4(a.y + (b.y - a.y) * t),
+      z: q4(a.z + (b.z - a.z) * t),
+      invuln: a.invuln,
+      base,
+      rewind,
+      viewFrac
+    };
+  }
+  function movePlayer(p, wish, dt) {
     p.yaw = q4(wish.yaw);
     p.pitch = q4(Math.max(-1.5, Math.min(1.5, wish.pitch)));
     if (wish.slot >= 0 && wish.slot !== p.slot) {
@@ -732,27 +984,32 @@ var SprotoShooterPvp = (() => {
     if (gun.ammoType === "shells") p.shells -= n;
     else if (gun.ammoType === "sniper") p.sniper -= n;
   }
-  function planShots(p, other, wish, dt) {
-    const hits = [];
+  function weaponTick(p, wish, dt) {
     p.fireCd = Math.max(0, p.fireCd - dt);
     p.swapT = Math.max(0, p.swapT - dt);
     if (p.reloadT > 0) {
       p.reloadT = Math.max(0, p.reloadT - dt);
       if (p.reloadT === 0) finishReload(p);
-      return hits;
+      return false;
     }
     const gun = LOADOUT[p.slot];
     if (wish.reload && p.mag[p.slot] < gun.stats.magSize && canReload(p, gun)) {
       p.reloadT = gun.stats.reloadTime;
-      return hits;
+      return false;
     }
-    if (!wish.fire || p.swapT > 0 || p.fireCd > 0) return hits;
+    if (!wish.fire || p.swapT > 0 || p.fireCd > 0) return false;
     if (p.mag[p.slot] <= 0) {
       if (canReload(p, gun)) p.reloadT = gun.stats.reloadTime;
-      return hits;
+      return false;
     }
     p.mag[p.slot] -= 1;
     p.fireCd = 1 / gun.stats.fireRate;
+    if (p.mag[p.slot] <= 0 && canReload(p, gun)) p.reloadT = gun.stats.reloadTime;
+    return true;
+  }
+  function traceShots(p, target, wish) {
+    const hits = [];
+    const gun = LOADOUT[p.slot];
     const pellets = gun.stats.pellets || 1;
     const spread = deg(wish.zoom ? gun.stats.adsSpread : gun.stats.spread);
     const eye = { x: p.x, y: p.y + TUNING.eyeHeight, z: p.z };
@@ -760,15 +1017,13 @@ var SprotoShooterPvp = (() => {
       const jy = (float(p.rng) - 0.5) * spread;
       const jp = (float(p.rng) - 0.5) * spread;
       const dir = dirFromYawPitch(p.yaw + jy, p.pitch + jp);
-      const dist = rayCapsule(eye, dir, other.x, other.z, other.y, other.y + TUNING.playerHeight, TUNING.playerRadius);
+      const dist = rayCapsule(eye, dir, target.x, target.z, target.y, target.y + TUNING.playerHeight, TUNING.playerRadius);
       if (dist < 0) continue;
       const fall = rangeFalloff(gun.range, dist);
       if (fall <= 0) continue;
-      let raw = gun.stats.damage * fall;
-      if (chance(p.rng, gun.stats.critChance)) raw *= gun.stats.critMult;
+      const raw = gun.stats.damage * fall;
       hits.push(Math.max(0, Math.round(raw * 1e3)));
     }
-    if (p.mag[p.slot] <= 0 && canReload(p, gun)) p.reloadT = gun.stats.reloadTime;
     return hits;
   }
   function canReload(p, gun) {
@@ -782,9 +1037,11 @@ var SprotoShooterPvp = (() => {
     if (!gun.infiniteReserve) takeReserve(p, gun, got);
     p.mag[p.slot] += got;
   }
-  function applyHits(target, hits) {
-    if (!target.alive || target.invuln > 0) return;
+  function applyHits(target, hits, invuln) {
+    if (!target.alive || invuln > 0 || hits.length === 0) return 0;
+    let total = 0;
     for (let i = 0; i < hits.length; i++) {
+      total += hits[i];
       let left = hits[i];
       const absorb = Math.min(target.shield, left);
       target.shield -= absorb;
@@ -792,6 +1049,7 @@ var SprotoShooterPvp = (() => {
       target.hp -= left;
       target.shieldDelay = TUNING.shieldDelay;
     }
+    return total;
   }
   function regen(p, dt) {
     if (!p.alive) return;
@@ -831,58 +1089,73 @@ var SprotoShooterPvp = (() => {
     state.reason = reason;
     return state;
   }
-  function step(state, wishes) {
+  function step(state, wishes, events = null) {
     if (state.phase === "done") return state;
+    const frame = state.tick;
     const wish = [
-      normalizeWish(state.players[0], wishes && wishes[0]),
-      normalizeWish(state.players[1], wishes && wishes[1])
+      normalizeWish(state.players[0], wishes && wishes[0], frame),
+      normalizeWish(state.players[1], wishes && wishes[1], frame)
     ];
-    for (let i = 0; i < 2; i++) if (state.players[i].alive) integrate(state.players[i], wish[i], DT);
+    for (let i = 0; i < 2; i++) if (state.players[i].alive) movePlayer(state.players[i], wish[i], DT);
     separate(state.players);
     for (const p of state.players) snap(p);
-    const hits = [
-      state.players[0].alive ? planShots(state.players[0], state.players[1], wish[0], DT) : [],
-      state.players[1].alive ? planShots(state.players[1], state.players[0], wish[1], DT) : []
+    record(state, frame + 1);
+    const seen = [
+      rewoundTarget(state, 1, frame, wish[0].rewind, wish[0].viewFrac),
+      rewoundTarget(state, 0, frame, wish[1].rewind, wish[1].viewFrac)
     ];
-    applyHits(state.players[1], hits[0]);
-    applyHits(state.players[0], hits[1]);
+    const fired = [false, false];
+    const hits = [[], []];
+    for (let i = 0; i < 2; i++) {
+      const p = state.players[i];
+      if (!p.alive || !weaponTick(p, wish[i], DT)) continue;
+      fired[i] = true;
+      hits[i] = traceShots(p, seen[i], wish[i]);
+    }
+    const dealt = [
+      applyHits(state.players[1], hits[0], seen[0].invuln),
+      applyHits(state.players[0], hits[1], seen[1].invuln)
+    ];
+    if (events) {
+      for (let i = 0; i < 2; i++) {
+        if (!fired[i]) continue;
+        events.push({
+          tick: frame,
+          shooter: i,
+          dmg: dealt[i],
+          pellets: LOADOUT[state.players[i].slot].stats.pellets || 1,
+          hits: hits[i].length,
+          rewind: wish[i].rewind,
+          viewFrac: wish[i].viewFrac
+        });
+      }
+    }
     for (const p of state.players) {
       snap(p);
       regen(p, DT);
       snap(p);
     }
     state.tick += 1;
-    return resolve(state);
+    resolve(state);
+    record(state, state.tick);
+    return state;
   }
   function hashState(state) {
     return verifyStateHash(state);
   }
-  function snapshotOf(state) {
-    return {
-      tick: state.tick,
-      hash: hashState(state),
-      phase: state.phase,
-      outcome: state.outcome,
-      winner: state.winner,
-      reason: state.reason,
-      players: state.players.map((p) => ({
-        seat: p.seat,
-        x: p.x,
-        y: p.y,
-        z: p.z,
-        yaw: p.yaw,
-        pitch: p.pitch,
-        vx: p.vx,
-        vz: p.vz,
-        hp: p.hp,
-        shield: p.shield,
-        alive: p.alive,
-        slot: p.slot
-      }))
-    };
+  function withoutRng(state) {
+    return { ...state, players: state.players.map(({ rng: _rng, ...rest }) => rest) };
+  }
+  function publicStateHash(state) {
+    return verifyStateHash(withoutRng(state));
+  }
+  function stateSha256(state) {
+    return sha256Hex(stableStringify(quantizeForHash(state)));
   }
   function replay(body) {
-    const state = createMatch(body.seed >>> 0);
+    const spawn = body.spawnSeed != null ? body.spawnSeed : body.seed;
+    const combat = body.combatSeed != null ? body.combatSeed : spawn;
+    const state = createMatch(spawn >>> 0, typeof combat === "string" ? combat : combat >>> 0);
     const inputs = Array.isArray(body.inputs) ? body.inputs : [];
     for (let i = 0; i < inputs.length; i++) step(state, inputs[i]);
     return state;
@@ -939,6 +1212,20 @@ var SprotoShooterPvp = (() => {
     if (!Number.isInteger(frame) || frame < 0 || frame > INPUT_LIMITS.maxFrame) fail("frame");
     return frame;
   }
+  function readView(wish, frame) {
+    let back = 0;
+    if (wish.viewTick != null) {
+      if (typeof wish.viewTick !== "number" || !Number.isFinite(wish.viewTick)) fail("nan");
+      back = frame - Math.floor(wish.viewTick);
+    }
+    back = Math.max(0, Math.min(REWIND.maxBack, frame, back));
+    let frac = 0;
+    if (wish.viewFrac != null) {
+      if (typeof wish.viewFrac !== "number" || !Number.isFinite(wish.viewFrac)) fail("nan");
+      frac = Math.max(0, Math.min(REWIND.fracSteps - 1, Math.floor(wish.viewFrac)));
+    }
+    return { back, frac };
+  }
   function readSlot(slot) {
     if (slot == null) return -1;
     if (typeof slot !== "number" || !Number.isFinite(slot)) fail("nan");
@@ -955,6 +1242,7 @@ var SprotoShooterPvp = (() => {
     const moveZ = quantMove(wish.moveZ ?? 0);
     const slot = readSlot(wish.slot);
     const buttons = buttonMask(wish);
+    const viewState = readView(wish, frame);
     const buf = new Uint8Array(FRAME_BYTES);
     const view = new DataView(buf.buffer);
     view.setUint32(0, seq, true);
@@ -965,6 +1253,8 @@ var SprotoShooterPvp = (() => {
     view.setInt8(13, moveZ);
     view.setUint8(14, buttons);
     view.setInt8(15, slot);
+    view.setUint8(16, viewState.back);
+    view.setUint8(17, viewState.frac);
     return buf;
   }
   function decodeInput(buf) {
@@ -979,9 +1269,14 @@ var SprotoShooterPvp = (() => {
     if (yawQ < -32767 || yawQ > 32767 || pitchQ < -32767 || pitchQ > 32767) fail("malformed");
     const moveX = view.getInt8(12);
     const moveZ = view.getInt8(13);
+    const frame = view.getInt32(4, true);
+    const back = view.getUint8(16);
     const out = {
       seq: view.getUint32(0, true),
-      frame: view.getInt32(4, true),
+      frame,
+      // The tick the shooter saw. A back past tick 0 is clamped, not rejected.
+      viewTick: Math.max(0, frame - back),
+      viewFrac: view.getUint8(17),
       yaw: yawQ / 32767 * Math.PI,
       pitch: pitchQ / 32767 * 1.5,
       moveX: moveX / 127,
@@ -1004,7 +1299,9 @@ var SprotoShooterPvp = (() => {
     INPUT: 6,
     SNAPSHOT: 7,
     RESULT: 8,
-    RESYNC: 9
+    RESYNC: 9,
+    PING: 10,
+    PONG: 11
   });
   var PROTOCOL = PVP_PROTOCOL_VERSION;
   var SIM_VERSION = PVP_SIM_VERSION;
@@ -1055,43 +1352,343 @@ var SprotoShooterPvp = (() => {
     }
   }
 
+  // src/sim/pvp/used.js
+  var SOURCE = Object.freeze({ input: 0, hold: 1, neutral: 2 });
+  var TICK_HEX = 40;
+  var SEAT_HEX = TICK_HEX / 2;
+  var CHUNK_TICKS = 30;
+  var BUTTONS2 = Object.freeze(["fire", "zoom", "sprint", "jump", "dash", "reload", "slide"]);
+  var HELD_MASK = 7;
+  var KEEP = -32768;
+  function quant(value, scale) {
+    const q = Math.round(value / scale * 32767);
+    return Math.max(-32767, Math.min(32767, q));
+  }
+  function u8(value) {
+    return Number.isInteger(value) ? Math.max(0, Math.min(255, value)) : 0;
+  }
+  function usedOf(wish, source = SOURCE.input, view = null) {
+    let buttons = 0;
+    for (let i = 0; i < BUTTONS2.length; i++) if (wish[BUTTONS2[i]]) buttons |= 1 << i;
+    return {
+      y: quant(wish.yaw, Math.PI),
+      p: quant(wish.pitch, 1.5),
+      mx: Math.max(-127, Math.min(127, Math.round(wish.moveX * 127))),
+      mz: Math.max(-127, Math.min(127, Math.round(wish.moveZ * 127))),
+      b: buttons,
+      s: Number.isInteger(wish.slot) && wish.slot >= 0 && wish.slot <= 2 ? wish.slot : -1,
+      src: source,
+      r: view ? u8(view.rewind) : 0,
+      f: view ? u8(view.frac) : 0
+    };
+  }
+  function neutralUsed(y = null, p = null, source = SOURCE.neutral) {
+    return { y, p, mx: 0, mz: 0, b: 0, s: -1, src: source, r: 0, f: 0 };
+  }
+  function wishOfUsed(u) {
+    const out = {
+      yaw: u.y == null ? void 0 : u.y / 32767 * Math.PI,
+      pitch: u.p == null ? void 0 : u.p / 32767 * 1.5,
+      moveX: u.mx / 127,
+      moveZ: u.mz / 127,
+      slot: u.s,
+      rewind: u.r || 0,
+      viewFrac: u.f || 0
+    };
+    for (let i = 0; i < BUTTONS2.length; i++) out[BUTTONS2[i]] = (u.b & 1 << i) !== 0;
+    return out;
+  }
+  function hex(value, bytes) {
+    const mod = bytes === 2 ? 65536 : 256;
+    return ((value + mod) % mod).toString(16).padStart(bytes * 2, "0");
+  }
+  function signed(text, bytes) {
+    const v = parseInt(text, 16);
+    const half = bytes === 2 ? 32768 : 128;
+    return v >= half ? v - half * 2 : v;
+  }
+  function encodeOne(u) {
+    return hex(u.y == null ? KEEP : u.y, 2) + hex(u.p == null ? KEEP : u.p, 2) + hex(u.mx, 1) + hex(u.mz, 1) + hex(u.b & 127, 1) + hex(u.s + 1 & 3 | (u.src & 3) << 2, 1) + hex(u8(u.r), 1) + hex(u8(u.f), 1);
+  }
+  function encodeUsedTick(pair) {
+    return encodeOne(pair[0]) + encodeOne(pair[1]);
+  }
+  var HEX_RE = /^[0-9a-f]*$/;
+  function decodeOne(text, at) {
+    const y = signed(text.slice(at, at + 4), 2);
+    const p = signed(text.slice(at + 4, at + 8), 2);
+    const mx = signed(text.slice(at + 8, at + 10), 1);
+    const mz = signed(text.slice(at + 10, at + 12), 1);
+    const b = parseInt(text.slice(at + 12, at + 14), 16);
+    const meta = parseInt(text.slice(at + 14, at + 16), 16);
+    const r = parseInt(text.slice(at + 16, at + 18), 16);
+    const f = parseInt(text.slice(at + 18, at + 20), 16);
+    if (b & 128 || meta > 15 || mx < -127 || mz < -127) return null;
+    if (y !== KEEP && y < -32767 || p !== KEEP && p < -32767) return null;
+    const src = meta >> 2 & 3;
+    if (src > SOURCE.neutral) return null;
+    return {
+      y: y === KEEP ? null : y,
+      p: p === KEEP ? null : p,
+      mx,
+      mz,
+      b,
+      s: (meta & 3) - 1,
+      src,
+      r,
+      f
+    };
+  }
+  function decodeUsedLog(chunks) {
+    if (!Array.isArray(chunks)) return null;
+    const ticks = [];
+    for (const chunk of chunks) {
+      if (typeof chunk !== "string" || chunk.length % TICK_HEX !== 0 || !HEX_RE.test(chunk)) return null;
+      for (let at = 0; at < chunk.length; at += TICK_HEX) {
+        const a = decodeOne(chunk, at);
+        const b = decodeOne(chunk, at + SEAT_HEX);
+        if (!a || !b) return null;
+        ticks.push([a, b]);
+      }
+    }
+    return ticks;
+  }
+  function usedTickAt(chunks, tick) {
+    if (!Array.isArray(chunks) || !Number.isInteger(tick) || tick < 0) return null;
+    const chunk = chunks[Math.floor(tick / CHUNK_TICKS)];
+    const at = tick % CHUNK_TICKS * TICK_HEX;
+    if (typeof chunk !== "string" || chunk.length < at + TICK_HEX) return null;
+    const a = decodeOne(chunk, at);
+    const b = decodeOne(chunk, at + SEAT_HEX);
+    return a && b ? [a, b] : null;
+  }
+  function appendUsedTick(chunks, pair) {
+    const text = encodeUsedTick(pair);
+    const a = decodeOne(text, 0);
+    const b = decodeOne(text, SEAT_HEX);
+    if (!a || !b) throw new Error("used log: a record does not encode");
+    const last = chunks.length ? chunks[chunks.length - 1] : null;
+    if (last != null && last.length < CHUNK_TICKS * TICK_HEX) chunks[chunks.length - 1] = last + text;
+    else chunks.push(text);
+    return [a, b];
+  }
+
   // src/sim/pvp/director.js
-  function reject(accountId, reason, extra = {}) {
+  var DIRECTOR_STATE_VERSION = 3;
+  var COMBAT_SEED_RE = /^[0-9a-f]{32,128}$/;
+  function combatCommitOf(combatSeed) {
+    return sha256Hex(String(combatSeed));
+  }
+  function resolveCombatSeed(combatSeed, spawnSeed, matchId) {
+    if (combatSeed == null) return { seed: sha256Hex(`derived:${spawnSeed}:${matchId}`).slice(0, 32), derived: true };
+    if (typeof combatSeed !== "string" || !COMBAT_SEED_RE.test(combatSeed)) {
+      throw new Error("combatSeed: 32..128 lowercase hex chars");
+    }
+    return { seed: combatSeed, derived: false };
+  }
+  var HEX_RE2 = /^[0-9a-f]+$/;
+  function checkAccounts(accounts) {
+    if (accounts == null) return null;
+    if (!Array.isArray(accounts) || accounts.length !== 2 || !accounts.every(validId) || accounts[0] === accounts[1]) {
+      throw new Error("accounts: two distinct valid account ids, seat 0 first");
+    }
+    return accounts.slice();
+  }
+  function checkBuild(build) {
+    const out = { bundleSha256: null, sourceCommit: null };
+    if (build == null) return out;
+    if (typeof build !== "object") throw new Error("build: { bundleSha256, sourceCommit }");
+    if (build.bundleSha256 != null) {
+      if (typeof build.bundleSha256 !== "string" || build.bundleSha256.length !== 64 || !HEX_RE2.test(build.bundleSha256)) {
+        throw new Error("build.bundleSha256: 64 lowercase hex chars");
+      }
+      out.bundleSha256 = build.bundleSha256;
+    }
+    if (build.sourceCommit != null) {
+      if (typeof build.sourceCommit !== "string" || build.sourceCommit.length !== 40 || !HEX_RE2.test(build.sourceCommit)) {
+        throw new Error("build.sourceCommit: 40 lowercase hex chars");
+      }
+      out.sourceCommit = build.sourceCommit;
+    }
+    return out;
+  }
+  function checkCeiling(rttCeilingMs) {
+    if (rttCeilingMs == null) return null;
+    if (typeof rttCeilingMs !== "number" || !Number.isFinite(rttCeilingMs) || rttCeilingMs <= 0) {
+      throw new Error("rttCeilingMs: a positive number of ms");
+    }
+    return rttCeilingMs;
+  }
+  var PRIVATE_SKIP = /* @__PURE__ */ new Set([
+    "rng",
+    "seat",
+    "x",
+    "y",
+    "z",
+    "yaw",
+    "pitch",
+    "vx",
+    "vz",
+    "hp",
+    "shield",
+    "alive",
+    "slot"
+  ]);
+  function presence(userId, sessionId) {
+    return { userId: typeof userId === "string" ? userId : "", sessionId: typeof sessionId === "string" ? sessionId : "" };
+  }
+  function reject(to, reason, extra = {}) {
     return {
       ok: false,
       reason,
-      messages: [{ op: OP.REJECT, body: { accountId, reason, ticketsMinted: 0, ...extra } }]
+      messages: [{ op: OP.REJECT, body: { accountId: to.userId, reason, ticketsMinted: 0, ...extra }, to }]
     };
   }
-  function blankSeat(accountId, sessionId) {
+  function cleanName(name, fallback) {
+    if (typeof name !== "string" || !name) return fallback;
+    return name.slice(0, INPUT_LIMITS.maxNameLength);
+  }
+  function clampLeadIn(value) {
+    if (!Number.isInteger(value) || value < 0) return LEAD_IN_TICKS;
+    return Math.min(INPUT_LIMITS.maxLeadInTicks, value);
+  }
+  function allow(seat, atKey, countKey, limit, now) {
+    if (!(now - (seat[atKey] || 0) < 1e3)) {
+      seat[atKey] = now;
+      seat[countKey] = 0;
+    }
+    if ((seat[countKey] || 0) >= limit) return false;
+    seat[countKey] = (seat[countKey] || 0) + 1;
+    return true;
+  }
+  function asBytes(data) {
+    if (typeof ArrayBuffer !== "undefined") {
+      if (data instanceof ArrayBuffer) return new Uint8Array(data);
+      if (ArrayBuffer.isView(data) && !(data instanceof Uint8Array)) {
+        return new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+      }
+    }
+    return data;
+  }
+  function blankSeat(accountId, sessionId, name) {
     return {
       accountId,
       sessionId,
+      name,
       ready: false,
       connected: true,
       lastInputAt: 0,
       lastSeq: 0,
-      holdYaw: 0,
-      holdPitch: 0,
-      queue: /* @__PURE__ */ new Map(),
-      acceptedAt: [],
-      tickMark: -1,
-      inputsThisTick: 0
+      queue: {},
+      hold: neutralUsed(null, null, SOURCE.hold),
+      miss: 0,
+      tokens: INPUT_LIMITS.maxFramesPerSecond,
+      tokensAt: 0,
+      cursorMark: null,
+      framesThisCursor: 0,
+      pingAt: 0,
+      pings: 0,
+      pongs: [],
+      rtts: [],
+      rttMs: null,
+      interpMs: REWIND.interpMs,
+      // The last input's view (after the continuity clamp), for the backtrack check.
+      viewTick: null,
+      viewBack: null,
+      viewClamped: 0,
+      helloAt: 0,
+      hellos: 0,
+      readyAt: 0,
+      readys: 0,
+      ackFrame: -1,
+      ackSeq: 0,
+      applied: 0,
+      held: 0,
+      neutral: 0,
+      late: 0
     };
   }
-  function createDirector({ seed = 1, matchId = "local" } = {}) {
-    const director = {
-      seed: seed >>> 0,
-      matchId,
+  function round32(n) {
+    return Math.round(n * 1e3) / 1e3;
+  }
+  function median(values) {
+    const sorted = values.slice().sort((a, b) => a - b);
+    return sorted[Math.floor((sorted.length - 1) / 2)];
+  }
+  function clampInterp(interpMs) {
+    if (typeof interpMs !== "number" || !Number.isFinite(interpMs)) return REWIND.interpMs;
+    return Math.max(REWIND.interpMinMs, Math.min(REWIND.interpMaxMs, interpMs));
+  }
+  function rewindCapFor(rttMs, interpMs = REWIND.interpMs) {
+    const rtt = Number.isFinite(rttMs) && rttMs > 0 ? rttMs : 0;
+    const ms = rtt + clampInterp(interpMs) + REWIND.extraTicks * STEP_MS;
+    const ticks = Math.ceil(ms / STEP_MS - 1e-9);
+    return Math.max(0, Math.min(REWIND.maxTicks, ticks));
+  }
+  function clampView(wish, frame, cap) {
+    const claim = Number.isInteger(wish.viewTick) ? frame - wish.viewTick : 0;
+    let frac = Number.isInteger(wish.viewFrac) ? wish.viewFrac : 0;
+    let rewind = claim;
+    if (rewind < 0) {
+      rewind = 0;
+      frac = 0;
+    }
+    if (rewind > cap) {
+      rewind = cap;
+      frac = 0;
+    }
+    return { rewind, frac, claim, clamped: claim > cap };
+  }
+  function continuousView(seat, frame, viewTick) {
+    if (seat.viewTick == null || seat.viewBack == null) return { viewTick, clamped: false };
+    let back = frame - viewTick;
+    const step2 = REWIND.maxBackStep;
+    if (back > seat.viewBack + step2) back = seat.viewBack + step2;
+    if (back < seat.viewBack - step2) back = seat.viewBack - step2;
+    let v = frame - back;
+    if (v < seat.viewTick) v = seat.viewTick;
+    return { viewTick: v, clamped: v !== viewTick };
+  }
+  function createDirector({
+    seed = 1,
+    spawnSeed,
+    combatSeed,
+    matchId = "local",
+    leadInTicks = LEAD_IN_TICKS,
+    hosted = false,
+    accounts,
+    build,
+    rttCeilingMs
+  } = {}) {
+    const spawn = (spawnSeed != null ? spawnSeed : seed) >>> 0;
+    const combat = resolveCombatSeed(combatSeed, spawn, String(matchId));
+    const built = checkBuild(build);
+    let director = {
+      v: DIRECTOR_STATE_VERSION,
+      spawnSeed: spawn,
+      combatSeed: combat.seed,
+      combatCommit: combatCommitOf(combat.seed),
+      combatSeedDerived: combat.derived,
+      matchId: String(matchId),
+      hosted: !!hosted,
+      // Seat 0, seat 1 account ids the host matched, or null (first HELLO takes seat 0).
+      accounts: checkAccounts(accounts),
+      bundleSha256: built.bundleSha256,
+      sourceCommit: built.sourceCommit,
+      // The host's ceiling on the RTT the rewind cap uses (lobby baseline + margin for wagers).
+      rttCeilingMs: checkCeiling(rttCeilingMs),
+      leadInTicks: clampLeadIn(leadInTicks),
       phase: "lobby",
       seats: [null, null],
       sim: null,
       result: null,
+      resultSent: false,
       liveStart: 0,
       waitDeadline: null,
       readyDeadline: null,
-      phaseMessage: null,
-      forceSnap: false
+      log: [],
+      hits: [],
+      clamped: [0, 0]
     };
     function occupied() {
       return director.seats.filter(Boolean).length;
@@ -1099,12 +1696,20 @@ var SprotoShooterPvp = (() => {
     function seatIndex(accountId) {
       return director.seats.findIndex((seat) => seat && seat.accountId === accountId);
     }
-    function otherAccount(index) {
-      const other = director.seats[1 - index];
-      return other ? other.accountId : null;
+    function seatTo(seat) {
+      return presence(seat.accountId, seat.sessionId);
+    }
+    function cursor() {
+      return director.sim ? director.sim.tick : 0;
+    }
+    function clockTick(now) {
+      if (director.phase !== "live" && director.phase !== "done") return 0;
+      if (!director.sim) return 0;
+      return round32((now - director.liveStart) / STEP_MS);
     }
     function welcome(index) {
       const seat = director.seats[index];
+      const other = director.seats[1 - index];
       return {
         accountId: seat.accountId,
         seat: index,
@@ -1112,210 +1717,414 @@ var SprotoShooterPvp = (() => {
         protocol: PROTOCOL,
         sim: SIM_VERSION,
         content: CONTENT,
-        seed: director.seed,
+        spawnSeed: director.spawnSeed,
+        combatCommit: director.combatCommit,
         loadoutHash: LOADOUT_HASH,
         phase: director.phase,
-        tick: director.sim ? director.sim.tick : 0,
-        opponent: otherAccount(index),
+        tick: cursor(),
+        ready: seat.ready,
+        lastSeq: seat.lastSeq,
+        leadInTicks: director.leadInTicks,
+        opponent: other ? other.accountId : null,
+        names: director.seats.map((s) => s ? s.name : null),
         ticketsMinted: 0,
         stakes: false
       };
     }
-    function ok(index, extra = {}) {
-      return { ok: true, seat: index, messages: [{ op: OP.WELCOME, body: welcome(index) }], ...extra };
+    function welcomeTo(index) {
+      const seat = director.seats[index];
+      return { op: OP.WELCOME, body: welcome(index), to: seatTo(seat) };
+    }
+    function welcomeAll() {
+      const out = [];
+      director.seats.forEach((seat, index) => {
+        if (seat && seat.connected) out.push(welcomeTo(index));
+      });
+      return out;
     }
     function bothReady() {
-      return director.seats.length === 2 && director.seats.every((seat) => seat && seat.ready);
+      return director.seats.length === 2 && director.seats.every((seat) => seat && seat.ready && seat.connected);
     }
-    function publish(phase, tick) {
-      director.phaseMessage = {
+    function phaseBody(phase, now) {
+      return {
         phase,
-        tick,
-        seed: director.seed,
+        tick: cursor(),
+        clockTick: clockTick(now),
+        startTick: 0,
+        leadInTicks: director.leadInTicks,
+        spawnSeed: director.spawnSeed,
+        combatCommit: director.combatCommit,
         matchId: director.matchId,
         ticketsMinted: 0,
         stakes: false
       };
     }
-    function startLive(now) {
-      director.sim = createMatch(director.seed);
-      director.phase = "live";
-      director.liveStart = now;
-      for (const seat of director.seats) {
-        seat.lastInputAt = now;
-        seat.holdYaw = director.sim.players[seat === director.seats[0] ? 0 : 1].yaw;
-        seat.holdPitch = 0;
-      }
-      director.seats[0].holdYaw = director.sim.players[0].yaw;
-      director.seats[1].holdYaw = director.sim.players[1].yaw;
-      publish("live", 0);
-      director.forceSnap = true;
+    function bufferDepth(seat) {
+      return Object.keys(seat.queue).length;
     }
-    function finish2(outcome, winner, reason) {
+    function privateOf(p) {
+      const out = {};
+      for (const key of Object.keys(p)) {
+        if (PRIVATE_SKIP.has(key)) continue;
+        const value = p[key];
+        out[key] = Array.isArray(value) ? value.slice() : value;
+      }
+      return out;
+    }
+    function rewindCap(seat) {
+      const ceiling = director.rttCeilingMs;
+      const rtt = ceiling != null && seat.rttMs != null ? Math.min(seat.rttMs, ceiling) : seat.rttMs;
+      return rewindCapFor(rtt, seat.interpMs);
+    }
+    function snapshotFor(index, now, hits = []) {
+      const sim = director.sim;
+      const seat = director.seats[index];
+      const body = {
+        tick: sim.tick,
+        clockTick: clockTick(now),
+        phase: sim.phase === "done" ? "done" : director.phase,
+        outcome: director.result ? director.result.outcome : sim.outcome,
+        winner: director.result ? director.result.winner : sim.winner,
+        reason: director.result ? director.result.reason : sim.reason,
+        players: sim.players.map((p) => ({
+          seat: p.seat,
+          x: p.x,
+          y: p.y,
+          z: p.z,
+          yaw: p.yaw,
+          pitch: p.pitch,
+          vx: p.vx,
+          vz: p.vz,
+          hp: p.hp,
+          shield: p.shield,
+          alive: p.alive,
+          slot: p.slot
+        })),
+        you: {
+          seat: index,
+          ackFrame: seat.ackFrame,
+          ackSeq: seat.ackSeq,
+          lastSeq: seat.lastSeq,
+          buffer: bufferDepth(seat),
+          late: seat.late,
+          held: seat.held,
+          neutral: seat.neutral,
+          rttMs: seat.rttMs,
+          interpMs: seat.interpMs,
+          rewindCap: rewindCap(seat),
+          // The rest of this seat's exact sim state: players[seat] plus these fields.
+          private: privateOf(sim.players[index])
+        },
+        // Server-confirmed hits stepped since the last snapshot: { tick, shooter, dmg, ... }.
+        // Clients draw hitmarkers and damage from these, never from their own spread.
+        hits: hits.map((hit) => ({ ...hit })),
+        ticketsMinted: 0
+      };
+      if (sim.tick % HASH_EVERY_TICKS === 0 || director.phase === "done" || sim.phase === "done") {
+        body.hash = publicStateHash(sim);
+      }
+      return { op: OP.SNAPSHOT, body, to: seatTo(seat) };
+    }
+    function snapshotsAll(now, hits = []) {
+      const out = [];
+      if (!director.sim) return out;
+      director.seats.forEach((seat, index) => {
+        if (seat && seat.connected) out.push(snapshotFor(index, now, hits));
+      });
+      return out;
+    }
+    function startLive(now) {
+      director.sim = createMatch(director.spawnSeed, director.combatSeed);
+      director.phase = "live";
+      director.liveStart = now + director.leadInTicks * STEP_MS;
+      for (const seat of director.seats) {
+        seat.lastInputAt = director.liveStart;
+        seat.queue = {};
+        seat.hold = neutralUsed(null, null, SOURCE.hold);
+        seat.miss = 0;
+        seat.tokens = INPUT_LIMITS.maxFramesPerSecond;
+        seat.tokensAt = now;
+      }
+      return [{ op: OP.PHASE, body: phaseBody("live", now), to: null }, ...snapshotsAll(now)];
+    }
+    function finish2(outcome, winner, reason, now) {
       director.phase = "done";
       director.result = {
         outcome,
         winner,
         reason,
-        tick: director.sim ? director.sim.tick : 0,
+        tick: cursor(),
         stateHash: director.sim ? hashState(director.sim) : null,
+        stateSha256: director.sim ? stateSha256(director.sim) : null,
+        spawnSeed: director.spawnSeed,
+        // Revealed now so clients can check sha256(combatSeed) against the commit they got at start.
+        combatSeed: director.combatSeed,
+        combatCommit: director.combatCommit,
         ticketsMinted: 0,
         stakes: false
       };
-      publish("done", director.result.tick);
-      director.forceSnap = true;
-      return director.result;
+      const out = [...snapshotsAll(now, director.hits), { op: OP.PHASE, body: phaseBody("done", now), to: null }];
+      if (!director.resultSent) {
+        director.resultSent = true;
+        out.push({ op: OP.RESULT, body: { ...director.result }, to: null });
+      }
+      return out;
     }
-    function adoptSim() {
-      return finish2(director.sim.outcome, director.sim.winner, director.sim.reason);
-    }
-    function requireSeat(presenceUserId, sessionId) {
-      if (!validId(presenceUserId) || !validId(sessionId)) return { error: reject(presenceUserId, "malformed") };
-      const index = seatIndex(presenceUserId);
-      if (index < 0) return { error: reject(presenceUserId, "wrong_sender") };
+    function requireSeat(from) {
+      if (!validId(from.userId) || !validId(from.sessionId)) return { error: reject(from, "malformed") };
+      const index = seatIndex(from.userId);
+      if (index < 0) return { error: reject(from, "wrong_sender") };
       const seat = director.seats[index];
-      if (!seat.connected || seat.sessionId !== sessionId) return { error: reject(presenceUserId, "wrong_sender", { lastSeq: seat.lastSeq, tick: director.sim ? director.sim.tick : 0 }) };
+      if (!seat.connected || seat.sessionId !== from.sessionId) {
+        return { error: reject(from, "wrong_sender", { lastSeq: seat.lastSeq, tick: cursor() }) };
+      }
       return { index, seat };
     }
-    function hello({ presenceUserId, sessionId, body, now }) {
-      if (!validId(presenceUserId) || !validId(sessionId)) return reject(presenceUserId, "malformed");
-      if (!body || typeof body !== "object") return reject(presenceUserId, "malformed");
+    function hello({ presenceUserId, sessionId, body, now, name }) {
+      const from = presence(presenceUserId, sessionId);
+      if (!validId(presenceUserId) || !validId(sessionId)) return reject(from, "malformed");
+      if (!body || typeof body !== "object") return reject(from, "malformed");
       const hostile = hostileReason(body);
-      if (hostile) return reject(presenceUserId, hostile);
-      if (body.accountId !== presenceUserId) return reject(presenceUserId, "wrong_sender");
-      if (!versionsMatch(body)) return reject(presenceUserId, "version");
-      if (director.phase === "done") return reject(presenceUserId, "ended");
+      if (hostile) return reject(from, hostile);
+      if (body.accountId !== presenceUserId) return reject(from, "wrong_sender");
+      if (!versionsMatch(body)) return reject(from, "version");
       let index = seatIndex(presenceUserId);
+      if (index < 0 && director.accounts && director.accounts.indexOf(presenceUserId) < 0) {
+        return reject(from, "not_invited");
+      }
+      if (index >= 0 && !allow(director.seats[index], "helloAt", "hellos", INPUT_LIMITS.maxHelloPerSecond, now)) {
+        return reject(from, "rate");
+      }
+      if (director.phase === "done") {
+        if (index < 0) return reject(from, "ended");
+        const seat2 = director.seats[index];
+        seat2.sessionId = sessionId;
+        seat2.connected = true;
+        const messages2 = [welcomeTo(index)];
+        if (director.sim) messages2.push(snapshotFor(index, now));
+        if (director.result) messages2.push({ op: OP.RESULT, body: { ...director.result }, to: seatTo(seat2) });
+        return { ok: true, seat: index, messages: messages2 };
+      }
       if (index < 0) {
-        if (occupied() >= 2) return reject(presenceUserId, "match_full");
-        index = director.seats[0] ? 1 : 0;
-        director.seats[index] = blankSeat(presenceUserId, sessionId);
+        if (occupied() >= 2) return reject(from, "match_full");
+        index = director.accounts ? director.accounts.indexOf(presenceUserId) : director.seats[0] ? 1 : 0;
+        director.seats[index] = blankSeat(presenceUserId, sessionId, cleanName(name, presenceUserId));
+        allow(director.seats[index], "helloAt", "hellos", INPUT_LIMITS.maxHelloPerSecond, now);
+        takeInterp(director.seats[index], body);
         if (occupied() === 1) director.waitDeadline = now + READY_MS;
         if (occupied() === 2) director.readyDeadline = now + READY_MS;
-      } else {
-        director.seats[index].sessionId = sessionId;
-        director.seats[index].connected = true;
+        return { ok: true, seat: index, messages: welcomeAll() };
       }
-      return ok(index);
+      const seat = director.seats[index];
+      seat.sessionId = sessionId;
+      seat.connected = true;
+      if (typeof name === "string" && name) seat.name = cleanName(name, seat.name);
+      takeInterp(seat, body);
+      seat.viewTick = null;
+      seat.viewBack = null;
+      const messages = [welcomeTo(index)];
+      if (director.phase === "live" && director.sim) messages.push(snapshotFor(index, now));
+      return { ok: true, seat: index, messages };
     }
     function ready({ presenceUserId, sessionId, now }) {
-      const got = requireSeat(presenceUserId, sessionId);
+      const got = requireSeat(presence(presenceUserId, sessionId));
       if (got.error) return got.error;
-      if (director.phase === "done") return reject(presenceUserId, "ended");
+      if (!allow(got.seat, "readyAt", "readys", INPUT_LIMITS.maxReadyPerSecond, now)) {
+        return reject(presence(presenceUserId, sessionId), "rate");
+      }
+      if (director.phase === "done") return reject(presence(presenceUserId, sessionId), "ended");
       got.seat.ready = true;
-      if (director.phase === "lobby" && bothReady()) startLive(now);
-      else publish(director.phase, director.sim ? director.sim.tick : 0);
-      return ok(got.index);
+      const messages = [welcomeTo(got.index)];
+      if (director.phase === "lobby" && bothReady() && director.hosted && director.combatSeedDerived) {
+        messages.push(...finish2("cancel", null, "no_combat_seed", now));
+      } else if (director.phase === "lobby" && bothReady()) {
+        messages.push(...startLive(now));
+      }
+      return { ok: true, seat: got.index, messages };
     }
-    function acceptPacket(seat, packet) {
+    function refill(seat, now) {
+      const dt = Math.max(0, now - seat.tokensAt);
+      seat.tokens = Math.min(INPUT_LIMITS.maxFramesPerSecond, seat.tokens + dt * INPUT_LIMITS.maxFramesPerSecond / 1e3);
+      seat.tokensAt = Math.max(seat.tokensAt, now);
+    }
+    function decodePacket(packet) {
       if (packet instanceof Uint8Array) return decodeInput(packet);
       return decodeInput(encodeInput(packet));
     }
     function input({ presenceUserId, sessionId, packet, now }) {
-      const got = requireSeat(presenceUserId, sessionId);
+      const from = presence(presenceUserId, sessionId);
+      const got = requireSeat(from);
       if (got.error) return got.error;
-      if (director.phase !== "live" || !director.sim) return reject(presenceUserId, "not_live");
+      const seat = got.seat;
+      if (director.phase !== "live" || !director.sim) return reject(from, "not_live");
       let wish;
       try {
-        wish = acceptPacket(got.seat, packet);
+        wish = decodePacket(packet);
       } catch (err) {
         const reason = err instanceof PvpInputError ? err.reason : "malformed";
-        return reject(presenceUserId, reason, { lastSeq: got.seat.lastSeq, tick: director.sim.tick });
+        return reject(from, reason, { lastSeq: seat.lastSeq, tick: cursor() });
       }
-      const cursor = director.sim.tick;
-      if (wish.seq !== got.seat.lastSeq + 1) {
-        return reject(presenceUserId, "sequence", { lastSeq: got.seat.lastSeq, tick: cursor });
+      const tick = cursor();
+      const extra = { lastSeq: seat.lastSeq, tick, seq: wish.seq, frame: wish.frame };
+      if (wish.seq <= seat.lastSeq) return reject(from, "sequence", extra);
+      if (wish.frame > tick + INPUT_LIMITS.futureFrames) return reject(from, "frame", extra);
+      refill(seat, now);
+      if (seat.tokens < 1) return reject(from, "rate", extra);
+      const late = wish.frame < tick;
+      if (!late) {
+        const mark = Math.floor((now - director.liveStart) / STEP_MS + 1e-9);
+        if (seat.cursorMark !== mark) {
+          seat.cursorMark = mark;
+          seat.framesThisCursor = 0;
+        }
+        if (seat.framesThisCursor >= INPUT_LIMITS.maxFramesPerCursor) return reject(from, "rate", extra);
+        seat.framesThisCursor += 1;
       }
-      if (wish.frame < cursor - INPUT_LIMITS.pastFrames || wish.frame > cursor + INPUT_LIMITS.futureFrames || wish.frame < cursor) {
-        return reject(presenceUserId, "frame", { lastSeq: got.seat.lastSeq, tick: cursor });
+      seat.tokens -= 1;
+      seat.lastSeq = wish.seq;
+      seat.lastInputAt = Math.max(now, seat.lastInputAt);
+      const kept = continuousView(seat, wish.frame, wish.viewTick);
+      if (kept.clamped) seat.viewClamped += 1;
+      seat.viewTick = kept.viewTick;
+      seat.viewBack = wish.frame - kept.viewTick;
+      const view = clampView({ ...wish, viewTick: kept.viewTick }, wish.frame, rewindCap(seat));
+      if (view.clamped) director.clamped[got.index] += 1;
+      const used = usedOf(wish, SOURCE.input, view);
+      if (late) {
+        seat.late += 1;
+        seat.hold.y = used.y;
+        seat.hold.p = used.p;
+        return { ok: true, seat: got.index, late: true, messages: [] };
       }
-      const times = got.seat.acceptedAt;
-      while (times.length && now - times[0] > 1e3) times.shift();
-      if (times.length >= INPUT_LIMITS.maxInputsPerSecond) {
-        return reject(presenceUserId, "rate", { lastSeq: got.seat.lastSeq, tick: cursor });
-      }
-      if (got.seat.tickMark !== cursor) {
-        got.seat.tickMark = cursor;
-        got.seat.inputsThisTick = 0;
-      }
-      if (got.seat.inputsThisTick >= INPUT_LIMITS.maxInputsPerTick) {
-        return reject(presenceUserId, "rate", { lastSeq: got.seat.lastSeq, tick: cursor });
-      }
-      got.seat.inputsThisTick += 1;
-      times.push(now);
-      got.seat.lastSeq = wish.seq;
-      got.seat.lastInputAt = now;
-      got.seat.holdYaw = wish.yaw;
-      got.seat.holdPitch = wish.pitch;
-      got.seat.queue.set(wish.frame, wish);
+      seat.queue[String(wish.frame)] = { u: used, seq: wish.seq };
       return { ok: true, seat: got.index, messages: [] };
     }
-    function wishFor(seat, tick) {
-      if (seat.queue.has(tick)) {
-        const wish = seat.queue.get(tick);
-        seat.queue.delete(tick);
-        return wish;
+    function ping({ presenceUserId, sessionId, body, now }) {
+      const from = presence(presenceUserId, sessionId);
+      const got = requireSeat(from);
+      if (got.error) return got.error;
+      const seat = got.seat;
+      if (!body || typeof body.t !== "number" || !Number.isFinite(body.t)) return reject(from, "malformed");
+      if (now - seat.pingAt >= 1e3) {
+        seat.pingAt = now;
+        seat.pings = 0;
       }
+      if (seat.pings >= INPUT_LIMITS.maxPingsPerSecond) return reject(from, "rate");
+      seat.pings += 1;
+      takeInterp(seat, body);
+      rttSample(seat, body, now);
+      seat.pongs.push(now);
+      if (seat.pongs.length > REWIND.pongMemory) seat.pongs.shift();
       return {
-        yaw: seat.holdYaw,
-        pitch: seat.holdPitch,
-        moveX: 0,
-        moveZ: 0,
-        fire: false,
-        zoom: false,
-        sprint: false,
-        jump: false,
-        dash: false,
-        reload: false,
-        slot: -1
+        ok: true,
+        seat: got.index,
+        messages: [{
+          op: OP.PONG,
+          body: { t: body.t, serverMs: now, tick: cursor(), clockTick: clockTick(now), phase: director.phase },
+          to: from
+        }]
       };
     }
-    function snapBody() {
-      const body = snapshotOf(director.sim);
-      body.matchId = director.matchId;
-      body.protocol = PROTOCOL;
-      body.sim = SIM_VERSION;
-      body.content = CONTENT;
-      body.graceMs = STALL_MS;
-      body.ticketsMinted = 0;
-      body.stakes = false;
-      return body;
+    function takeInterp(seat, body) {
+      if (body && typeof body.interpMs === "number" && Number.isFinite(body.interpMs)) {
+        seat.interpMs = clampInterp(body.interpMs);
+      }
+    }
+    function rttSample(seat, body, now) {
+      if (typeof body.echo !== "number" || !Number.isFinite(body.echo)) return;
+      const at = seat.pongs.indexOf(body.echo);
+      if (at < 0) return;
+      seat.pongs.splice(at, 1);
+      const hold = typeof body.hold === "number" && Number.isFinite(body.hold) ? body.hold : 0;
+      const span = now - body.echo;
+      if (hold < 0 || hold > span) return;
+      const sample = span - hold;
+      if (!(sample >= 0) || sample > REWIND.maxRttMs) return;
+      seat.rtts.push(round32(sample));
+      if (seat.rtts.length > REWIND.rttWindow) seat.rtts.shift();
+      seat.rttMs = median(seat.rtts);
+    }
+    function takeWish(seat, tick) {
+      const key = String(tick);
+      const entry = seat.queue[key];
+      if (entry) {
+        delete seat.queue[key];
+        seat.miss = 0;
+        seat.ackFrame = tick;
+        seat.ackSeq = entry.seq;
+        seat.applied += 1;
+        const u = entry.u;
+        seat.hold = {
+          y: u.y,
+          p: u.p,
+          mx: u.mx,
+          mz: u.mz,
+          b: u.b & HELD_MASK,
+          s: -1,
+          src: SOURCE.hold,
+          r: u.r,
+          f: u.f
+        };
+        return u;
+      }
+      seat.miss += 1;
+      if (seat.miss <= INPUT_LIMITS.holdTicks) {
+        seat.held += 1;
+        return { ...seat.hold, src: SOURCE.hold };
+      }
+      seat.neutral += 1;
+      return neutralUsed(seat.hold.y, seat.hold.p, SOURCE.neutral);
+    }
+    function dropStale(seat, tick) {
+      for (const key of Object.keys(seat.queue)) if (Number(key) < tick) delete seat.queue[key];
     }
     function advance(now) {
-      const snapshots = [];
-      if (!Number.isFinite(now)) return { snapshots, result: director.result, phaseMessage: takePhase() };
+      const messages = [];
+      if (!Number.isFinite(now)) return { messages, result: director.result };
       if (director.phase === "lobby") {
         const filled = occupied();
-        if (filled < 2 && director.waitDeadline != null && now >= director.waitDeadline) finish2("cancel", null, "ready_timeout");
-        else if (filled >= 2 && !bothReady() && director.readyDeadline != null && now >= director.readyDeadline) finish2("cancel", null, "ready_timeout");
-        return { snapshots, result: director.result, phaseMessage: takePhase() };
+        if (filled < 2 && director.waitDeadline != null && now >= director.waitDeadline) {
+          messages.push(...finish2("cancel", null, "ready_timeout", now));
+        } else if (filled >= 2 && !bothReady() && director.readyDeadline != null && now >= director.readyDeadline) {
+          messages.push(...finish2("cancel", null, "ready_timeout", now));
+        }
+        return { messages, result: director.result };
       }
       if (director.phase === "live" && director.sim && director.sim.phase !== "done") {
-        const target = Math.max(director.sim.tick, Math.floor((now - director.liveStart) / STEP_MS + 1e-9));
-        const cap = director.sim.tick + 18e3;
-        while (director.sim.phase === "live" && director.sim.tick < target && director.sim.tick < cap) {
-          const tick = director.sim.tick;
-          step(director.sim, [wishFor(director.seats[0], tick), wishFor(director.seats[1], tick)]);
-          if (director.sim.tick % 3 === 0 || director.sim.phase === "done") snapshots.push(snapBody());
+        const sim = director.sim;
+        const target = Math.floor((now - director.liveStart) / STEP_MS + 1e-9);
+        const cap = sim.tick + INPUT_LIMITS.catchUpTicks;
+        let stepped = 0;
+        const events = [];
+        director.hits = [];
+        while (sim.phase === "live" && sim.tick < target && sim.tick < cap) {
+          const tick = sim.tick;
+          const pair = [takeWish(director.seats[0], tick), takeWish(director.seats[1], tick)];
+          const logged = appendUsedTick(director.log, pair);
+          step(sim, [wishOfUsed(logged[0]), wishOfUsed(logged[1])], events);
+          for (const seat of director.seats) dropStale(seat, sim.tick);
+          stepped += 1;
         }
-        if (director.sim.phase === "done") adoptSim();
-        else {
+        if (events.length > 0) {
+          director.hits = events.filter((hit) => hit.dmg > 0).map((hit) => ({
+            tick: hit.tick,
+            shooter: hit.shooter,
+            dmg: hit.dmg,
+            hits: hit.hits,
+            rewind: hit.rewind
+          }));
+        }
+        if (sim.phase === "done") {
+          messages.push(...finish2(sim.outcome, sim.winner, sim.reason, now));
+        } else {
           const stalled = director.seats.map((seat) => now - seat.lastInputAt >= STALL_MS);
-          if (stalled[0] && stalled[1]) finish2("draw", null, "both_stall");
-          else if (stalled[0]) finish2("forfeit", 1, "stall");
-          else if (stalled[1]) finish2("forfeit", 0, "stall");
+          if (stalled[0] && stalled[1]) messages.push(...finish2("draw", null, "both_stall", now));
+          else if (stalled[0]) messages.push(...finish2("forfeit", 1, "stall", now));
+          else if (stalled[1]) messages.push(...finish2("forfeit", 0, "stall", now));
+          else if (stepped > 0) messages.push(...snapshotsAll(now, director.hits));
         }
       }
-      if (director.forceSnap && director.sim) {
-        director.forceSnap = false;
-        snapshots.push(snapBody());
-      }
-      return { snapshots, result: director.result, phaseMessage: takePhase() };
-    }
-    function takePhase() {
-      const message = director.phaseMessage;
-      director.phaseMessage = null;
-      return message;
+      return { messages, result: director.result };
     }
     function disconnect(userId, sessionId) {
       const index = seatIndex(userId);
@@ -1323,29 +2132,92 @@ var SprotoShooterPvp = (() => {
       const seat = director.seats[index];
       if (seat.sessionId !== sessionId) return;
       seat.connected = false;
+      if (director.phase === "lobby") seat.ready = false;
     }
-    function clientResult(presenceUserId) {
-      return reject(presenceUserId, "client_result", { tick: director.sim ? director.sim.tick : 0 });
+    function clientResult(from) {
+      return reject(from, "client_result", { tick: cursor() });
     }
-    function handle(sender, op, data, now) {
+    function handle(sender, op, raw, now) {
+      const data = asBytes(raw);
       const presenceUserId = sender && sender.userId;
       const sessionId = sender && sender.sessionId;
-      if (op === OP.RESULT) return clientResult(presenceUserId);
-      if (op === OP.HELLO || op === OP.READY || op === OP.RESYNC) {
+      const from = presence(presenceUserId, sessionId);
+      if (op === OP.RESULT) return clientResult(from);
+      if (op === OP.HELLO || op === OP.READY || op === OP.RESYNC || op === OP.PING) {
         const parsed = data && typeof data === "object" && !(data instanceof Uint8Array) ? { ok: true, body: data } : parseJsonBody(data);
-        if (!parsed.ok) return reject(presenceUserId, parsed.reason);
-        if (op === OP.HELLO) return hello({ presenceUserId, sessionId, body: { ...parsed.body, accountId: parsed.body.accountId }, now });
+        if (!parsed.ok) return reject(from, parsed.reason);
+        if (op === OP.HELLO) {
+          return hello({ presenceUserId, sessionId, body: parsed.body, now, name: sender && sender.username });
+        }
         if (op === OP.READY) return ready({ presenceUserId, sessionId, now });
-        const got = requireSeat(presenceUserId, sessionId);
+        if (op === OP.PING) return ping({ presenceUserId, sessionId, body: parsed.body, now });
+        const got = requireSeat(from);
         if (got.error) return got.error;
-        director.forceSnap = true;
-        return ok(got.index);
+        if (!allow(got.seat, "helloAt", "hellos", INPUT_LIMITS.maxHelloPerSecond, now)) return reject(from, "rate");
+        const messages = [welcomeTo(got.index)];
+        if (director.sim) messages.push(snapshotFor(got.index, now));
+        return { ok: true, seat: got.index, messages };
       }
-      if (op === OP.INPUT) {
-        const packet = data instanceof Uint8Array ? data : null;
-        return input({ presenceUserId, sessionId, packet: packet || data, now });
+      if (op === OP.INPUT) return input({ presenceUserId, sessionId, packet: data, now });
+      return reject(from, "malformed");
+    }
+    function exportState() {
+      return JSON.parse(JSON.stringify(director));
+    }
+    function importState(state) {
+      const copy = typeof state === "string" ? JSON.parse(state) : JSON.parse(JSON.stringify(state));
+      if (!copy || copy.v !== DIRECTOR_STATE_VERSION || !Array.isArray(copy.seats) || !Array.isArray(copy.log) || typeof copy.combatSeed !== "string") {
+        throw new Error("director state: unsupported version");
       }
-      return reject(presenceUserId, "malformed");
+      director = copy;
+    }
+    function replayRecord() {
+      const sim = director.sim;
+      return {
+        v: 2,
+        spawnSeed: director.spawnSeed,
+        combatSeed: director.combatSeed,
+        combatCommit: director.combatCommit,
+        matchId: director.matchId,
+        // Seat 0, seat 1 account ids, and the build that ran the match when the host knows it.
+        accounts: director.seats.map((s) => s ? s.accountId : null),
+        bundleSha256: director.bundleSha256,
+        sourceCommit: director.sourceCommit,
+        protocol: PROTOCOL,
+        sim: SIM_VERSION,
+        content: CONTENT,
+        used: director.log.slice(),
+        expect: sim ? {
+          tick: sim.tick,
+          stateHash: hashState(sim),
+          stateSha256: stateSha256(sim),
+          outcome: sim.outcome,
+          winner: sim.winner,
+          reason: sim.reason
+        } : null,
+        result: director.result ? { ...director.result } : null,
+        ticketsMinted: 0
+      };
+    }
+    function seatStats(index) {
+      const seat = director.seats[index];
+      if (!seat) return null;
+      return {
+        accountId: seat.accountId,
+        connected: seat.connected,
+        lastSeq: seat.lastSeq,
+        ackFrame: seat.ackFrame,
+        buffer: bufferDepth(seat),
+        applied: seat.applied,
+        held: seat.held,
+        neutral: seat.neutral,
+        late: seat.late,
+        rttMs: seat.rttMs,
+        interpMs: seat.interpMs,
+        rewindCap: rewindCap(seat),
+        clamped: director.clamped[index],
+        viewClamped: seat.viewClamped || 0
+      };
     }
     return {
       get phase() {
@@ -1357,11 +2229,32 @@ var SprotoShooterPvp = (() => {
       get sim() {
         return director.sim;
       },
+      get liveStart() {
+        return director.liveStart;
+      },
+      get leadInTicks() {
+        return director.leadInTicks;
+      },
+      get spawnSeed() {
+        return director.spawnSeed;
+      },
+      get combatCommit() {
+        return director.combatCommit;
+      },
+      /** True when no combatSeed was passed: the seed is predictable. A hosted match must be false. */
+      get combatSeedDerived() {
+        return director.combatSeedDerived;
+      },
+      /** The used-input pair applied on `tick` (decoded), or null. */
+      usedAt(tick) {
+        return usedTickAt(director.log, tick);
+      },
       seatOf: seatIndex,
       occupied,
       joinAttempt(userId) {
         if (!validId(userId)) return { accept: false, reason: "malformed" };
         if (seatIndex(userId) >= 0) return { accept: true };
+        if (director.accounts && director.accounts.indexOf(userId) < 0) return { accept: false, reason: "not_invited" };
         if (director.phase === "done") return { accept: false, reason: "ended" };
         if (occupied() >= 2) return { accept: false, reason: "match_full" };
         return { accept: true };
@@ -1369,15 +2262,41 @@ var SprotoShooterPvp = (() => {
       hello,
       ready,
       input,
+      ping,
       advance,
       disconnect,
       handle,
-      clientResult
+      clientResult(userId, sessionId) {
+        return clientResult(presence(userId, sessionId));
+      },
+      exportState,
+      importState,
+      replayRecord,
+      seatStats
     };
+  }
+  function createHostedDirector(options = {}) {
+    const { matchId, combatSeed } = options;
+    const spawnSeed = options.spawnSeed != null ? options.spawnSeed : options.seed;
+    if (!Number.isInteger(spawnSeed) || spawnSeed < 0 || spawnSeed > 4294967295) {
+      throw new Error("hosted director: spawnSeed must be a 32-bit unsigned integer chosen by the host");
+    }
+    if (typeof combatSeed !== "string" || !COMBAT_SEED_RE.test(combatSeed)) {
+      throw new Error("hosted director: combatSeed must be a fresh secret of 32..128 lowercase hex chars");
+    }
+    if (typeof matchId !== "string" || !matchId || matchId.length > 128) {
+      throw new Error("hosted director: matchId must be the Nakama match id");
+    }
+    return createDirector({ ...options, spawnSeed, hosted: true });
+  }
+  function restoreDirector(state) {
+    const director = createDirector();
+    director.importState(state);
+    return director;
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "5ccaf82a04c8e4233b257b71194ad82d8fd5f022";
+  var SOURCE_COMMIT = "29b912ec0b8064c08701f6b2ce88bc2eee42c5c9";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {
@@ -1387,6 +2306,7 @@ var SprotoShooterPvp = (() => {
       reason: state.reason,
       tick: state.tick,
       stateHash: hashState(state),
+      stateSha256: stateSha256(state),
       protocol: PVP_PROTOCOL_VERSION,
       sim: PVP_SIM_VERSION,
       content: CONTENT_FINGERPRINT,
@@ -1402,20 +2322,158 @@ var SprotoShooterPvp = (() => {
       }))
     };
   }
+  function refused(reason) {
+    return JSON.stringify({ ok: false, reason, ticketsMinted: 0, outcome: null, winner: null, verified: false });
+  }
+  var EXPECT_KEYS = ["tick", "stateHash", "outcome", "winner", "reason"];
+  var SEED_RE = /^[0-9a-f]{32,128}$/;
+  var DIRECTOR_OUTCOMES = Object.freeze({
+    "forfeit:stall": "settle_director",
+    "draw:both_stall": "refund",
+    "cancel:ready_timeout": "refund",
+    "cancel:no_combat_seed": "refund"
+  });
+  var STALL_TICKS = Math.ceil(STALL_MS / STEP_MS) - INPUT_LIMITS.futureFrames - INPUT_LIMITS.catchUpTicks;
+  function trailingNonInput(ticks, seat) {
+    let n = 0;
+    for (let i = ticks.length - 1; i >= 0 && ticks[i][seat].src !== SOURCE.input; i--) n += 1;
+    return n;
+  }
+  function judge(body, ticks, state, out, replayOk) {
+    const result = body.result && typeof body.result === "object" ? body.result : null;
+    const accounts = Array.isArray(body.accounts) ? body.accounts.slice(0, 2) : null;
+    const verdict = {
+      replay: replayOk,
+      result: null,
+      outcome: result ? result.outcome : null,
+      winner: result ? result.winner : null,
+      reason: result ? result.reason : null,
+      provable: false,
+      accounts,
+      bundleSha256: typeof body.bundleSha256 === "string" ? body.bundleSha256 : null,
+      evidence: null,
+      policy: "refuse"
+    };
+    const checks = [];
+    if (!result) return { checks, verdict };
+    const noSim = result.outcome === "cancel" && ticks.length === 0;
+    const want = {
+      tick: out.tick,
+      stateHash: out.stateHash,
+      stateSha256: out.stateSha256,
+      spawnSeed: body.spawnSeed,
+      combatSeed: body.combatSeed,
+      combatCommit: out.combatCommit
+    };
+    if (noSim) {
+      want.tick = 0;
+      want.stateHash = null;
+      want.stateSha256 = null;
+    }
+    for (const key of Object.keys(want)) {
+      if (key === "stateSha256" && result[key] === void 0) continue;
+      if (result[key] !== want[key]) checks.push(`result.${key}`);
+    }
+    if (state.outcome != null) {
+      for (const key of ["outcome", "winner", "reason"]) if (result[key] !== state[key]) checks.push(`result.${key}`);
+      verdict.provable = true;
+      if (checks.length === 0) verdict.policy = "settle";
+    } else {
+      const policy = DIRECTOR_OUTCOMES[`${result.outcome}:${result.reason}`];
+      const winnerOk = result.outcome === "forfeit" ? result.winner === 0 || result.winner === 1 : result.winner === null;
+      const knownOutcome = Object.keys(DIRECTOR_OUTCOMES).some((key) => key.startsWith(`${result.outcome}:`));
+      if (!policy) checks.push(knownOutcome ? "result.reason" : "result.outcome");
+      else if (!winnerOk) checks.push("result.winner");
+      if (!noSim) {
+        const trailing = [trailingNonInput(ticks, 0), trailingNonInput(ticks, 1)];
+        let consistent = true;
+        if (result.outcome === "forfeit") consistent = trailing[1 - result.winner] >= STALL_TICKS;
+        else if (result.reason === "both_stall") consistent = trailing[0] >= STALL_TICKS && trailing[1] >= STALL_TICKS;
+        verdict.evidence = { trailingNonInput: trailing, stallTicks: STALL_TICKS, consistent };
+        if (checks.length === 0) verdict.policy = policy === "settle_director" && !consistent ? "review" : policy;
+      } else if (checks.length === 0) {
+        verdict.policy = policy;
+      }
+    }
+    verdict.result = checks.length === 0;
+    if (!replayOk) verdict.policy = "refuse";
+    return { checks, verdict };
+  }
+  function replayUsed(body) {
+    if (body.sim !== void 0 && body.sim !== PVP_SIM_VERSION) return refused("version");
+    if (!Array.isArray(body.used)) return refused("malformed");
+    let hex2 = 0;
+    for (const chunk of body.used) hex2 += typeof chunk === "string" ? chunk.length : 0;
+    if (body.used.length > REPLAY_LIMITS.maxTicks || hex2 > REPLAY_LIMITS.maxTicks * TICK_HEX) return refused("too_long");
+    const ticks = decodeUsedLog(body.used);
+    if (!ticks) return refused("malformed");
+    const spawn = body.spawnSeed;
+    if (!Number.isInteger(spawn) || spawn < 0 || spawn > 4294967295) return refused("malformed");
+    if (typeof body.combatSeed !== "string" || !SEED_RE.test(body.combatSeed)) return refused("malformed");
+    if (body.sourceCommit != null && !/^0{40}$/.test(SOURCE_COMMIT) && body.sourceCommit !== SOURCE_COMMIT) {
+      return refused("build");
+    }
+    const state = createMatch(spawn >>> 0, body.combatSeed);
+    let extra = 0;
+    for (let i = 0; i < ticks.length; i++) {
+      if (state.phase === "done") {
+        extra += 1;
+        continue;
+      }
+      step(state, [wishOfUsed(ticks[i][0]), wishOfUsed(ticks[i][1])]);
+    }
+    const out = receipt(state);
+    out.v = 2;
+    out.ticksLogged = ticks.length;
+    const mismatch = [];
+    if (extra > 0) mismatch.push("extraTicks");
+    out.combatCommit = combatCommitOf(body.combatSeed);
+    if (body.combatCommit !== out.combatCommit) mismatch.push("combatCommit");
+    const expect = body.expect && typeof body.expect === "object" ? body.expect : null;
+    const cancelledInLobby = !expect && ticks.length === 0 && body.result && body.result.outcome === "cancel";
+    if (!expect) {
+      if (!cancelledInLobby) mismatch.push("expect");
+    } else {
+      for (const key of EXPECT_KEYS) {
+        if (!(key in expect)) mismatch.push(key);
+        else if (expect[key] !== out[key]) mismatch.push(key);
+      }
+      if ("stateSha256" in expect && expect.stateSha256 !== out.stateSha256) mismatch.push("stateSha256");
+    }
+    const { checks, verdict } = judge(body, ticks, state, out, mismatch.length === 0);
+    mismatch.push(...checks);
+    out.verified = mismatch.length === 0;
+    out.mismatch = mismatch;
+    out.verdict = verdict;
+    return JSON.stringify(out);
+  }
+  function allFinite(value, depth = 0) {
+    if (typeof value === "number") return Number.isFinite(value);
+    if (value === null || typeof value !== "object") return true;
+    if (depth > 32) return false;
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) if (!allFinite(value[i], depth + 1)) return false;
+      return true;
+    }
+    for (const key of Object.keys(value)) if (!allFinite(value[key], depth + 1)) return false;
+    return true;
+  }
   function replayJSON(text) {
-    const raw = typeof text === "string" ? text : JSON.stringify(text);
-    if (/[:\s]NaN\b|Infinity/.test(raw)) {
-      return JSON.stringify({ ok: false, reason: "nan", ticketsMinted: 0, outcome: null, winner: null });
-    }
     let body;
-    try {
-      body = JSON.parse(raw);
-    } catch {
-      return JSON.stringify({ ok: false, reason: "malformed", ticketsMinted: 0, outcome: null, winner: null });
+    if (typeof text === "string") {
+      if (text.length > REPLAY_LIMITS.maxBytes) return refused("too_long");
+      try {
+        body = JSON.parse(text);
+      } catch {
+        return refused("malformed");
+      }
+    } else {
+      body = text;
     }
-    if (!body || typeof body !== "object" || Array.isArray(body)) {
-      return JSON.stringify({ ok: false, reason: "malformed", ticketsMinted: 0, outcome: null, winner: null });
-    }
+    if (!body || typeof body !== "object" || Array.isArray(body)) return refused("malformed");
+    if (!allFinite(body)) return refused("nan");
+    if (body.v === 2) return replayUsed(body);
+    if (Array.isArray(body.inputs) && body.inputs.length > REPLAY_LIMITS.maxTicks) return refused("too_long");
     return JSON.stringify(receipt(replay(body)));
   }
   return __toCommonJS(export_exports);
