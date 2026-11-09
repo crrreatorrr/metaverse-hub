@@ -186,8 +186,8 @@ function grantFailure(flow: RelicFlow, body: RpcBody | undefined): string | null
   return `expected ${flow.relicId}, got ${detail}`;
 }
 
-/** Architect hold (0033 grant_hold). Cone, Tinubu, and Breakwater stay live. */
-const HELD_RELICS = new Set(['hpos10i_core', 'genesis_shard', 'tidebreaker_belt']);
+/** Architect hold (0033 grant_hold). Cone, Tinubu, Breakwater, and HPOS10I Core (0042) are live. */
+const HELD_RELICS = new Set(['genesis_shard', 'tidebreaker_belt']);
 
 function isHeldRelic(flow: RelicFlow): boolean {
   return HELD_RELICS.has(flow.relicId);

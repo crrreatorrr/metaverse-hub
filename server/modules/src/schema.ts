@@ -3205,6 +3205,19 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // HPOS10I Core goes live again: clearing Zone 1 Act 1 grants it at once
+      // (claim_event_relic's live branch), as the HPOS10I contract says. Takes
+      // hpos10i_core off the 0033 hold and drops every held claim for it, so
+      // nobody has a pending Core and the next qualifying clear is the grant.
+      // Live relic_claim rows are untouched. The act-2 pets stay held.
+      id: "0042_hpos10i_core_live",
+      statements: [
+        `UPDATE game.event_rule SET grant_hold = false
+         WHERE game_id = 'hpos10i' AND event_type = 'hpos10i.level_complete' AND relic_id = 'hpos10i_core'`,
+        "DELETE FROM game.relic_claim_pending WHERE relic_id = 'hpos10i_core'",
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3304,7 +3317,8 @@ namespace HubSchema {
   // Reserved id ranges (Contract C4): hub 0011-0012, peoples-bitcoin 0013-0019,
   // sproto 0020-0024, sproto-arcade 0025-0029. The hub's later entries take the next id above every
   // reserved range: 0030_m6_item_grants, 0031_story_boss_tickets, 0032_wager_online_qualify,
-  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal.
+  // 0033_hold_client_relic_grants, 0034_hub_gate, 0035_hub_v_coin, 0037_hub_life_medal,
+  // 0042_hpos10i_core_live (after the game files' 0039-0041).
   // 0036 is reserved for NOBU treats and is not registered here. 0031 and 0032 keep those ids.
   // 0038 stays unregistered: an unmerged shooter patch proposed it, and this phase does not take it.
   // 0039_sproto_shooter_coop is registered from src/games/sproto_shooter.ts. It widens game_session

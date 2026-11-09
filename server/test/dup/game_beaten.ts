@@ -36,7 +36,7 @@ interface Trigger {
   relicId: string;
 }
 
-const HELD_RELICS = new Set(['hpos10i_core', 'genesis_shard', 'tidebreaker_belt']);
+const HELD_RELICS = new Set(['genesis_shard', 'tidebreaker_belt']);
 
 const TRIGGERS: Trigger[] = [
   {
