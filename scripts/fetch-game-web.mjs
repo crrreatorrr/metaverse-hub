@@ -47,10 +47,12 @@ export const GAMES = {
   'sproto-duel': { repo: 'crrreatorrr/sproto-duel', artifact: 'web-build', entry: 'ring' },
   'sproto-fighter': { repo: 'crrreatorrr/Sproto-Fighter', artifact: 'web-build', entry: 'cabinet' },
   'sproto-arcade': { repo: 'crrreatorrr/Sproto-Arcade', artifact: 'web-build', entry: 'cabinet' },
-  // Cloned and built from source. No web-build artifact and no CDN SDK.
+  // Cloned and built from source. No web-build artifact, no Pages fallback.
+  // Pages is static practice hosting only. Online play needs the hub Nakama.
   'sproto-shooter': { repo: 'crrreatorrr/sproto-shooter', entry: 'ring' },
   // The trailing dot is part of the GitHub repo name. The public slug has no dot.
   // Cabinet game: the fetch path is /play/sproto-coop-battle/, not a plaza ring.
+  // No Pages fallback: a banked match is the hub's sproto_coop, not a static export.
   'sproto-coop-battle': { repo: 'crrreatorrr/Sproto-Coop-Battle.', entry: 'cabinet' },
 };
 

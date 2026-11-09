@@ -48,8 +48,10 @@ try {
   assert.equal(GAMES['sproto-shooter'].repo, 'crrreatorrr/sproto-shooter');
   assert.equal(GAMES['sproto-shooter'].entry, 'ring');
   assert.equal(GAMES['sproto-shooter'].artifact, undefined);
+  assert.equal(GAMES['sproto-shooter'].pages, undefined);
   assert.equal(GAMES['sproto-coop-battle'].repo, 'crrreatorrr/Sproto-Coop-Battle.');
   assert.equal(GAMES['sproto-coop-battle'].entry, 'cabinet');
+  assert.equal(GAMES['sproto-coop-battle'].pages, undefined);
   assert.equal(GAMES['sproto-fighter'].entry, 'cabinet');
   assert.equal(GAMES['sproto-arcade'].entry, 'cabinet');
   assert.equal(GAMES['hpos10i'].entry, 'ring');

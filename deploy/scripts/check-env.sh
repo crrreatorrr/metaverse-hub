@@ -135,5 +135,12 @@ if [ "$days" -lt 1 ]; then
   fail "BACKUP_RETAIN_DAYS must be at least 1"
 fi
 
+# Launch flags are rows in game.server_flags. A deploy env must not carry a switch for them.
+for key in SHOOTER_PVP SHOOTER_PVP_WAGER SHOOTER_PVP_RANKED PUBLIC_LAUNCH HUB_PUBLIC; do
+  if grep -E "^${key}=" "$file" >/dev/null; then
+    fail "${key} does not belong in deploy/.env; flags stay off in game.server_flags"
+  fi
+done
+
 chmod 600 "$file" || true
 echo "deploy/.env ok (DOMAIN=${domain})"
