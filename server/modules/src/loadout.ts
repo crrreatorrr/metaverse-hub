@@ -18,6 +18,8 @@ namespace HubLoadout {
     tinubu_crown: "sproto",
     tidebreaker_belt: "sproto-fighter",
     breakwater_coin: "sproto-arcade",
+    marina_anchor: "sproto-coop-battle",
+    dragon_scale: "sproto-shooter",
   };
   var SLOTS: { [game: string]: string[] } = {
     hpos10i: ["skin", "cape"],

@@ -1,7 +1,8 @@
 // Sproto Shooter (crrreatorrr/sproto-shooter).
 //
-// No Relic, no Ticket earn, and no leaderboard. The client may redeem a portal ticket and read a balance.
-// Online play is not registered here.
+// No client Ticket earn and no client leaderboard. The client may redeem a portal ticket and read a balance.
+// Clearing wave 1 of Wave Mode grants the Dragon Scale Relic (`shooter.wave_clear` with `{ wave: 1 }`,
+// migration 0045 in games/stage_relics.ts). Online play is not registered here.
 //
 // One migration covers both new ids. 0036 stays reserved for NOBU. 0038 stays
 // unregistered because an unmerged patch proposed it. This id is the next free one.

@@ -4,7 +4,9 @@ import {
   HubEvent,
   HubSdkError,
   LOCAL_NAKAMA,
+  FOUR_LIGHTS_RELIC_IDS,
   RELIC_BY_GAME,
+  RELIC_IDS,
   VERSE_DAILY_CAP,
   createHubSdk,
   createNakamaClient,
@@ -107,37 +109,65 @@ async function arcadeAndSaves(): Promise<void> {
   assert.equal(encodeSave({ a: 1 }), '{"a":1}');
 }
 
-async function darkGames(): Promise<void> {
+async function coopAndShooterRelics(): Promise<void> {
   assert.deepEqual(GAME_IDS.slice(0, 6), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade']);
   assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle']);
-  assert.equal(RELIC_BY_GAME['sproto-shooter'], undefined);
-  assert.equal(RELIC_BY_GAME['sproto-coop-battle'], undefined);
+  assert.deepEqual(RELIC_IDS.slice(6), ['marina_anchor', 'dragon_scale']);
+  assert.deepEqual([...FOUR_LIGHTS_RELIC_IDS], ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown']);
+  assert.equal(RELIC_BY_GAME['sproto-coop-battle'], 'marina_anchor');
+  assert.equal(RELIC_BY_GAME['sproto-shooter'], 'dragon_scale');
   assert.equal(RELIC_BY_GAME.sproto, 'tinubu_crown');
+  assert.equal(HubEvent.CoopStageClear, 'coop.stage_clear');
+  assert.equal(HubEvent.ShooterWaveClear, 'shooter.wave_clear');
+  assert.equal(Object.values(HubEvent).some((id) => id.endsWith('.boss_clear')), false, 'boss_clear names are server-only');
+
+  // Stage 1 / wave 1 grant, God Mode included. Other stages, waves, events and games do not.
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.CoopStageClear, { stage: 1 }), 'marina_anchor');
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.CoopStageClear, { stage: 1, godMode: true, players: 3 }), 'marina_anchor');
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.CoopStageClear, { stage: 2 }), undefined);
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.CoopStageClear, { stage: '1' }), undefined);
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.CoopStageClear, {}), undefined);
+  assert.equal(relicForEvent('sproto-coop-battle', 'coop.boss_clear', { stage: 1, boss: '01-marina-bront' }), undefined);
+  assert.equal(relicForEvent('sproto-coop-battle', HubEvent.ShooterWaveClear, { wave: 1 }), undefined);
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.ShooterWaveClear, { wave: 1 }), 'dragon_scale');
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.ShooterWaveClear, { wave: 1, godMode: true }), 'dragon_scale');
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.ShooterWaveClear, { wave: 2 }), undefined);
+  assert.equal(relicForEvent('sproto-shooter', 'shooter.boss_clear', { wave: 1 }), undefined);
+  assert.equal(relicForEvent('sproto-shooter', HubEvent.CoopStageClear, { stage: 1 }), undefined);
   assert.equal(relicForEvent('sproto-shooter', HubEvent.SprotoBossDefeated, { boss: 'sahil' }), undefined);
   assert.equal(relicForEvent('sproto-coop-battle', HubEvent.ArcadeBossDefeated, { boss: 'bront' }), undefined);
+  assert.equal(relicForEvent('sproto-arcade', HubEvent.CoopStageClear, { stage: 1 }), undefined);
   assert.equal(relicForEvent('sproto', HubEvent.SprotoBossDefeated, { boss: 'tinubu' }), 'tinubu_crown');
 
-  for (const game of ['sproto-shooter', 'sproto-coop-battle'] as const) {
-    const h = harness(game);
-    const standalone = await h.sdk.init(game);
+  const cases = [
+    { game: 'sproto-coop-battle', event: HubEvent.CoopStageClear, miss: { stage: 2 }, hit: { stage: 1, godMode: true }, relic: 'marina_anchor' },
+    { game: 'sproto-shooter', event: HubEvent.ShooterWaveClear, miss: { wave: 2 }, hit: { wave: 1, godMode: true }, relic: 'dragon_scale' },
+  ] as const;
+  for (const row of cases) {
+    const h = harness(row.game);
+    const standalone = await h.sdk.init(row.game);
     assert.equal(standalone.ranked, false);
     assert.ok(standalone.playerId.length > 0);
     assert.deepEqual(standalone.relics, []);
+    assert.deepEqual(await h.sdk.reportEvent(row.event, row.hit, `${row.game}:standalone`), {});
     h.sdk.exit('return');
     assert.equal(h.assigned.length, 0);
-    h.setHash(`#t=${await ticket(game)}`);
-    const session = await h.sdk.init(game);
+    h.setHash(`#t=${await ticket(row.game)}`);
+    const session = await h.sdk.init(row.game);
     assert.equal(session.playerId, 'player-1');
     assert.deepEqual(session.relics, []);
-    const reported = await h.sdk.reportEvent(HubEvent.GameBeaten, { boss: 'sahil' }, `${game}:none`);
-    assert.equal(reported.granted, undefined);
+    assert.equal((await h.sdk.reportEvent(HubEvent.GameBeaten, { boss: 'sahil' }, `${row.game}:beaten`)).granted, undefined);
+    assert.equal((await h.sdk.reportEvent(row.event, row.miss, `${row.game}:miss`)).granted, undefined);
+    assert.equal((await h.sdk.reportEvent(row.event, row.hit, `${row.game}:hit:1`)).granted, row.relic);
+    assert.equal((await h.sdk.reportEvent(row.event, row.hit, `${row.game}:hit:2`)).granted, undefined, 'earn-once');
+    assert.ok((await h.sdk.init(row.game)).relics.includes(row.relic));
     h.sdk.exit('return');
-    assert.equal(h.assigned.at(-1), `/hub/#from=${game}`);
+    assert.equal(h.assigned.at(-1), `/hub/#from=${row.game}`);
   }
 }
 
 async function main(): Promise<void> {
-  await darkGames();
+  await coopAndShooterRelics();
   await arcadeAndSaves();
   const signed = await mintMockTicket({ game: 'hpos10i', playerId: 'p', now: NOW, jti: 'j1' });
   const claims = await verifyMockTicket(signed);

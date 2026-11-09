@@ -3361,6 +3361,9 @@ namespace HubSchema {
   // 0044_pb_godmode is registered from src/games/pb_godmode.ts (0042 and 0043 are taken by the
   // server_flags and hpos10i_core_live PRs, which merge first). It adds game.godmode_user and
   // game.godmode_topup and allows the 'godmode' tickets_ledger kind. No client RPC writes it.
+  // 0045_coop_shooter_relics is registered from src/games/stage_relics.ts. It widens the Relic
+  // checks (relic_claim, relic_claim_pending) and game_beaten for marina_anchor (Coop stage 1) and
+  // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

@@ -112,10 +112,11 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(gameUrl('sproto', { dev: true }), '/play/sproto-duel/');
 }
 
-// Neither new game grants a Relic. Fighter and Arcade still do. V Coin is not a menu row.
+// Shooter grants the Dragon Scale and Coop the Marina Anchor. Fighter and Arcade still grant theirs.
+// V Coin is not a menu row.
 {
-  assert.equal(relics['sproto-shooter'], undefined);
-  assert.equal(relics['sproto-coop-battle'], undefined);
+  assert.equal(relics['sproto-shooter'], 'dragon_scale');
+  assert.equal(relics['sproto-coop-battle'], 'marina_anchor');
   assert.equal(relics['sproto-fighter'], 'tidebreaker_belt');
   assert.equal(relics['sproto-arcade'], 'breakwater_coin');
   assert.equal(JSON.stringify(PORTALS).includes('vcoin'), false);

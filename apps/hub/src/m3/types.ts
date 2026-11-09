@@ -10,7 +10,7 @@ export type { GameId, RelicId };
  */
 export const RELIC_GEMS: readonly {
   id: RelicId;
-  gem: 'gem_hpos' | 'gem_pb' | 'gem_nobu' | 'gem_duel' | 'gem_fighter' | 'gem_coin';
+  gem: 'gem_hpos' | 'gem_pb' | 'gem_nobu' | 'gem_duel' | 'gem_fighter' | 'gem_coin' | 'gem_anchor' | 'gem_scale';
   socket: 'socket_orbit' | 'socket_back' | 'socket_shoulder_R' | 'socket_head' | 'socket_waist';
   color: string;
   radius: number;
@@ -25,6 +25,10 @@ export const RELIC_GEMS: readonly {
   // Tidebreaker Belt (Sproto Fighter): a wide, slow loop at belt height.
   { id: 'tidebreaker_belt', gem: 'gem_fighter', socket: 'socket_waist', color: '#66d7e8', radius: 0.82, height: -0.42, speed: 0.8, phase: 2.4 },
   { id: 'breakwater_coin', gem: 'gem_coin', socket: 'socket_orbit', color: '#3ec6ff', radius: 0.66, height: 0.3, speed: 0.6, phase: 5.6 },
+  // Marina Anchor (Sproto Coop Battle): the widest, slowest loop, low like a hanging anchor.
+  { id: 'marina_anchor', gem: 'gem_anchor', socket: 'socket_orbit', color: '#2ee6c8', radius: 0.98, height: -0.3, speed: 0.5, phase: 0.8 },
+  // Dragon Scale (Sproto Shooter): a quick, tight loop just above the head.
+  { id: 'dragon_scale', gem: 'gem_scale', socket: 'socket_orbit', color: '#ff5a2a', radius: 0.52, height: 0.64, speed: 1.4, phase: 3.9 },
 ];
 
 export interface OrbitAvatar {

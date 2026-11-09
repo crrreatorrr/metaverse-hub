@@ -347,6 +347,18 @@ namespace CoopMatch {
         released: released,
         knownBoss: true,
       }, CoopProtocol.LIMITS.afkAliveTicks);
+      // Marina Anchor: any banked stage-1 clear grants it to each human account still in the
+      // fight, whatever the Ticket decision (practice, God Mode, stage select, late join and AFK
+      // included). A seat released to the CPU and a row with no seats do not count. Earn-once in
+      // SQL, so a retry or a second clear grants nothing; it never touches Tickets.
+      if (facts.canonicalBossId === StageRelics.COOP_BOSS && !released && row.slots >= 1) {
+        try {
+          var anchor = StageRelics.grantCoopClear(nk, row.accountId, sid);
+          if (anchor) logger.info("coop relic granted " + anchor + " user " + row.accountId);
+        } catch (relicErr) {
+          logger.warn("coop relic grant failed " + String(relicErr));
+        }
+      }
       var reqHash = nk.sha256Hash("coop.settle\n" + row.accountId + "\n" + session.matchId + "\n" + key + "\n" + facts.canonicalBossId + "\n" + state.payDay[key]);
       var result = CoopRewards.settle(
         nk,

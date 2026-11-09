@@ -388,10 +388,14 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter')";
+/** 0039 adds sproto-shooter and sproto-coop-battle; their dup Relic flows (0045) leave sessions and game_beaten rows. */
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle')";
 const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
-/** Relics added after 0009's relic check (0025: breakwater_coin). 0009 re-adds that check during the replay. */
-const LATER_RELICS = "('breakwater_coin')";
+/**
+ * Relics added after 0009's relic check (0025: breakwater_coin; 0045: marina_anchor, dragon_scale).
+ * 0009 and 0025 re-add narrower checks during the replay; 0045 widens them again.
+ */
+const LATER_RELICS = "('breakwater_coin', 'marina_anchor', 'dragon_scale')";
 
 function parkLaterGames(): void {
   psql('CREATE SCHEMA IF NOT EXISTS dup_park');
@@ -729,9 +733,9 @@ async function raceHubBoots(): Promise<void> {
   assert.equal(num('SELECT count(*) FROM game.tickets_balance'), 0);
   assert.equal(num('SELECT COALESCE(sum(balance), 0) FROM game.verse_wallet'), 0);
   assert.equal(num('SELECT count(*) FROM game.verse_ledger'), 0);
-  // One Relic trigger per game: the four from 0002, the Tidebreaker Belt (0009) and the Breakwater Coin
-  // (0025). Ticket rules are not counted.
-  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 6);
+  // One Relic trigger per game: the four from 0002, the Tidebreaker Belt (0009), the Breakwater Coin
+  // (0025), and the Marina Anchor and Dragon Scale (0045). Ticket rules are not counted.
+  assert.equal(num(`SELECT count(*) FROM game.event_rule WHERE relic_id IS NOT NULL AND event_type <> 'game_beaten'`), 8);
   // 0002's open game_beaten rules, until 0008 drops them.
   assert.equal(
     num(`SELECT count(*) FROM game.event_rule WHERE event_type = 'game_beaten'`),

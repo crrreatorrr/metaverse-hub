@@ -99,7 +99,7 @@ CI (`.github/workflows/ci.yml`) runs lint, typecheck, test, and build, then the 
 
 A round neon plaza, about 60 m across, built from GLB models (with LODs, under `apps/hub/public/world/`) plus primitives and emissive materials.
 
-- **The Four Lights** at the center: five relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt) and a sealed Hall of Champions portal that opens with the first four. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
+- **The Four Lights** at the center: eight relic sockets (HPOS10I Core, Genesis Block Shard, Cone's Tip, Tinubu's Crown, Tidebreaker Belt, Breakwater Coin, Marina Anchor, Dragon Scale) and a sealed Hall of Champions portal that opens with the first four. The Marina Anchor (Sproto Coop Battle, clear stage 1) and the Dragon Scale (Sproto Shooter, clear wave 1 of Wave Mode) socket, orbit and give an aura like the others, but they do not count toward the Four Lights and unlock nothing in other games yet. Nothing lights up until a relic exists. Owned Relics orbit your avatar as gems; each one has an **Orbit on/off** switch in the Relics menu (saved per browser).
 - **Five gates** on the ring. Four stand in front of their buildings: Green Hill Zone (HPOS10I), the Kennel (NOBU), the White House (People's Bitcoin), and the Castle (Sproto Duel). The fifth, The Range (Sproto Shooter), is the gate in front of the Bar.
 - **A Bar** northeast of the monument, with a walk-in interior. Its arcade cabinet (press E) opens Sproto Arcade, Sproto Fighter or Sproto Coop Battle; the Tidebreaker Belt plinth stands beside it. The scoreboard screen on the inside wall cycles the public boards: HPOS10I act time, NOBU time trials (one page per level, `m:ss.cc`), People's Bitcoin XP, Sproto Duel wins, and lifetime Verse per game and in total.
 - Collision is a kinematic capsule on a `three-mesh-bvh` mesh: the pedestal, portal pillars, bollards, and the outer parapet.
@@ -134,10 +134,14 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
 | `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
 | `arcade.boss_defeated` with boss `bront` (god mode counts) | `breakwater_coin` |
+| `coop.stage_clear` with stage `1` (Sproto Coop Battle, god mode counts) | `marina_anchor` |
+| `shooter.wave_clear` with wave `1` (Sproto Shooter Wave Mode, god mode counts) | `dragon_scale` |
+
+The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`). `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).
 
-Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.3; see its README for the realtime API and the mock server for game tests.
+Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.4; see its README for the realtime API and the mock server for game tests.
 
 `installHubSdk()` sets `window.hubSdk` for HPOS10I's JavaScriptBridge. The plaza does not install it.
 

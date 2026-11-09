@@ -22,7 +22,7 @@ export const TICKET_DAILY_CAP = 1000;
 export interface RelicFlow {
   kind: 'relic';
   id: string;
-  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter';
+  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter' | 'sproto-arcade' | 'sproto-shooter' | 'sproto-coop-battle';
   eventId: string;
   data: Record<string, unknown>;
   /** Same key, different body. Must still be a valid-looking object. */
@@ -33,7 +33,7 @@ export interface RelicFlow {
 export interface ExchangeFlow {
   kind: 'exchange';
   id: string;
-  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter';
+  game: 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'sproto-fighter' | 'sproto-arcade';
   /** Funded with `tickets.earn` before the exchange. Under the daily earn cap. */
   earnAmount: number;
   earnReason: string;
@@ -209,7 +209,35 @@ export const ARCADE_FLOWS: DupFlow[] = [
   },
 ];
 
-export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS, ...FIGHTER_FLOWS, ...ARCADE_FLOWS];
+/**
+ * Sproto Coop Battle and Sproto Shooter (migration 0045). Live, Ticket-free Relics; God Mode counts,
+ * so the payload carries the flag. No exchange rows: neither game has a client Ticket earn.
+ *   reportEvent('coop.stage_clear', { stage: 1 }, key)   → marina_anchor
+ *   reportEvent('shooter.wave_clear', { wave: 1 }, key)  → dragon_scale
+ * The banked online Coop grant (CoopMatch.applyPay) is covered by server/test/games/stage_relics.test.ts.
+ */
+export const COOP_SHOOTER_FLOWS: DupFlow[] = [
+  {
+    kind: 'relic',
+    id: 'sproto-coop-battle.marina_anchor',
+    game: 'sproto-coop-battle',
+    eventId: 'coop.stage_clear',
+    data: { stage: 1, godMode: true },
+    mismatchData: { stage: 2 },
+    relicId: 'marina_anchor',
+  },
+  {
+    kind: 'relic',
+    id: 'sproto-shooter.dragon_scale',
+    game: 'sproto-shooter',
+    eventId: 'shooter.wave_clear',
+    data: { wave: 1, godMode: true },
+    mismatchData: { wave: 2 },
+    relicId: 'dragon_scale',
+  },
+];
+
+export const FLOWS: DupFlow[] = [...M1_FLOWS, ...M2_FLOWS, ...M7_FLOWS, ...FIGHTER_FLOWS, ...ARCADE_FLOWS, ...COOP_SHOOTER_FLOWS];
 
 export function repeatCount(kind: 'sequential' | 'concurrent' | 'fault' | 'kill'): number {
   const fallback = { sequential: 100, concurrent: 20, fault: 100, kill: 2 }[kind];

@@ -7,6 +7,10 @@ import { RELIC_BY_GAME, type GameId, type RelicId } from './types';
  * by saying it won. The six relic triggers from the architecture doc are unchanged.
  * `hpos10i.boss_defeated` is the Deathbot Life Medal event. It is not a Relic trigger,
  * so `relicForEvent` does not grant from it.
+ * `coop.stage_clear` with `{ stage: 1 }` (Sproto Coop Battle, Tidebreak Marina) grants the Marina
+ * Anchor, and `shooter.wave_clear` with `{ wave: 1 }` (Sproto Shooter, Wave Mode) grants the Dragon
+ * Scale. Both count in God Mode. `coop.boss_clear` and `shooter.boss_clear` are server-only names
+ * and are not listed here: the server refuses them from a client.
  */
 export const HubEvent = {
   Ready: 'ready',
@@ -18,6 +22,8 @@ export const HubEvent = {
   SprotoBossDefeated: 'sproto.boss_defeated',
   FighterStoryLevelComplete: 'fighter.story_level_complete',
   ArcadeBossDefeated: 'arcade.boss_defeated',
+  CoopStageClear: 'coop.stage_clear',
+  ShooterWaveClear: 'shooter.wave_clear',
 } as const;
 
 export type HubEventId = (typeof HubEvent)[keyof typeof HubEvent];
@@ -63,6 +69,16 @@ export function relicForEvent(game: GameId, eventId: string, data: object): Reli
 
   if (eventId === HubEvent.ArcadeBossDefeated && game === 'sproto-arcade') {
     if (payload.boss === 'bront') return own;
+    return undefined;
+  }
+
+  if (eventId === HubEvent.CoopStageClear && game === 'sproto-coop-battle') {
+    if (payload.stage === 1) return own;
+    return undefined;
+  }
+
+  if (eventId === HubEvent.ShooterWaveClear && game === 'sproto-shooter') {
+    if (payload.wave === 1) return own;
     return undefined;
   }
 

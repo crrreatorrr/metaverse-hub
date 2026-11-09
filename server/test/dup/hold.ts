@@ -7,7 +7,8 @@
  * Held: tidebreaker_belt, genesis_shard, pet_honk_sproto,
  * pet_spiral_sproto, pet_moon_sproto, pet_sproto_pup.
  * Live: cones_tip, tinubu_crown, pet_presidential_sproto, pet_mecha_sproto,
- * pet_conehead_sproto, breakwater_coin, hpos10i_core (live again since 0043).
+ * pet_conehead_sproto, breakwater_coin, hpos10i_core (live again since 0043),
+ * marina_anchor, dragon_scale.
  */
 import assert from 'node:assert/strict';
 import {
@@ -67,6 +68,8 @@ const LIVE: LivePair[] = [
   { game: 'nobu', eventId: 'nobu.boss_defeated', data: { boss: 'cat' }, kind: 'item', id: 'pet_conehead_sproto' },
   { game: 'sproto-arcade', eventId: 'arcade.boss_defeated', data: { boss: 'bront' }, kind: 'relic', id: 'breakwater_coin' },
   { game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z1_retro_rush_hills', act: 1, time: 12 }, kind: 'relic', id: 'hpos10i_core' },
+  { game: 'sproto-coop-battle', eventId: 'coop.stage_clear', data: { stage: 1, godMode: true }, kind: 'relic', id: 'marina_anchor' },
+  { game: 'sproto-shooter', eventId: 'shooter.wave_clear', data: { wave: 1, godMode: true }, kind: 'relic', id: 'dragon_scale' },
 ];
 
 interface PromoteBody {
@@ -336,7 +339,7 @@ export async function runHold(test: TestFn): Promise<void> {
     }
   });
 
-  await test('hold', 'Cone, Tinubu, presidential, mecha, conehead, Breakwater, and HPOS10I Core are live', async () => {
+  await test('hold', 'Cone, Tinubu, presidential, mecha, conehead, Breakwater, HPOS10I Core, Anchor, and Scale stay live', async () => {
     for (const pair of LIVE) {
       const session = await login(pair.game);
       const user = session.hub.userId;
