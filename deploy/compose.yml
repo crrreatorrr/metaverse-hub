@@ -30,7 +30,10 @@ services:
     build:
       context: ../server
       dockerfile: Dockerfile
-    image: metaverse-nakama:prod
+    # :prod is always the live image. scripts/deploy-server.sh builds
+    # metaverse-nakama:<git sha> (IMAGE_TAG) and retags :prod to it, so the sha tags are
+    # the rollback history. Unset, this is today's tag and bootstrap.sh builds it as before.
+    image: metaverse-nakama:${IMAGE_TAG:-prod}
     entrypoint: ["/bin/sh", "/etc/nakama/render-config.sh"]
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
