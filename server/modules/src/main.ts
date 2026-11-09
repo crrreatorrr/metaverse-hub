@@ -206,6 +206,8 @@ function InitModule(
 ): void {
   CoopMatch.attach();
   HubSchema.apply(nk, logger);
+  // Single Nakama node: no duel match survives a restart, so every held wager is refunded now.
+  SprotoDuel.expireAllHeldAtBoot(nk, logger);
   initializer.registerRpc("healthcheck", rpcHealthcheck);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
