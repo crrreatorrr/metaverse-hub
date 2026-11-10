@@ -81,6 +81,13 @@ const alongBackWall = { ...idle, forward: 1, sprint: true, yaw: 3.5 };
 for (let i = 0; i < 120; i++) player.step(1 / 60, alongBackWall, speeds);
 player.step(1 / 60, { ...alongBackWall, jump: true }, speeds);
 assert.ok(!player.grounded && player.velocity.y > 0, 'back wall contact does not swallow the sprint-jump');
+for (const hz of [20, 60, 120]) {
+  player.spawn(2.333, clubFloor, 7.75);
+  for (let frame = 0; frame < 2 * hz; frame++) {
+    player.step(1 / hz, { ...idle, forward: frame / hz < 0.21 ? -1 : 0, jump: frame === 0 }, speeds);
+  }
+  assert.ok(player.grounded && Math.abs(player.position.y - clubFloor - 0.86) < 0.01, `club stool still catches a jump at ${hz} Hz`);
+}
 collider.geometry.dispose();
 console.log('locked movement and live plaza capsule ok', { restY, jump: peak - restY });
 
