@@ -1,6 +1,6 @@
 // Use net movement over a short window so opposite collision corrections
 // cancel before they reach the animation mixer.
-const SPEED_WINDOW = 0.15;
+const SPEED_WINDOW = 0.25;
 
 interface PositionSample {
   time: number;
