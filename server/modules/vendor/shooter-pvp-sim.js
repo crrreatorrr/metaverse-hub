@@ -2306,7 +2306,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "c5bdfe8210f91f8eb026bf11381628a4055446a9";
+  var SOURCE_COMMIT = "872f7d6c29e04a6395ebc33e0853045429c9b828";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

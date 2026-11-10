@@ -2461,9 +2461,9 @@ var SprotoShooterSim = (() => {
         geometry.push(copy);
       }
       const encounters = (s.encounters || []).map((e) => encounterAt(e, s.id, x0, width2));
-      const mechanisms = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
+      const mechanisms2 = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
       if (s.secret) {
-        mechanisms.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
+        mechanisms2.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
       }
       const weapons = (s.weapons || []).map((w) => ({
         kind: "rack",
@@ -2492,7 +2492,7 @@ var SprotoShooterSim = (() => {
         yaw: 0,
         geometry,
         encounters,
-        mechanisms,
+        mechanisms: mechanisms2,
         weapons,
         checkpoints,
         exit,
@@ -5338,6 +5338,15 @@ var SprotoShooterSim = (() => {
     }
     return false;
   }
+  function ringAlarm(state, id) {
+    if (!id) return;
+    const lv = state.level;
+    if (lv.alarmsCut && lv.alarmsCut[id]) return;
+    if (!lv.alarms) lv.alarms = {};
+    if (lv.alarms[id] != null) return;
+    lv.alarms[id] = lv.time || 0;
+    emit(state, "alarm", { id });
+  }
   function waveWait(enc, squad3) {
     if (squad3 && squad3.fallbackSec != null) return squad3.fallbackSec;
     const lock = enc.lockdown;
@@ -5357,6 +5366,9 @@ var SprotoShooterSim = (() => {
     if (enc.noAmmoDrop) e.noAmmoDrop = true;
     if (at.partId) e.partId = at.partId;
     if (at.flockPart != null) e.flockPart = at.flockPart;
+    if (at.role) e.role = at.role;
+    if (at.alarm) e.alarm = at.alarm;
+    if (at.ringsAlarm) e.ringsAlarm = at.ringsAlarm;
     if (bossDef) {
       if (enc.arena) e.boss.arena = enc.arena;
       emit(state, "bossSpawn", { id: e.id, bossType: type });
@@ -5372,7 +5384,16 @@ var SprotoShooterSim = (() => {
     for (const u2 of squad3.units || []) {
       for (let n = 0; n < u2.count; n++) {
         const at = squad3.at && squad3.at[Math.min(i, squad3.at.length - 1)] || [0, 0, 0];
-        spots.push({ type: u2.type, pos: at, partId: u2.partId || null, elite: !!u2.elite, flockPart });
+        spots.push({
+          type: u2.type,
+          pos: at,
+          partId: u2.partId || null,
+          elite: !!u2.elite,
+          flockPart,
+          role: u2.role || null,
+          alarm: u2.alarm || null,
+          ringsAlarm: squad3.ringsAlarm || u2.ringsAlarm || null
+        });
         i++;
       }
     }
@@ -6524,6 +6545,207 @@ var SprotoShooterSim = (() => {
     if (phase >= 0.45) st.hit = false;
   }
 
+  // src/sim/campaign/perception.js
+  var blocksSight = (s) => s.sight !== false;
+  function hasLOS(state, from, to, max = 80) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 0.05) return true;
+    if (dist > max) return false;
+    const solids = activeSolids(state);
+    if (!solids) return true;
+    const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
+    const hit = raySolids(solids, from, dir, dist, blocksSight);
+    return hit < 0 || hit > dist - 0.25;
+  }
+  function sensePlayer(state, e, target) {
+    if (!e.ai.alert || e.ai.alert === "alerted") return true;
+    const sight = e.ai.sight || 28;
+    const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
+    const dist = Math.hypot(dx, dz);
+    const from = { x: e.pos.x, y: e.pos.y + e.height * 0.8, z: e.pos.z };
+    const to = { x: target.pos.x, y: target.pos.y + 1.2, z: target.pos.z };
+    let wake = dist <= sight && hasLOS(state, from, to);
+    if (!wake) {
+      const hear = e.ai.hearing || 16;
+      for (let i = 0; i < state.events.length; i++) {
+        if (state.events[i].type === "shot" && dist <= hear) {
+          wake = true;
+          break;
+        }
+      }
+    }
+    if (!wake) return false;
+    e.ai.alert = "alerted";
+    return true;
+  }
+
+  // src/sim/campaign/alarms.js
+  function mechanisms(state) {
+    const sec = state._v2section;
+    return sec && sec.mechanisms || [];
+  }
+  function alarmOf(state, id) {
+    for (const m of mechanisms(state)) if (m.kind === "alarm" && m.id === id) return m;
+    return null;
+  }
+  function hpBook(lv) {
+    if (!lv.alarmHp) lv.alarmHp = {};
+    return lv.alarmHp;
+  }
+  function recOf(lv, m) {
+    const book2 = hpBook(lv);
+    return book2[m.id] || (book2[m.id] = {
+      box: m.hp == null ? 40 : m.hp,
+      cable: m.cableHp == null ? 20 : m.cableHp,
+      lamp: m.lamp == null ? 30 : m.lamp,
+      hold: 0
+    });
+  }
+  function alarmCut(lv, id) {
+    return !!(lv && lv.alarmsCut && lv.alarmsCut[id]);
+  }
+  function markCut(state, id) {
+    const lv = state.level;
+    if (!lv.alarmsCut) lv.alarmsCut = {};
+    if (lv.alarmsCut[id]) return;
+    lv.alarmsCut[id] = true;
+    emit(state, "alarm", { id, cut: true });
+  }
+  function cablesOf(m) {
+    const from = m.at;
+    if (!from) return [];
+    const ends = [];
+    if (m.cableTo) ends.push(m.cableTo);
+    for (const c of m.cables || []) ends.push(c);
+    return ends.map((to) => ({ a: from, b: to }));
+  }
+  function raySphere2(o, d, c, r, maxDist) {
+    const ox = o.x - c[0], oy = o.y - (c[1] || 0), oz = o.z - c[2];
+    const b = ox * d.x + oy * d.y + oz * d.z;
+    const c0 = ox * ox + oy * oy + oz * oz - r * r;
+    const disc2 = b * b - c0;
+    if (disc2 < 0) return -1;
+    const t = -b - Math.sqrt(disc2);
+    if (t < 0.05 || t > maxDist) return -1;
+    return t;
+  }
+  function rayCable(o, d, a, b, radius, maxDist) {
+    const abx = b[0] - a[0], aby = (b[1] || 0) - (a[1] || 0), abz = b[2] - a[2];
+    let best = -1;
+    const steps = 8;
+    for (let i = 0; i <= steps; i++) {
+      const u2 = i / steps;
+      const c = [a[0] + abx * u2, (a[1] || 0) + aby * u2, a[2] + abz * u2];
+      const t = raySphere2(o, d, c, radius, maxDist);
+      if (t >= 0 && (best < 0 || t < best)) best = t;
+    }
+    return best;
+  }
+  function alarmRay(state, origin, dir, maxDist) {
+    const lv = state.level;
+    if (!lv) return null;
+    let best = null;
+    for (const m of mechanisms(state)) {
+      if (!m.at) continue;
+      if (m.kind === "alarm") {
+        const box2 = raySphere2(origin, dir, m.at, 0.8, maxDist);
+        if (box2 >= 0 && (!best || box2 < best.t)) best = { t: box2, id: m.id, part: "box", m };
+        for (const seg of cablesOf(m)) {
+          const t = rayCable(origin, dir, seg.a, seg.b, 0.45, maxDist);
+          if (t >= 0 && (!best || t < best.t)) best = { t, id: m.id, part: "cable", m };
+        }
+      } else if (m.kind === "searchlight" && !m.harmless) {
+        const t = raySphere2(origin, dir, m.at, 0.6, maxDist);
+        if (t >= 0 && (!best || t < best.t)) best = { t, id: m.id, part: "lamp", m };
+      }
+    }
+    return best;
+  }
+  function damageAlarm(state, hit, amount) {
+    const lv = state.level;
+    const rec = recOf(lv, hit.m);
+    if (hit.part === "lamp") {
+      if (rec.lamp <= 0) return true;
+      rec.lamp -= amount;
+      if (rec.lamp <= 0) rec.lamp = 0;
+      return true;
+    }
+    if (hit.part === "cable") rec.cable -= amount;
+    else rec.box -= amount;
+    if (rec.box <= 0 || rec.cable <= 0) {
+      rec.box = Math.max(0, rec.box);
+      rec.cable = Math.max(0, rec.cable);
+      markCut(state, hit.id);
+    }
+    return true;
+  }
+  function onBeam(m, px, pz, time) {
+    const span2 = m.sweep > 0 ? Math.sin(time * Math.PI * 2 / m.sweep) * 0.9 : 0;
+    const yaw = (m.yaw || 0) + span2;
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const dx = px - m.at[0];
+    const dz = pz - m.at[2];
+    const along = dx * fx + dz * fz;
+    if (along < 0 || along > (m.beam || 120)) return false;
+    const ox = dx - fx * along;
+    const oz = dz - fz * along;
+    return Math.hypot(ox, oz) <= (m.spot || 6);
+  }
+  function tickAlarms(state, dt) {
+    const lv = state.level;
+    const list = mechanisms(state);
+    let any = false;
+    for (let i = 0; i < list.length; i++) {
+      if (list[i].kind === "alarm" || list[i].kind === "searchlight") any = true;
+    }
+    for (const e of state.enemies) if (e.ringsAlarm || e.role === "runner") any = true;
+    if (!any) return;
+    const p = state.players[state.localPlayerId];
+    for (const m of list) {
+      if (m.kind !== "searchlight" || m.harmless || !m.alarm || !m.at || !p) continue;
+      const rec = recOf(lv, m);
+      if (rec.lamp <= 0 || alarmCut(lv, m.alarm)) {
+        rec.hold = 0;
+        continue;
+      }
+      if (onBeam(m, p.pos.x, p.pos.z, lv.time || 0)) rec.hold += dt;
+      else rec.hold = 0;
+      if (rec.hold >= (m.hold || 2)) ringAlarm(state, m.alarm);
+    }
+    for (const e of state.enemies) {
+      if (e.dead || e.type !== "spotterDrone" || !e.ringsAlarm || !p) continue;
+      if (alarmCut(lv, e.ringsAlarm)) continue;
+      const from = { x: e.pos.x, y: e.pos.y + 0.6, z: e.pos.z };
+      const to = { x: p.pos.x, y: p.pos.y + 1.2, z: p.pos.z };
+      const dist = Math.hypot(p.pos.x - e.pos.x, p.pos.z - e.pos.z);
+      const seeing = dist <= 35 && hasLOS(state, from, to, 35);
+      if (seeing) e.ai.spotT = (e.ai.spotT || 0) + dt;
+      else e.ai.spotT = Math.max(0, (e.ai.spotT || 0) - dt);
+      if ((e.ai.spotT || 0) >= 1.5) ringAlarm(state, e.ringsAlarm);
+    }
+  }
+  function runnerSteer(state, e, dt) {
+    if (!e || e.role !== "runner" || !e.alarm || e.dead) return null;
+    const lv = state.level;
+    if (!lv || lv.alarms && lv.alarms[e.alarm] != null) return null;
+    const box2 = alarmOf(state, e.alarm);
+    if (!box2 || !box2.at) return null;
+    const dx = box2.at[0] - e.pos.x;
+    const dz = box2.at[2] - e.pos.z;
+    const dist = Math.hypot(dx, dz);
+    const cut = alarmCut(lv, e.alarm);
+    if (dist > 1.8) {
+      e.ai.alarmT = 0;
+      return { x: dx / (dist || 1), z: dz / (dist || 1) };
+    }
+    e.ai.alarmT = (e.ai.alarmT || 0) + dt;
+    if (cut) return { x: 0, z: 0, wait: e.ai.alarmT < (box2.wonder || 3) };
+    if (e.ai.alarmT >= (box2.runner || 1.5)) ringAlarm(state, e.alarm);
+    return { x: 0, z: 0, wait: true };
+  }
+
   // src/sim/player.js
   var EMPTY_CMD = { yaw: 0, pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
   function playerInput(state, commands) {
@@ -6829,6 +7051,11 @@ var SprotoShooterSim = (() => {
       if (solids) {
         const wall = firstSolid(solids, origin, dir, remaining);
         if (wall && !damageLevelSolid(state, wall.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall.t;
+      }
+      const alarm = alarmRay(state, origin, dir, remaining);
+      if (alarm) {
+        damageAlarm(state, alarm, st.damage);
+        remaining = alarm.t;
       }
     }
     let pierce = st.pierce;
@@ -7631,6 +7858,7 @@ var SprotoShooterSim = (() => {
     if (p.padCd > 0) p.padCd -= dt;
     const sec = sectionById(lv.id, lv.section);
     if (!sec) return;
+    tickAlarms(state, dt);
     for (const m of sec.mechanisms || []) {
       touchMechanism(state, p, lv, sec, m, dt);
       tickZoneDamage(state, p, m, dt);
@@ -8486,41 +8714,6 @@ var SprotoShooterSim = (() => {
     }
   }
 
-  // src/sim/campaign/perception.js
-  var blocksSight = (s) => s.sight !== false;
-  function hasLOS(state, from, to, max = 80) {
-    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
-    const dist = Math.hypot(dx, dy, dz);
-    if (dist < 0.05) return true;
-    if (dist > max) return false;
-    const solids = activeSolids(state);
-    if (!solids) return true;
-    const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
-    const hit = raySolids(solids, from, dir, dist, blocksSight);
-    return hit < 0 || hit > dist - 0.25;
-  }
-  function sensePlayer(state, e, target) {
-    if (!e.ai.alert || e.ai.alert === "alerted") return true;
-    const sight = e.ai.sight || 28;
-    const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
-    const dist = Math.hypot(dx, dz);
-    const from = { x: e.pos.x, y: e.pos.y + e.height * 0.8, z: e.pos.z };
-    const to = { x: target.pos.x, y: target.pos.y + 1.2, z: target.pos.z };
-    let wake = dist <= sight && hasLOS(state, from, to);
-    if (!wake) {
-      const hear = e.ai.hearing || 16;
-      for (let i = 0; i < state.events.length; i++) {
-        if (state.events[i].type === "shot" && dist <= hear) {
-          wake = true;
-          break;
-        }
-      }
-    }
-    if (!wake) return false;
-    e.ai.alert = "alerted";
-    return true;
-  }
-
   // src/sim/campaign/nav.js
   var CELL = 1;
   var grids = /* @__PURE__ */ new WeakMap();
@@ -9033,8 +9226,13 @@ var SprotoShooterSim = (() => {
         const slow = e.status.goo ? 1 - e.status.goo.slow : 1;
         const zone2 = state.mode === "campaign" ? enemyZoneSlow(state.level, state._campaignSection, e) : 1;
         const rush = e.ai.charge ? 1.8 : 1;
-        const beh = BEHAVIORS[e.type] || BEHAVIORS[def.behavior];
-        beh.update(state, e, target, def, def.speed * e.speedMult * slow * zone2 * rush, dt);
+        const speed = def.speed * e.speedMult * slow * zone2 * rush;
+        const steer2 = state.mode === "campaign" ? runnerSteer(state, e, dt) : null;
+        if (steer2) approachVel(e, steer2, steer2.wait ? 0 : speed, 20, dt);
+        else {
+          const beh = BEHAVIORS[e.type] || BEHAVIORS[def.behavior];
+          beh.update(state, e, target, def, speed, dt);
+        }
         if (e.ai.bubble > 0) e.ai.bubble -= dt;
         tickArchetype(state, e, target, dt);
       }
@@ -10725,7 +10923,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "c5bdfe8210f91f8eb026bf11381628a4055446a9";
+  var SOURCE_COMMIT = "872f7d6c29e04a6395ebc33e0853045429c9b828";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
