@@ -9004,10 +9004,11 @@ var SprotoShooterSim = (() => {
     const book3 = state.level && state.level.scripts;
     if (!book3 || !solidId) return false;
     for (const prog of Object.values(book3)) {
-      for (const id of Object.keys(prog.targets)) {
+      const targets = prog.targets || {};
+      for (const id of Object.keys(targets)) {
         const spec = (prog.specs || {})[id];
         if (!spec || !spec.shields || spec.shields.indexOf(solidId) < 0) continue;
-        const e = state.enemies.find((en) => en.id === prog.targets[id]);
+        const e = state.enemies.find((en) => en.id === targets[id]);
         if (e && !e.dead) return true;
       }
     }
@@ -15439,7 +15440,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "96c576492c996d14b0911847f351131cabbc33c4";
+  var SOURCE_COMMIT = "f2034e7b3a22ebfb451b46ba77279b97eb945c50";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
