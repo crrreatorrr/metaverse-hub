@@ -52,14 +52,42 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   const it = createInterp(150);
   const out = { x: 0, y: 0, z: 0, yaw: 0, anim: 0 };
   assert.equal(it.sample(0, out), null);
+  assert.equal(it.poseHoldMs(0), 0);
   it.push(1000, { x: 0, y: 0, z: 0, yaw: 6.2, anim: 1 });
   it.push(1100, { x: 1, y: 0, z: 0, yaw: 0.1, anim: 1 });
   it.sample(1200, out);
   assert.ok(Math.abs(out.x - 0.5) < 1e-9);
   assert.ok(out.yaw > 6.2 || out.yaw < 0.1, `short arc, got ${out.yaw}`);
+  assert.equal(it.poseHoldMs(1250), 0);
+  assert.equal(it.poseHoldMs(1251), 1);
+  assert.equal(it.poseHoldMs(1400), 150);
+  assert.equal(it.poseHoldMs(1401), 151);
   it.push(1200, { x: 40, y: 0, z: 0, yaw: 0, anim: 0 });
   it.sample(1250, out);
   assert.equal(out.x, 40, 'teleports snap');
+}
+
+// A 0.025 m/s walk sends a changed centimetre every 400 ms.
+{
+  const it = createInterp();
+  const push = (at: number, x: number, anim: number) => it.push(at, { x, y: 0, z: 0, yaw: 0, anim });
+  push(0, 0, 1);
+  it.push(200, { x: 0, y: 0, z: 0, yaw: 0.05, anim: 1 });
+  push(400, 0.01, 1);
+  it.push(500, { x: 0.01, y: 0, z: 0, yaw: 0.1, anim: 1 });
+  assert.ok(Math.abs((it.slowGroundSpeed(799) ?? 0) - 0.025) < 1e-9);
+  assert.equal(it.slowGroundSpeed(951), undefined, 'stop holding after the expected next sample');
+  push(800, 0.02, 1);
+  assert.ok(Math.abs((it.slowGroundSpeed(1199) ?? 0) - 0.025) < 1e-9);
+  push(1200, 0.02, 0);
+  assert.equal(it.slowGroundSpeed(1200), undefined, 'an explicit idle ends the cadence estimate');
+  it.clear();
+  assert.equal(it.slowGroundSpeed(1300), undefined);
+  push(1400, 0.01, 1);
+  push(1800, 0.01, 1);
+  push(1900, 0.01, 1);
+  push(2000, 0, 1);
+  assert.ok((it.slowGroundSpeed(2050) ?? 0) > 0.02, 'a reversal across the quantization boundary keeps a gait');
 }
 
 // RemoteWorld: snapshot excludes self, roster add/upd/del, deltas feed interp.

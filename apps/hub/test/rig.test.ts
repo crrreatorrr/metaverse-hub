@@ -1,10 +1,12 @@
 // Gait retarget and foot-plant checks on the shipped avatar GLBs (apps/hub/public/world/v2/avatar).
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Object3D } from 'three';
+import { AnimationMixer, Box3, Object3D, Quaternion, Vector3, type AnimationClip, type SkinnedMesh } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
+import { AVATAR_BLEND, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
+import { createBootSupport } from '../src/rig/boot-support';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
+import { applyGaitProfile } from '../src/rig/gait-profile';
 import { buildLocomotion, groundSpeedOf, onWizardSkeleton, P4_CLIPS } from '../src/rig/locomotion';
 import { loadGLB } from './support/load-glb';
 
@@ -23,6 +25,135 @@ function restHeight(root: Object3D): number {
   return box.max.y - box.min.y;
 }
 
+/** Boot geometry can be weighted to a shin instead of a foot or toe. */
+function checkBootClearance(root: Object3D, clips: readonly AnimationClip[], fit: number): void {
+  const boots: { mesh: SkinnedMesh; indices: number[] }[] = [];
+  const vertex = new Vector3();
+  root.traverse((obj) => {
+    const mesh = obj as SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const joints = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const indices = [];
+    for (let i = 0; i < joints.count; i += 1) {
+      let strongest = 0;
+      for (let j = 1; j < weights.itemSize; j += 1) {
+        if (weights.getComponent(i, j) > weights.getComponent(i, strongest)) strongest = j;
+      }
+      const bone = mesh.skeleton.bones[joints.getComponent(i, strongest)];
+      if (bone && /^(Left|Right)(Leg|Foot|ToeBase)$/.test(bone.name)) indices.push(i);
+    }
+    if (indices.length) boots.push({ mesh, indices });
+  });
+  assert.ok(boots.length > 0);
+  const lowest = () => {
+    root.parent?.updateWorldMatrix(true, false);
+    root.updateMatrixWorld(true);
+    let y = Infinity;
+    for (const { mesh, indices } of boots) {
+      for (const index of indices) {
+        mesh.getVertexPosition(index, vertex).applyMatrix4(mesh.matrixWorld);
+        y = Math.min(y, vertex.y);
+      }
+    }
+    return y;
+  };
+  const floor = lowest();
+  const mixer = new AnimationMixer(root);
+  for (const name of P4_CLIPS) {
+    const gait = clip(clips, name);
+    mixer.clipAction(gait).play();
+    for (let i = 0; i < 120; i += 1) {
+      mixer.setTime(gait.duration * i / 120);
+      assert.ok(lowest() >= floor - 0.001, `Mega Tinubu's ${name} boot clips the floor at sample ${i}`);
+    }
+    mixer.stopAllAction();
+  }
+  const avatar = new Object3D();
+  const pivot = new Object3D();
+  avatar.position.set(2, 0.86, -3);
+  avatar.rotation.y = 0.7;
+  avatar.add(pivot);
+  pivot.add(root);
+  root.scale.setScalar(fit);
+  root.position.y = -floor * fit;
+  const support = createBootSupport(root, pivot, avatar);
+  assert.ok(support);
+  const idle = mixer.clipAction(clip(clips, 'idle')).play();
+  mixer.update(0.5);
+  const sprint = mixer.clipAction(clip(clips, 'dash')).play();
+  sprint.timeScale = SPRINT_SPEED / (fit * groundSpeedOf(sprint.getClip()));
+  idle.crossFadeTo(sprint, AVATAR_BLEND.idleToMove, false);
+  for (let i = 0; i < 22; i += 1) {
+    mixer.update(1 / 60);
+    support(1 / 60, true);
+  }
+  idle.reset().setEffectiveWeight(1).play();
+  sprint.crossFadeTo(idle, AVATAR_BLEND.moveToIdle, false);
+  for (let i = 0; i < 12; i += 1) {
+    mixer.update(1 / 60);
+    support(1 / 60, true);
+    assert.ok(lowest() >= avatar.position.y - 0.001, `Mega Tinubu's boot clips while stopping at frame ${i}`);
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
+}
+
+/** Exercise the production support against native bones after Three sanitizes their names. */
+function checkNativeSupport(id: string, root: Object3D, clips: readonly AnimationClip[]): void {
+  const avatar = new Object3D();
+  const pivot = new Object3D();
+  root.updateMatrixWorld(true);
+  const restFloor = new Box3().setFromObject(root, true).min.y;
+  avatar.position.set(-2, 0.86, 3);
+  avatar.rotation.y = -0.4;
+  avatar.add(pivot);
+  pivot.add(root);
+  root.position.y = -restFloor;
+  const support = createBootSupport(root, pivot, avatar, true);
+  assert.ok(support, 'native creature supplies foot probes');
+  const feet: { mesh: SkinnedMesh; indices: number[] }[] = [];
+  root.traverse((object) => {
+    const mesh = object as SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const joints = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const indices: number[] = [];
+    for (let i = 0; i < joints.count; i++) {
+      let footWeight = 0;
+      for (let j = 0; j < weights.itemSize; j++) {
+        const name = mesh.skeleton.bones[joints.getComponent(i, j)]?.name ?? '';
+        if (/foot|toe/i.test(name)) footWeight += weights.getComponent(i, j);
+      }
+      if (footWeight >= 0.55) indices.push(i);
+    }
+    if (indices.length) feet.push({ mesh, indices });
+  });
+  assert.ok(feet.length);
+  const mixer = new AnimationMixer(root);
+  let previous = mixer.clipAction(clip(clips, 'idle')).play();
+  const point = new Vector3();
+  for (const name of ['run', 'idle', 'jump', 'run', 'idle']) {
+    const next = mixer.clipAction(clip(clips, name)).reset().setEffectiveWeight(1).play();
+    previous.crossFadeTo(next, 0.2, false);
+    for (let frame = 0; frame < 30; frame++) {
+      mixer.update(1 / 60);
+      support(1 / 60, true);
+      if (frame < 6) continue;
+      avatar.updateMatrixWorld(true);
+      for (const { mesh, indices } of feet) {
+        for (const index of indices) {
+          mesh.getVertexPosition(index, point).applyMatrix4(mesh.matrixWorld);
+          assert.ok(point.y >= avatar.position.y - 0.001, `${id} foot ${point.y-avatar.position.y} clips during ${name} at frame ${frame}`);
+        }
+      }
+    }
+    previous = next;
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
+}
+
 async function main(): Promise<void> {
   const wizard = await loadGLB(`${PUBLIC}world/v2/avatar/wizard.glb`);
 
@@ -32,6 +163,10 @@ async function main(): Promise<void> {
     const measured = measureGroundSpeed(SkeletonUtils.clone(wizard.scene), clip(wizard.animations, name));
     const expected = authored.speed_mps / authored.fit_scale;
     assert.ok(Math.abs(measured - expected) / expected < 0.02, `wizard ${name}: measured ${measured}, authored ${expected}`);
+    const source = clip(wizard.animations, name);
+    const played = applyGaitProfile(source, wizard.scene.userData.native_locomotion_v1);
+    assert.notEqual(played, source, `Wizard playback has its own ${name} calibration`);
+    assert.equal(source.userData.speed_mps, authored.speed_mps, 'the donor retains its authored speed');
   }
   assert.equal(measureGroundSpeed(SkeletonUtils.clone(wizard.scene), clip(wizard.animations, 'idle')), 0, 'idle has no stride');
 
@@ -82,6 +217,29 @@ async function main(): Promise<void> {
       continue;
     }
     onSkeleton += 1;
+    if (character.id === 'hexsahil') {
+      const original = SkeletonUtils.clone(rig.scene);
+      const { dash } = original.userData.locomotion_v1 as {
+        dash: { phase: number; lift: number[]; groundSpeed: number };
+      };
+      delete original.userData.locomotion_v1;
+      const uncalibrated = clip(buildLocomotion({ scene: original, animations: rig.animations }, wizard), 'dash');
+      const calibrated = clip(clips, 'dash');
+      const time = (1 + dash.phase) * calibrated.duration;
+      const value = (gait: AnimationClip, track: string, t: number) => {
+        const key = gait.tracks.find((entry) => entry.name === track);
+        assert.ok(key);
+        return key.InterpolantFactoryMethodLinear().evaluate(t);
+      };
+      const before = value(uncalibrated, 'Hips.position', time);
+      const after = value(calibrated, 'Hips.position', 0);
+      assert.ok(Math.abs(after[0]! - before[0]!) < 1e-5 && Math.abs(after[2]! - before[2]!) < 1e-5);
+      assert.ok(Math.abs(after[1]! - before[1]! - dash.lift[0]!) < 1e-5);
+      const sourceHand = new Quaternion().fromArray(value(uncalibrated, 'LeftHand.quaternion', time)).normalize();
+      const fittedHand = new Quaternion().fromArray(value(calibrated, 'LeftHand.quaternion', 0)).normalize();
+      assert.ok(sourceHand.angleTo(fittedHand) < 0.001, 'gait phase shifts the existing hand pose with the feet');
+      assert.equal(groundSpeedOf(calibrated), dash.groundSpeed);
+    }
     const fit = characterHeight(character) / restHeight(SkeletonUtils.clone(rig.scene));
     for (const [name, actual] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
       const gait = clip(clips, name);
@@ -114,6 +272,7 @@ async function main(): Promise<void> {
       const drift = Math.abs(lowest(clip(clips, name)) - floor) * fit;
       assert.ok(drift < 0.06, `${character.id} ${name}: toes ${drift.toFixed(3)} m off the idle floor`);
     }
+    if (character.id === 'megatinubu') checkBootClearance(SkeletonUtils.clone(rig.scene), clips, fit);
   }
   // 4. The Sproto Shooter cast ship a standing `idle` and a measured `run` (the plaza plays it for both gaits, see
   //    `walksWithRun`); the jade dragon hovers in `idle` and flies `walk` and `run`.
@@ -125,6 +284,7 @@ async function main(): Promise<void> {
     const clips = buildLocomotion(rig, null);
     clip(clips, 'idle');
     for (const name of ['walk', 'run']) assert.ok(groundSpeedOf(clip(clips, name)) > 0, `${character.id} ${name} has a planted-foot stride`);
+    if (character.id !== 'soldier') checkNativeSupport(character.id, SkeletonUtils.clone(rig.scene), clips);
   }
   {
     const dragon = CHARACTERS.find((entry) => entry.id === 'dragon');
