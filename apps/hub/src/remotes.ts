@@ -286,6 +286,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         if (n) {
           nearCount += 1;
           n.root.visible = true;
+          const travel = Math.hypot(r.x - n.root.position.x, r.z - n.root.position.z);
           n.root.position.set(r.x, r.y, r.z);
           n.rig.group.rotation.y = -r.yaw;
           const anim = ANIMS[r.anim] ?? 'idle';
@@ -303,6 +304,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const flightDt = discontinuity ? dt : startingNearGround ? poseDt * 0.5 : poseDt;
           // Slow the turn at coarse render intervals to preserve the inverted pose.
           const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
+          const speed = !discontinuity && poseDt > 0 && travel < 5 ? travel / poseDt : undefined;
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
           n.lastY = r.y;
@@ -311,7 +313,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           n.vy = MathUtils.damp(n.vy, rise, 12, dt);
           n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run', {
             airborne, vy: n.vy, flight: { airborne, dt: flightStep, remote: true, restart, takeoff: rising },
-          });
+          }, speed);
           const dist = camera.position.distanceTo(n.root.position);
           head.set(r.x, r.y - STAND_Y + 2.15, r.z).project(camera);
           if (dist > LABEL_RADIUS || head.z > 1 || Math.abs(head.x) > 1.1 || Math.abs(head.y) > 1.1) {

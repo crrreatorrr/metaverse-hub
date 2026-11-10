@@ -82,8 +82,8 @@ export interface AvatarRig {
   readonly group: Group;
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
-  /** `air` drives the jump clip; leave it out for a rig that is always grounded. */
-  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void;
+  /** `air` drives the jump clip. `speed` is the actual horizontal travel in metres per second. */
+  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void;
   /** Character, staff and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
@@ -107,6 +107,7 @@ export function createAvatarRig(): AvatarRig {
   const flightTurn = createFlightTurn();
   let hasBackflip = false;
   let bootSupport: ReturnType<typeof createBootSupport> = null;
+  let strideSpeed: number | null = null;
   let pose: Pose = 'idle';
   let bank = 0;
   let lastYaw: number | null = null;
@@ -171,10 +172,15 @@ export function createAvatarRig(): AvatarRig {
         const nextSocket = staffSocket(next, staffScale(character));
         const nextMixer = new AnimationMixer(next);
         const claimed = new WeakSet<AnimationClip>();
+        const idle = playClip(nextMixer, clips, 'idle', claimed);
+        const useRunForWalk = walksWithRun(character);
+        const walkClips = useRunForWalk ? clips.filter((clip) => clip.name !== 'walk') : clips;
+        const walk = playClip(nextMixer, walkClips, 'walk', claimed);
+        const sharedStride = useRunForWalk && walk.getClip() === findGaitClip(clips, 'run');
         const nextActions = {
-          idle: playClip(nextMixer, clips, 'idle', claimed),
-          walk: playClip(nextMixer, walksWithRun(character) ? clips.filter((clip) => clip.name !== 'walk') : clips, 'walk', claimed),
-          run: playClip(nextMixer, clips, 'run', claimed),
+          idle,
+          walk,
+          run: sharedStride ? walk : playClip(nextMixer, clips, 'run', claimed),
           air: airClip(nextMixer, clips),
         };
         unmountStaff();
@@ -183,6 +189,7 @@ export function createAvatarRig(): AvatarRig {
         socket = nextSocket;
         mixer = nextMixer;
         actions = nextActions;
+        strideSpeed = null;
         hasBackflip = character.id === 'flyer';
         flightTurn.reset();
         body.add(next);
@@ -213,7 +220,7 @@ export function createAvatarRig(): AvatarRig {
    * so the planted foot moves with the floor. Clips with no measured stride keep the rate `playClip` set.
    */
   function retime(): void {
-    if (!actions || !model) return;
+    if (!actions || !model || actions.walk === actions.run) return;
     const scale = model.scale.y;
     for (const gait of ['walk', 'run'] as const) {
       const action = actions[gait];
@@ -232,8 +239,18 @@ export function createAvatarRig(): AvatarRig {
     return to === 'run' ? AVATAR_BLEND.jogToDash : AVATAR_BLEND.dashToJog;
   }
 
-  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
+  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void {
     if (!mixer || !actions) return;
+    if (actions.walk === actions.run) {
+      // The creature has one run cycle. Keep its phase through speed changes
+      // and blend to idle when a wall stops the body.
+      const travel = moving ? (speed ?? (sprint ? SPRINT_SPEED : WALK_SPEED)) : 0;
+      strideSpeed = MathUtils.damp(strideSpeed ?? travel, travel, 24, dt);
+      const authored = groundSpeedOf(actions.walk.getClip()) * (model?.scale.y ?? 1);
+      const stride = authored > 0 ? authored : SPRINT_SPEED / AVATAR_CLIPS.run.timeScale;
+      actions.walk.timeScale = MathUtils.clamp(strideSpeed / stride, 0, TIME_SCALE_MAX);
+      moving = moving && strideSpeed > 0.4;
+    }
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
     const recover = hasBackflip && pose === 'air' && !flight.airborne && flightTurn.needsRecovery;
     const flightPhase = hasBackflip ? flightTurn.update(flight, air?.vy ?? 0) : null;
@@ -339,7 +356,7 @@ export function createAvatarRig(): AvatarRig {
     if (socket) aura.setColor(socket.color);
   }
 
-  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
+  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void {
     if (aura.group.visible) {
       auraClock += dt;
       aura.ring.rotation.z += dt * 0.9;
@@ -348,7 +365,7 @@ export function createAvatarRig(): AvatarRig {
       aura.columnMat.opacity = 0.22 + pulse * 0.16;
     }
     bankInto(dt, moving && !air?.airborne, sprint);
-    update(dt, moving, sprint, air);
+    update(dt, moving, sprint, air, speed);
     staffMixer?.update(dt);
     if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
   }
@@ -551,14 +568,18 @@ function holdPose(source: AnimationClip): AnimationClip {
   return new AnimationClip('idle', 1, tracks);
 }
 
+function findGaitClip(clips: readonly AnimationClip[], gait: keyof typeof AVATAR_CLIPS): AnimationClip | undefined {
+  return GAIT_CLIP_NAMES[gait]
+    .map((name) => clips.find((clip) => clip.name === name))
+    .find((clip): clip is AnimationClip => Boolean(clip));
+}
+
 function requiredClip(
   clips: readonly AnimationClip[],
   gait: keyof typeof AVATAR_CLIPS,
   claimed: WeakSet<AnimationClip>,
 ): AnimationClip {
-  const found = GAIT_CLIP_NAMES[gait]
-    .map((name) => clips.find((clip) => clip.name === name))
-    .find((clip): clip is AnimationClip => Boolean(clip));
+  const found = findGaitClip(clips, gait);
   if (found) return claimClip(found, gait, claimed);
   if (gait === 'idle') {
     const move = clips.find((clip) => clip.name === 'walk' || clip.name === 'run' || clip.name === 'jog');

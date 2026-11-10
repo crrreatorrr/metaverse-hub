@@ -463,7 +463,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const pads = navigator.getGamepads?.() ?? [];
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
     const input = readInput(padMove);
+    const previousX = player.position.x;
+    const previousZ = player.position.z;
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
+    const speed = dt > 0 ? Math.hypot(player.position.x - previousX, player.position.z - previousZ) / dt : undefined;
     const moving = Math.hypot(input.forward, input.strafe) > 0;
     airTime = player.grounded ? 0 : airTime + dt;
     const air = {
@@ -483,7 +486,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     world.shadow.scale.setScalar((1.15 + lift * 0.25) * AVATAR_SCALE);
     world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
-    engine.update(dt, moving, input.sprint, air);
+    engine.update(dt, moving, input.sprint, air, speed);
     content.update(dt, { moving, sprint: input.sprint, position: player.position });
     remotes.update(dt, performance.now(), world.camera, player.position);
     overheads.update(dt, world.camera, (id, out) => remotes.positionOf(id, out), { width: window.innerWidth, height: window.innerHeight });
