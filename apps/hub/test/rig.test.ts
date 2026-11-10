@@ -82,6 +82,29 @@ async function main(): Promise<void> {
       continue;
     }
     onSkeleton += 1;
+    if (character.id === 'hexsahil') {
+      const original = SkeletonUtils.clone(rig.scene);
+      const { dash } = original.userData.locomotion_v1 as {
+        dash: { phase: number; lift: number[]; groundSpeed: number };
+      };
+      delete original.userData.locomotion_v1;
+      const uncalibrated = clip(buildLocomotion({ scene: original, animations: rig.animations }, wizard), 'dash');
+      const calibrated = clip(clips, 'dash');
+      const time = (1 + dash.phase) * calibrated.duration;
+      const value = (gait: AnimationClip, track: string, t: number) => {
+        const key = gait.tracks.find((entry) => entry.name === track);
+        assert.ok(key);
+        return key.InterpolantFactoryMethodLinear().evaluate(t);
+      };
+      const before = value(uncalibrated, 'Hips.position', time);
+      const after = value(calibrated, 'Hips.position', 0);
+      assert.ok(Math.abs(after[0]! - before[0]!) < 1e-5 && Math.abs(after[2]! - before[2]!) < 1e-5);
+      assert.ok(Math.abs(after[1]! - before[1]! - dash.lift[0]!) < 1e-5);
+      const sourceHand = new Quaternion().fromArray(value(uncalibrated, 'LeftHand.quaternion', time)).normalize();
+      const fittedHand = new Quaternion().fromArray(value(calibrated, 'LeftHand.quaternion', 0)).normalize();
+      assert.ok(sourceHand.angleTo(fittedHand) < 0.001, 'gait phase shifts the existing hand pose with the feet');
+      assert.equal(groundSpeedOf(calibrated), dash.groundSpeed);
+    }
     const fit = characterHeight(character) / restHeight(SkeletonUtils.clone(rig.scene));
     for (const [name, actual] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
       const gait = clip(clips, name);
