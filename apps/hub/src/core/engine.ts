@@ -153,9 +153,10 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number) {
       elapsed += dt;
       for (const fn of animated) fn(elapsed, dt);
-      actors().avatarRig.update(dt, moving, sprint, air, speed);
+      const rigMoving = actors().avatarRig.update(dt, moving, sprint, air, speed);
       actors().pets.update(dt, actors().rig.position, STAND_Y, sprint);
       gems.update(elapsed);
+      return rigMoving;
     },
     render(measure = true) {
       scene.updateMatrixWorld(true);

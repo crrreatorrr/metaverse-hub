@@ -82,8 +82,8 @@ export interface AvatarRig {
   readonly group: Group;
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
-  /** `air` drives the jump clip. `speed` is horizontal metres per second, or null during a brief pose gap. */
-  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void;
+  /** Update the pose and return whether the rig is moving. `speed` is horizontal m/s, or null during a brief pose gap. */
+  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): boolean;
   /** Character, staff and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
@@ -239,8 +239,8 @@ export function createAvatarRig(): AvatarRig {
     return to === 'run' ? AVATAR_BLEND.jogToDash : AVATAR_BLEND.dashToJog;
   }
 
-  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void {
-    if (!mixer || !actions) return;
+  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): boolean {
+    if (!mixer || !actions) return moving;
     const sharedStride = actions.walk === actions.run;
     if (sharedStride) {
       // Keep the last measured rate during a brief remote pose gap.
@@ -289,6 +289,7 @@ export function createAvatarRig(): AvatarRig {
     }
     mixer.update(dt);
     bootSupport?.(dt, !(air?.flight?.airborne ?? air?.airborne));
+    return moving;
   }
 
   /** Roll into turns while moving, from the yaw the owner set on `group` this frame. */
@@ -361,7 +362,7 @@ export function createAvatarRig(): AvatarRig {
     if (socket) aura.setColor(socket.color);
   }
 
-  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void {
+  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): boolean {
     if (aura.group.visible) {
       auraClock += dt;
       aura.ring.rotation.z += dt * 0.9;
@@ -370,9 +371,10 @@ export function createAvatarRig(): AvatarRig {
       aura.columnMat.opacity = 0.22 + pulse * 0.16;
     }
     bankInto(dt, moving && !air?.airborne, sprint);
-    update(dt, moving, sprint, air, speed);
+    const rigMoving = update(dt, moving, sprint, air, speed);
     staffMixer?.update(dt);
     if (staffObject && socket?.userData.upright && model) holdUpright(socket, model);
+    return rigMoving;
   }
 
   return { group, load, update: tick, setLook };

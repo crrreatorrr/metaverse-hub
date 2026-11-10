@@ -486,7 +486,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     world.shadow.scale.setScalar((1.15 + lift * 0.25) * AVATAR_SCALE);
     world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
-    engine.update(dt, moving, input.sprint, air, speed);
+    const rigMoving = engine.update(dt, moving, input.sprint, air, speed);
     content.update(dt, { moving, sprint: input.sprint, position: player.position });
     remotes.update(dt, performance.now(), world.camera, player.position);
     overheads.update(dt, world.camera, (id, out) => remotes.positionOf(id, out), { width: window.innerWidth, height: window.innerHeight });
@@ -495,7 +495,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       player.position.y,
       player.position.z,
       bodyYaw,
-      animIndex(air.airborne ? 'jump' : moving ? (input.sprint ? 'run' : 'walk') : 'idle'),
+      animIndex(air.airborne ? 'jump' : rigMoving ? (input.sprint ? 'run' : 'walk') : 'idle'),
     );
     const warp = content.consumeWarp?.();
     if (warp) {

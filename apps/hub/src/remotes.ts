@@ -307,7 +307,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
           let speed: number | null | undefined;
           if (!discontinuity && poseDt > 0 && travel <= SNAP_DISTANCE) {
-            speed = travel === 0 && p?.interp.awaitingPose(nowMs) ? null : travel / poseDt;
+            speed = p?.interp.awaitingPose(nowMs) ? null : travel / poseDt;
           }
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
