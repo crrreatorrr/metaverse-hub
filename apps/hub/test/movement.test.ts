@@ -58,34 +58,35 @@ assert.ok(player.position.y > restY + 0.08, 'zero-delta jump still launches on t
 // upward. A sprint-jump into the back wall must settle on the club floor.
 const clubFloor = -300 + STAND_Y;
 // Contact between the counter and stools repeatedly nudges the stopped capsule.
-{
+for (const hz of [30, 60, 120]) {
+  const dt = 1 / hz;
   const x = 3.1;
   const z = 9.33;
   player.spawn(x, clubFloor, z, Math.PI);
   const cadence = createPlanarSpeed(x, z);
-  for (let i = 0; i < 300; i++) {
-    player.step(1 / 60, { ...idle, forward: 1, yaw: Math.PI }, speeds);
-    const speed = cadence.sample(1 / 60, player.position.x, player.position.z)!;
-    if (i >= 120) assert.ok(speed < 0.02, `blocked cadence: ${speed}`);
+  for (let i = 0; i < 5 * hz; i++) {
+    player.step(dt, { ...idle, forward: 1, yaw: Math.PI }, speeds);
+    const speed = cadence.sample(dt, player.position.x, player.position.z)!;
+    if (i >= 2 * hz) assert.ok(speed < 0.02, `blocked cadence: ${speed}`);
   }
   cadence.reset(player.position.x, player.position.z);
   let filtered = 0;
-  for (let i = 0; i < 240; i++) {
+  for (let i = 0; i < 4 * hz; i++) {
     const yaw = Math.floor(i / 5) % 2 === 0 ? 0 : Math.PI;
-    player.step(1 / 60, { ...idle, forward: 1, yaw }, speeds);
-    const speed = cadence.sample(1 / 60, player.position.x, player.position.z, player.facingYaw, speeds.walk)!;
-    filtered += (speed - filtered) * (1 - Math.exp(-36 / 60));
-    if (i >= 60) assert.ok(filtered < 0.02, `blocked cadence with alternating input: ${filtered}`);
+    player.step(dt, { ...idle, forward: 1, yaw }, speeds);
+    const speed = cadence.sample(dt, player.position.x, player.position.z, player.facingYaw, speeds.walk)!;
+    filtered += (speed - filtered) * (1 - Math.exp(-36 * dt));
+    if (i >= hz) assert.ok(filtered < 0.02, `blocked cadence with alternating input: ${filtered}`);
   }
   // Gentle sustained input clears the same threshold, including after a warp.
   cadence.reset(2, 5);
   assert.equal(cadence.sample(0, 2, 5), undefined);
-  for (let i = 1; i <= 30; i++) {
-    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, Math.PI / 2, 0.025)!;
+  for (let i = 1; i <= hz / 2; i++) {
+    const speed = cadence.sample(dt, 2 + i * 0.025 / hz, 5, Math.PI / 2, 0.025)!;
     assert.ok(Math.abs(speed - 0.025) < 1e-9);
   }
-  for (let i = 29; i >= 0; i--) {
-    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, -Math.PI / 2, 0.025)!;
+  for (let i = hz / 2 - 1; i >= 0; i--) {
+    const speed = cadence.sample(dt, 2 + i * 0.025 / hz, 5, -Math.PI / 2, 0.025)!;
     assert.ok(Math.abs(speed - 0.025) < 1e-9, `slow reversal cadence: ${speed}`);
   }
 }
