@@ -92,8 +92,8 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     tempBox.min.addScalar(-CAPSULE_RADIUS);
     tempBox.max.addScalar(CAPSULE_RADIUS);
 
-    let floorLift = 0;
-    let ceilingDrop = 0;
+    let floorY = -Infinity;
+    let ceilingY = Infinity;
     bvh.shapecast({
       intersectsBounds: (box) => (box.intersectsBox(tempBox) ? INTERSECTED : NOT_INTERSECTED),
       intersectsTriangle: (tri) => {
@@ -109,8 +109,9 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
           // A vertical face can push up at a triangle edge. Only surfaces
           // with a vertical normal component can support or cap the capsule.
           if (Math.abs(tri.getNormal(normal).y) >= 0.45) {
-            if (direction.y >= 0.45 && contactY <= tempSegment.end.y + 1e-6) floorLift += direction.y * depth;
-            if (direction.y <= -0.45 && contactY >= tempSegment.start.y - 1e-6) ceilingDrop += direction.y * depth;
+            const correctedY = tempSegment.start.y + direction.y * depth;
+            if (direction.y >= 0.45 && contactY <= tempSegment.end.y + 1e-6) floorY = Math.max(floorY, correctedY);
+            if (direction.y <= -0.45 && contactY >= tempSegment.start.y - 1e-6) ceilingY = Math.min(ceilingY, correctedY);
           }
           tempSegment.start.addScaledVector(direction, depth);
           tempSegment.end.addScaledVector(direction, depth);
@@ -121,8 +122,11 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
 
     delta.subVectors(tempSegment.start, position);
     const separated = delta.length();
-    // Strip steep wall lift while retaining any support or overhead contact.
-    if (separated > 1e-8 && delta.y / separated < 0.45) delta.y = floorLift + ceilingDrop;
+    // Use the contact heights here, since a wall may have temporarily pushed
+    // the segment down before the floor triangle was visited (or vice versa).
+    if (separated > 1e-8 && delta.y / separated < 0.45) {
+      delta.y = Math.max(0, floorY - position.y) + Math.min(0, ceilingY - position.y);
+    }
     const len = delta.length();
     const rising = velocity.y > 0.2;
     grounded = !rising && delta.y > Math.abs(dt * velocity.y * 0.25);
@@ -134,7 +138,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
       }
     }
     if (grounded) velocity.set(0, 0, 0);
-    else if (ceilingDrop < 0 && velocity.y > 0) velocity.y = 0;
+    else if (ceilingY < position.y + 1e-5 && velocity.y > 0) velocity.y = 0;
   }
 
   function step(dt: number, input: MoveInput, speeds: MoveSpeeds): void {

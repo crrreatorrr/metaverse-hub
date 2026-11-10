@@ -62,6 +62,25 @@ for (let i = 0; i < 40; i++) {
 }
 assert.ok(clubPeak > clubFloor + 0.4 && clubPeak < clubFloor + 0.9, `club wall jump peak: ${clubPeak}`);
 assert.ok(player.grounded && Math.abs(player.position.y - clubFloor) < 0.01, `club wall landing: ${player.position.y}`);
+// Floor support must use the absolute contact height. A preceding wall
+// push can otherwise be counted a second time and cause a tiny false takeoff.
+for (const hz of [20, 60, 120]) {
+  const yaw = 5 * Math.PI / 4;
+  player.spawn(-14, clubFloor, 13, yaw);
+  for (let i = 0; i < 2 * hz; i++) {
+    player.step(1 / hz, { ...idle, forward: 1, sprint: true, yaw }, speeds);
+    if (i >= hz) {
+      assert.ok(player.grounded && Math.abs(player.position.y - clubFloor) < 0.01, `club corner stays grounded at ${hz} Hz`);
+    }
+  }
+  player.step(1 / hz, { ...idle, jump: true, yaw }, speeds);
+  assert.ok(!player.grounded && player.velocity.y > 0, `club corner accepts jump at ${hz} Hz`);
+}
+player.spawn(-13, clubFloor, 12, 3.5);
+const alongBackWall = { ...idle, forward: 1, sprint: true, yaw: 3.5 };
+for (let i = 0; i < 120; i++) player.step(1 / 60, alongBackWall, speeds);
+player.step(1 / 60, { ...alongBackWall, jump: true }, speeds);
+assert.ok(!player.grounded && player.velocity.y > 0, 'back wall contact does not swallow the sprint-jump');
 collider.geometry.dispose();
 console.log('locked movement and live plaza capsule ok', { restY, jump: peak - restY });
 
