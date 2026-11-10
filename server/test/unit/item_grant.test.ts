@@ -81,11 +81,11 @@ function block(name: string): string {
     server.nk.onSql(/SELECT COALESCE\(json_agg\(item_id ORDER BY item_id\)/, () => [{ result: JSON.stringify([pet]) }]);
     server.nk.onSql(/SELECT COALESCE\(json_agg\(relic_id\)/, () => [{ result: JSON.stringify(claimed ? [relic] : []) }]);
     server.nk.onSql(/SELECT to_char\(now\(\)/, [{ result: '2026-01-01T00:00:00Z' }]);
-    assert.deepEqual(profile(), { owned: [], active: null });
+    assert.deepEqual(profile(), { owned: ['pet_starter'], active: null });
     const equip = () => server.call<{ ok: boolean; reason?: string }>('loadout.set_hub', ctx, { v: 1, pet, seq: 1 });
     assert.equal(equip().reason, 'not_owned');
     claimed = true;
-    const owned = legacy ? [legacy, pet].sort() : [pet];
+    const owned = (legacy ? [legacy, pet, 'pet_starter'] : [pet, 'pet_starter']).sort();
     assert.deepEqual(profile(), { owned, active: null });
     assert.equal(equip().ok, true);
     assert.deepEqual(profile(), { owned, active: pet });

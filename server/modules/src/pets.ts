@@ -49,6 +49,12 @@ namespace HubPets {
     { id: "pet_sproto_pup", relic: "", live: true, backfill: false, store: false },
   ];
 
+  // Missing flag rows default off. No purchase RPC or wallet mutation is provided.
+  export function catalog(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
+    if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
+    return JSON.stringify({ pets: FOLLOWERS, buyingEnabled: Flags.on(nk, "pet_buying", ctx.userId, logger) });
+  }
+
   export interface ProfilePets {
     owned: string[];
     active: string | null;
@@ -191,7 +197,7 @@ namespace HubPets {
    * from item_owned. This does not grant.
    */
   function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
-    var have: { [id: string]: boolean } = {};
+    var have: { [id: string]: boolean } = { pet_starter: true };
     var itemSql = "SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json)::text AS result FROM game.item_owned WHERE user_id = $1::uuid AND item_id IN (" + nonRelicList() + ")";
     var items = queryList(nk, itemSql, [userId]);
     for (var i = 0; i < items.length; i++) {
@@ -206,6 +212,13 @@ namespace HubPets {
       var def = PETS[p];
       if (def.relic && relics.indexOf(def.relic) >= 0) have[def.id] = true;
     }
+    // Materialize the authoritative entitlement snapshot in owner-readable, server-write-only storage.
+    var ids = sortedIds(have);
+    var rows = nk.storageRead([{ collection: "pets", key: "owned", userId: userId }]);
+    if (!rows.length || JSON.stringify(rows[0].value.ids) !== JSON.stringify(ids)) {
+      nk.storageWrite([{ collection: "pets", key: "owned", userId: userId,
+        value: storageValue({ ids: ids }), permissionRead: READ_OWNER, permissionWrite: WRITE_NONE }]);
+    }
     return have;
   }
 
@@ -215,7 +228,7 @@ namespace HubPets {
   }
 
   function sortedIds(have: { [id: string]: boolean }): string[] {
-    var out: string[] = [];
+    var out: string[] = have.pet_starter ? ["pet_starter"] : [];
     for (var i = 0; i < PETS.length; i++) if (have[PETS[i].id]) out.push(PETS[i].id);
     out.sort();
     return out;
@@ -251,7 +264,7 @@ namespace HubPets {
   /**
    * Pets object for profile.get. Owned ids are item_owned pets plus the
    * relic summons derived from relic_claim. Active is loadout/hub
-   * slots.pet when that id is still owned. This does not write.
+   * slots.pet when that id is still owned. This snapshots entitlements in Nakama storage.
    */
   export function profilePets(nk: nkruntime.Nakama, userId: string): ProfilePets {
     if (!UUID.test(userId)) return { owned: [], active: null };
@@ -322,6 +335,7 @@ namespace HubPets {
     } catch (_e) {
       return fail("bad_json");
     }
+    if (body.userId !== undefined || body.user_id !== undefined || body.owned !== undefined) return fail("bad_json");
     if (body.v !== undefined && body.v !== 1) return fail("bad_json");
     if (!("pet" in body)) return fail("bad_json");
     var rawPet = body.pet;
@@ -333,7 +347,7 @@ namespace HubPets {
       return fail("bad_json");
     }
     var seq = Math.floor(body.seq);
-    if (pet && !findPet(pet)) {
+    if (pet && pet !== "pet_starter" && !findPet(pet)) {
       var missing = readHub(nk, userId);
       var missingOwned = ownedSet(nk, userId);
       return ack(false, missing.seq, shown(missing, missingOwned), missing.updatedAt, "not_owned");
@@ -364,12 +378,12 @@ namespace HubPets {
       permissionRead: READ_OWNER,
       permissionWrite: WRITE_NONE,
     };
-    if (current.version) write.version = current.version;
+    write.version = current.version || "*";
     try {
       nk.storageWrite([write]);
     } catch (e) {
       var message = String(e).toLowerCase();
-      if (current.version && (message.indexOf("version") >= 0 || message.indexOf("storage") >= 0)) {
+      if (message.indexOf("version") >= 0 || message.indexOf("storage") >= 0) {
         var again = readHub(nk, userId);
         var againOwned = ownedSet(nk, userId);
         return ack(false, again.seq, shown(again, againOwned), again.updatedAt, "stale_seq");

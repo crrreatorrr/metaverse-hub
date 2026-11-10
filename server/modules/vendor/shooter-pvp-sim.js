@@ -47,11 +47,8 @@ var SprotoShooterPvp = (() => {
     arenaRadius: 45,
     spawnRadius: 43,
     spawnPointCount: 16,
-    weaponBoxes: [{ x: -28, z: 0 }, { x: 28, z: 0 }],
-    boxRadius: 1,
-    boxInteractRadius: 3,
     eyeHeight: 1.6,
-    slideEye: 0.9,
+    slideEye: 0.72,
     downedEye: 0.6,
     playerRadius: 0.4,
     playerHeight: 1.8,
@@ -65,10 +62,24 @@ var SprotoShooterPvp = (() => {
     doubleJumpVel: 7,
     coyote: 0.1,
     jumpBuffer: 0.1,
-    slideMinSpeed: 5,
-    slideBoost: 13,
-    slideTime: 0.75,
-    slideCd: 0.4,
+    slideMinSpeed: 4.2,
+    slideBoost: 16,
+    slideCruise: 8,
+    slideDrag: 2.4,
+    slideTime: 0.7,
+    slideCd: 0.22,
+    slideHopCd: 0.85,
+    slideHopBoost: 1.12,
+    slideSlope: 14,
+    slideStamina: 0.14,
+    staminaSprint: 4.5,
+    staminaRegenDelay: 0.55,
+    staminaRegen: 1.7,
+    staminaRefill: 0.28,
+    grappleRange: 30,
+    grappleCd: 6,
+    grapplePull: 90,
+    grappleArrive: 1.35,
     dashSpeed: 24,
     dashTime: 0.15,
     dashCd: 2,
@@ -79,7 +90,6 @@ var SprotoShooterPvp = (() => {
     fovScope: 12,
     // god mode keeps you at or above these while it's on
     godTickets: 99999,
-    godResources: 9999,
     maxHp: 100,
     maxShield: 50,
     maxMana: 100,
@@ -562,6 +572,251 @@ var SprotoShooterPvp = (() => {
     return best;
   }
 
+  // src/sim/campaign/terrain.js
+  function hash2(ix, iz, seed) {
+    let n = Math.imul(ix, 374761393) + Math.imul(iz, 668265263) + Math.imul(seed | 0, 1442695041) | 0;
+    n = Math.imul(n ^ n >>> 16, 2146121005);
+    n = Math.imul(n ^ n >>> 15, 2221713035);
+    n = (n ^ n >>> 16) >>> 0;
+    return n / 4294967296;
+  }
+  function fade(t) {
+    return t * t * (3 - 2 * t);
+  }
+  function valueNoise(x, z, seed) {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const tx = fade(x - x0);
+    const tz = fade(z - z0);
+    const v00 = hash2(x0, z0, seed);
+    const v10 = hash2(x0 + 1, z0, seed);
+    const v01 = hash2(x0, z0 + 1, seed);
+    const v11 = hash2(x0 + 1, z0 + 1, seed);
+    const a = v00 + (v10 - v00) * tx;
+    const b = v01 + (v11 - v01) * tx;
+    return (a + (b - a) * tz) * 2 - 1;
+  }
+  function fbm(x, z, seed, octaves) {
+    let amp = 1;
+    let freq = 1;
+    let sum = 0;
+    let norm = 0;
+    const n = Math.max(1, octaves | 0);
+    for (let i = 0; i < n; i++) {
+      sum += valueNoise(x * freq, z * freq, seed + i * 101 | 0) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return norm > 0 ? sum / norm : 0;
+  }
+  function terrainLocal(t, x, z) {
+    if (!t || !t.origin || !t.size) return null;
+    const u = x - t.origin[0];
+    const v = z - t.origin[2];
+    if (u < 0 || v < 0 || u > t.size[0] || v > t.size[1]) return null;
+    return { u, v, north: t.size[1] - v };
+  }
+  function inFlat(t, u, north) {
+    const flats = t.flat || [];
+    for (let i = 0; i < flats.length; i++) {
+      const f = flats[i];
+      if (f.x0 != null && (u < f.x0 || u > f.x1)) continue;
+      if (f.n0 != null) {
+        const lo = Math.min(f.n0, f.n1);
+        const hi = Math.max(f.n0, f.n1);
+        if (north < lo || north > hi) continue;
+      }
+      if (f.x0 == null && f.n0 == null) continue;
+      return true;
+    }
+    return false;
+  }
+  function heightAt(t, x, z) {
+    const local = terrainLocal(t, x, z);
+    if (!local) return null;
+    const base = t.origin[1] || 0;
+    if (inFlat(t, local.u, local.north)) return base;
+    const noise = t.noise || {};
+    const amp = noise.amp || 0;
+    if (!amp) return base;
+    const freq = noise.freq == null ? 0.02 : noise.freq;
+    const octaves = noise.octaves == null ? 1 : noise.octaves;
+    return base + amp * fbm(x * freq, z * freq, t.seed || 1, octaves);
+  }
+
+  // src/sim/campaign/solids.js
+  var STEP_UP = 0.4;
+  function overlapsXZ(s, x, z, r) {
+    return x + r > s.min[0] && x - r < s.max[0] && z + r > s.min[2] && z - r < s.max[2];
+  }
+  function surfaceY(s, x, z) {
+    if (s.kind === "terrain") {
+      const h = heightAt(s.terrain, x, z);
+      return h == null ? -1e9 : h;
+    }
+    if (s.kind !== "ramp") return s.max[1];
+    const spanZ = Math.max(1e-3, s.max[2] - s.min[2]);
+    const spanX = Math.max(1e-3, s.max[0] - s.min[0]);
+    let t;
+    if (s.yaw === 90) t = (x - s.min[0]) / spanX;
+    else if (s.yaw === 270) t = (s.max[0] - x) / spanX;
+    else if (s.yaw === 180) t = (s.max[2] - z) / spanZ;
+    else t = (z - s.min[2]) / spanZ;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    return s.min[1] + t * (s.max[1] - s.min[1]);
+  }
+  function groundHeight(solids, x, z, radius, feet, step2 = STEP_UP) {
+    let g = -Infinity;
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (!overlapsXZ(s, x, z, radius)) continue;
+      const top = surfaceY(s, x, z);
+      if (top > feet + step2 + 0.02) continue;
+      if (top > g) g = top;
+    }
+    return g;
+  }
+  function snapToGround(ent, solids, radius, step2 = STEP_UP) {
+    const feet = ent.prevPos ? ent.prevPos.y : ent.pos.y;
+    const g = groundHeight(solids, ent.pos.x, ent.pos.z, radius * 0.2, Math.max(feet, ent.pos.y), step2);
+    if (g === -Infinity) {
+      ent.onGround = false;
+      return;
+    }
+    const crossed = feet + 0.05 >= g - step2 && ent.pos.y <= g + 0.02;
+    if (crossed) {
+      ent.pos.y = g;
+      if (ent.vel && ent.vel.y < 0) ent.vel.y = 0;
+      ent.onGround = true;
+      return;
+    }
+    ent.onGround = Math.abs(ent.pos.y - g) < 0.02;
+  }
+  function firstSolid(solids, origin, dir, maxDist, allow2 = null, includeThin = false) {
+    let best = null;
+    let bestT = -1;
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (typeof allow2 === "function" && !allow2(s)) continue;
+      const thin = s.kind !== "terrain" && s.max[1] - s.min[1] <= 0.6;
+      if (!includeThin && thin && s.max[1] <= origin.y + 0.05) continue;
+      const t = s.kind === "terrain" ? rayTerrain(origin, dir, s.terrain, maxDist, includeThin) : rayAabb(origin, dir, s.min, s.max, maxDist);
+      if (t < 0) continue;
+      if (bestT < 0 || t < bestT) {
+        bestT = t;
+        best = s;
+      }
+    }
+    return best ? { t: bestT, solid: best } : null;
+  }
+  function rayTerrain(o, d, field, maxDist, includeThin) {
+    const step2 = Math.max(0.5, (field && field.cell || 2) * 0.5);
+    const startH = heightAt(field, o.x, o.z);
+    let prevY = o.y;
+    let prevH = startH;
+    let prev = 0;
+    for (let dist = step2; dist <= maxDist; dist += step2) {
+      const x = o.x + d.x * dist;
+      const y = o.y + d.y * dist;
+      const z = o.z + d.z * dist;
+      const h = heightAt(field, x, z);
+      if (prevH != null && h != null && (prevY - prevH) * (y - h) <= 0) {
+        const denom = prevY - prevH - (y - h);
+        const f = Math.abs(denom) < 1e-8 ? 0 : (prevY - prevH) / denom;
+        const hit = prev + (dist - prev) * Math.max(0, Math.min(1, f));
+        if (hit > 0.2 && hit <= maxDist) return hit;
+        if (includeThin && hit >= 0 && hit <= maxDist) return hit;
+      }
+      prevY = y;
+      prevH = h;
+      prev = dist;
+    }
+    return -1;
+  }
+  function rayAabb(o, d, min, max, maxDist) {
+    let t0 = 0, t1 = maxDist;
+    for (let axis = 0; axis < 3; axis++) {
+      const p = axis === 0 ? o.x : axis === 1 ? o.y : o.z;
+      const v = axis === 0 ? d.x : axis === 1 ? d.y : d.z;
+      const lo = min[axis], hi = max[axis];
+      if (Math.abs(v) < 1e-8) {
+        if (p < lo || p > hi) return -1;
+        continue;
+      }
+      let ta = (lo - p) / v, tb = (hi - p) / v;
+      if (ta > tb) {
+        const s = ta;
+        ta = tb;
+        tb = s;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return -1;
+    }
+    return t0 >= 0 && t0 <= maxDist ? t0 : -1;
+  }
+
+  // src/sim/pvp/arena.js
+  var ARENA_WALL_H = 12;
+  function box(id, x, z, hx, hy, hz) {
+    return Object.freeze({
+      id,
+      kind: "box",
+      min: Object.freeze([x - hx, 0, z - hz]),
+      max: Object.freeze([x + hx, hy, z + hz])
+    });
+  }
+  var ARENA_SOLIDS = Object.freeze([
+    box("ne", 14, 14, 1.1, 10, 1.1),
+    box("nw", -14, 14, 1.1, 10, 1.1),
+    box("se", 14, -14, 1.1, 10, 1.1),
+    box("sw", -14, -14, 1.1, 10, 1.1)
+  ]);
+  function rayArenaWall(origin, dir, maxDist) {
+    const radius = TUNING.arenaRadius;
+    const A = dir.x * dir.x + dir.z * dir.z;
+    if (A < 1e-8) return null;
+    const B2 = origin.x * dir.x + origin.z * dir.z;
+    const C = origin.x * origin.x + origin.z * origin.z - radius * radius;
+    const disc = B2 * B2 - A * C;
+    if (disc < 0) return null;
+    const t = (-B2 + Math.sqrt(disc)) / A;
+    if (!(t >= 0.4) || t > maxDist) return null;
+    const y = origin.y + dir.y * t;
+    if (y < 0 || y > ARENA_WALL_H) return null;
+    return {
+      t,
+      x: origin.x + dir.x * t,
+      y,
+      z: origin.z + dir.z * t,
+      id: "wall"
+    };
+  }
+  function arenaHook(origin, dir) {
+    const maxDist = TUNING.grappleRange;
+    let best = null;
+    const solid = firstSolid(ARENA_SOLIDS, origin, dir, maxDist, null, true);
+    if (solid) {
+      best = {
+        t: solid.t,
+        x: origin.x + dir.x * solid.t,
+        y: origin.y + dir.y * solid.t,
+        z: origin.z + dir.z * solid.t,
+        id: solid.solid.id
+      };
+    }
+    const wall = rayArenaWall(origin, dir, maxDist);
+    if (wall && (!best || wall.t < best.t)) best = wall;
+    if (!best) return null;
+    return { x: best.x, y: best.y, z: best.z, id: best.id };
+  }
+  function arenaOccludes(origin, dir, maxDist, ignoreId) {
+    const hit = firstSolid(ARENA_SOLIDS, origin, dir, maxDist, (s) => s.id !== ignoreId, true);
+    return !!hit;
+  }
+
   // src/sim/pvp/rules.js
   var PVP_PROTOCOL_VERSION = 2;
   var PVP_SIM_VERSION = 2;
@@ -681,7 +936,42 @@ var SprotoShooterPvp = (() => {
       rewind: REWIND,
       // sha256 commit, reveal in RESULT; the RNG takes 128 bits of sha256(seed).
       combatSeed: "commit-reveal-sha256-128",
-      stakes: false
+      stakes: false,
+      // Both seats share these. A hook lands on arenaSolids or the wall, never the floor.
+      movement: {
+        walk: TUNING.walkSpeed,
+        sprint: TUNING.sprintSpeed,
+        gravity: TUNING.gravity,
+        jump: TUNING.jumpVel,
+        air: TUNING.airAccel,
+        ground: TUNING.groundAccel,
+        friction: TUNING.friction,
+        slide: {
+          min: TUNING.slideMinSpeed,
+          boost: TUNING.slideBoost,
+          cruise: TUNING.slideCruise,
+          drag: TUNING.slideDrag,
+          time: TUNING.slideTime,
+          cd: TUNING.slideCd,
+          hopCd: TUNING.slideHopCd,
+          hop: TUNING.slideHopBoost,
+          stamina: TUNING.slideStamina
+        },
+        stamina: {
+          sprint: TUNING.staminaSprint,
+          delay: TUNING.staminaRegenDelay,
+          regen: TUNING.staminaRegen,
+          refill: TUNING.staminaRefill
+        },
+        grapple: {
+          range: TUNING.grappleRange,
+          cd: TUNING.grappleCd,
+          pull: TUNING.grapplePull,
+          arrive: TUNING.grappleArrive
+        }
+      },
+      arenaSolids: ARENA_SOLIDS,
+      arenaWall: ARENA_WALL_H
     };
   }
   function contentFingerprint() {
@@ -748,6 +1038,13 @@ var SprotoShooterPvp = (() => {
       dashCd: 0,
       dashX: 0,
       dashZ: 0,
+      stamina: 1,
+      staminaDelay: 0,
+      staminaLock: false,
+      slideT: 0,
+      slideCd: 0,
+      grappleCd: 0,
+      grapple: null,
       slot: 0,
       mag: LOADOUT.map((gun) => gun.stats.magSize),
       shells: RESERVE.shells,
@@ -828,6 +1125,8 @@ var SprotoShooterPvp = (() => {
       jump: !!wish.jump,
       dash: !!wish.dash,
       reload: !!wish.reload,
+      slide: !!wish.slide,
+      grapple: !!wish.grapple,
       slot,
       rewind: view.back,
       viewFrac: view.frac
@@ -852,7 +1151,98 @@ var SprotoShooterPvp = (() => {
       viewFrac
     };
   }
+  function ensureMove(p) {
+    if (p.stamina != null) return;
+    p.stamina = 1;
+    p.staminaDelay = 0;
+    p.staminaLock = false;
+    p.slideT = 0;
+    p.slideCd = 0;
+    p.grappleCd = 0;
+    p.grapple = null;
+  }
+  function eyeOf(p) {
+    const h = p.slideT > 0 ? TUNING.slideEye : TUNING.eyeHeight;
+    return { x: p.x, y: p.y + h, z: p.z };
+  }
+  function pushOut(x, z, s, radius) {
+    const cx = Math.max(s.min[0], Math.min(x, s.max[0]));
+    const cz = Math.max(s.min[2], Math.min(z, s.max[2]));
+    const dx = x - cx;
+    const dz = z - cz;
+    const dist = Math.hypot(dx, dz);
+    if (dist >= radius) return null;
+    if (dist < 1e-6) {
+      const left = x - s.min[0];
+      const right = s.max[0] - x;
+      const back = z - s.min[2];
+      const fwd = s.max[2] - z;
+      const m = Math.min(left, right, back, fwd);
+      const pad = radius + 1e-4;
+      if (m === left) return { x: s.min[0] - pad, z };
+      if (m === right) return { x: s.max[0] + pad, z };
+      if (m === back) return { x, z: s.min[2] - pad };
+      return { x, z: s.max[2] + pad };
+    }
+    const k = (radius - dist) / dist + 1e-4;
+    return { x: x + dx * k, z: z + dz * k };
+  }
+  function pushArena(p) {
+    const height = p.slideT > 0 ? 1 : TUNING.playerHeight;
+    const feet = p.y;
+    const head = feet + height;
+    const step2 = 0.4;
+    for (let n = 0; n < 4; n++) {
+      for (let i = 0; i < ARENA_SOLIDS.length; i++) {
+        const s = ARENA_SOLIDS[i];
+        if (s.max[1] <= feet + step2 + 0.02) continue;
+        if (head <= s.min[1] + 0.01 || feet + step2 >= s.max[1]) continue;
+        const next2 = pushOut(p.x, p.z, s, TUNING.playerRadius);
+        if (!next2) continue;
+        p.x = next2.x;
+        p.z = next2.z;
+      }
+    }
+  }
+  function tickArenaGrapple(p, wish, dt) {
+    if (p.grappleCd > 0) p.grappleCd = Math.max(0, p.grappleCd - dt);
+    if (!wish.grapple) {
+      p.grapple = null;
+      return;
+    }
+    if (!p.grapple) {
+      if (p.grappleCd > 0) return;
+      const hook2 = arenaHook(eyeOf(p), dirFromYawPitch(p.yaw, p.pitch));
+      p.grappleCd = TUNING.grappleCd;
+      if (!hook2) return;
+      p.grapple = hook2;
+    }
+    const hook = p.grapple;
+    const eye = eyeOf(p);
+    const ex = hook.x - eye.x;
+    const ey = hook.y - eye.y;
+    const ez = hook.z - eye.z;
+    const ed = Math.hypot(ex, ey, ez) || 1;
+    if (arenaOccludes(eye, { x: ex / ed, y: ey / ed, z: ez / ed }, ed - 0.35, hook.id)) {
+      p.grapple = null;
+      return;
+    }
+    const oy = p.y + 0.9;
+    const px = hook.x - p.x;
+    const py = hook.y - oy;
+    const pz = hook.z - p.z;
+    const pd = Math.hypot(px, py, pz) || 1;
+    if (pd < TUNING.grappleArrive) {
+      p.grapple = null;
+      return;
+    }
+    const pull = TUNING.grapplePull * dt;
+    p.vx += px / pd * pull;
+    p.vy += py / pd * pull;
+    p.vz += pz / pd * pull;
+  }
   function movePlayer(p, wish, dt) {
+    ensureMove(p);
     p.yaw = q4(wish.yaw);
     p.pitch = q4(Math.max(-1.5, Math.min(1.5, wish.pitch)));
     if (wish.slot >= 0 && wish.slot !== p.slot) {
@@ -869,8 +1259,23 @@ var SprotoShooterPvp = (() => {
       wx /= wl;
       wz /= wl;
     }
-    const maxSpeed = wish.sprint && wish.moveZ > 0 ? TUNING.sprintSpeed : TUNING.walkSpeed;
+    const wantSprint = wish.sprint && wish.moveZ > 0 && !p.staminaLock && p.stamina > 0;
+    let sprinting = wantSprint;
+    if (sprinting) {
+      p.stamina = Math.max(0, p.stamina - dt / TUNING.staminaSprint);
+      p.staminaDelay = TUNING.staminaRegenDelay;
+      if (p.stamina <= 0) {
+        p.staminaLock = true;
+        sprinting = false;
+      }
+    } else {
+      if (p.staminaDelay > 0) p.staminaDelay = Math.max(0, p.staminaDelay - dt);
+      else if (p.stamina < 1) p.stamina = Math.min(1, p.stamina + dt / TUNING.staminaRegen);
+      if (p.staminaLock && p.stamina >= TUNING.staminaRefill) p.staminaLock = false;
+    }
+    const maxSpeed = sprinting ? TUNING.sprintSpeed : TUNING.walkSpeed;
     p.dashCd = Math.max(0, p.dashCd - dt);
+    p.slideCd = Math.max(0, p.slideCd - dt);
     p.invuln = Math.max(0, p.invuln - dt);
     if (wish.dash && p.dashCd <= 0) {
       const dl = Math.hypot(wx, wz);
@@ -879,28 +1284,56 @@ var SprotoShooterPvp = (() => {
       p.dashT = TUNING.dashTime;
       p.dashCd = TUNING.dashCd;
       p.invuln = Math.max(p.invuln, TUNING.dashInvuln);
+      p.slideT = 0;
     }
+    const hs = Math.hypot(p.vx, p.vz);
+    if (p.onGround && p.slideT <= 0 && p.slideCd <= 0 && wish.slide && (hs > TUNING.slideMinSpeed || sprinting)) {
+      const dirx = hs > 0.4 ? p.vx / hs : -sy;
+      const dirz = hs > 0.4 ? p.vz / hs : -cy;
+      const boost = Math.max(hs, TUNING.slideBoost);
+      p.vx = dirx * boost;
+      p.vz = dirz * boost;
+      p.slideT = TUNING.slideTime;
+      p.dashT = 0;
+      p.stamina = Math.max(0, p.stamina - TUNING.slideStamina);
+      p.staminaDelay = TUNING.staminaRegenDelay;
+      if (p.stamina <= 0) p.staminaLock = true;
+    }
+    const hooked = !!p.grapple || !!wish.grapple;
     if (p.dashT > 0) {
       p.dashT -= dt;
       p.vx = p.dashX * TUNING.dashSpeed;
       p.vz = p.dashZ * TUNING.dashSpeed;
       p.vy = Math.max(p.vy, 0);
       if (p.dashT < 0) p.dashT = 0;
-    } else if (p.onGround) {
+    } else if (p.slideT > 0 && !hooked) {
+      p.slideT -= dt;
+      if (wl > 0.2) {
+        p.vx += wx * 10 * dt;
+        p.vz += wz * 10 * dt;
+      }
+      let sp = Math.hypot(p.vx, p.vz) || 1e-4;
+      const next2 = sp + (TUNING.slideCruise - sp) * Math.min(1, TUNING.slideDrag * dt);
+      const k = Math.max(0, next2) / sp;
+      p.vx *= k;
+      p.vz *= k;
+      if (p.slideT <= 0 || next2 < TUNING.walkSpeed * 0.9 || !p.onGround) {
+        p.slideT = 0;
+        p.slideCd = TUNING.slideCd;
+      }
+    } else if (p.onGround && !hooked) {
       const tx = wx * maxSpeed;
       const tz = wz * maxSpeed;
       const dx = tx - p.vx;
       const dz = tz - p.vz;
       const dl = Math.hypot(dx, dz);
-      const hs = Math.hypot(p.vx, p.vz);
       const acc = (wl > 0.01 ? TUNING.groundAccel : TUNING.friction * Math.max(hs, 2)) * dt;
       if (dl > 0) {
         const k = Math.min(1, acc / dl);
         p.vx += dx * k;
         p.vz += dz * k;
       }
-    } else {
-      const hs = Math.hypot(p.vx, p.vz);
+    } else if (!hooked) {
       const cap = Math.max(hs, TUNING.walkSpeed);
       p.vx += wx * TUNING.airAccel * dt;
       p.vz += wz * TUNING.airAccel * dt;
@@ -913,12 +1346,36 @@ var SprotoShooterPvp = (() => {
     if (wish.jump && p.onGround) {
       p.vy = TUNING.jumpVel;
       p.onGround = false;
+      if (p.slideT > 0) {
+        const sp = Math.hypot(p.vx, p.vz);
+        if (sp > 0.1) {
+          const boosted = sp * TUNING.slideHopBoost;
+          p.vx = p.vx / sp * boosted;
+          p.vz = p.vz / sp * boosted;
+        }
+        p.slideT = 0;
+        p.slideCd = TUNING.slideHopCd;
+      }
     }
+    tickArenaGrapple(p, wish, dt);
     if (p.dashT <= 0) p.vy -= TUNING.gravity * dt;
+    const prevY = p.y;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.z += p.vz * dt;
-    if (p.y <= 0) {
+    pushArena(p);
+    const body = {
+      pos: { x: p.x, y: p.y, z: p.z },
+      prevPos: { y: prevY },
+      vel: { y: p.vy },
+      onGround: false
+    };
+    snapToGround(body, ARENA_SOLIDS, TUNING.playerRadius, 0.4);
+    if (body.onGround) {
+      p.y = body.pos.y;
+      p.vy = body.vel.y;
+      p.onGround = true;
+    } else if (p.y <= 0) {
       p.y = 0;
       if (p.vy < 0) p.vy = 0;
       p.onGround = true;
@@ -974,6 +1431,16 @@ var SprotoShooterPvp = (() => {
     p.dashCd = q4(Math.max(0, p.dashCd));
     p.invuln = q4(Math.max(0, p.invuln));
     p.shieldDelay = q4(Math.max(0, p.shieldDelay));
+    if (typeof p.stamina === "number") p.stamina = q4(Math.max(0, p.stamina));
+    if (typeof p.staminaDelay === "number") p.staminaDelay = q4(Math.max(0, p.staminaDelay));
+    if (typeof p.slideT === "number") p.slideT = q4(Math.max(0, p.slideT));
+    if (typeof p.slideCd === "number") p.slideCd = q4(Math.max(0, p.slideCd));
+    if (typeof p.grappleCd === "number") p.grappleCd = q4(Math.max(0, p.grappleCd));
+    if (p.grapple) {
+      p.grapple.x = q4(p.grapple.x);
+      p.grapple.y = q4(p.grapple.y);
+      p.grapple.z = q4(p.grapple.z);
+    }
   }
   function reserveOf(p, gun) {
     if (gun.ammoType === "shells") return p.shells;
@@ -1012,13 +1479,15 @@ var SprotoShooterPvp = (() => {
     const gun = LOADOUT[p.slot];
     const pellets = gun.stats.pellets || 1;
     const spread = deg(wish.zoom ? gun.stats.adsSpread : gun.stats.spread);
-    const eye = { x: p.x, y: p.y + TUNING.eyeHeight, z: p.z };
+    const eye = eyeOf(p);
     for (let i = 0; i < pellets; i++) {
       const jy = (float(p.rng) - 0.5) * spread;
       const jp = (float(p.rng) - 0.5) * spread;
       const dir = dirFromYawPitch(p.yaw + jy, p.pitch + jp);
       const dist = rayCapsule(eye, dir, target.x, target.z, target.y, target.y + TUNING.playerHeight, TUNING.playerRadius);
       if (dist < 0) continue;
+      const cover = firstSolid(ARENA_SOLIDS, eye, dir, dist, null, true);
+      if (cover && cover.t < dist) continue;
       const fall = rangeFalloff(gun.range, dist);
       if (fall <= 0) continue;
       const raw = gun.stats.damage * fall;
@@ -1098,6 +1567,7 @@ var SprotoShooterPvp = (() => {
     ];
     for (let i = 0; i < 2; i++) if (state.players[i].alive) movePlayer(state.players[i], wish[i], DT);
     separate(state.players);
+    for (const p of state.players) pushArena(p);
     for (const p of state.players) snap(p);
     record(state, frame + 1);
     const seen = [
@@ -1163,7 +1633,7 @@ var SprotoShooterPvp = (() => {
 
   // src/net/inputCodec.js
   var FRAME_BYTES = INPUT_LIMITS.frameBytes;
-  var BUTTONS = Object.freeze(["fire", "zoom", "sprint", "jump", "dash", "reload", "slide"]);
+  var BUTTONS = Object.freeze(["fire", "zoom", "sprint", "jump", "dash", "reload", "slide", "grapple"]);
   var PvpInputError = class extends Error {
     constructor(reason) {
       super(reason);
@@ -1261,7 +1731,6 @@ var SprotoShooterPvp = (() => {
     if (!(buf instanceof Uint8Array) || buf.length !== FRAME_BYTES) fail("malformed");
     const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
     const buttons = view.getUint8(14);
-    if (buttons & 128) fail("malformed");
     const slot = view.getInt8(15);
     if (slot < -1 || slot > 2) fail("malformed");
     const yawQ = view.getInt16(8, true);
@@ -1357,8 +1826,8 @@ var SprotoShooterPvp = (() => {
   var TICK_HEX = 40;
   var SEAT_HEX = TICK_HEX / 2;
   var CHUNK_TICKS = 30;
-  var BUTTONS2 = Object.freeze(["fire", "zoom", "sprint", "jump", "dash", "reload", "slide"]);
-  var HELD_MASK = 7;
+  var BUTTONS2 = Object.freeze(["fire", "zoom", "sprint", "jump", "dash", "reload", "slide", "grapple"]);
+  var HELD_MASK = 135;
   var KEEP = -32768;
   function quant(value, scale) {
     const q = Math.round(value / scale * 32767);
@@ -1408,7 +1877,7 @@ var SprotoShooterPvp = (() => {
     return v >= half ? v - half * 2 : v;
   }
   function encodeOne(u) {
-    return hex(u.y == null ? KEEP : u.y, 2) + hex(u.p == null ? KEEP : u.p, 2) + hex(u.mx, 1) + hex(u.mz, 1) + hex(u.b & 127, 1) + hex(u.s + 1 & 3 | (u.src & 3) << 2, 1) + hex(u8(u.r), 1) + hex(u8(u.f), 1);
+    return hex(u.y == null ? KEEP : u.y, 2) + hex(u.p == null ? KEEP : u.p, 2) + hex(u.mx, 1) + hex(u.mz, 1) + hex(u.b & 255, 1) + hex(u.s + 1 & 3 | (u.src & 3) << 2, 1) + hex(u8(u.r), 1) + hex(u8(u.f), 1);
   }
   function encodeUsedTick(pair) {
     return encodeOne(pair[0]) + encodeOne(pair[1]);
@@ -1423,7 +1892,7 @@ var SprotoShooterPvp = (() => {
     const meta = parseInt(text.slice(at + 14, at + 16), 16);
     const r = parseInt(text.slice(at + 16, at + 18), 16);
     const f = parseInt(text.slice(at + 18, at + 20), 16);
-    if (b & 128 || meta > 15 || mx < -127 || mz < -127) return null;
+    if (meta > 15 || mx < -127 || mz < -127) return null;
     if (y !== KEEP && y < -32767 || p !== KEEP && p < -32767) return null;
     const src = meta >> 2 & 3;
     if (src > SOURCE.neutral) return null;
@@ -1767,7 +2236,9 @@ var SprotoShooterPvp = (() => {
       for (const key of Object.keys(p)) {
         if (PRIVATE_SKIP.has(key)) continue;
         const value = p[key];
-        out[key] = Array.isArray(value) ? value.slice() : value;
+        if (Array.isArray(value)) out[key] = value.slice();
+        else if (value && typeof value === "object") out[key] = { ...value };
+        else out[key] = value;
       }
       return out;
     }
@@ -1798,7 +2269,8 @@ var SprotoShooterPvp = (() => {
           hp: p.hp,
           shield: p.shield,
           alive: p.alive,
-          slot: p.slot
+          slot: p.slot,
+          grapple: p.grapple ? { x: p.grapple.x, y: p.grapple.y, z: p.grapple.z, id: p.grapple.id } : null
         })),
         you: {
           seat: index,
@@ -2296,7 +2768,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
+  var SOURCE_COMMIT = "f2034e7b3a22ebfb451b46ba77279b97eb945c50";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

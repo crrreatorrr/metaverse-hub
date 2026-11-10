@@ -33,6 +33,10 @@ socket:
   pong_wait_ms: 25000
   # Plaza deltas at 100 players are ~3 KB; PB snapshots must stay under this cap.
   max_message_size_bytes: 8192
+  # Nakama's 10s default cuts the socket before a long campaign verify can write
+  # its receipt. Stay above the 15s verifier budget. The budget itself is unchanged.
+  read_timeout_ms: 30000
+  write_timeout_ms: 30000
   outgoing_queue_size: 256
 
 match:

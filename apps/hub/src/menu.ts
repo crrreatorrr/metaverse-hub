@@ -82,6 +82,7 @@ const PETS: readonly PetInfo[] = [
   { id: 'pet_wizard', name: 'Wizard Pet', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
   { id: 'pet_runner', name: 'Runner Pet', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
   { id: 'pet_soldier', name: 'Soldier Pet', from: 'Relic: Dragon Scale', relic: 'dragon_scale' },
+  { id: 'pet_starter', name: 'Spark', from: 'Free starter companion' },
   { id: 'pet_speed_sproto', name: 'Speed Sproto', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
   { id: 'pet_nobu', name: 'Nobu', from: "Relic: Cone's Tip", relic: 'cones_tip' },
   { id: 'pet_duelist_sproto', name: 'Duelist Sproto', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
@@ -115,6 +116,8 @@ export interface MenuOptions {
   setMoveStick: (stick: MoveStick) => void;
   /** Catalog ids that have a hub model (`EQUIPPABLE_PET_IDS`), so they can be deployed. */
   deployablePets: readonly string[];
+  otherPetsHidden(): boolean;
+  setOtherPetsHidden(hidden: boolean): void;
   /** The pet following the avatar, or null. */
   activePet: () => string | null;
   /** Deploy a pet (it follows the avatar) or recall it (null). */
@@ -243,7 +246,13 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Pets
   const petsPage = bodies.get('pets') as HTMLElement;
-  const petNote = el('p', 'menu-note', 'Deploy a pet you own and it follows you around the plaza. Relic pets are yours once the Relic is.');
+  const petNote = el('p', 'menu-note', 'Deploy a pet you own and it follows you through every realm. Relic pets are yours once the Relic is.');
+  const hidePetsLabel = el('label', 'menu-note');
+  const hidePets = document.createElement('input');
+  hidePets.type = 'checkbox';
+  hidePets.checked = options.otherPetsHidden();
+  hidePets.addEventListener('change', () => options.setOtherPetsHidden(hidePets.checked));
+  hidePetsLabel.append(hidePets, ' Hide other players’ pets');
   const following = el('div', 'pet-following');
   const followingText = el('span', 'pet-following-text');
   const recall = el('button', 'pet-deploy', 'Recall');
@@ -254,7 +263,7 @@ export function createMenu(options: MenuOptions): Menu {
   });
   following.append(pixelIcon('paw', 'pet-following-icon'), followingText, recall);
   const petGrid = el('ul', 'menu-grid pets');
-  petsPage.append(el('h3', 'menu-h', 'Pets'), petNote, following, petGrid);
+  petsPage.append(el('h3', 'menu-h', 'Pets'), petNote, hidePetsLabel, following, petGrid);
 
   // ---------- Avatar
   const avatarPage = bodies.get('avatar') as HTMLElement;
@@ -497,8 +506,8 @@ export function createMenu(options: MenuOptions): Menu {
     const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
       Boolean(serverPets?.has(pet.id)) ||
-      (pet.relic ? relics.has(pet.relic) : false) ||
-      (pet.id === 'pet_four_lights_sproto' && all && !serverPets);
+      (!serverPets && pet.relic ? relics.has(pet.relic) : false) ||
+      (!serverPets && pet.id === 'pet_four_lights_sproto' && all);
     const deployable = (pet: PetInfo) => owned(pet) && options.deployablePets.includes(pet.id);
     const rank = (pet: PetInfo) => (pet.id === active ? 3 : deployable(pet) ? 2 : owned(pet) ? 1 : 0);
     const sorted = [...PETS].sort((a, b) => rank(b) - rank(a));

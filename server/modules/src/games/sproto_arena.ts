@@ -753,6 +753,7 @@ namespace SprotoArena {
     for (var i = 0; i < 2; i++) if (!matches[i].properties || matches[i].properties["game"] !== GAME_ID) return;
     if (String(a.properties["v"]) !== String(b.properties["v"]) || String(a.properties["v"]) !== NET_VERSION) return;
     if (a.presence.userId === b.presence.userId) return;
+    if (Maint.on(nk)) return;
     var token = SprotoMm.pairToken(matches);
     var existing = SprotoMm.livePair(nk, token);
     if (existing) {
@@ -793,6 +794,7 @@ namespace SprotoArena {
     if (!gameSession(ctx)) throw new Error("wrong_scope");
     var req = body(payload);
     if (String(req["v"]) !== NET_VERSION) throw new Error("version_mismatch");
+    if (Maint.on(nk)) throw new Error("maintenance");
     var code = "";
     for (var attempt = 0; attempt < 5 && !code; attempt++) {
       var c = roomCode();

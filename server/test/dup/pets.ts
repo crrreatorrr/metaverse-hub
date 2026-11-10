@@ -155,7 +155,7 @@ async function profileAndLoadout(): Promise<void> {
   const session = await login(HPOS);
   const hub = session.hub;
   const empty = await call('profile.get', {}, hub.token);
-  assert.deepEqual((empty.body as { pets?: ProfilePets }).pets, { owned: [], active: null }, JSON.stringify(empty.body));
+  assert.deepEqual((empty.body as { pets?: ProfilePets }).pets, { owned: ['pet_starter'], active: null }, JSON.stringify(empty.body));
   await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
@@ -163,7 +163,7 @@ async function profileAndLoadout(): Promise<void> {
   // The act-2 clear's pet_honk_sproto is still held and stays out.
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
-    { owned: ['pet_runner', 'pet_speed_sproto'], active: null },
+    { owned: ['pet_runner', 'pet_speed_sproto', 'pet_starter'], active: null },
     JSON.stringify(profile.body),
   );
   assert.equal(
@@ -204,7 +204,32 @@ async function profileAndLoadout(): Promise<void> {
   assert.equal((notMine.body as { reason?: string }).reason, 'not_owned', JSON.stringify(notMine.body));
 }
 
+async function petStorageIsRpcOnly(): Promise<void> {
+  const hub = await guest();
+  const base = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
+  const headers = { Authorization: `Bearer ${hub.token}`, 'Content-Type': 'application/json' };
+  // Test before profile/RPC has had a chance to create any protected objects.
+  for (const object of [{ collection: 'loadout', key: 'hub' }, { collection: 'pets', key: 'owned' }]) {
+    const write = await fetch(`${base}/v2/storage`, { method: 'PUT', headers,
+      body: JSON.stringify({ objects: [{ ...object, value: JSON.stringify({ slots: { pet: 'pet_nobu' }, seq: 999 }), permission_read: 1, permission_write: 1 }] }) });
+    assert.equal(write.status, 403, await write.text());
+    const remove = await fetch(`${base}/v2/storage/delete`, { method: 'PUT', headers,
+      body: JSON.stringify({ object_ids: [object] }) });
+    assert.equal(remove.status, 403, await remove.text());
+  }
+  const other = await guest();
+  const forged = await call('loadout.set_hub', { pet: 'pet_starter', seq: 1, userId: other.userId }, hub.token);
+  assert.equal(forged.body.error, 'bad_json');
+  const equipped = await call('loadout.set_hub', { pet: 'pet_starter', seq: 1 }, hub.token);
+  assert.equal(equipped.body.ok, true, JSON.stringify(equipped.body));
+  const profile = await call('profile.get', {}, hub.token);
+  assert.equal((profile.body as { pets?: ProfilePets }).pets?.active, 'pet_starter');
+  const unequipped = await call('loadout.set_hub', { pet: null, seq: 2 }, hub.token);
+  assert.equal(unequipped.body.ok, true, JSON.stringify(unequipped.body));
+}
+
 export async function runPets(test: TestFn): Promise<void> {
+  await test('pets', 'pet storage rejects direct creation, deletion and foreign-user writes', petStorageIsRpcOnly);
   await test('pets', 'hpos10i z1 act 2 holds pet_honk_sproto once and a replay stays empty', honkOnce);
   await test('pets', 'hpos10i z2 act 2 holds pet_spiral_sproto', spiral);
   await test('pets', 'hpos10i z1 act 1 grants hpos10i_core once with no items', relicStillGrants);

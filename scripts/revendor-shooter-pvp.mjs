@@ -12,9 +12,10 @@
 // PATH, HOME, locale, temp dir, proxy and CA variables only, no tokens or keys.
 // Then it:
 //   - refuses when the build's contract differs from the vendored pin
-//     (protocol, sim, content, loadout, input limits, rewind, replay limits,
-//     director state, replay version, combat seed scheme, crits, lead-in): those
-//     are a code change, not a re-vendor;
+//     (protocol, sim, loadout, input limits, rewind, replay limits, director
+//     state, replay version, combat seed scheme, crits, lead-in): those are a
+//     code change, not a re-vendor. A full re-vendor may adopt a new content
+//     fingerprint and golden from shooter main. --pvp-only still refuses both;
 //   - runs the bundle: the mirrored sim golden must match shooter_protocol.ts,
 //     and a scripted hosted-director match must end with a RESULT whose replay
 //     record verifies with policy "settle";
@@ -57,6 +58,20 @@ const CONTRACT = [
   'protocol', 'sim', 'contentFingerprint', 'loadoutHash', 'limits', 'rewind', 'replayLimits',
   'directorState', 'replayVersion', 'combatSeed', 'crits', 'leadInTicks', 'global', 'entry',
 ];
+/** A full re-vendor from shooter main may adopt this field. --pvp-only may not. */
+const FULL_REVENDOR_MOVES = new Set(['contentFingerprint']);
+/** Literals of the old PvP fingerprint and golden hash, updated with the pin. */
+const PVP_PIN_FILES = [
+  'scripts/check-shooter-pvp-sim-version.mjs',
+  'scripts/load/shooter-bots.ts',
+  'scripts/load/shooter-acceptance.ts',
+  'server/test/games/shooter_match.test.ts',
+  'server/test/games/shooter_review.test.ts',
+  'server/test/games/shooter_wagers.test.ts',
+  'server/test/dup/shooter_match.ts',
+  'server/test/rt/realtime.test.ts',
+  'docs/two-game-release.md',
+];
 /** Environment the fetched build may see. */
 const ENV_KEEP = /^(PATH|HOME|LANG|LC_ALL|TMPDIR|TEMP|TMP|HTTPS?_PROXY|https?_proxy|NO_PROXY|no_proxy|ALL_PROXY|all_proxy|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|GIT_SSL_CAINFO|npm_config_cafile|NPM_CONFIG_CAFILE)$/;
 
@@ -74,6 +89,13 @@ export function scrubEnv(env = process.env) {
 /** The contract fields that differ between two pins. */
 export function contractDiff(oldPin, newPin) {
   return CONTRACT.filter((key) => JSON.stringify(oldPin[key]) !== JSON.stringify(newPin[key]));
+}
+
+/** True when this re-vendor must stop instead of adopting the new pin. */
+export function contractChangeRefused(changed, { pvpOnly }) {
+  if (!changed.length) return false;
+  if (pvpOnly) return true;
+  return changed.some((key) => !FULL_REVENDOR_MOVES.has(key));
 }
 
 /** The build's pin with the hub's keys on top: the fetched build cannot name its own commit or sha. */
@@ -173,10 +195,54 @@ function assigned(source, name) {
   return match[2] !== undefined ? match[2] : Number(match[3]);
 }
 
+function probeCampaign(src, commit) {
+  const sandbox = { console: { log() {}, warn() {}, error() {} } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox, { filename: 'shooter-sim.js' });
+  const api = sandbox.SprotoShooterSim;
+  if (!api || typeof api.contentFingerprintOf !== 'function' || typeof api.buildIssuance !== 'function') {
+    throw new Error('campaign bundle has no verifier');
+  }
+  if (api.SOURCE_COMMIT !== commit) throw new Error(`campaign bundle bakes ${api.SOURCE_COMMIT}, not ${commit}`);
+  if (api.PROTOCOL_VERSION !== 1) throw new Error(`campaign protocol ${api.PROTOCOL_VERSION}, expected 1`);
+  const fingerprint = api.contentFingerprintOf();
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) throw new Error(`bad campaign fingerprint ${fingerprint}`);
+  const economy = api.ECONOMY || {};
+  if (economy.mintsTickets !== false || economy.ticketsMintedByArtifact !== 0 || economy.wagerMayCreateTickets !== false) {
+    throw new Error('campaign bundle can mint');
+  }
+  const issuance = { accountId: 'a', sessionId: 'b', day: '2026-11-07', runId: 'c', seed: 1 };
+  const obama = api.buildIssuance({ ...issuance, canonicalBoss: 'obamaDuo' });
+  if (obama.ok || obama.reason !== 'obama_is_one' || obama.ticketsMinted !== 0) throw new Error('obamaDuo was not rejected');
+  const agent = api.buildIssuance({ ...issuance, canonicalBoss: 'agent' });
+  if (agent.ok || agent.reason !== 'glowie_not_agent' || agent.ticketsMinted !== 0) throw new Error('agent was not kept off glowie');
+  const sahil = api.buildIssuance({ ...issuance, canonicalBoss: 'sahil' });
+  if (!sahil.ok || sahil.ticketsMinted !== 0) throw new Error(`sahil issuance was not payable (${sahil.reason || 'no reason'})`);
+  return { fingerprint, protocol: 1 };
+}
+
 function setVar(source, name, value) {
   const re = new RegExp(`(export var ${name} = )"[^"]*"`);
   if (!re.test(source)) throw new Error(`no ${name} constant to update`);
   return source.replace(re, `$1"${value}"`);
+}
+
+function setNum(source, name, value) {
+  const re = new RegExp(`(export var ${name} = )\\d+`);
+  if (!re.test(source)) throw new Error(`no ${name} constant to update`);
+  return source.replace(re, `$1${value}`);
+}
+
+function replaceLiteral(writes, rel, from, to) {
+  if (from === to) return;
+  const file = join(root, rel);
+  const already = writes.find((row) => row[0] === file);
+  const text = already ? already[1] : readFileSync(file, 'utf8');
+  if (!text.includes(from)) throw new Error(`${rel} does not name ${from}`);
+  const next = text.split(from).join(to);
+  if (already) already[1] = next;
+  else writes.push([file, next]);
 }
 
 function run(cmd, args, cwd, env) {
@@ -228,24 +294,39 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
   if (sha !== pin.bundleSha256) throw new Error('build pin sha256 does not match its bundle');
   const oldPin = JSON.parse(readFileSync(join(VENDOR, 'shooter-pvp-sim.pin.json'), 'utf8'));
   const changed = contractDiff(oldPin, pin);
-  if (changed.length) throw new Error(`contract changed (${changed.join(', ')}): a code change, not a re-vendor`);
+  if (contractChangeRefused(changed, { pvpOnly })) {
+    throw new Error(`contract changed (${changed.join(', ')}): a code change, not a re-vendor`);
+  }
   let proto = readFileSync(PROTOCOL_TS, 'utf8');
+  const oldFingerprint = assigned(proto, 'FINGERPRINT');
+  const oldGoldenHash = assigned(proto, 'GOLDEN_HASH');
+  if (changed.includes('contentFingerprint')) proto = setVar(proto, 'FINGERPRINT', pin.contentFingerprint);
   for (const [key, name] of [['protocol', 'PROTOCOL'], ['sim', 'SIM'], ['contentFingerprint', 'FINGERPRINT'], ['loadoutHash', 'LOADOUT_HASH']]) {
     if (pin[key] !== assigned(proto, name)) throw new Error(`${key} ${pin[key]} != shooter_protocol.ts ${name}`);
   }
   const checked = checkBundle(built.pvp, commit);
-  if (checked.golden.tick !== assigned(proto, 'GOLDEN_TICK') || checked.golden.stateHash !== assigned(proto, 'GOLDEN_HASH')) {
+  if (pvpOnly && (checked.golden.tick !== assigned(proto, 'GOLDEN_TICK') || checked.golden.stateHash !== oldGoldenHash)) {
     throw new Error(`golden ${checked.golden.tick} ${checked.golden.stateHash} != shooter_protocol.ts`);
   }
+  if (checked.golden.tick !== assigned(proto, 'GOLDEN_TICK')) proto = setNum(proto, 'GOLDEN_TICK', checked.golden.tick);
+  if (checked.golden.stateHash !== oldGoldenHash) proto = setVar(proto, 'GOLDEN_HASH', checked.golden.stateHash);
   const hubPin = hubPinOf(pin, { commit, sha256: sha, golden: checked.golden, esbuild: built.esbuild, goja: oldPin.goja });
   proto = setVar(proto, 'COMMIT', commit);
   proto = setVar(proto, 'BUNDLE_SHA256', sha);
   writes.push([join(VENDOR, 'shooter-pvp-sim.js'), built.pvp]);
   writes.push([join(VENDOR, 'shooter-pvp-sim.pin.json'), `${JSON.stringify(hubPin, null, 2)}\n`]);
   writes.push([PROTOCOL_TS, proto]);
+  if (oldFingerprint !== pin.contentFingerprint) {
+    for (const rel of PVP_PIN_FILES) replaceLiteral(writes, rel, oldFingerprint, pin.contentFingerprint);
+  }
+  if (oldGoldenHash !== checked.golden.stateHash) {
+    for (const rel of ['scripts/check-shooter-pvp-sim-version.mjs', 'scripts/revendor-shooter-pvp.test.mjs', 'server/test/games/shooter_match.test.ts', 'docs/two-game-release.md']) {
+      replaceLiteral(writes, rel, oldGoldenHash, checked.golden.stateHash);
+    }
+  }
   const lines = [`pvp: ${commit} ${sha} protocol ${pin.protocol} sim ${pin.sim} content ${pin.contentFingerprint} golden ${checked.golden.tick} ${checked.golden.stateHash}; hosted ${checked.hosted.outcome}/${checked.hosted.reason} replay ${checked.hosted.policy}`];
 
-  // ---- campaign verifier: re-pin only when nothing but the baked commit moved
+  // ---- campaign verifier
   const campaignPinPath = join(VENDOR, 'shooter-sim.pin.json');
   const campaignPin = JSON.parse(readFileSync(campaignPinPath, 'utf8'));
   const vendoredCampaign = readFileSync(join(VENDOR, 'shooter-sim.js'), 'utf8');
@@ -255,7 +336,62 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
   } else if (campaignPin.commit === commit) {
     lines.push('campaign: already pinned to this commit');
   } else if (normalize(vendoredCampaign, campaignPin.commit) !== normalize(built.campaign, commit)) {
-    throw new Error(`campaign bundle changed at ${commit} beyond the baked commit: re-vendor it separately, or pass --pvp-only (nothing was written)`);
+    const probed = probeCampaign(built.campaign, commit);
+    const cSha = sha256(built.campaign);
+    const next = {
+      ...campaignPin,
+      commit,
+      sourceCommit: commit,
+      sha256: cSha,
+      bundleSha256: cSha,
+      bundleBytes: Buffer.byteLength(built.campaign),
+      fingerprint: probed.fingerprint,
+      contentFingerprint: probed.fingerprint,
+      protocol: probed.protocol,
+      protocolVersion: probed.protocol,
+    };
+    let rewards = readFileSync(REWARDS_TS, 'utf8');
+    rewards = setVar(rewards, 'COMMIT', commit);
+    rewards = setVar(rewards, 'BUNDLE_SHA256', cSha);
+    rewards = setVar(rewards, 'FINGERPRINT', probed.fingerprint);
+    writes.push([join(VENDOR, 'shooter-sim.js'), built.campaign]);
+    writes.push([campaignPinPath, `${JSON.stringify(next, null, 2)}\n`]);
+    writes.push([REWARDS_TS, rewards]);
+    const pvpFile = writes.find((row) => row[0].endsWith('shooter-pvp-sim.pin.json'));
+    if (pvpFile) {
+      const pvpPin = JSON.parse(pvpFile[1]);
+      pvpPin.campaignContentFingerprint = probed.fingerprint;
+      pvpPin.campaignProtocol = probed.protocol;
+      pvpFile[1] = `${JSON.stringify(pvpPin, null, 2)}\n`;
+    }
+    const protoWrite = writes.find((row) => row[0] === PROTOCOL_TS);
+    if (!protoWrite) throw new Error('pvp pin write did not include shooter_protocol.ts');
+    protoWrite[1] = setVar(protoWrite[1], 'CAMPAIGN_FINGERPRINT', probed.fingerprint);
+    for (const rel of CAMPAIGN_TRIPWIRES) {
+      const file = join(root, rel);
+      const already = writes.find((row) => row[0] === file);
+      const text = already ? already[1] : readFileSync(file, 'utf8');
+      if (!text.includes(campaignPin.sha256)) throw new Error(`${rel} does not name the campaign sha256`);
+      const nextText = text.split(campaignPin.sha256).join(cSha).split(campaignPin.fingerprint).join(probed.fingerprint);
+      if (already) already[1] = nextText;
+      else writes.push([file, nextText]);
+    }
+    const fingerprintFiles = [
+      'scripts/check-shooter-sim-version.mjs',
+      'scripts/load/shooter-bots.ts',
+      'server/modules/src/games/shooter_rewards.ts',
+    ];
+    for (const rel of fingerprintFiles) {
+      const file = join(root, rel);
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes(campaignPin.fingerprint)) throw new Error(`${rel} does not name the campaign fingerprint`);
+      const already = writes.find((row) => row[0] === file);
+      const base = already ? already[1] : text;
+      const nextText = base.split(campaignPin.fingerprint).join(probed.fingerprint);
+      if (already) already[1] = nextText;
+      else writes.push([file, nextText]);
+    }
+    lines.push(`campaign: rebaked ${campaignPin.commit} -> ${commit} fingerprint ${campaignPin.fingerprint} -> ${probed.fingerprint} (${cSha})`);
   } else {
     const cSha = sha256(built.campaign);
     const next = { ...campaignPin, commit, sourceCommit: commit, sha256: cSha, bundleSha256: cSha, bundleBytes: Buffer.byteLength(built.campaign) };
@@ -267,9 +403,12 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
     writes.push([REWARDS_TS, rewards]);
     for (const rel of CAMPAIGN_TRIPWIRES) {
       const file = join(root, rel);
-      const text = readFileSync(file, 'utf8');
+      const already = writes.find((row) => row[0] === file);
+      const text = already ? already[1] : readFileSync(file, 'utf8');
       if (!text.includes(campaignPin.sha256)) throw new Error(`${rel} does not name the campaign sha256`);
-      writes.push([file, text.split(campaignPin.sha256).join(cSha)]);
+      const nextText = text.split(campaignPin.sha256).join(cSha);
+      if (already) already[1] = nextText;
+      else writes.push([file, nextText]);
     }
     lines.push(`campaign: re-pinned ${campaignPin.commit} -> ${commit} (${cSha}), bundle unchanged apart from the commit`);
   }

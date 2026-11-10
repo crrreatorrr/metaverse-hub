@@ -41,6 +41,7 @@
     "src/hub_rpcs.ts",
     "src/sproto_duel.ts",
     "src/item_grant.ts",
+    "src/pet_catalog.ts",
     "src/pets.ts",
     "src/main.ts"
   ],

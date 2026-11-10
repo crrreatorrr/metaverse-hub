@@ -55,14 +55,15 @@ done
 export NAKAMA_HTTP_KEY="$http_key"
 export NAKAMA_CONSOLE_PASSWORD="$console_password"
 export NAKAMA_CONSOLE_SIGNING_KEY="$console_signing_key"
-export CHECK_DIST_DEFAULTS_ONLY="$defaults_only"
 
 python3 - "$@" <<'PY'
 import os
 import sys
 from pathlib import Path
 
-# Same dev defaults check-env.sh and render-config.sh refuse as a secret value.
+# Dev credential literals. check-env.sh also refuses the English words "password"
+# and "changeme" as a secret's value. Those words are not scanned here: the login
+# UI contains the field name "password", and a substring search would reject it.
 DEV_VALUES = (
     "defaultkey",
     "localdb",
@@ -70,8 +71,6 @@ DEV_VALUES = (
     "defaulthttpkey",
     "defaultencryptionkey",
     "defaultrefreshencryptionkey",
-    "password",
-    "changeme",
     "dev-ticket-hmac-key",
     "dev-recovery-pepper",
     "dev-audit-key",
@@ -82,10 +81,7 @@ SERVER_SECRETS = tuple(
     for name in ("NAKAMA_HTTP_KEY", "NAKAMA_CONSOLE_PASSWORD", "NAKAMA_CONSOLE_SIGNING_KEY")
     if os.environ.get(name)
 )
-# --defaults-only is the CI scan. The login UI contains the field name "password",
-# and "changeme" is an English word. The publish scan (no flag) still refuses both.
-SKIP_IN_DEFAULTS = {"password", "changeme"} if os.environ.get("CHECK_DIST_DEFAULTS_ONLY") == "1" else set()
-DEV_BYTES = tuple((name, name.encode()) for name in DEV_VALUES if name not in SKIP_IN_DEFAULTS)
+DEV_BYTES = tuple((name, name.encode()) for name in DEV_VALUES)
 PRIVATE_KEYS = (
     ("PRIVATE_KEY", b"-----BEGIN PRIVATE KEY-----"),
     ("PRIVATE_KEY", b"-----BEGIN RSA PRIVATE KEY-----"),

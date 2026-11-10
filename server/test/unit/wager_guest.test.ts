@@ -83,6 +83,10 @@ function assertGuestCancel(seatA: string, seatB: string, guestSeat: 0 | 1): void
   const seatB = '66666666-6666-4666-8666-666666666666';
   account(seatA, 'a2@example.com');
   account(seatB, 'b2@example.com');
+  // This fixture exercises enabled wagers; default-off coverage lives in duel_wager_flag.test.ts.
+  mod.nk.onSql('FROM game.server_flags', (args) => args[0] === 'sproto_duel_wager'
+    ? [{ result: JSON.stringify({ state: 'on', allowlist: [], percent: 0 }) }]
+    : []);
   mod.nk.onSql('sproto_wager_hold', () => [{ r: JSON.stringify({ wagerId: 'w1', status: 'held', stake: 10 }) }]);
   const match = wagerMatch(seatA, seatB);
   helloBoth(match, seatA, seatB);

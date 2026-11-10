@@ -6,12 +6,12 @@ import type { RemoteWorld } from './remoteWorld';
 
 const CHARACTERS = ['wizard', 'soldier', 'laser', 'monster', 'dragon', 'beast', 'sahil', 'flyer', 'shooterbot', 'mole'];
 
-export function startBots(world: RemoteWorld, count: number, now: () => number = () => performance.now()): () => void {
+export function startBots(world: RemoteWorld, count: number, now: () => number = () => performance.now(), pets = false): () => void {
   const n = Math.max(1, Math.min(99, Math.floor(count)));
   const roster: RosterEntry[] = [];
   const seeds: { r: number; a: number; w: number; cx: number; cz: number }[] = [];
   for (let i = 0; i < n; i += 1) {
-    roster.push({ s: i + 1, u: `bot-${i}`, n: `bot${i}`, c: CHARACTERS[i % CHARACTERS.length]!, st: 'sproto', pt: '', r: i % 5 === 0 ? ['cones_tip'] : [], g: '', away: false });
+    roster.push({ s: i + 1, u: `bot-${i}`, n: `bot${i}`, c: CHARACTERS[i % CHARACTERS.length]!, st: 'sproto', pt: pets ? (i % 2 ? 'pet_nobu' : 'pet_starter') : '', r: i % 5 === 0 ? ['cones_tip'] : [], g: '', away: false });
     seeds.push({ r: 4 + (i % 9) * 3.5, a: (i / n) * Math.PI * 2, w: 0.25 + (i % 7) * 0.05, cx: 0, cz: 30 });
   }
   const rows = (t: number): PoseRow[] =>
