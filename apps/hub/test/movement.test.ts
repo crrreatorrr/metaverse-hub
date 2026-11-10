@@ -217,8 +217,11 @@ for (const hz of [30, 60, 120]) {
   assert.ok(flight.update({ dt, airborne: true, remote: true, restart: true }, 2.5) < 0.2, 'a new remote takeoff restarts the turn');
   assert.equal(flight.update({ dt, airborne: false }, 0), 0);
   const takeoff = flight.update({ dt, airborne: true }, MOVEMENT.jump);
+  assert.equal(flight.launched, true);
   assert.equal(flight.update({ dt, airborne: true }, 0), takeoff, `early ceiling contact stops the turn at ${hz} Hz`);
   assert.equal(flight.update({ dt, airborne: true }, -1), takeoff);
+  assert.equal(flight.launched, true, 'head contact keeps the same flight until landing');
   assert.equal(flight.update({ dt, airborne: false }, 0), 0);
   assert.equal(flight.update({ dt, airborne: true }, -1), 0, 'walking off an edge does not start a backflip');
+  assert.equal(flight.launched, false, 'short drops keep the ordinary pose grace period');
 }

@@ -256,7 +256,8 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const restart = takeoff || discontinuity;
           // The jump flag may have switched anywhere within this frame.
           // Start near takeoff, especially when frames are far apart.
-          const flightDt = discontinuity ? dt : airborne && !n.airborne ? poseDt * 0.5 : poseDt;
+          const startingNearGround = airborne && !n.airborne && n.lastY !== null && r.y - n.lastY < 0.1;
+          const flightDt = discontinuity ? dt : startingNearGround ? poseDt * 0.5 : poseDt;
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
           n.lastY = r.y;

@@ -1,6 +1,7 @@
 import { MOVEMENT } from '../core/movement';
 
 const TURN_SECONDS = 0.37;
+const REMOTE_TURN_SECONDS = 0.35;
 const ABORT_SECONDS = 0.12;
 
 export interface FlightTiming {
@@ -42,8 +43,8 @@ export function createFlightTurn() {
     }
     previousVy = vy;
     if (!interrupted) elapsed += dt;
-    return Math.min(1, elapsed / TURN_SECONDS);
+    return Math.min(1, elapsed / (remote ? REMOTE_TURN_SECONDS : TURN_SECONDS));
   }
 
-  return { update, reset };
+  return { update, reset, get launched() { return sawLaunch; } };
 }

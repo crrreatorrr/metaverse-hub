@@ -228,7 +228,7 @@ export function createAvatarRig(): AvatarRig {
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
     const flightPhase = hasBackflip ? flightTurn.update(flight, air?.vy ?? 0) : null;
     const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
-    const airborne = hasBackflip ? flight.airborne : air?.airborne;
+    const airborne = hasBackflip && flightTurn.launched ? flight.airborne : air?.airborne;
     const next: Pose = airborne && actions.air ? 'air' : gait;
     if (next !== pose) {
       const from = poseAction(pose);
