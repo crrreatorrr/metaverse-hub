@@ -83,6 +83,11 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.equal(it.slowGroundSpeed(1200), undefined, 'an explicit idle ends the cadence estimate');
   it.clear();
   assert.equal(it.slowGroundSpeed(1300), undefined);
+  push(1400, 0.01, 1);
+  push(1800, 0.01, 1);
+  push(1900, 0.01, 1);
+  push(2000, 0, 1);
+  assert.ok((it.slowGroundSpeed(2050) ?? 0) > 0.02, 'a reversal across the quantization boundary keeps a gait');
 }
 
 // RemoteWorld: snapshot excludes self, roster add/upd/del, deltas feed interp.

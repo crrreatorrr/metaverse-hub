@@ -18,11 +18,16 @@ export function createPlanarSpeed(x: number, z: number) {
       previousHeading = undefined;
       samples.splice(0, samples.length, { time, x, z });
     },
-    sample(dt: number, x: number, z: number, heading?: number): number | undefined {
+    sample(dt: number, x: number, z: number, heading?: number, requestedSpeed = 0): number | undefined {
       if (dt <= 0) return undefined;
       if (heading !== undefined && previousHeading !== undefined && Math.cos(heading - previousHeading) < 0) {
-        // Keep the last sample as the start of the intentional turn.
-        samples.splice(0, samples.length - 1);
+        const last = samples[samples.length - 1]!;
+        const progress = (x - last.x) * Math.sin(heading) - (z - last.z) * Math.cos(heading);
+        // Clear the window only if the body follows the new input. A
+        // blocked capsule can still move a little while resolving contact.
+        if (requestedSpeed > 0 && progress >= requestedSpeed * dt * 0.5) {
+          samples.splice(0, samples.length - 1);
+        }
       }
       previousHeading = heading;
       time += dt;

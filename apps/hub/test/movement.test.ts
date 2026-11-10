@@ -68,15 +68,24 @@ const clubFloor = -300 + STAND_Y;
     const speed = cadence.sample(1 / 60, player.position.x, player.position.z)!;
     if (i >= 120) assert.ok(speed < 0.02, `blocked cadence: ${speed}`);
   }
+  cadence.reset(player.position.x, player.position.z);
+  let filtered = 0;
+  for (let i = 0; i < 240; i++) {
+    const yaw = Math.floor(i / 5) % 2 === 0 ? 0 : Math.PI;
+    player.step(1 / 60, { ...idle, forward: 1, yaw }, speeds);
+    const speed = cadence.sample(1 / 60, player.position.x, player.position.z, player.facingYaw, speeds.walk)!;
+    filtered += (speed - filtered) * (1 - Math.exp(-36 / 60));
+    if (i >= 60) assert.ok(filtered < 0.02, `blocked cadence with alternating input: ${filtered}`);
+  }
   // Gentle sustained input clears the same threshold, including after a warp.
   cadence.reset(2, 5);
   assert.equal(cadence.sample(0, 2, 5), undefined);
   for (let i = 1; i <= 30; i++) {
-    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, Math.PI / 2)!;
+    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, Math.PI / 2, 0.025)!;
     assert.ok(Math.abs(speed - 0.025) < 1e-9);
   }
   for (let i = 29; i >= 0; i--) {
-    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, -Math.PI / 2)!;
+    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, -Math.PI / 2, 0.025)!;
     assert.ok(Math.abs(speed - 0.025) < 1e-9, `slow reversal cadence: ${speed}`);
   }
 }

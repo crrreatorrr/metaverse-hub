@@ -43,7 +43,7 @@ import {
   type StaffId,
 } from './config';
 import type { AvatarLook } from './look';
-import { MOVEMENT } from './core/movement';
+import { CREATURE_STOP_SPEED, MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
 import { createBootSupport } from './rig/boot-support';
 import { createFlightTurn, type FlightTiming } from './rig/flight-turn';
@@ -106,8 +106,9 @@ export function createAvatarRig(): AvatarRig {
   let actions: (Record<Gait, AnimationAction> & { air: AnimationAction | null }) | null = null;
   const flightTurn = createFlightTurn();
   let hasBackflip = false;
+  let hoverAtStop = false;
   let bootSupport: ReturnType<typeof createBootSupport> = null;
-  let strideSpeed: number | null = null;
+  let travelSpeed: number | null = null;
   let pose: Pose = 'idle';
   let bank = 0;
   let lastYaw: number | null = null;
@@ -189,8 +190,9 @@ export function createAvatarRig(): AvatarRig {
         socket = nextSocket;
         mixer = nextMixer;
         actions = nextActions;
-        strideSpeed = null;
+        travelSpeed = null;
         hasBackflip = character.id === 'flyer';
+        hoverAtStop = character.id === 'dragon';
         flightTurn.reset();
         body.add(next);
         lean.position.y = -STAND_Y;
@@ -242,16 +244,18 @@ export function createAvatarRig(): AvatarRig {
   function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): boolean {
     if (!mixer || !actions) return moving;
     const sharedStride = actions.walk === actions.run;
-    if (sharedStride) {
+    if (sharedStride || hoverAtStop) {
       // Keep the last measured rate during a brief remote pose gap.
       const requestedSpeed = sprint ? SPRINT_SPEED : WALK_SPEED;
-      const travel = moving ? (speed === null ? strideSpeed ?? requestedSpeed : speed ?? requestedSpeed) : 0;
-      strideSpeed = MathUtils.damp(strideSpeed ?? travel, travel, 36, dt);
-      const authored = groundSpeedOf(actions.walk.getClip()) * (model?.scale.y ?? 1);
-      const stride = authored > 0 ? authored : SPRINT_SPEED / AVATAR_CLIPS.run.timeScale;
-      actions.walk.timeScale = MathUtils.clamp(strideSpeed / stride, 0, TIME_SCALE_MAX);
+      const travel = moving ? (speed === null ? travelSpeed ?? requestedSpeed : speed ?? requestedSpeed) : 0;
+      travelSpeed = MathUtils.damp(travelSpeed ?? travel, travel, 36, dt);
+      if (sharedStride) {
+        const authored = groundSpeedOf(actions.walk.getClip()) * (model?.scale.y ?? 1);
+        const stride = authored > 0 ? authored : SPRINT_SPEED / AVATAR_CLIPS.run.timeScale;
+        actions.walk.timeScale = MathUtils.clamp(travelSpeed / stride, 0, TIME_SCALE_MAX);
+      }
       // Filter tiny collision corrections while allowing slow analogue input.
-      moving = moving && strideSpeed > 0.02;
+      moving = moving && travelSpeed > CREATURE_STOP_SPEED;
     }
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
     const recover = hasBackflip && pose === 'air' && !flight.airborne && flightTurn.needsRecovery;

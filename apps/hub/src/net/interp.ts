@@ -1,5 +1,6 @@
 // Remote pose interpolation: render 150 ms in the past between the two samples
 // that straddle that time. Yaw takes the short arc; a jump over 5 m snaps.
+import { CREATURE_STOP_SPEED } from '../core/movement';
 import { ANIMS, type Pose } from './protocol';
 
 export const INTERP_DELAY_MS = 150;
@@ -57,7 +58,9 @@ export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
         if (travel > 0) {
           const interval = at - groundStep.at;
           groundCadence = travel < 0.021 && interval >= delayMs && interval <= 600
-            ? { speed: travel * 1000 / interval, expiresAt: at + interval + delayMs }
+            // The sender still reports a ground gait. Sparse quantization
+            // around a turn can underestimate its speed for one interval.
+            ? { speed: Math.max(CREATURE_STOP_SPEED + 0.001, travel * 1000 / interval), expiresAt: at + interval + delayMs }
             : undefined;
           groundStep = sample;
         }
