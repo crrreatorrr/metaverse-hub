@@ -18,7 +18,7 @@ import { call, login, psql, sleep as sqlSleep, ticketBalance, waitReady, type Ga
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
-const FP = '17d87c54';
+const FP = 'b33eada6';
 const PROTOCOL = 2;
 const SIM = 2;
 const PIN = JSON.parse(readFileSync(join(process.cwd(), 'server/modules/vendor/shooter-pvp-sim.pin.json'), 'utf8')) as {

@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { checkBundle, contractDiff, hubPinOf, scrubEnv, withScratch } from './revendor-shooter-pvp.mjs';
+import { checkBundle, contractChangeRefused, contractDiff, hubPinOf, scrubEnv, withScratch } from './revendor-shooter-pvp.mjs';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const bundle = readFileSync(`${root}/server/modules/vendor/shooter-pvp-sim.js`, 'utf8');
@@ -23,6 +23,10 @@ assert.deepEqual(contractDiff(vendoredPin, { ...vendoredPin }), []);
 assert.deepEqual(contractDiff(vendoredPin, { ...vendoredPin, limits: { ...vendoredPin.limits, futureFrames: 9 } }), ['limits']);
 assert.deepEqual(contractDiff(vendoredPin, { ...vendoredPin, rewind: { ...vendoredPin.rewind, maxBackStep: 3 } }), ['rewind']);
 assert.deepEqual(contractDiff(vendoredPin, { ...vendoredPin, replayVersion: 3, combatSeed: 'other' }), ['replayVersion', 'combatSeed']);
+assert.equal(contractChangeRefused([], { pvpOnly: false }), false);
+assert.equal(contractChangeRefused(['contentFingerprint'], { pvpOnly: false }), false);
+assert.equal(contractChangeRefused(['contentFingerprint'], { pvpOnly: true }), true);
+assert.equal(contractChangeRefused(['contentFingerprint', 'limits'], { pvpOnly: false }), true);
 
 // The fetched build runs without the caller's secrets.
 const env = scrubEnv({
@@ -42,7 +46,7 @@ assert.ok(scratch && !existsSync(scratch), 'scratch directory removed after a fa
 // The vendored bundle: the mirrored golden, and a hosted-director match whose replay record verifies.
 const checked = checkBundle(bundle, vendoredPin.commit);
 assert.equal(checked.golden.tick, 65);
-assert.equal(checked.golden.stateHash, '6545ca0a');
+assert.equal(checked.golden.stateHash, '532a562e');
 assert.equal(checked.hosted.verified, true);
 assert.equal(checked.hosted.policy, 'settle');
 assert.throws(() => checkBundle(bundle, 'c'.repeat(40)), /commit/);

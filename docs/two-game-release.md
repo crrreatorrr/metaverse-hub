@@ -25,9 +25,9 @@ C5 could not run its own Nakama restart step or the wallet-fault half, and its t
 | Piece | Value |
 |---|---|
 | Hub parent | `8753d1c` (hub #123). Squash `dcc8e6b` (hub #122) |
-| Shooter `main` | `ce6f5f232c1abdf78bbde8f4ac65b1b475109c01` (through the L02 Sahil fight). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
-| Shooter free / wager bundle | sha256 `887c20aaf62b7404b415265081302a553fdbddc24ee0cd72deba62935bafddb4`, content `17d87c54`, loadout `4cdfab55`, golden tick 65 hash `6545ca0a`, global `SprotoShooterPvp` |
-| Shooter campaign bundle | sha256 `dbdff8bfd63b69782c998235825753a144411de1c2d5ac1d62720947246364b1`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
+| Shooter `main` | `96c576492c996d14b0911847f351131cabbc33c4` (shooter #70, slide, grapple, stamina). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
+| Shooter free / wager bundle | sha256 `10d3885251ebfc5fe7c29eb63f359603d4e2b500687cfd0faf878d7d019cf6ec`, content `b33eada6`, loadout `4cdfab55`, golden tick 65 hash `532a562e`, global `SprotoShooterPvp` |
+| Shooter campaign bundle | sha256 `694f6f91d2b52a53047ffba2e247d5689c3afeb57d18b8d051454d33afe4dc5c`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
 | Coop game `main` | `ae9dd750878c4046d43825fff1724c129c4c1fdb` |
 | Coop hub pin | commit `9a0b5d9f97460617b4b2bb8445dae6849f163d51`, protocol 1, state 1, fingerprint `f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e`, bundle `28f9236d0df78c62cf600ad08c9924f8dd260b6948d7a73baf60230936934fac` |
 | Coop loop | 20 Hz, 3 substeps, 60 Hz sim, snapshot 10 Hz, reconnect 15 s, match `sproto_coop` |
@@ -96,7 +96,7 @@ Wallet fault, the case C5 did not run:
 
 ### Shooter 1v1
 
-Protocol 2 / sim 2, content `17d87c54`, bundle sha above. `wagerEnabled` was false at the start.
+Protocol 2 / sim 2, content `b33eada6`, bundle sha above. `wagerEnabled` was false at the start.
 
 | Measurement | Value |
 |---|---|
