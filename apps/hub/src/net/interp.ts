@@ -33,11 +33,36 @@ function shortArc(from: number, to: number, t: number): number {
 
 export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
   const samples: Sample[] = [];
+  let groundStep: Sample | undefined;
+  let groundCadence: { speed: number; expiresAt: number } | undefined;
+
+  function resetGroundCadence(): void {
+    groundStep = undefined;
+    groundCadence = undefined;
+  }
+
   return {
     push(at, pose) {
       const last = samples[samples.length - 1];
-      if (last && Math.hypot(pose.x - last.x, pose.y - last.y, pose.z - last.z) > SNAP_DISTANCE) samples.length = 0;
-      samples.push({ ...pose, at });
+      if (last && Math.hypot(pose.x - last.x, pose.y - last.y, pose.z - last.z) > SNAP_DISTANCE) {
+        samples.length = 0;
+        resetGroundCadence();
+      }
+      const sample = { ...pose, at };
+      if (!isGroundMoving(pose.anim)) resetGroundCadence();
+      else if (!groundStep) groundStep = sample;
+      else {
+        // Yaw and vertical changes can arrive between quantized ground steps.
+        const travel = Math.hypot(pose.x - groundStep.x, pose.z - groundStep.z);
+        if (travel > 0) {
+          const interval = at - groundStep.at;
+          groundCadence = travel < 0.021 && interval >= delayMs && interval <= 600
+            ? { speed: travel * 1000 / interval, expiresAt: at + interval + delayMs }
+            : undefined;
+          groundStep = sample;
+        }
+      }
+      samples.push(sample);
       if (samples.length > MAX_SAMPLES) samples.shift();
     },
     sample(now, out) {
@@ -69,13 +94,7 @@ export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
       return last ? Math.max(0, now - delayMs - last.at) : 0;
     },
     slowGroundSpeed(now) {
-      const last = samples[samples.length - 1];
-      const previous = samples[samples.length - 2];
-      if (!last || !previous || !isGroundMoving(last.anim) || !isGroundMoving(previous.anim)) return undefined;
-      const interval = last.at - previous.at;
-      if (interval < delayMs || interval > 600 || now - last.at > interval + delayMs) return undefined;
-      const travel = Math.hypot(last.x - previous.x, last.z - previous.z);
-      return travel > 0 && travel < 0.021 ? travel * 1000 / interval : undefined;
+      return groundCadence && now <= groundCadence.expiresAt ? groundCadence.speed : undefined;
     },
     latest() {
       const last = samples[samples.length - 1];
@@ -83,6 +102,7 @@ export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
     },
     clear() {
       samples.length = 0;
+      resetGroundCadence();
     },
   };
 }
