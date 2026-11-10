@@ -1,12 +1,13 @@
 import {
-  AnimationMixer, LOD, LoopOnce, LoopRepeat, Mesh, MeshStandardMaterial, SphereGeometry,
-  type AnimationAction, type AnimationClip, type Material, type Object3D, type Vector3,
+  AnimationMixer, Box3, LOD, LoopOnce, LoopRepeat, Matrix4, Mesh, MeshStandardMaterial, SphereGeometry, Vector3,
+  type AnimationAction, type AnimationClip, type Material, type Object3D,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { WORLD_ROOT, loadGLTF } from './core';
 import { createPetMotion, type PetCollision } from '../core/pet-motion';
 import FOLLOWERS from '../../../../server/data/follower-pets.json';
 import PETS_DATA from './pets.json';
+import CLEARANCE from './pet-clearance.json';
 
 /**
  * M6 hub pets (ken-games/pets/drop-for-tech, contract m6-pet-v1). One pet follows the local avatar.
@@ -16,6 +17,8 @@ import PETS_DATA from './pets.json';
  * Equippable ids are exactly the server catalog ids in server/modules/src/pets.ts that have art in this
  * drop. pet_sproto_base / pet_nobu_base are the shared rigs (item_id null): shipped, not equippable.
  */
+// Padded model-space bounds sampled across both GLBs at 60 Hz, as min XYZ then max XYZ.
+const CLEARANCE_BOXES: Record<string, Record<string, readonly number[]>> = CLEARANCE;
 type PetEntry = (typeof PETS_DATA.pets)[keyof typeof PETS_DATA.pets];
 interface Pulse { node: string; material: string; min: number; max: number; hz: number }
 
@@ -43,13 +46,17 @@ const RUN_ENTER = 11;
 const RUN_EXIT = 9;
 const RATE_MIN = 0.45;
 const RATE_MAX = 1.5;
+const SPAWN_CLEARANCE_OFFSETS = [0.12, 0.24, 0.36, 0.48, 0.60];
+// The baked clips are grounded individually. Leave room for blended joints.
+const GROUND_CLEARANCE = 0.003;
+const SPAWN_CLEARANCE_STEPS = SPAWN_CLEARANCE_OFFSETS.flatMap(d => [[-d, 0], [d, 0], [0, -d], [0, d]]);
 
 export function isPetAssetId(id: string): id is PetAssetId {
   return (PET_ASSET_IDS as string[]).includes(id);
 }
 
 /** One LOD level: its own scene clone + mixer. Only the visible level is advanced. */
-interface Level { root: Object3D; mixer: AnimationMixer; clips: readonly AnimationClip[]; actions: Map<string, AnimationAction>; mats: { mat: MeshStandardMaterial; pulse: Pulse }[] }
+interface Level { root: Object3D; mixer: AnimationMixer; clips: readonly AnimationClip[]; actions: Map<string, AnimationAction>; mats: { mat: MeshStandardMaterial; pulse: Pulse }[]; beam?: Object3D; beamScaleY?: number }
 
 function makeLevel(scene: Object3D, clips: readonly AnimationClip[], id: string, pulses: readonly Pulse[]): Level {
   const root = SkeletonUtils.clone(scene);
@@ -78,7 +85,7 @@ function makeLevel(scene: Object3D, clips: readonly AnimationClip[], id: string,
     actions.set(clip.name, action);
   }
   actions.get(`${id}_parts`)?.play(); // always on, only touches part nodes
-  return { root, mixer, clips, actions, mats };
+  return { root, mixer, clips, actions, mats, beam: root.getObjectByName('Laser_Beam') };
 }
 
 export interface PetFollower {
@@ -111,7 +118,13 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
   let trickPlayed = false;
   let nextTrick = 0;
   let tricks: string[] = [];
-  let trickFadeUntil = 0;
+  let poseFadeUntil = 0;
+  let fadingPose = '';
+  let hasSafePose = false;
+  const transform = new Matrix4();
+  const bounds = new Box3();
+  const beamOrigin = new Vector3();
+  const beamDirection = new Vector3();
   let time = 0;
   const motion = createPetMotion(collide);
   const orbGeometry = new SphereGeometry((FOLLOWERS.find(pet => pet.id === 'pet_starter')?.size ?? 0.45) / 2, 8, 6);
@@ -128,7 +141,10 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       next.reset().play();
       if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
     }
-    if (tricks.includes(current)) trickFadeUntil = time + fade;
+    if (clearance(current)) {
+      fadingPose = current;
+      poseFadeUntil = time + fade;
+    }
     current = name;
   }
 
@@ -156,8 +172,32 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     trickPlayed = false;
     nextTrick = 0;
     tricks = [];
-    trickFadeUntil = 0;
+    poseFadeUntil = 0;
+    fadingPose = '';
+    hasSafePose = false;
     group.visible = false;
+  }
+
+  function clearance(clip: string) {
+    return active ? CLEARANCE_BOXES[active]?.[clip] : undefined;
+  }
+
+  function fits(clip: string): boolean {
+    const extent = clearance(clip);
+    if (!extent || !collide?.blocked) return true;
+    bounds.min.set(extent[0], extent[1], extent[2]);
+    bounds.max.set(extent[3], extent[4], extent[5]);
+    return !collide.blocked(bounds, transform);
+  }
+
+  function clipBeam(beam: Object3D): void {
+    if (!collide?.beamRange || beam.scale.y <= 0.001) return;
+    beam.updateWorldMatrix(true, false);
+    beamOrigin.setFromMatrixPosition(beam.matrixWorld);
+    beamDirection.set(0, 1, 0).transformDirection(beam.matrixWorld);
+    // The authored peak beam is two metres, including the hub model scale.
+    const length = 2 * beam.scale.y;
+    beam.scale.y *= collide.beamRange(beamOrigin, beamDirection, length) / length;
   }
 
   return {
@@ -186,7 +226,10 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       levels = [makeLevel(near.scene, near.animations, id, pulses), makeLevel(far.scene, far.animations, id, pulses)];
       tricks = IDLE_TRICKS.filter(name => levels.every(level => level.actions.has(name)));
       const height = id === 'pet_sproto_pup' ? PETS_DATA.contract.height_m.sproto_pup : PETS_DATA.contract.height_m.sproto;
-      for (const level of levels) level.root.scale.setScalar((definition?.size ?? height) / height);
+      for (const level of levels) {
+        level.root.scale.setScalar((definition?.size ?? height) / height);
+        if (CLEARANCE_BOXES[id] && id !== 'pet_mecha') level.root.position.y += GROUND_CLEARANCE;
+      }
       group.addLevel(levels[0].root, 0);
       group.addLevel(levels[1].root, LOD1_DISTANCE);
       for (const level of levels) level.mixer.addEventListener('finished', onFinished as never);
@@ -195,21 +238,57 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       for (const level of levels) level.mixer.update(0);
     },
     dispose() { ++token; clear(); active = null; parent.remove(group); orbGeometry.dispose(); orbMaterial.dispose(); },
-    emote(name) { play(name, 0.1); },
+    emote(name) { if (fits(name)) play(name, 0.1); },
     update(dt, player, standY, sprint) {
       if (!active) return;
       time += dt;
       const oldX = group.position.x;
       const oldZ = group.position.z;
       motion.update(dt, player, standY);
-      group.position.copy(motion.position);
+      let speed = motion.speed;
+      const yaw = speed > 0.6
+        ? Math.atan2(motion.position.x - oldX, motion.position.z - oldZ)
+        : group.rotation.y;
+      transform.makeRotationY(yaw).setPosition(motion.position);
+      let canMove = fits('base');
+      if (!canMove && !hasSafePose) {
+        const { x, y, z } = motion.position;
+        for (const [dx, dz] of SPAWN_CLEARANCE_STEPS) {
+          transform.setPosition(x + dx, y, z + dz);
+          if (!fits('base')) continue;
+          motion.position.set(x + dx, y, z + dz);
+          speed = 0;
+          canMove = true;
+          break;
+        }
+      }
+      if (canMove) {
+        group.position.copy(motion.position);
+        group.rotation.y = yaw;
+        hasSafePose = true;
+      } else if (hasSafePose) {
+        motion.position.copy(group.position);
+        transform.makeRotationY(group.rotation.y).setPosition(group.position);
+        speed = 0;
+      } else {
+        return;
+      }
       group.visible = true;
-      const speed = motion.speed;
-      if (speed > 0.6) group.rotation.y = Math.atan2(group.position.x - oldX, group.position.z - oldZ);
       if (active === 'pet_starter') {
         orb.position.y = 0.28 + Math.sin(time * (speed > 0.6 ? 14 : 3)) * 0.04;
         current = speed > 0.6 ? 'follow_walk' : 'idle';
         return;
+      }
+      let refreshBoth = false;
+      if (!fits(current)) {
+        refreshBoth = true;
+        for (const level of levels) level.actions.get(current)?.stop();
+        play(idleAnimation, 0);
+      }
+      if (time <= poseFadeUntil && !fits(fadingPose)) {
+        refreshBoth = true;
+        for (const level of levels) level.actions.get(fadingPose)?.stop();
+        poseFadeUntil = 0;
       }
       const busy = current === 'spawn_poof' || current === 'emote_happy';
       if (speed > 0.6) {
@@ -223,11 +302,11 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
         if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play(idleAnimation);
         if (current === idleAnimation) {
           idleFor += dt;
-          if (!trickPlayed && stillFor >= IDLE_TRICK_DELAY && tricks.length > 0) {
+          if (!trickPlayed && stillFor >= IDLE_TRICK_DELAY && tricks.length > 0 && fits(tricks[nextTrick])) {
             trickPlayed = true;
             play(tricks[nextTrick], 0.12);
             nextTrick = (nextTrick + 1) % tricks.length;
-          } else if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter')) {
+          } else if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter') && fits('sit_enter')) {
             play('sit_enter', 0.1);
           }
         } else if (current !== 'sit' && current !== 'sit_enter') idleFor = 0;
@@ -235,11 +314,20 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       const rate = current === 'follow_run' ? speed / RUN_REF : current === 'follow_walk' ? speed / WALK_REF : 1;
       const timeScale = current === 'follow_run' || current === 'follow_walk' ? Math.min(RATE_MAX, Math.max(RATE_MIN, rate)) : 1;
       // Keep the one-shot and its outgoing fade synchronized across LODs.
-      const updateTrick = tricks.includes(current) || time - dt < trickFadeUntil;
+      const updateTrick = refreshBoth || tricks.includes(current) || time - dt < poseFadeUntil;
       for (const level of levels) {
         const action = level.actions.get(current);
         if (action) action.timeScale = timeScale;
-        if (level.root.visible || updateTrick) level.mixer.update(dt);
+        if (level.root.visible || updateTrick) {
+          // Restore the authored scale first. The mixer skips writing a
+          // property when its keyed value stays constant across frames.
+          if (level.beam && level.beamScaleY !== undefined) level.beam.scale.y = level.beamScaleY;
+          level.mixer.update(dt);
+          if (level.beam) {
+            level.beamScaleY = level.beam.scale.y;
+            clipBeam(level.beam);
+          }
+        }
         for (const { mat, pulse } of level.mats) {
           mat.emissiveIntensity = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(time * Math.PI * 2 * pulse.hz));
         }

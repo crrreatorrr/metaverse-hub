@@ -82,7 +82,10 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     bob.add(avatar);
     rig.add(bob);
     scene.add(rig);
-    const pets = createPetFollower(scene, position => petCollision?.(position));
+    const collision: PetCollision = position => petCollision?.(position);
+    collision.blocked = (bounds, transform) => petCollision?.blocked?.(bounds, transform) ?? false;
+    collision.beamRange = (origin, direction, range) => petCollision?.beamRange?.(origin, direction, range) ?? range;
+    const pets = createPetFollower(scene, collision);
 
     const shadowMat = new MeshBasicMaterial({
       map: radialShadow(),

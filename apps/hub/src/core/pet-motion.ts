@@ -1,6 +1,10 @@
-import { Vector3 } from 'three';
+import { Vector3, type Box3, type Matrix4 } from 'three';
 
-export type PetCollision = (position: Vector3) => void;
+export interface PetCollision {
+  (position: Vector3): void;
+  blocked?(bounds: Box3, transform: Matrix4): boolean;
+  beamRange?(origin: Vector3, direction: Vector3, range: number): number;
+}
 
 /** Reused vectors and bounded sweep steps: no frame-time objects or callbacks. */
 export function createPetMotion(collide?: PetCollision, followSpeed = 8) {
