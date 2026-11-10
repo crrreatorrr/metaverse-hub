@@ -189,6 +189,45 @@ async function submit(session: GameLogin, runId: string, log: unknown): Promise<
   return call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 60_000 });
 }
 
+async function racePayOnce(boss: string, n: number, label: string): Promise<void> {
+  const session = await loginShooter();
+  const { issuance, log } = await cleared(session, boss, `${label}-key`);
+  const results = await Promise.all(Array.from({ length: n }, () => submit(session, issuance.runId, log)));
+  const winners = results.filter((result) => body(result).paid === true);
+  assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
+  const sealed = canonical(winners[0]?.body);
+  for (const result of winners) assert.equal(canonical(result.body), sealed);
+  assert.equal(credits(session.hub.userId), 1);
+  assert.equal(creditSum(session.hub.userId), PAY);
+  assert.equal(scores(session.hub.userId, boss), 1);
+  assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
+  const aliasNames = ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent'];
+  const aliasRace = await Promise.all(aliasNames.flatMap((name) => (
+    Array.from({ length: 5 }, (_, i) => call('shooter.run.issue', { key: `${label}-alias-${name}-${i}`, canonicalBoss: name }, session.gameToken))
+  )));
+  assert.equal(aliasRace.length, 20);
+  for (const result of aliasRace) {
+    assert.notEqual(body(result).ok, true, JSON.stringify(result.body));
+    assert.equal(body(result).tickets, 0);
+    assert.equal(body(result).ticketsMinted, 0);
+  }
+  const otherClear = await cleared(session, boss, `${label}-other`);
+  assert.notEqual(otherClear.issuance.runId, issuance.runId);
+  const second = await submit(session, otherClear.issuance.runId, otherClear.log);
+  assert.equal(body(second).paid, false, JSON.stringify(second.body));
+  assert.equal(body(second).tickets, 0);
+  assert.equal(body(second).reason, 'already_paid');
+  const again = await openGame(session.hub.token, 'sproto-shooter');
+  const thirdClear = await cleared(again, boss, `${label}-session`);
+  const third = await submit(again, thirdClear.issuance.runId, thirdClear.log);
+  assert.equal(body(third).tickets, 0, JSON.stringify(third.body));
+  assert.notEqual(body(third).paid, true);
+  assert.equal(credits(session.hub.userId), 1);
+  assert.equal(creditSum(session.hub.userId), PAY);
+  assert.equal(scores(session.hub.userId, boss), 1);
+  assert.equal(receipts(session.hub.userId, boss), 1);
+}
+
 function credits(userId: string): number {
   return num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = 'sproto-shooter' AND reason = '${REASON}' AND delta = ${PAY}`);
 }
@@ -309,46 +348,14 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(scores(session.hub.userId), 1);
   });
 
-  // A Sahil clear is ~10k frames. The verifier's 15s budget is wall clock, so
-  // 20 parallel verifies on a small machine all return cpu_budget. Four still overlap.
-  await test('shooter', '4 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
-    const session = await loginShooter();
-    const { issuance, log } = await cleared(session, 'sahil', 'race-key');
-    const results = await Promise.all(Array.from({ length: 4 }, () => submit(session, issuance.runId, log)));
-    const winners = results.filter((result) => body(result).paid === true);
-    assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
-    const sealed = canonical(winners[0]?.body);
-    for (const result of winners) assert.equal(canonical(result.body), sealed);
-    assert.equal(credits(session.hub.userId), 1);
-    assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
-    const aliasNames = ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent'];
-    const aliasRace = await Promise.all(aliasNames.flatMap((boss) => (
-      Array.from({ length: 5 }, (_, i) => call('shooter.run.issue', { key: `alias-race-${boss}-${i}`, canonicalBoss: boss }, session.gameToken))
-    )));
-    assert.equal(aliasRace.length, 20);
-    for (const result of aliasRace) {
-      assert.notEqual(body(result).ok, true, JSON.stringify(result.body));
-      assert.equal(body(result).tickets, 0);
-      assert.equal(body(result).ticketsMinted, 0);
-    }
-    const otherClear = await cleared(session, 'sahil', 'race-other-key');
-    const other = otherClear.issuance;
-    assert.notEqual(other.runId, issuance.runId);
-    const second = await submit(session, other.runId, otherClear.log);
-    assert.equal(body(second).paid, false, JSON.stringify(second.body));
-    assert.equal(body(second).tickets, 0);
-    assert.equal(body(second).reason, 'already_paid');
-    const again = await openGame(session.hub.token, 'sproto-shooter');
-    const thirdClear = await cleared(again, 'sahil', 'race-new-session');
-    const third = await submit(again, thirdClear.issuance.runId, thirdClear.log);
-    assert.equal(body(third).tickets, 0, JSON.stringify(third.body));
-    assert.notEqual(body(third).paid, true);
-    assert.equal(credits(session.hub.userId), 1);
-    assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(receipts(session.hub.userId), 1);
+  // Broccoli clears in about 3k frames, so twenty parallel verifies stay inside
+  // the 15s wall-clock budget. Sahil is about 10k frames and does not.
+  await test('shooter', '20 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
+    await racePayOnce('broccoli', 20, 'race20');
+  });
+
+  await test('shooter', '4 concurrent Sahil races pay once', async () => {
+    await racePayOnce('sahil', 4, 'race4');
   });
 
   await test('shooter', 'crash after commit and a raised wallet fault pay once', async () => {
