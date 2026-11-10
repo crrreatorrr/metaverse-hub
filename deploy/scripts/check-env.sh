@@ -136,8 +136,9 @@ if [ "$days" -lt 1 ]; then
 fi
 
 # Launch flags are rows in game.server_flags. A deploy env must not carry a switch for them.
+# `export KEY=1` is the same switch as `KEY=1`. A comment is not.
 for key in SHOOTER_PVP SHOOTER_PVP_WAGER SHOOTER_PVP_RANKED PUBLIC_LAUNCH HUB_PUBLIC; do
-  if grep -E "^${key}=" "$file" >/dev/null; then
+  if grep -E "^(export[[:space:]]+)?${key}=" "$file" >/dev/null; then
     fail "${key} does not belong in deploy/.env; flags stay off in game.server_flags"
   fi
 done
