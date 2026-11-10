@@ -47,9 +47,6 @@ var SprotoShooterPvp = (() => {
     arenaRadius: 45,
     spawnRadius: 43,
     spawnPointCount: 16,
-    weaponBoxes: [{ x: -28, z: 0 }, { x: 28, z: 0 }],
-    boxRadius: 1,
-    boxInteractRadius: 3,
     eyeHeight: 1.6,
     slideEye: 0.9,
     downedEye: 0.6,
@@ -79,7 +76,6 @@ var SprotoShooterPvp = (() => {
     fovScope: 12,
     // god mode keeps you at or above these while it's on
     godTickets: 99999,
-    godResources: 9999,
     maxHp: 100,
     maxShield: 50,
     maxMana: 100,
@@ -2296,7 +2292,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
+  var SOURCE_COMMIT = "82d5ab51b0eaa487f225f86e77ff93e94133dc89";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

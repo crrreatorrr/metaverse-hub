@@ -87,7 +87,7 @@ assert.equal(clear.eligible, true);
 assert.equal(clear.canonicalCount, 1);
 assert.equal(clear.ticketsMinted, 0);
 assert.equal(clear.stateHash, fixture.stateHash);
-assert.equal(clear.stateHash, '9de9c265');
+assert.equal(clear.stateHash, '8a28b0ed');
 console.log(`shooter node verify cpuMs ${String(clear.cpuMs)} wallMs ${nodeMs} frames ${String(clear.frames)}`);
 
 const rebound = api.verifyRun(fixture.log, {

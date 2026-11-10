@@ -10,9 +10,9 @@ var SprotoShooterSim = (() => {
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
     }
     return to;
   };
@@ -85,160 +85,15 @@ var SprotoShooterSim = (() => {
     return entries[entries.length - 1];
   }
 
-  // src/data/drops.js
-  var DROP_TABLES = {
-    midget: [
-      { kind: "resource", resId: "scrap", min: 1, max: 3, chance: 1 },
-      { kind: "resource", resId: "springs", min: 1, max: 2, chance: 1 },
-      { kind: "health", chance: 0.08 },
-      { kind: "ammo", chance: 0.4 },
-      { kind: "gun", chance: 0.02, table: "enemyGun" },
-      { kind: "tickets", min: 1, max: 1, chance: 1 }
-    ],
-    flyingMidget: [
-      { kind: "resource", resId: "scrap", min: 1, max: 2, chance: 1 },
-      { kind: "resource", resId: "springs", min: 2, max: 3, chance: 1 },
-      { kind: "health", chance: 0.1 },
-      { kind: "ammo", chance: 0.5 },
-      { kind: "gun", chance: 0.04, table: "enemyGun" },
-      { kind: "tickets", min: 2, max: 2, chance: 1 }
-    ],
-    obama: [
-      { kind: "resource", resId: "scrap", min: 3, max: 5, chance: 1 },
-      { kind: "resource", resId: "goo", min: 2, max: 3, chance: 1 },
-      { kind: "health", chance: 0.18 },
-      { kind: "ammo", chance: 0.7 },
-      { kind: "gun", chance: 0.06, table: "enemyGun" },
-      { kind: "tickets", min: 2, max: 2, chance: 1 }
-    ],
-    bigObama: [
-      { kind: "resource", resId: "scrap", min: 5, max: 8, chance: 1 },
-      { kind: "resource", resId: "plating", min: 3, max: 5, chance: 1 },
-      { kind: "health", chance: 0.25 },
-      { kind: "ammo", chance: 0.85 },
-      { kind: "gun", chance: 0.1, table: "enemyGun" },
-      { kind: "tickets", min: 4, max: 4, chance: 1 }
-    ],
-    dummy: [],
-    carMonster: [
-      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ],
-    moleMonster: [
-      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ],
-    robotLaser: [
-      { kind: "resource", resId: "scrap", min: 3, max: 5, chance: 1 },
-      { kind: "resource", resId: "goo", min: 2, max: 3, chance: 1 },
-      { kind: "health", chance: 0.18 },
-      { kind: "ammo", chance: 0.7 },
-      { kind: "gun", chance: 0.06, table: "enemyGun" },
-      { kind: "tickets", min: 2, max: 2, chance: 1 }
-    ],
-    robotShooter: [
-      { kind: "resource", resId: "scrap", min: 5, max: 8, chance: 1 },
-      { kind: "resource", resId: "plating", min: 3, max: 5, chance: 1 },
-      { kind: "health", chance: 0.25 },
-      { kind: "ammo", chance: 0.85 },
-      { kind: "gun", chance: 0.1, table: "enemyGun" },
-      { kind: "tickets", min: 4, max: 4, chance: 1 }
-    ],
-    megaSproto: [
-      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ],
-    monster: [
-      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ],
-    sprotoBeast: [
-      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ],
-    dragon: [
-      { kind: "resource", resId: "scrap", min: 20, max: 20, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 1, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 45, max: 45, chance: 1 }
-    ],
-    hexAuditor: [
-      { kind: "resource", resId: "scrap", min: 20, max: 20, chance: 1 },
-      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
-      { kind: "resource", resId: "manaCrystal", min: 2, max: 2, chance: 1, noScale: true },
-      { kind: "bigHealth", count: 2, chance: 1 },
-      { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
-      // a Ray Gun or Big Bullets
-      { kind: "tickets", min: 60, max: 60, chance: 1 }
-    ]
-  };
-  var QUALITY_TABLES = {
-    enemyGun: [55, 27, 12, 5, 1],
-    boss: [0, 0, 40, 35, 25],
-    shop: [35, 35, 20, 9, 1],
-    vending: [40, 30, 18, 9, 3]
-  };
-  var RESOURCES = [
-    { id: "scrap", name: "Scrap", color: "#b8b8b8", icon: "\u2699" },
-    { id: "springs", name: "Springs", color: "#ff5ec4", icon: "\u27B0" },
-    // from Midgets
-    { id: "goo", name: "Goo", color: "#7fd34e", icon: "\u25CF" },
-    // from Bitcoin Obamas
-    { id: "plating", name: "Plating", color: "#6a7bd1", icon: "\u25A3" },
-    // from Big Bitcoin Obamas
-    { id: "bossCore", name: "Boss Core", color: "#ff3b3b", icon: "\u25C6" },
-    { id: "manaCrystal", name: "Mana Crystal", color: "#b07cff", icon: "\u2726" }
-  ];
-  var RES_IDS = RESOURCES.map((r) => r.id);
-
   // src/data/skills.js
   var SKILLS = {
     health: { id: "health", name: "Health", icon: "\u2764", color: "#ff4d6d", xpBase: 100, xpGrowth: 1.45, maxLevel: 10 },
-    gunslinger: { id: "gunslinger", name: "Gunslinger", icon: "\u{1F3AF}", color: "#ffcc33", xpBase: 120, xpGrowth: 1.45, maxLevel: 10 },
-    magic: { id: "magic", name: "Magic", icon: "\u{1F52E}", color: "#9b6bff", xpBase: 80, xpGrowth: 1.45, maxLevel: 10 },
-    crafting: { id: "crafting", name: "Crafting", icon: "\u{1F528}", color: "#4fd1c5", xpBase: 100, xpGrowth: 1.45, maxLevel: 10 }
+    gunslinger: { id: "gunslinger", name: "Gunslinger", icon: "\u{1F3AF}", color: "#ffcc33", xpBase: 120, xpGrowth: 1.45, maxLevel: 10 }
   };
-  var SKILL_IDS = ["health", "gunslinger", "magic", "crafting"];
+  var SKILL_IDS = ["health", "gunslinger"];
   var XP = {
     health: { kill: 10, perDamage: 0.2, damageCapPerSec: 15, orb: 3, medkit: 5, bigOrb: 10, physicalBoss: 200 },
-    gunslinger: { gunKill: 10, critKill: 5, weakKill: 5, weakHit: 1, weakHitCapPerSec: 10, physicalBoss: 200 },
-    magic: { cast: { gooBolt: 3, chainZap: 6, swarm: 10, manaShield: 4, meteor: 25 }, per20Absorbed: 1, spellKill: 8, magicBoss: 200 }
+    gunslinger: { gunKill: 10, critKill: 5, weakKill: 5, weakHit: 1, weakHitCapPerSec: 10, physicalBoss: 200 }
   };
   var PERKS = [
     { id: "quickShield", skill: "health", level: 3, name: "Quick Shield", desc: "Shield recharges sooner and faster." },
@@ -247,18 +102,7 @@ var SprotoShooterSim = (() => {
     { id: "fastHands", skill: "gunslinger", level: 3, name: "Fast Hands", desc: "Weapon swaps take 0.2s." },
     { id: "deadeye", skill: "gunslinger", level: 6, name: "Deadeye", desc: "+0.5 weak-spot crit multiplier." },
     { id: "bottomlessMags", skill: "gunslinger", level: 8, name: "Bottomless Mags", desc: "15% chance shots use no ammo." },
-    { id: "killFrenzy", skill: "gunslinger", level: 10, name: "Kill Frenzy", desc: "Kills stack +4% fire rate, +3% damage (max 10, 4s)." },
-    { id: "gooBolt", skill: "magic", level: 1, name: "Goo Bolt [Q]", desc: "Sticky slowing bolt." },
-    { id: "chainZap", skill: "magic", level: 3, name: "Chain Zap [E]", desc: "Lightning that jumps between enemies." },
-    { id: "swarm", skill: "magic", level: 6, name: "Sproto Swarm [Z]", desc: "Summon 5 mini Sprotos for 8s." },
-    { id: "manaShield", skill: "magic", level: 8, name: "Mana Shield [X]", desc: "Toggle: mana absorbs 60% of damage." },
-    { id: "meteor", skill: "magic", level: 10, name: "Meteor Bonk [T]", desc: "Ultimate. Full mana. Giant meteor." },
-    { id: "craftT1", skill: "crafting", level: 1, name: "T1 Recipes", desc: "Craft Common guns, ammo and medkits." },
-    { id: "craftT2", skill: "crafting", level: 3, name: "T2 Recipes", desc: "Craft Uncommon guns." },
-    { id: "craftT3", skill: "crafting", level: 5, name: "T3 Recipes", desc: "Craft Rare guns and choose the element." },
-    { id: "craftT4", skill: "crafting", level: 7, name: "T4 Recipes", desc: "Craft Epic guns and choose a part." },
-    { id: "salvage", skill: "crafting", level: 8, name: "Salvage", desc: "Break guns down into resources." },
-    { id: "craftT5", skill: "crafting", level: 10, name: "Master Forger", desc: "Craft Legendaries and reroll stats." }
+    { id: "killFrenzy", skill: "gunslinger", level: 10, name: "Kill Frenzy", desc: "Kills stack +4% fire rate, +3% damage (max 10, 4s)." }
   ];
   var PERKS_BY_ID = Object.fromEntries(PERKS.map((p) => [p.id, p]));
   var SPELLS = {
@@ -274,6 +118,27 @@ var SprotoShooterSim = (() => {
     return Math.round(s.xpBase * Math.pow(s.xpGrowth, level - 1));
   };
 
+  // src/sim/spellbook.js
+  function syncSpellbook(state, p) {
+    if (!p.spellUnlocks) p.spellUnlocks = {};
+    const god = !!(state.tuning && state.tuning.godMode);
+    for (let i = 0; i < SPELL_IDS.length; i++) {
+      const id = SPELL_IDS[i];
+      const earned = !!p.spellUnlocks[id] || id === "gooBolt" && state.mode !== "campaign";
+      p.perks[id] = god || earned;
+    }
+    if (!p.perks.manaShield && p.spells) p.spells.manaShieldOn = false;
+  }
+  function clearCampaignSpells(state, p) {
+    p.spellUnlocks = {};
+    syncSpellbook(state, p);
+  }
+  function grantSpell(state, p, id) {
+    if (!p.spellUnlocks) p.spellUnlocks = {};
+    p.spellUnlocks[id] = true;
+    syncSpellbook(state, p);
+  }
+
   // src/sim/events.js
   function emit(state, type, payload = {}) {
     state.events.push({ ...payload, type, tick: state.tick });
@@ -284,9 +149,6 @@ var SprotoShooterSim = (() => {
     arenaRadius: 45,
     spawnRadius: 43,
     spawnPointCount: 16,
-    weaponBoxes: [{ x: -28, z: 0 }, { x: 28, z: 0 }],
-    boxRadius: 1,
-    boxInteractRadius: 3,
     eyeHeight: 1.6,
     slideEye: 0.9,
     downedEye: 0.6,
@@ -316,7 +178,6 @@ var SprotoShooterSim = (() => {
     fovScope: 12,
     // god mode keeps you at or above these while it's on
     godTickets: 99999,
-    godResources: 9999,
     maxHp: 100,
     maxShield: 50,
     maxMana: 100,
@@ -675,25 +536,223 @@ var SprotoShooterSim = (() => {
     return { ...ENEMIES[behavior], ...over, behavior };
   }
   Object.assign(ENEMIES, {
-    boomMidget: dress("midget", { name: "Boom Midget", hp: 34, color: 16733491 }),
-    riotMidget: dress("midget", { name: "Riot Midget", hp: 58, speed: 5.4, color: 8954048 }),
-    sewerMidget: dress("midget", { name: "Sewer Midget", hp: 36, color: 6989903 }),
-    floretSprout: dress("midget", { name: "Floret Sprout", hp: 48, speed: 6.2, color: 7003962 }),
-    hexAcolyte: dress("obama", { name: "Hex Acolyte", hp: 64, color: 4116366, model: "sahil" }),
-    glowieAgent: dress("obama", { name: "Glowie Agent", hp: 70, color: 9357567, model: "sahil" }),
+    boomMidget: dress("midget", { name: "Boom Midget", hp: 34, color: 16733491, archetype: { deathBlast: { radius: 3.2, damage: 28 } } }),
+    riotMidget: dress("midget", { name: "Riot Midget", hp: 58, speed: 5.4, color: 8954048, archetype: { frontShield: 0.3 } }),
+    sewerMidget: dress("midget", { name: "Sewer Midget", hp: 36, color: 6989903, archetype: { burrow: { every: 5, duration: 0.6 } } }),
+    floretSprout: dress("midget", { name: "Floret Sprout", hp: 48, speed: 6.2, color: 7003962, archetype: { mortar: { every: 3, damage: 8, speed: 11 } } }),
+    hexAcolyte: dress("obama", { name: "Hex Acolyte", hp: 64, color: 4116366, model: "sahil", archetype: { bubble: { radius: 8, every: 4, duration: 2.5 } } }),
+    glowieAgent: dress("obama", { name: "Glowie Agent", hp: 70, color: 9357567, model: "sahil", archetype: { flash: { every: 6, radius: 7 } } }),
     auditSniper: dress("obama", {
       name: "Audit Sniper",
       hp: 55,
       color: 13162751,
       model: "obama",
-      gun: { damage: 8, burst: 1, burstGap: 0.2, cooldownMin: 1.6, cooldownMax: 2.4, spread: 1.5, speed: 40, range: 48, windup: 0.35 }
+      gun: { damage: 8, burst: 1, burstGap: 0.2, cooldownMin: 1.6, cooldownMax: 2.4, spread: 1.5, speed: 40, range: 48, windup: 0.35 },
+      archetype: { relocate: { every: 4 } }
     }),
-    miningRig: dress("bigObama", { name: "Mining Rig", hp: 140, speed: 1.4, color: 10134706, model: "obama" }),
-    daycare: dress("midget", { name: "Daycare Nest", hp: 80, speed: 2.2, color: 16757922 }),
-    bitbug: dress("flyingMidget", { name: "Bitbug", hp: 18, color: 11566335, model: "midget" }),
-    jetObama: dress("flyingMidget", { name: "Jet Obama", hp: 55, color: 8377166, model: "obama", stage: 2 }),
-    balloonMidget: dress("flyingMidget", { name: "Balloon Midget", hp: 28, color: 16747220, model: "midget" }),
-    miniTinubu: dress("midget", { name: "Mini Tinubu", hp: 90, speed: 6.4, color: 16738877, model: "tinubu", radius: 0.55, height: 1.8 })
+    miningRig: dress("bigObama", { name: "Mining Rig", hp: 140, speed: 1.4, color: 10134706, model: "obama", archetype: { turret: true } }),
+    daycare: dress("midget", { name: "Daycare Nest", hp: 80, speed: 2.2, color: 16757922, archetype: { nest: true } }),
+    bitbug: dress("flyingMidget", { name: "Bitbug", hp: 18, color: 11566335, model: "midget", archetype: { flock: true } }),
+    jetObama: dress("flyingMidget", { name: "Jet Obama", hp: 55, color: 8377166, model: "obama", stage: 2, weakMultOverride: 2.5, archetype: { thruster: true } }),
+    balloonMidget: dress("flyingMidget", { name: "Balloon Midget", hp: 28, color: 16747220, model: "midget", archetype: { deathBlast: { radius: 2.6, damage: 18 } } }),
+    flakPod: {
+      name: "Gas Fee Flak Pod",
+      hp: 160,
+      speed: 0,
+      accel: 0,
+      radius: 1.3,
+      height: 2.6,
+      damage: 0,
+      poiseMax: 1e9,
+      staggerTime: 0,
+      color: 11693055,
+      affinity: { resist: null, weak: null },
+      behavior: "midget",
+      look: [
+        { kind: "cylinder", at: [0, 0, 0], r: 1.3, h: 1, mat: "metal" },
+        { kind: "sphere", at: [0, 1.7, 0], r: 0.85, mat: "neon" },
+        { kind: "box", at: [0, 0.8, -1.2], size: [0.5, 0.5, 0.3], mat: "metal" }
+      ],
+      hitboxes: [
+        { type: "capsule", zone: "body", r: 1.3, y0: 0, y1: 1 },
+        { type: "sphere", zone: "armor", r: 0.85, x: 0, y: 1.7, z: 0 },
+        { type: "sphere", zone: "weak", r: 0.4, x: 0, y: 0.8, z: -1.2 }
+      ]
+    },
+    miniTinubu: dress("midget", { name: "Mini Tinubu", hp: 90, speed: 6.4, color: 16738877, model: "tinubu", radius: 0.55, height: 1.8, archetype: { charge: { every: 3, duration: 0.4, speed: 14 } } }),
+    gateGenerator: dress("midget", { name: "Gate Generator", hp: 200, speed: 0, accel: 0, damage: 0, color: 6750156, model: "robotLaser" }),
+    gatekeeper: dress("bigObama", {
+      name: "The Gatekeeper",
+      hp: 1600,
+      speed: 2.4,
+      color: 13938487,
+      radius: 1.35,
+      height: 3.9,
+      archetype: { audit: true }
+    }),
+    hexWisp: {
+      name: "Hex Wisp",
+      hp: 45,
+      speed: 5,
+      accel: 22,
+      radius: 0.5,
+      height: 1,
+      damage: 0,
+      flying: true,
+      ghost: true,
+      altMin: 1.2,
+      altMax: 2.6,
+      orbitMin: 6,
+      orbitMax: 14,
+      jinkMin: 0.6,
+      jinkMax: 1.2,
+      poiseMax: 15,
+      staggerTime: 0.3,
+      color: 11766015,
+      affinity: { resist: null, weak: null },
+      taken: { bullet: 0.2, explosive: 0.5, spell: 2 },
+      weights: { seek: 1, sep: 0.4, wall: 0, strafe: 0.2 },
+      behavior: "flyingMidget",
+      archetype: { wisp: { every: 3.2, damage: 8, speed: 9 } },
+      look: [
+        { kind: "sphere", at: [0, 0.6, 0], r: 0.5, mat: "neon" },
+        { kind: "sphere", at: [0.12, 0.7, 0.2], r: 0.08, mat: "stone" },
+        { kind: "sphere", at: [-0.12, 0.7, 0.2], r: 0.08, mat: "stone" },
+        { kind: "cone", at: [0, 0.5, -0.4], r: 0.3, h: 0.8, mat: "neon" }
+      ],
+      hitboxes: [{ type: "sphere", zone: "body", r: 0.5, x: 0, y: 0.6, z: 0 }]
+    },
+    barkBrute: {
+      name: "Bark Brute",
+      hp: 260,
+      speed: 3.2,
+      accel: 14,
+      radius: 0.8,
+      height: 2.4,
+      damage: 22,
+      range: 2.6,
+      windup: 0.8,
+      active: 0.2,
+      recover: 0.6,
+      turnRate: 90,
+      poiseMax: 80,
+      staggerTime: 0.5,
+      color: 9067051,
+      affinity: { resist: null, weak: null },
+      weakIgnoresArmour: true,
+      armour: {
+        hard: { bullet: 0, explosive: 0.25, spell: 1 },
+        softened: { bullet: 1, explosive: 1, spell: 1 },
+        cracked: { bullet: 1, explosive: 1, spell: 1 },
+        stripped: { bullet: 1.25, explosive: 1.25, spell: 1 }
+      },
+      weights: { seek: 1, sep: 0.8, wall: 2, strafe: 0.1 },
+      behavior: "midget",
+      archetype: { bark: true },
+      look: [
+        { kind: "box", at: [0, 0.45, 0], size: [1, 0.9, 0.7], mat: "wood" },
+        { kind: "box", at: [0, 1.3, 0], size: [1.4, 1, 0.9], mat: "wood" },
+        { kind: "box", at: [0, 2, 0], size: [0.7, 0.5, 0.6], mat: "wood" }
+      ],
+      hitboxes: [
+        { type: "capsule", zone: "body", r: 0.8, y0: 0, y1: 2.2 },
+        { type: "sphere", zone: "weak", r: 0.25, x: 0, y: 1.3, z: -0.7 }
+      ]
+    },
+    manaLeech: {
+      name: "Mana Leech",
+      hp: 55,
+      speed: 3.8,
+      accel: 18,
+      radius: 0.45,
+      height: 1.1,
+      damage: 4,
+      range: 1.2,
+      windup: 0.25,
+      active: 0.15,
+      recover: 0.4,
+      poiseMax: 20,
+      staggerTime: 0.35,
+      color: 8257386,
+      affinity: { resist: null, weak: "shock" },
+      weights: { seek: 1, sep: 1, wall: 2, strafe: 0.4 },
+      behavior: "midget",
+      archetype: { leech: { range: 10, drain: 8 } },
+      look: [
+        { kind: "cylinder", at: [0, 0, 0], r: 0.4, h: 1.1, mat: "toxic" },
+        { kind: "disc", at: [0, 0.7, 0.4], r: 0.45, mat: "neon" }
+      ],
+      hitboxes: [
+        { type: "capsule", zone: "body", r: 0.45, y0: 0, y1: 1.1 },
+        { type: "sphere", zone: "weak", r: 0.2, x: 0, y: 0.7, z: 0.4 }
+      ]
+    },
+    gooGlob: {
+      name: "Goo Glob",
+      hp: 90,
+      speed: 3,
+      accel: 12,
+      radius: 1.1,
+      height: 1.6,
+      damage: 14,
+      range: 2.2,
+      windup: 0.4,
+      active: 0.2,
+      recover: 0.5,
+      poiseMax: 40,
+      staggerTime: 0.4,
+      color: 7003962,
+      affinity: { resist: "goo", weak: null },
+      split: "gooGlobMid",
+      weights: { seek: 1, sep: 0.6, wall: 2, strafe: 0.1 },
+      behavior: "midget",
+      look: [
+        { kind: "sphere", at: [0, 0.8, 0], r: 1.1, mat: "toxic" },
+        { kind: "sphere", at: [0, 0.9, 0.2], r: 0.33, mat: "neon" }
+      ],
+      hitboxes: [{ type: "sphere", zone: "body", r: 1.1, x: 0, y: 0.8, z: 0 }]
+    },
+    gooGlobMid: {
+      name: "Goo Glob",
+      hp: 40,
+      speed: 4.2,
+      accel: 16,
+      radius: 0.7,
+      height: 1.1,
+      damage: 9,
+      range: 1.6,
+      windup: 0.3,
+      active: 0.15,
+      recover: 0.4,
+      poiseMax: 20,
+      staggerTime: 0.3,
+      color: 7003962,
+      affinity: { resist: "goo", weak: null },
+      split: "gooGlobSmall",
+      weights: { seek: 1, sep: 0.8, wall: 2, strafe: 0.2 },
+      behavior: "midget",
+      hitboxes: [{ type: "sphere", zone: "body", r: 0.7, x: 0, y: 0.5, z: 0 }]
+    },
+    gooGlobSmall: {
+      name: "Goo Glob",
+      hp: 15,
+      speed: 6,
+      accel: 22,
+      radius: 0.4,
+      height: 0.7,
+      damage: 5,
+      range: 1.2,
+      windup: 0.2,
+      active: 0.1,
+      recover: 0.3,
+      poiseMax: 10,
+      staggerTime: 0.25,
+      color: 10354554,
+      affinity: { resist: "goo", weak: null },
+      weights: { seek: 1.2, sep: 1, wall: 2, strafe: 0.3 },
+      behavior: "midget",
+      hitboxes: [{ type: "sphere", zone: "body", r: 0.4, x: 0, y: 0.35, z: 0 }]
+    }
   });
   var ELITE = { hpMult: 2.5, dmgMult: 1.3, speedMult: 1.1, scale: 1.25, poiseMult: 2, dropMult: 2, gunMult: 3, xpMult: 3 };
   var AFFINITY_POOL = ["fire", "shock", "goo"];
@@ -1223,7 +1282,6 @@ var SprotoShooterSim = (() => {
       else s[k] = Math.round(s[k] * 1e3) / 1e3;
     }
   }
-  var REROLLABLE = ["damage", "fireRate", "spread", "reloadTime", "critMult", "elementChance"];
   function applyReroll(s, rr, seed) {
     const r = createRng((seed ^ rr.salt) >>> 0);
     const m = range(r, 0.92, 1.18);
@@ -1306,16 +1364,6 @@ var SprotoShooterSim = (() => {
       source: "drop"
     };
   }
-  function regenerate(gun, extra = {}) {
-    const g = generateGun({
-      seed: gun.seed,
-      level: gun.level,
-      forced: { type: gun.type, quality: gun.quality, manufacturer: gun.manufacturer, element: gun.element, wacky: gun.wacky, parts: gun.parts },
-      arcane: gun.arcane,
-      rerolls: extra.rerolls ?? gun.rerolls
-    });
-    return { ...g, id: gun.id, source: gun.source, ammoInMag: Math.min(gun.ammoInMag, g.stats.magSize) };
-  }
   function effectiveGunStats(gun, player) {
     const s = gun.stats;
     const gs = player.skills.gunslinger.level;
@@ -1347,18 +1395,6 @@ var SprotoShooterSim = (() => {
   function shopPrice(gun, tier) {
     const q = QUALITIES_BY_ID[gun.quality];
     return Math.round(SHOP.basePrice[gun.type] * q.priceMult * (1 + 0.15 * (tier - 1)));
-  }
-  function salvageYield(gun) {
-    const q = QUALITIES_BY_ID[gun.quality].idx;
-    const t = GUN_TYPES_BY_ID[gun.type];
-    const m = t.legendaryOnly ? 3 : t.bossOnly ? 2.5 : gun.type === "bazooka" ? 1.5 : 1;
-    const y = {
-      scrap: Math.round((5 + 6 * q + gun.level) * m),
-      springs: Math.round(2 * q * m),
-      goo: gun.element !== "none" ? Math.round(3 * m) : 0,
-      plating: q >= 3 ? Math.round(5 * m) : 0
-    };
-    return Object.fromEntries(Object.entries(y).filter(([, v]) => v > 0));
   }
 
   // src/sim/state.js
@@ -1392,9 +1428,6 @@ var SprotoShooterSim = (() => {
       const a = i / TUNING.spawnPointCount * Math.PI * 2;
       state.spawnPoints.push({ x: Math.cos(a) * TUNING.spawnRadius, z: Math.sin(a) * TUNING.spawnRadius });
     }
-    for (const b of TUNING.weaponBoxes) {
-      state.weaponBoxes.push({ id: nextId(state), pos: { x: b.x, y: 0, z: b.z }, radius: TUNING.boxRadius, interactRadius: TUNING.boxInteractRadius, glow: false, craft: null });
-    }
     const p = createPlayer(state, mode === "sandbox" ? 4 : 3);
     state.players[p.id] = p;
     state.localPlayerId = p.id;
@@ -1413,7 +1446,7 @@ var SprotoShooterSim = (() => {
       ticketsEarned: 0,
       gunsFound: 0,
       crafts: 0,
-      xpGained: { health: 0, gunslinger: 0, magic: 0, crafting: 0 },
+      xpGained: { health: 0, gunslinger: 0 },
       time: 0
     };
   }
@@ -1462,10 +1495,10 @@ var SprotoShooterSim = (() => {
       ammoCap: { ...TUNING.ammoCap },
       medkits: 1,
       medkitT: 0,
-      resources: { scrap: 0, springs: 0, goo: 0, plating: 0, bossCore: 0, manaCrystal: 0 },
       tickets: 0,
-      skills: { health: sk(), gunslinger: sk(), magic: sk(), crafting: sk() },
+      skills: { health: sk(), gunslinger: sk() },
       perks: {},
+      spellUnlocks: state.mode === "campaign" ? {} : { gooBolt: true },
       spells: { cd: { gooBolt: 0, chainZap: 0, swarm: 0, manaShield: 0, meteor: 0 }, manaShieldOn: false },
       buffs: { killFrenzy: { stacks: 0, t: 0 } },
       lastDamageT: 99,
@@ -1475,6 +1508,7 @@ var SprotoShooterSim = (() => {
       nearGunPickupId: null
     };
     for (const perk of PERKS) if (perk.level === 1) p.perks[perk.id] = true;
+    if (p.spellUnlocks.gooBolt) p.perks.gooBolt = true;
     return p;
   }
   var sk = () => ({ level: 1, xp: 0, total: 0 });
@@ -1517,6 +1551,8 @@ var SprotoShooterSim = (() => {
     };
     e.maxHp = Math.round(def.hp * tm * (elite ? ELITE.hpMult : 1) * state.tuning.enemyHpMult);
     e.hp = e.maxHp;
+    if (def.archetype && def.archetype.audit) e.ai.audit = true;
+    if (def.armour) e.ai.armour = "hard";
     if (elite) {
       const resist = pick(state.rng, AFFINITY_POOL);
       const weaks = AFFINITY_POOL.filter((a) => a !== resist);
@@ -1655,6 +1691,151 @@ var SprotoShooterSim = (() => {
     return h;
   }
 
+  // src/data/drops.js
+  var DROP_TABLES = {
+    midget: [
+      { kind: "resource", resId: "scrap", min: 1, max: 3, chance: 1 },
+      { kind: "resource", resId: "springs", min: 1, max: 2, chance: 1 },
+      { kind: "health", chance: 0.08 },
+      { kind: "ammo", chance: 0.4 },
+      { kind: "gun", chance: 0.02, table: "enemyGun" },
+      { kind: "tickets", min: 1, max: 1, chance: 1 }
+    ],
+    flyingMidget: [
+      { kind: "resource", resId: "scrap", min: 1, max: 2, chance: 1 },
+      { kind: "resource", resId: "springs", min: 2, max: 3, chance: 1 },
+      { kind: "health", chance: 0.1 },
+      { kind: "ammo", chance: 0.5 },
+      { kind: "gun", chance: 0.04, table: "enemyGun" },
+      { kind: "tickets", min: 2, max: 2, chance: 1 }
+    ],
+    obama: [
+      { kind: "resource", resId: "scrap", min: 3, max: 5, chance: 1 },
+      { kind: "resource", resId: "goo", min: 2, max: 3, chance: 1 },
+      { kind: "health", chance: 0.18 },
+      { kind: "ammo", chance: 0.7 },
+      { kind: "gun", chance: 0.06, table: "enemyGun" },
+      { kind: "tickets", min: 2, max: 2, chance: 1 }
+    ],
+    bigObama: [
+      { kind: "resource", resId: "scrap", min: 5, max: 8, chance: 1 },
+      { kind: "resource", resId: "plating", min: 3, max: 5, chance: 1 },
+      { kind: "health", chance: 0.25 },
+      { kind: "ammo", chance: 0.85 },
+      { kind: "gun", chance: 0.1, table: "enemyGun" },
+      { kind: "tickets", min: 4, max: 4, chance: 1 }
+    ],
+    dummy: [],
+    carMonster: [
+      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ],
+    moleMonster: [
+      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ],
+    robotLaser: [
+      { kind: "resource", resId: "scrap", min: 3, max: 5, chance: 1 },
+      { kind: "resource", resId: "goo", min: 2, max: 3, chance: 1 },
+      { kind: "health", chance: 0.18 },
+      { kind: "ammo", chance: 0.7 },
+      { kind: "gun", chance: 0.06, table: "enemyGun" },
+      { kind: "tickets", min: 2, max: 2, chance: 1 }
+    ],
+    robotShooter: [
+      { kind: "resource", resId: "scrap", min: 5, max: 8, chance: 1 },
+      { kind: "resource", resId: "plating", min: 3, max: 5, chance: 1 },
+      { kind: "health", chance: 0.25 },
+      { kind: "ammo", chance: 0.85 },
+      { kind: "gun", chance: 0.1, table: "enemyGun" },
+      { kind: "tickets", min: 4, max: 4, chance: 1 }
+    ],
+    megaSproto: [
+      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ],
+    monster: [
+      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ],
+    sprotoBeast: [
+      { kind: "resource", resId: "scrap", min: 25, max: 25, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ],
+    dragon: [
+      { kind: "resource", resId: "scrap", min: 20, max: 20, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 1, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 45, max: 45, chance: 1 }
+    ],
+    hexAuditor: [
+      { kind: "resource", resId: "scrap", min: 20, max: 20, chance: 1 },
+      { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
+      { kind: "resource", resId: "manaCrystal", min: 2, max: 2, chance: 1, noScale: true },
+      { kind: "bigHealth", count: 2, chance: 1 },
+      { kind: "ammo", count: 3, chance: 1 },
+      { kind: "gun", count: 2, chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss" },
+      // a Ray Gun or Big Bullets
+      { kind: "tickets", min: 60, max: 60, chance: 1 }
+    ]
+  };
+  for (const id of Object.keys(DROP_TABLES)) {
+    DROP_TABLES[id] = DROP_TABLES[id].filter((entry) => entry.kind !== "resource");
+  }
+  var QUALITY_TABLES = {
+    enemyGun: [55, 27, 12, 5, 1],
+    boss: [0, 0, 40, 35, 25],
+    shop: [35, 35, 20, 9, 1],
+    vending: [40, 30, 18, 9, 3]
+  };
+  var RESOURCES = [
+    { id: "scrap", name: "Scrap", color: "#b8b8b8", icon: "\u2699" },
+    { id: "springs", name: "Springs", color: "#ff5ec4", icon: "\u27B0" },
+    // from Midgets
+    { id: "goo", name: "Goo", color: "#7fd34e", icon: "\u25CF" },
+    // from Bitcoin Obamas
+    { id: "plating", name: "Plating", color: "#6a7bd1", icon: "\u25A3" },
+    // from Big Bitcoin Obamas
+    { id: "bossCore", name: "Boss Core", color: "#ff3b3b", icon: "\u25C6" },
+    { id: "manaCrystal", name: "Mana Crystal", color: "#b07cff", icon: "\u2726" }
+  ];
+  var RES_IDS = RESOURCES.map((r) => r.id);
+
   // src/sim/drops.js
   function rollQuality(rng, tableId, shift = 0) {
     const w = QUALITY_TABLES[tableId];
@@ -1744,58 +1925,6 @@ var SprotoShooterSim = (() => {
     return createPickup(state, { kind: "gun", gun, pos: { x: pos.x, y: 1, z: pos.z }, vel: { x: 0, y: 5, z: 0 }, ttl: TUNING.gunPickupTtl });
   }
 
-  // src/data/recipes.js
-  var QUAL = ["common", "uncommon", "rare", "epic", "legendary"];
-  var LEVEL_REQ = [1, 3, 5, 7, 10];
-  var XP2 = [60, 120, 200, 320, 500];
-  var OPTS = [
-    { chooseElement: false, choosePart: false, arcane: false, wacky: false },
-    { chooseElement: false, choosePart: false, arcane: false, wacky: false },
-    { chooseElement: true, choosePart: false, arcane: true, wacky: false },
-    { chooseElement: true, choosePart: true, arcane: true, wacky: false },
-    { chooseElement: true, choosePart: true, arcane: true, wacky: true }
-  ];
-  var COSTS = {
-    mg: [[20], [40, 10], [60, 20, 10], [100, 30, 0, 15], [150, 40, 0, 0, 2]],
-    shotgun: [[30, 0, 5], [55, 12, 5], [80, 20, 15], [125, 30, 0, 20], [180, 45, 0, 0, 2]],
-    sniper: [[30, 5], [55, 15], [80, 25, 10], [125, 35, 0, 20], [180, 50, 0, 0, 2]],
-    bazooka: [[40, 0, 0, 5, 1], [70, 15, 0, 8, 1], [100, 20, 15, 10, 1], [150, 35, 0, 25, 1], [220, 50, 0, 30, 3]]
-  };
-  var KEYS = ["scrap", "springs", "goo", "plating", "bossCore"];
-  var toCost = (arr) => Object.fromEntries(arr.map((v, i) => [KEYS[i], v]).filter(([, v]) => v > 0));
-  var GUN_RECIPES = [];
-  for (const type of Object.keys(COSTS)) {
-    for (let t = 0; t < 5; t++) {
-      GUN_RECIPES.push({
-        id: `${type}_t${t + 1}`,
-        category: "gun",
-        gunType: type,
-        tier: t + 1,
-        quality: QUAL[t],
-        cost: toCost(COSTS[type][t]),
-        craftingLevel: LEVEL_REQ[t],
-        craftTime: 1.5,
-        xp: XP2[t],
-        options: OPTS[t]
-      });
-    }
-  }
-  var ITEM_RECIPES = [
-    { id: "ammo_bullets", category: "ammo", name: "Bullets \xD745", ammoType: "bullets", amount: 45, cost: { scrap: 5 }, craftingLevel: 1, craftTime: 0.5, xp: 8 },
-    { id: "ammo_shells", category: "ammo", name: "Shells \xD78", ammoType: "shells", amount: 8, cost: { scrap: 8 }, craftingLevel: 1, craftTime: 0.5, xp: 8 },
-    { id: "ammo_sniper", category: "ammo", name: "Sniper rounds \xD75", ammoType: "sniper", amount: 5, cost: { scrap: 10 }, craftingLevel: 1, craftTime: 0.5, xp: 8 },
-    { id: "ammo_rockets", category: "ammo", name: "Rockets \xD72", ammoType: "rockets", amount: 2, cost: { scrap: 15, plating: 2 }, craftingLevel: 1, craftTime: 0.5, xp: 8 },
-    { id: "medkit", category: "item", name: "Medkit", cost: { scrap: 10, goo: 5 }, craftingLevel: 1, craftTime: 0.8, xp: 10 }
-  ];
-  var ARCANE_COST = { manaCrystal: 1 };
-  var REROLL_COST = { scrap: 40, goo: 10 };
-  var REROLL_LEVEL = 10;
-  var SALVAGE_LEVEL = 8;
-  var SALVAGE_XP = 15;
-  var REROLL_XP = 30;
-  var RECIPES = [...GUN_RECIPES, ...ITEM_RECIPES];
-  var RECIPES_BY_ID = Object.fromEntries(RECIPES.map((r) => [r.id, r]));
-
   // src/sim/progression.js
   function addXp(state, p, skillId, amount) {
     if (amount <= 0) return;
@@ -1821,16 +1950,11 @@ var SprotoShooterSim = (() => {
     if (s.level >= SKILLS[skillId].maxLevel) s.xp = 0;
   }
   function applySkillPassives(state, p) {
-    const h = p.skills.health.level, m = p.skills.magic.level;
+    const h = p.skills.health.level;
     const newMaxHp = Math.round(TUNING.maxHp * (1 + 0.08 * (h - 1)));
     if (newMaxHp !== p.maxHp) {
       p.hp += newMaxHp - p.maxHp;
       p.maxHp = newMaxHp;
-    }
-    const newMana = TUNING.maxMana + 15 * (m - 1);
-    if (newMana !== p.maxMana) {
-      p.mana += newMana - p.maxMana;
-      p.maxMana = newMana;
     }
     const up = state.shop.upgrades;
     p.maxShield = TUNING.maxShield + 25 * up.shieldCap;
@@ -1854,12 +1978,10 @@ var SprotoShooterSim = (() => {
             if (ev.wasWeak) g += XP.gunslinger.weakKill;
             addXp(state, p, "gunslinger", g * em);
           }
-          if (ev.sourceKind === "spell") addXp(state, p, "magic", XP.magic.spellKill * em);
           if (ev.bossTag === "physical") {
             addXp(state, p, "health", XP.health.physicalBoss);
             addXp(state, p, "gunslinger", XP.gunslinger.physicalBoss);
           }
-          if (ev.bossTag === "magic") addXp(state, p, "magic", XP.magic.magicBoss);
           break;
         }
         case "damage": {
@@ -1876,7 +1998,6 @@ var SprotoShooterSim = (() => {
           const amt = Math.min(ev.amount * XP.health.perDamage, Math.max(0, 15 - p.xpCaps.dmg));
           p.xpCaps.dmg += amt;
           addXp(state, p, "health", amt);
-          if (ev.absorbed > 0) addXp(state, p, "magic", ev.absorbed / 20 * XP.magic.per20Absorbed);
           break;
         }
         case "pickup": {
@@ -1887,27 +2008,11 @@ var SprotoShooterSim = (() => {
           if (ev.kind === "medkit") addXp(state, p, "health", XP.health.medkit);
           break;
         }
-        case "cast": {
-          const p = state.players[ev.playerId];
-          if (p) addXp(state, p, "magic", XP.magic.cast[ev.spellId] || 0);
+        case "cast":
+        case "craftComplete":
+        case "salvage":
+        case "reroll":
           break;
-        }
-        case "craftComplete": {
-          const p = state.players[ev.playerId];
-          const r = RECIPES_BY_ID[ev.recipeId];
-          if (p && r) addXp(state, p, "crafting", r.xp);
-          break;
-        }
-        case "salvage": {
-          const p = state.players[ev.playerId];
-          if (p) addXp(state, p, "crafting", SALVAGE_XP);
-          break;
-        }
-        case "reroll": {
-          const p = state.players[ev.playerId];
-          if (p) addXp(state, p, "crafting", REROLL_XP);
-          break;
-        }
       }
     }
   }
@@ -1945,9 +2050,9 @@ var SprotoShooterSim = (() => {
     const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
     const b = ox * d.x + oy * d.y + oz * d.z;
     const cc = ox * ox + oy * oy + oz * oz - r * r;
-    const disc = b * b - cc;
-    if (disc < 0) return -1;
-    const s = Math.sqrt(disc);
+    const disc2 = b * b - cc;
+    if (disc2 < 0) return -1;
+    const s = Math.sqrt(disc2);
     let t = -b - s;
     if (t < 0) t = -b + s;
     return t >= 0 ? t : -1;
@@ -1960,9 +2065,9 @@ var SprotoShooterSim = (() => {
     if (A > 1e-9) {
       const B2 = ox * d.x + oz * d.z;
       const C = ox * ox + oz * oz - r * r;
-      const disc = B2 * B2 - A * C;
-      if (disc >= 0) {
-        const s = Math.sqrt(disc);
+      const disc2 = B2 * B2 - A * C;
+      if (disc2 >= 0) {
+        const s = Math.sqrt(disc2);
         for (const t of [(-B2 - s) / A, (-B2 + s) / A]) {
           if (t < 0) continue;
           const y = o.y + d.y * t;
@@ -1993,7 +2098,11 @@ var SprotoShooterSim = (() => {
     const cy = Math.cos(e.yaw), sy = Math.sin(e.yaw);
     const toWorld = (lx, lz) => ({ x: e.pos.x + (-sy * lz + cy * lx), z: e.pos.z + (-cy * lz - sy * lx) });
     for (const hb of def.hitboxes) {
-      if (hb.onlyWhen && !(e.boss && e.boss.action.id === hb.onlyWhen)) continue;
+      if (hb.onlyWhen) {
+        const bossWhen = !!(e.boss && e.boss.action && e.boss.action.id === hb.onlyWhen);
+        const exposed = !!(e.ai && e.ai.exposed === hb.onlyWhen);
+        if (!bossWhen && !exposed) continue;
+      }
       let r = hb.r * sc;
       if (hb.zone === "weak" && e.bigHeadT > 0) r *= 1.8;
       if (hb.type === "capsule") {
@@ -2054,6 +2163,3365 @@ var SprotoShooterSim = (() => {
     return { x: p.pos.x, y: p.pos.y + eye, z: p.pos.z };
   }
 
+  // src/sim/campaign/archetypes.js
+  function archetypeOf(e) {
+    const def = ENEMIES[e.type];
+    return def && def.archetype;
+  }
+  function sourceTakenMul(e, hit) {
+    const def = ENEMIES[e.type];
+    if (!def) return 1;
+    if (hit.zone === "weak" && def.weakIgnoresArmour) return 1;
+    const name = e.ai && e.ai.armour;
+    const table = name && def.armour ? def.armour[name] : null;
+    const spec = table || def.taken;
+    if (!spec) return 1;
+    const key2 = hit.sourceKind === "spell" ? "spell" : hit.isSplash || hit.sourceKind === "world" ? "explosive" : "bullet";
+    return spec[key2] == null ? 1 : spec[key2];
+  }
+  function archetypeDamageMul(e, from) {
+    const a = archetypeOf(e);
+    let mul = e.ai && e.ai.bubble > 0 ? 0.5 : 1;
+    if (a && a.frontShield && from) {
+      const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
+      const dx = from.x - e.pos.x, dz = from.z - e.pos.z;
+      if (fx * dx + fz * dz > 0) mul *= a.frontShield;
+    }
+    return mul;
+  }
+  function archetypeDeathBlast(e) {
+    const a = archetypeOf(e);
+    return a && a.deathBlast;
+  }
+  function tickArchetype(state, e, target, dt) {
+    const a = archetypeOf(e);
+    if (!a || !target) return;
+    const ai = e.ai;
+    if (a.burrow) {
+      ai.burrowCd = (ai.burrowCd == null ? a.burrow.every : ai.burrowCd) - dt;
+      if (ai.burrowCd <= 0) {
+        ai.burrowCd = a.burrow.every;
+        ai.buried = a.burrow.duration;
+      }
+    }
+    if (a.bubble) {
+      ai.bubbleCd = (ai.bubbleCd == null ? a.bubble.every : ai.bubbleCd) - dt;
+      if (ai.bubbleCd <= 0) {
+        ai.bubbleCd = a.bubble.every;
+        let best = null, bd = a.bubble.radius;
+        for (const o of state.enemies) {
+          if (o === e || o.dead) continue;
+          const d = Math.hypot(o.pos.x - e.pos.x, o.pos.z - e.pos.z);
+          if (d < bd) {
+            bd = d;
+            best = o;
+          }
+        }
+        if (best) best.ai.bubble = a.bubble.duration;
+      }
+    }
+    if (a.mortar) {
+      ai.mortarCd = (ai.mortarCd == null ? a.mortar.every : ai.mortarCd) - dt;
+      if (ai.mortarCd <= 0) {
+        ai.mortarCd = a.mortar.every;
+        const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
+        const d = Math.hypot(dx, dz) || 1;
+        createProjectile(state, {
+          kind: "bullet",
+          faction: "enemy",
+          ownerId: e.id,
+          sourceKind: "enemy",
+          pos: { x: e.pos.x, y: e.pos.y + 1.4, z: e.pos.z },
+          vel: { x: dx / d * a.mortar.speed, y: 8, z: dz / d * a.mortar.speed },
+          gravity: 12,
+          damage: a.mortar.damage,
+          ttl: 2.5,
+          radius: 0.25
+        });
+      }
+    }
+    if (a.charge) {
+      ai.chargeCd = (ai.chargeCd == null ? a.charge.every : ai.chargeCd) - dt;
+      if (ai.chargeLeft > 0) {
+        ai.chargeLeft -= dt;
+        const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
+        const d = Math.hypot(dx, dz) || 1;
+        e.vel.x = dx / d * a.charge.speed;
+        e.vel.z = dz / d * a.charge.speed;
+      } else if (ai.chargeCd <= 0) {
+        ai.chargeCd = a.charge.every;
+        ai.chargeLeft = a.charge.duration;
+      }
+    }
+    if (a.relocate) {
+      ai.relocateCd = (ai.relocateCd == null ? a.relocate.every : ai.relocateCd) - dt;
+      if (ai.relocateCd <= 0) {
+        ai.relocateCd = a.relocate.every;
+        const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
+        e.vel.x += fz * 8;
+        e.vel.z += -fx * 8;
+      }
+    }
+    if (a.turret) {
+      e.vel.x *= 0.15;
+      e.vel.z *= 0.15;
+    }
+    if (a.flock) {
+      let sx = 0, sz = 0, n = 0;
+      for (const o of state.enemies) {
+        if (o === e || o.dead || o.type !== e.type) continue;
+        sx += o.pos.x;
+        sz += o.pos.z;
+        n++;
+      }
+      if (n) {
+        const dx = sx / n - e.pos.x, dz = sz / n - e.pos.z;
+        e.vel.x += dx * 0.4 * dt;
+        e.vel.z += dz * 0.4 * dt;
+      }
+    }
+    if (a.bark && e.ai.armour !== "stripped") {
+      e.ai.armour = e.status && e.status.goo ? "softened" : e.ai.armour === "softened" ? "hard" : e.ai.armour || "hard";
+    }
+    if (a.leech && target) {
+      const d = Math.hypot(target.pos.x - e.pos.x, target.pos.z - e.pos.z);
+      if (d < (a.leech.range || 10)) target.mana = Math.max(0, target.mana - (a.leech.drain || 8) * dt);
+    }
+    if (a.wisp && target) {
+      e.ai.wispCd = (e.ai.wispCd == null ? a.wisp.every : e.ai.wispCd) - dt;
+      if (e.ai.wispCd <= 0) {
+        e.ai.wispCd = a.wisp.every;
+        const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
+        const dist = Math.hypot(dx, dz) || 1;
+        createProjectile(state, {
+          kind: "bullet",
+          faction: "enemy",
+          ownerId: e.id,
+          sourceKind: "enemy",
+          pos: { x: e.pos.x, y: e.pos.y + 0.6, z: e.pos.z },
+          vel: { x: dx / dist * a.wisp.speed, y: 0, z: dz / dist * a.wisp.speed },
+          damage: a.wisp.damage,
+          ttl: 4,
+          radius: 0.25
+        });
+      }
+    }
+    if (a.audit) {
+      e.ai.audit = state.enemies.some((o) => !o.dead && o.type === "gateGenerator" && o.campaignEnc && o.campaignEnc === e.campaignEnc);
+    }
+    if (a.flash) {
+      ai.flashCd = (ai.flashCd == null ? a.flash.every : ai.flashCd) - dt;
+      const d = Math.hypot(target.pos.x - e.pos.x, target.pos.z - e.pos.z);
+      if (ai.flashCd <= 0 && d < a.flash.radius) {
+        ai.flashCd = a.flash.every;
+        target.vel.x *= 0.45;
+        target.vel.z *= 0.45;
+      }
+    }
+  }
+
+  // src/data/levels/arena.js
+  var R = TUNING.arenaRadius;
+  var arena_default = {
+    id: "arena",
+    name: "Arena",
+    stage: null,
+    legacy: true,
+    radius: R,
+    tier: 1,
+    parTime: 0,
+    bounds: { min: [-R, -40, -R], max: [R, 80, R] },
+    sections: []
+  };
+
+  // src/data/levels/kit.js
+  function box({ id, at, size, yaw = 0, mat = "stone", tag } = {}) {
+    return { kind: "box", id, at: at.slice(), size: size.slice(), yaw, mat, tag };
+  }
+  function ramp({ id, at, size, yaw = 0, mat = "stone", tag } = {}) {
+    return { kind: "ramp", id, at: at.slice(), size: size.slice(), yaw, mat, tag };
+  }
+  function stairs(o = {}) {
+    const steps = o.steps ?? Math.max(2, Math.round((o.size?.[2] || 1) / 0.3));
+    return { ...ramp(o), visual: "stairs", steps };
+  }
+  function cylinder({ id, at, r, h, mat = "pillar", tag } = {}) {
+    return { kind: "cylinder", id, at: at.slice(), r, h, mat, tag };
+  }
+  function sphere({ id, at, r, mat = "stone", tag } = {}) {
+    return { kind: "sphere", id, at: at.slice(), r, mat, tag };
+  }
+  function cone({ id, at, r, h, mat = "stone", tag } = {}) {
+    return { kind: "cone", id, at: at.slice(), r, h, mat, tag };
+  }
+  function disc({ id, at, r, mat = "neon", tag } = {}) {
+    return { kind: "disc", id, at: at.slice(), r, mat, tag };
+  }
+
+  // src/data/levels/assemble.js
+  function shiftAt(at, dx) {
+    return [at[0] + dx, at[1], at[2]];
+  }
+  function makeLevel(def) {
+    let cursor = 0;
+    const sections = [];
+    for (let i = 0; i < def.sections.length; i++) {
+      const s = def.sections[i];
+      const len = s.length ?? 46;
+      const width2 = s.width ?? 22;
+      const x0 = cursor;
+      const x1 = x0 + len;
+      const geometry = [
+        box({ id: `${s.id}-floor`, at: [(x0 + x1) / 2, -0.25, width2 / 2], size: [len + 1, 0.5, width2], mat: s.floor || "stone" }),
+        box({ id: `${s.id}-wallN`, at: [(x0 + x1) / 2, 1.6, 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" }),
+        box({ id: `${s.id}-wallS`, at: [(x0 + x1) / 2, 1.6, width2 - 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" })
+      ];
+      for (const c of s.cover || []) {
+        const h = c.h || 1.2;
+        geometry.push(box({
+          id: `${s.id}-cov-${c.x}`,
+          at: [x0 + c.x, h / 2, c.z ?? width2 * 0.32],
+          size: [1.4, h, 1.4],
+          mat: "crate",
+          tag: "cover"
+        }));
+      }
+      for (const prim of s.props || []) {
+        const copy = { ...prim, at: prim.at ? shiftAt(prim.at, x0) : prim.at, origin: prim.origin ? shiftAt(prim.origin, x0) : prim.origin };
+        geometry.push(copy);
+      }
+      const encounters = (s.encounters || []).map((e) => encounterAt(e, s.id, x0, width2));
+      const mechanisms = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
+      if (s.secret) {
+        mechanisms.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
+      }
+      const weapons = (s.weapons || []).map((w) => ({
+        kind: "rack",
+        id: w.id,
+        at: [x0 + w.x, 0.9, width2 * 0.62],
+        gun: w.gun,
+        why: w.why
+      }));
+      const checkpoints = (s.checkpoints || []).map((c) => ({
+        id: c.id,
+        at: [x0 + c.x, 0, width2 / 2],
+        when: prefixRef(c.when, s)
+      }));
+      const next2 = def.sections[i + 1];
+      const exit = next2 ? {
+        min: [x1 - 4, -1, 2],
+        max: [x1 - 0.4, 4, width2 - 2],
+        to: next2.id,
+        kind: s.transition || "seamless",
+        card: s.card || null
+      } : null;
+      sections.push({
+        id: s.id,
+        name: s.name,
+        start: [x0 + 3.5, 0, width2 / 2],
+        yaw: 0,
+        geometry,
+        encounters,
+        mechanisms,
+        weapons,
+        checkpoints,
+        exit,
+        intro: s.intro || null
+      });
+      cursor = x1 - 2;
+    }
+    const width = def.sections[0].width ?? 22;
+    return {
+      id: def.id,
+      name: def.name,
+      stage: def.stage,
+      tier: def.tier,
+      parTime: def.parTime,
+      jetpack: def.jetpack || false,
+      gravityMult: def.gravityMult || 1,
+      lighting: def.lighting || null,
+      bounds: { min: [-10, -25, -6], max: [cursor + 12, 48, width + 6] },
+      sections,
+      modifiers: def.modifiers || []
+    };
+  }
+  function prefixRef(opens, s) {
+    if (!opens || typeof opens !== "string") return opens;
+    if (!opens.endsWith(".cleared")) return opens;
+    const id = opens.slice(0, -".cleared".length);
+    if ((s.encounters || []).some((e) => e.id === id)) return `${s.id}-${id}.cleared`;
+    return opens;
+  }
+  function encounterAt(e, sid, x0, width) {
+    const x = x0 + e.x;
+    const at = [];
+    const units = [];
+    let n = 0;
+    for (const [type, count] of e.units) {
+      units.push({ type, count });
+      for (let k = 0; k < count; k++) at.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
+    }
+    return {
+      id: `${sid}-${e.id}`,
+      space: e.space || "corridor",
+      zone: { min: [x - 8, -2, 1], max: [x + 16, 14, width - 1] },
+      activate: { min: [x - 4, -1, 1.2], max: [x + 3, 6, width - 1.2] },
+      objective: { kind: e.objective || "clearAll" },
+      maxAlive: e.maxAlive || 12,
+      fleeAt: e.fleeAt || 0,
+      squads: [{ delay: 0, units, at }]
+    };
+  }
+  function placeMech(m, s, x0, width) {
+    const x = x0 + m.x;
+    const z = m.z ?? width * 0.28;
+    const base = { kind: m.kind, id: m.id, opens: prefixRef(m.opens, s), modifier: m.modifier, dps: m.dps, slow: m.slow, power: m.power, speed: m.speed };
+    if (m.kind === "door") return { ...base, at: [x, 1.6, z], size: [0.8, 3.2, 3.2], yaw: 0 };
+    if (m.kind === "switch") return { ...base, at: [x, 1, z], holdTime: m.holdTime ?? 0.35 };
+    if (m.kind === "barrel") return { ...base, at: [x, 0.55, z], hp: 30 };
+    if (m.kind === "jumpPad") return { ...base, at: [x, 0.2, width / 2], power: m.power || 11, r: 1.4 };
+    if (m.kind === "hazard") return { ...base, min: [x - 2, -1, z - 2], max: [x + 2, 2, z + 2], dps: m.dps ?? 8, slow: m.slow ?? 0 };
+    if (m.kind === "mover" || m.kind === "carpet" || m.kind === "elevator") {
+      return { ...base, kind: "mover", from: [x, 0.4, 3], to: [x, m.y ?? 0.4, width - 3], speed: m.speed || 2.2 };
+    }
+    if (m.kind === "zipline") return { ...base, from: [x, 3.5, width / 2], to: [x + 12, 2.2, width / 2] };
+    if (m.kind === "portal") return { ...base, at: [x, 1, 4], to: [x + (m.dx || 10), 0, width / 2] };
+    if (m.kind === "laser") return { ...base, at: [x, 1.2, 4], size: [0.4, 1.6, 3], dps: m.dps || 12 };
+    if (m.kind === "rail") return { ...base, from: [x, 0.3, width / 2], to: [x + 18, 0.3, width / 2], speed: m.speed || 10 };
+    if (m.kind === "crusher") return { ...base, at: [x, 2.6, z], size: [2.4, 1, 2.4], speed: 1.2 };
+    if (m.kind === "bridge") return { ...base, from: [x, 0, width / 2], to: [x + 6, 0, width / 2], width: 2 };
+    if (m.kind === "jetpack" || m.kind === "fuel" || m.kind === "power" || m.kind === "depot") return { ...base, at: [x, 1, width * 0.4] };
+    return { ...base, at: [x, 1, z] };
+  }
+
+  // src/data/levels/register.js
+  var byId2 = /* @__PURE__ */ new Map();
+  function registerLevel(level) {
+    if (!level || typeof level.id !== "string") throw new Error("registerLevel needs a level id");
+    byId2.set(level.id, level);
+    return level;
+  }
+
+  // src/data/levels/v2.js
+  function add(at, origin) {
+    if (!at) return at;
+    return [at[0] + origin[0], (at[1] || 0) + (origin[1] || 0), at[2] + origin[2]];
+  }
+  function shiftNav(bounds, origin) {
+    if (!bounds) return null;
+    return {
+      min: [bounds.min[0] + origin[0], bounds.min[1] + origin[2]],
+      max: [bounds.max[0] + origin[0], bounds.max[1] + origin[2]]
+    };
+  }
+  function shiftBox(box2, origin) {
+    if (!box2 || !box2.min || !box2.max) return box2;
+    return { min: add(box2.min, origin), max: add(box2.max, origin) };
+  }
+  function shiftPrim(g, origin) {
+    const next2 = { ...g };
+    if (g.at) next2.at = add(g.at, origin);
+    if (g.origin) next2.origin = add(g.origin, origin);
+    return next2;
+  }
+  function shiftScript(script, origin) {
+    if (!script) return null;
+    const shiftAt2 = (at) => at ? add(at, origin) : at;
+    const shiftField = (field) => field ? { ...field, at: shiftAt2(field.at) } : field;
+    return {
+      ...script,
+      parts: (script.parts || []).map((part) => ({
+        ...part,
+        targets: (part.targets || []).map((t) => ({ ...t, at: shiftAt2(t.at) })),
+        pit: shiftField(part.pit),
+        pools: (part.pools || []).map(shiftField),
+        vents: (part.vents || []).map(shiftField)
+      }))
+    };
+  }
+  function shiftSquad(squad3, origin) {
+    const at = (squad3.at || []).map((p) => add(p, origin));
+    return { ...squad3, at, trigger: squad3.trigger || { type: "onEnter" }, method: squad3.method || "placed" };
+  }
+  function makeV2Level(def) {
+    const sections = (def.sections || []).map((sec, i) => {
+      const origin = sec.origin || [0, 0, 0];
+      const geometry = (sec.geometry || []).map((g) => shiftPrim(g, origin));
+      const encounters = (sec.encounters || []).map((enc) => ({
+        ...enc,
+        objective: enc.objective || { kind: "clearAll" },
+        zone: shiftBox(enc.zone, origin),
+        activate: shiftBox(enc.activate, origin),
+        hold: shiftBox(enc.hold, origin),
+        squads: (enc.squads || []).map((sq) => shiftSquad(sq, origin)),
+        lockdown: enc.lockdown ? {
+          ...enc.lockdown,
+          threshold: shiftBox(enc.lockdown.threshold, origin),
+          room: shiftBox(enc.lockdown.room, origin)
+        } : null,
+        lid: shiftBox(enc.lid, origin),
+        arena: enc.arena ? { x: enc.arena.x + origin[0], z: enc.arena.z + origin[2], radius: enc.arena.radius } : null,
+        script: shiftScript(enc.script, origin)
+      }));
+      const next2 = def.sections[i + 1];
+      return {
+        ...sec,
+        origin,
+        geometry,
+        encounters,
+        mechanisms: (sec.mechanisms || []).map((m) => ({
+          ...m,
+          at: m.at ? add(m.at, origin) : m.at,
+          from: m.from ? add(m.from, origin) : m.from,
+          to: m.to ? add(m.to, origin) : m.to,
+          min: m.min ? add(m.min, origin) : m.min,
+          max: m.max ? add(m.max, origin) : m.max
+        })),
+        weapons: (sec.weapons || []).map((w) => ({ ...w, at: w.at ? add(w.at, origin) : w.at })),
+        navBounds: shiftNav(sec.navBounds, origin),
+        flyerVolume: shiftBox(sec.flyerVolume, origin),
+        checkpoints: (sec.checkpoints || []).map((c) => ({ ...c, at: add(c.at, origin) })),
+        hazards: (sec.hazards || []).map((h) => ({
+          ...h,
+          min: add(h.min, origin),
+          max: add(h.max, origin),
+          slow: h.slow != null ? h.slow : h.speed
+        })),
+        geysers: (sec.geysers || []).map((g) => ({
+          ...g,
+          kind: "geyser",
+          at: add(g.at, origin),
+          to: g.to ? add(g.to, origin) : g.to
+        })),
+        carpets: (sec.carpets || []).map((c) => ({ ...c, from: add(c.from, origin), to: add(c.to, origin) })),
+        links: (sec.links || []).map((link) => ({
+          ...link,
+          at: link.at ? add(link.at, origin) : link.at,
+          from: link.from ? add(link.from, origin) : link.from,
+          to: link.to ? add(link.to, origin) : link.to
+        })),
+        start: add(sec.start || [2, 0, 2], origin),
+        yaw: sec.yaw || 0,
+        exit: next2 ? shiftBox(sec.exit, origin) : null,
+        intro: sec.intro || null
+      };
+    });
+    let maxX = 10, maxZ = 10;
+    for (const sec of sections) {
+      for (const g of sec.geometry) {
+        const x = g.at ? g.at[0] : 0;
+        const z = g.at ? g.at[2] : 0;
+        if (x > maxX) maxX = x;
+        if (z > maxZ) maxZ = z;
+      }
+    }
+    return {
+      format: "v2",
+      id: def.id,
+      name: def.name,
+      stage: def.stage || "city",
+      tier: def.tier || 1,
+      parTime: def.parTime || 0,
+      jetpack: def.jetpack || false,
+      gravityMult: def.gravityMult || 1,
+      lighting: def.lighting || null,
+      maxAlive: def.maxAlive || 8,
+      useNav: !!def.useNav,
+      startAmmo: def.startAmmo || null,
+      bounds: def.bounds || { min: [-10, -25, -10], max: [maxX + 10, 48, maxZ + 10] },
+      sections,
+      modifiers: def.modifiers || []
+    };
+  }
+
+  // src/data/levels/L01/index.js
+  var card = (title, lines) => ({ title, lines });
+  function floor(id, length) {
+    return box({ id, at: [length / 2, -0.25, 16], size: [length, 0.5, 28], mat: "concrete" });
+  }
+  function zone(x0, x1, z0 = 4, z1 = 28) {
+    return { min: [x0, -2, z0], max: [x1, 8, z1] };
+  }
+  function squad(id, trigger, units, at, method = "placed") {
+    return {
+      id,
+      trigger,
+      method,
+      at,
+      units: units.map(([type, count, partId]) => partId ? { type, count, partId } : { type, count })
+    };
+  }
+  function ammo(id, at, ammoType = "bullets", amount = 60) {
+    return { kind: "ammo", id, at, ammoType, amount };
+  }
+  function door(id, at) {
+    return { kind: "door", id, at, size: [1.2, 4, 32] };
+  }
+  var S1 = {
+    id: "S1",
+    name: "Drop Zone",
+    origin: [0, 0, 0],
+    start: [8, 0, 16],
+    yaw: -Math.PI / 2,
+    intro: card("SPROTO LANDING", ["Los Angeles. Dusk.", "The Bitcoin Tax Empire has shut the city gate.", "You have one machine gun and a bad attitude."]),
+    navBounds: { min: [0, 2], max: [200, 30] },
+    exit: zone(190, 200),
+    geometry: [
+      floor("S1-floor", 200),
+      box({ id: "S1-truck", at: [62, 1.2, 8], size: [4, 2.4, 2.4], mat: "metal" }),
+      box({ id: "S1-cover-a", at: [54, 0.7, 8], size: [2.4, 1.4, 1.4], mat: "metal" }),
+      box({ id: "S1-cover-b", at: [54, 0.7, 24], size: [2.4, 1.4, 1.4], mat: "metal" }),
+      box({ id: "S1-barricade", at: [150, 1.1, 8], size: [1.2, 2.2, 4], mat: "metal" }),
+      sphere({ id: "S1-tinubu", at: [40, 14, 48], r: 8, mat: "gold" }),
+      cone({ id: "S1-tinubu-hat", at: [40, 22, 48], r: 5, h: 8, mat: "gold" }),
+      box({ id: "S1-sign", at: [20, 6, -6], size: [14, 2, 0.6], mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP1", at: [96, 0, 16], when: "S1-E1.cleared" },
+      { id: "CP2", at: [176, 0, 16], when: "S1-E2.cleared" }
+    ],
+    mechanisms: [
+      { kind: "secret", id: "S1-bonk", at: [12, 0.6, 22], modifier: "bigHead" },
+      { kind: "secret", id: "S1-file-1", at: [88, 0.4, 8], tickets: 5 },
+      { kind: "barrel", id: "S1-brl-1", at: [58, 0.55, 14], element: "fire" },
+      { kind: "barrel", id: "S1-brl-2", at: [66, 0.55, 18], element: "fire" },
+      { kind: "barrel", id: "S1-brl-3", at: [156, 0.55, 16], element: "fire" },
+      { kind: "switch", id: "S1-sw-gate", at: [168, 0.5, 16], needsHold: true, holdTime: 1.5 },
+      ammo("A1", [46, 0.4, 16]),
+      ammo("A2", [70, 0.4, 14]),
+      ammo("A3", [72, 0.4, 18]),
+      ammo("A4", [100, 0.4, 16]),
+      ammo("A5", [158, 0.4, 16]),
+      disc({ id: "S1-pad", at: [46, 0.05, 16], r: 1.2, mat: "neon" })
+    ].filter((m) => m.kind),
+    encounters: [
+      {
+        id: "S1-E1",
+        maxAlive: 6,
+        noAmmoDrop: true,
+        objective: { kind: "clearAll" },
+        activate: zone(48, 80),
+        squads: [
+          squad("A", { type: "onEnter" }, [["midget", 4]], [[60, 0, 16]]),
+          squad("B", { type: "onKills", n: 2 }, [["midget", 2]], [[66, 0, 10]], "door"),
+          squad("C", { type: "onKills", n: 5 }, [["midget", 3]], [[66, 0, 22]], "door")
+        ]
+      },
+      {
+        id: "S1-E2",
+        maxAlive: 6,
+        objective: { kind: "clearAll" },
+        activate: zone(120, 175),
+        squads: [
+          squad("A", { type: "onEnter" }, [["obama", 3]], [[150, 0, 12], [152, 0, 16], [150, 0, 20]]),
+          squad("B", { type: "onKills", n: 2 }, [["midget", 3]], [[140, 0, 24]], "door"),
+          squad("C", { type: "onKills", n: 5 }, [["obama", 2]], [[146, 4, 8]], "hidden")
+        ]
+      }
+    ]
+  };
+  var S2 = {
+    id: "S2",
+    name: "Alley and Fire Escapes",
+    origin: [185, 0, 0],
+    navBounds: { min: [0, 2], max: [180, 30] },
+    exit: zone(168, 180),
+    geometry: [
+      floor("S2-floor", 180),
+      box({ id: "S2-alley-n", at: [40, 2, 4], size: [70, 4, 1], mat: "concrete" }),
+      box({ id: "S2-alley-s", at: [40, 2, 28], size: [70, 4, 1], mat: "concrete" }),
+      cylinder({ id: "S2-pillar", at: [78, 0, 12], r: 0.5, h: 4, mat: "stone" }),
+      box({ id: "S2-tank", at: [130, 1.2, 16], size: [3, 2.4, 3], mat: "metal" })
+    ],
+    weapons: [{ id: "S2-rack-sg", at: [22, 0.5, 16], gun: "shotgun", why: "E3 corridor swarm" }],
+    checkpoints: [{ id: "CP3", at: [78, 0, 16] }],
+    mechanisms: [
+      { kind: "shrine", id: "S2-shrine", at: [78, 0.5, 16], spell: "gooBolt" },
+      { kind: "secret", id: "S2-cache", at: [100, 0.4, 8], modifier: "bigHead" },
+      { kind: "secret", id: "S2-file-2", at: [130, 2.2, 10], tickets: 5 },
+      ammo("A6", [22, 0.4, 14], "shells", 12),
+      ammo("A7", [24, 0.4, 18]),
+      ammo("A8", [76, 0.4, 14]),
+      ammo("A9", [80, 0.4, 18], "shells", 12),
+      ammo("A10", [110, 0.4, 16], "shells", 8),
+      ammo("A11", [128, 0.4, 16])
+    ],
+    encounters: [
+      {
+        id: "S2-E3",
+        maxAlive: 8,
+        objective: { kind: "clearAll" },
+        activate: zone(28, 60),
+        squads: [
+          squad("A", { type: "onEnter" }, [["midget", 5]], [[52, 0, 16]], "door"),
+          squad("B", { type: "time", t: 7 }, [["midget", 3]], [[30, 0, 16]], "door"),
+          squad("C", { type: "onKills", n: 6 }, [["midget", 2]], [[40, 4, 16]], "drop"),
+          squad("D", { type: "onRemain", n: 1 }, [["midget", 2]], [[52, 0, 16]], "door")
+        ]
+      },
+      {
+        id: "S2-E4",
+        maxAlive: 8,
+        objective: { kind: "hold", seconds: 25 },
+        activate: zone(70, 96),
+        hold: zone(72, 90),
+        squads: [
+          squad("A", { type: "onHold", p: 0 }, [["midget", 3]], [[84, 0, 16]], "door"),
+          squad("B", { type: "onHold", p: 10 }, [["midget", 5]], [[84, 0, 16]], "door")
+        ]
+      },
+      {
+        id: "S2-E5",
+        maxAlive: 4,
+        objective: { kind: "clearAll" },
+        activate: zone(110, 160),
+        squads: [
+          squad("A", { type: "onEnter" }, [["flyingMidget", 2]], [[130, 6, 16]]),
+          squad("B", { type: "onKills", n: 1 }, [["flyingMidget", 2]], [[148, 8, 16]], "air"),
+          squad("C", { type: "onEnter" }, [["flyingMidget", 2]], [[140, 7, 12]], "air")
+        ]
+      }
+    ]
+  };
+  var S3 = {
+    id: "S3",
+    name: "Mall of Sproto",
+    origin: [350, 0, 0],
+    navBounds: { min: [0, 2], max: [90, 30] },
+    flyerVolume: { min: [0, 0, 2], max: [90, 12, 30] },
+    exit: zone(84, 90),
+    geometry: [
+      floor("S3-floor", 90),
+      box({ id: "S3-kiosk", at: [40, 1, 8], size: [3, 2, 3], mat: "neon" }),
+      cylinder({ id: "S3-pillar-w", at: [28, 0, 10], r: 0.6, h: 6, mat: "stone" }),
+      cylinder({ id: "S3-pillar-e", at: [52, 0, 22], r: 0.6, h: 6, mat: "stone" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP4", at: [6, 0, 16] },
+      { id: "CP5", at: [70, 0, 16], when: "S3-E6.cleared" }
+    ],
+    mechanisms: [
+      door("S3-L1-in", [10, 2, 16]),
+      door("S3-L1-out", [80, 2, 16]),
+      { kind: "barrel", id: "S3-brl-1", at: [24, 0.55, 12], element: "shock" },
+      { kind: "barrel", id: "S3-brl-2", at: [40, 0.55, 20], element: "shock" },
+      { kind: "barrel", id: "S3-brl-3", at: [56, 0.55, 12], element: "shock" },
+      { kind: "chest", id: "S3-chest", at: [70, 0.5, 12], gun: "mg", opens: "S3-E6.cleared" },
+      ammo("A12", [6, 0.4, 16]),
+      ammo("A13", [8, 0.4, 12]),
+      ammo("A14", [8, 0.4, 20], "shells", 8),
+      ammo("A15", [36, 0.4, 10]),
+      ammo("A16", [36, 0.4, 22], "shells", 8),
+      ammo("A17", [60, 0.4, 16]),
+      ammo("C1", [70, 0.4, 18], "bullets", 120),
+      ammo("D1", [86, 0.4, 16], "bullets", 180)
+    ],
+    encounters: [
+      {
+        id: "S3-E6",
+        maxAlive: 8,
+        objective: { kind: "clearAll" },
+        activate: zone(12, 78),
+        lockdown: { entry: "S3-L1-in", exit: "S3-L1-out", threshold: zone(14, 24) },
+        squads: [
+          squad("W1", { type: "onEnter" }, [["robotLaser", 2]], [[40, 0, 16]]),
+          squad("W1b", { type: "with", after: "W1", delay: 4 }, [["robotLaser", 2]], [[22, 0, 10]], "door"),
+          squad("W2", { type: "onRemain", n: 2 }, [["midget", 5]], [[58, 0, 22]], "door"),
+          squad("W2b", { type: "with", after: "W2", delay: 0 }, [["robotLaser", 2]], [[60, 5, 12]], "door"),
+          squad("W3", { type: "onRemain", n: 2 }, [["flyingMidget", 4]], [[40, 6, 16]], "drop"),
+          squad("W3b", { type: "with", after: "W3", delay: 3 }, [["midget", 3]], [[22, 0, 16]], "door"),
+          squad("W4", { type: "onRemain", n: 2 }, [["obama", 2]], [[48, 5, 10]], "door"),
+          squad("W4b", { type: "with", after: "W4", delay: 0 }, [["midget", 5]], [[30, 0, 22]], "door")
+        ]
+      }
+    ]
+  };
+  var S4 = {
+    id: "S4",
+    name: "Parking Spiral",
+    origin: [425, 0, 0],
+    navBounds: { min: [0, 2], max: [130, 30] },
+    flyerVolume: { min: [70, 0, 2], max: [130, 20, 30] },
+    exit: zone(118, 130),
+    geometry: [
+      floor("S4-floor", 130),
+      box({ id: "S4-ramp", at: [36, 0.4, 8], size: [16, 0.5, 4], mat: "concrete" }),
+      box({ id: "S4-car", at: [24, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
+      box({ id: "S4-core", at: [90, 1.5, 8], size: [4, 3, 4], mat: "metal" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP6", at: [48, 0, 16], when: "S4-E7.cleared" },
+      { id: "CP7", at: [100, 0, 16], when: "S4-E8.cleared" }
+    ],
+    mechanisms: [
+      { kind: "mover", id: "S4-lift", carry: true, from: [48, 0, 8], to: [62, 4, 8], speed: 2 },
+      { kind: "switch", id: "S4-sw-lift", at: [46, 0.5, 8], needsHold: true, holdTime: 1 },
+      door("S4-L2-in", [70, 2, 16]),
+      door("S4-L2-out", [112, 2, 16]),
+      { kind: "barrel", id: "S4-brl-1", at: [96, 0.55, 16], element: "shock" },
+      { kind: "chest", id: "S4-chest", at: [104, 0.5, 12], gun: "shotgun", opens: "S4-E8.cleared" },
+      { kind: "secret", id: "S4-file-3", at: [20, 0.4, 24], tickets: 5 },
+      ammo("A18", [8, 0.4, 16]),
+      ammo("A19", [30, 0.4, 16]),
+      ammo("A20", [44, 0.4, 16], "shells", 8),
+      ammo("A21", [48, 0.4, 20]),
+      ammo("A22", [84, 0.4, 12]),
+      ammo("A23", [84, 0.4, 20], "shells", 8),
+      ammo("A24", [96, 0.4, 12]),
+      ammo("A25", [104, 0.4, 20]),
+      ammo("C2", [104, 0.4, 16], "bullets", 120)
+    ],
+    encounters: [
+      {
+        id: "S4-E7",
+        maxAlive: 6,
+        objective: { kind: "clearAll" },
+        activate: zone(6, 64),
+        squads: [
+          squad("A", { type: "onEnter" }, [["midget", 4]], [[18, 0, 16]], "hidden"),
+          squad("B", { type: "onKills", n: 3 }, [["obama", 2]], [[28, 3, 10]], "hidden"),
+          squad("C", { type: "onKills", n: 6 }, [["midget", 2]], [[36, 0, 20]], "hidden"),
+          squad("D", { type: "onKills", n: 8 }, [["midget", 3]], [[44, 0, 16]], "hidden"),
+          squad("E", { type: "onKills", n: 11 }, [["robotShooter", 1]], [[58, 0, 16]]),
+          squad("G", { type: "onEnter" }, [["gateGenerator", 1, "S4-gen"]], [[52, 0, 22]])
+        ]
+      },
+      {
+        id: "S4-E8",
+        maxAlive: 8,
+        objective: { kind: "clearAll" },
+        activate: zone(74, 110),
+        lockdown: { entry: "S4-L2-in", exit: "S4-L2-out", threshold: zone(74, 84) },
+        squads: [
+          squad("W1", { type: "onEnter" }, [["midget", 3]], [[80, 0, 10]], "door"),
+          squad("W1b", { type: "with", after: "W1", delay: 0 }, [["midget", 3]], [[80, 0, 22]], "door"),
+          squad("W2", { type: "onRemain", n: 2 }, [["flyingMidget", 4]], [[96, 8, 16]], "air"),
+          squad("W2b", { type: "with", after: "W2", delay: 4 }, [["midget", 3]], [[88, 0, 22]], "door"),
+          squad("W3", { type: "onRemain", n: 2 }, [["midget", 6]], [[92, 0, 12]], "door"),
+          squad("W3b", { type: "with", after: "W3", delay: 6 }, [["flyingMidget", 3]], [[100, 8, 10]], "air"),
+          squad("W4", { type: "onRemain", n: 2 }, [["robotShooter", 1], ["robotLaser", 2]], [[108, 0, 16]], "door")
+        ]
+      }
+    ]
+  };
+  var S5 = {
+    id: "S5",
+    name: "Overpass",
+    origin: [540, 0, 0],
+    navBounds: { min: [0, 2], max: [140, 30] },
+    exit: zone(128, 140),
+    geometry: [
+      floor("S5-floor", 140),
+      box({ id: "S5-toll", at: [52, 1.2, 8], size: [1, 2.4, 4], mat: "metal" }),
+      box({ id: "S5-canopy", at: [52, 4.5, 16], size: [8, 0.5, 12], mat: "concrete" }),
+      box({ id: "S5-car", at: [30, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" })
+    ],
+    weapons: [],
+    checkpoints: [],
+    mechanisms: [
+      { kind: "secret", id: "S5-battery", at: [52, 5, 10], mana: 10 },
+      ammo("A26", [12, 0.4, 16]),
+      ammo("A27", [16, 0.4, 12], "shells", 8),
+      ammo("A28", [52, 5, 12]),
+      ammo("A29", [90, 0.4, 16]),
+      ammo("C3", [60, 0.4, 16], "bullets", 120)
+    ],
+    encounters: [
+      {
+        id: "S5-E9",
+        maxAlive: 6,
+        objective: { kind: "clearAll" },
+        activate: zone(16, 120),
+        squads: [
+          squad("A", { type: "onEnter" }, [["bigObama", 1]], [[52, 0, 16]], "door"),
+          squad("B", { type: "onKills", n: 1 }, [["midget", 4]], [[58, 0, 16]], "door"),
+          squad("C", { type: "with", after: "B", delay: 0 }, [["obama", 2]], [[52, 5, 10]], "hidden"),
+          squad("D", { type: "onKills", n: 6 }, [["robotLaser", 1], ["robotShooter", 1]], [[100, 0, 16]])
+        ]
+      }
+    ]
+  };
+  var S6 = {
+    id: "S6",
+    name: "Gate Plaza",
+    origin: [665, 0, 0],
+    navBounds: { min: [0, 2], max: [110, 30] },
+    flyerVolume: { min: [0, 0, 2], max: [110, 22, 30] },
+    intro: card("Gate Plaza", ["A Big Bitcoin Obama is counting the take.", "The gate does not open until he drops it."]),
+    geometry: [
+      floor("S6-floor", 110),
+      cylinder({ id: "S6-fountain", at: [48, 0, 8], r: 2, h: 2, mat: "stone" }),
+      box({ id: "S6-stand", at: [40, 1.2, 8], size: [6, 2.4, 4], mat: "stone" }),
+      box({ id: "S6-gate-l", at: [96, 6, 6], size: [2, 12, 2], mat: "gold" }),
+      box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" })
+    ],
+    weapons: [
+      { id: "S6-rack-sg", at: [16, 0.5, 12], gun: "shotgun", why: "finale tower doors" },
+      { id: "S6-rack-mg", at: [16, 0.5, 20], gun: "mg", why: "the Gatekeeper battery" }
+    ],
+    checkpoints: [{ id: "CP8", at: [8, 0, 16] }],
+    mechanisms: [
+      door("S6-L3-in", [12, 2, 16]),
+      door("S6-gate", [96, 2, 16]),
+      { kind: "barrel", id: "S6-brl-f1", at: [30, 0.55, 10], element: "fire" },
+      { kind: "barrel", id: "S6-brl-f2", at: [30, 0.55, 22], element: "fire" },
+      { kind: "barrel", id: "S6-brl-s1", at: [70, 0.55, 10], element: "shock" },
+      { kind: "barrel", id: "S6-brl-s2", at: [70, 0.55, 22], element: "shock" },
+      ammo("A30", [24, 0.4, 12]),
+      ammo("A31", [24, 0.4, 20], "shells", 8),
+      ammo("A32", [60, 0.4, 12]),
+      ammo("A33", [60, 0.4, 20]),
+      ammo("C4", [40, 0.4, 16], "bullets", 120),
+      ammo("D2", [8, 0.4, 12], "bullets", 180)
+    ],
+    encounters: [
+      {
+        id: "S6-FIN",
+        maxAlive: 8,
+        objective: { kind: "clearAll" },
+        activate: zone(14, 92),
+        lockdown: { entry: "S6-L3-in", exit: "S6-gate", threshold: zone(16, 26) },
+        squads: [
+          squad("P1", { type: "onEnter" }, [
+            ["gateGenerator", 1, "S6-gen-N"],
+            ["gateGenerator", 1, "S6-gen-W"],
+            ["gateGenerator", 1, "S6-gen-E"],
+            ["robotLaser", 3],
+            ["gatekeeper", 1]
+          ], [[28, 0, 10], [28, 0, 16], [28, 0, 22], [36, 0, 16], [80, 0, 16]]),
+          squad("P1b", { type: "onPartDestroyed", id: "S6-gen-N" }, [["robotShooter", 1]], [[22, 0, 8]], "door"),
+          squad("P1c", { type: "onPartDestroyed", id: "S6-gen-W" }, [["robotShooter", 1], ["robotLaser", 1]], [[22, 0, 24]], "door"),
+          squad("P2a", { type: "onKills", n: 8 }, [["midget", 4]], [[70, 0, 8]], "door"),
+          squad("P2b", { type: "onKills", n: 12 }, [["midget", 4]], [[70, 0, 24]], "door"),
+          squad("P2c", { type: "onKills", n: 16 }, [["midget", 4]], [[64, 0, 16]], "door"),
+          squad("P3a", { type: "onKills", n: 20 }, [["flyingMidget", 3]], [[90, 8, 16]], "air"),
+          squad("P3b", { type: "onKills", n: 24 }, [["flyingMidget", 3]], [[90, 8, 12]], "air")
+        ]
+      },
+      {
+        id: "S6-EXIT",
+        objective: { kind: "reach" },
+        activate: zone(98, 108),
+        zone: zone(98, 108),
+        squads: []
+      }
+    ]
+  };
+  S1.mechanisms = S1.mechanisms.filter((m) => m.kind !== "disc");
+  S1.geometry.push(disc({ id: "S1-neon-pad", at: [46, 0.06, 16], r: 1.2, mat: "neon" }));
+  var L01 = makeV2Level({
+    id: "L01",
+    name: "Sproto Landing",
+    stage: "city",
+    tier: 1,
+    parTime: 18 * 60,
+    jetpack: false,
+    useNav: true,
+    maxAlive: 8,
+    startAmmo: { bullets: 36 },
+    lighting: "dusk",
+    sections: [S1, S2, S3, S4, S5, S6]
+  });
+  registerLevel(L01);
+
+  // src/data/levels/L02/index.js
+  var card2 = (title, lines) => ({ title, lines });
+  var L02 = makeLevel({
+    id: "L02",
+    name: "The Grand Bazaar",
+    stage: "desert",
+    tier: 2,
+    parTime: 18 * 60,
+    sections: [
+      {
+        id: "S1",
+        name: "Souk Alleys",
+        length: 50,
+        floor: "sand",
+        encounters: [{ id: "E1", x: 16, space: "corridor", units: [["riotMidget", 3], ["obama", 2]] }],
+        weapons: [{ id: "sg-souk", x: 28, gun: "shotgun", why: "phalanx in the alleys" }],
+        mechanisms: [
+          { kind: "hazard", id: "quicksand", x: 24, slow: 0.45, dps: 0 },
+          { kind: "barrel", id: "spice-barrel", x: 20 }
+        ],
+        secret: { x: 8, modifier: "confetti" }
+      },
+      {
+        id: "S2",
+        name: "Dune Sea",
+        length: 52,
+        floor: "sand",
+        intro: card2("Into the Dunes", ["The souk was the easy part.", "Sahil's caravan route crosses the Dune Sea."]),
+        encounters: [{ id: "E2", x: 18, space: "field", units: [["boomMidget", 4]] }],
+        mechanisms: [
+          { kind: "jumpPad", id: "sand-geyser", x: 12, power: 12 },
+          { kind: "carpet", id: "carpet-1", x: 30 },
+          { kind: "power", id: "overshield", x: 36, modifier: "overshield" }
+        ]
+      },
+      {
+        id: "S3",
+        name: "Canyon Rim",
+        length: 50,
+        floor: "sand",
+        encounters: [{ id: "E3", x: 16, space: "ledge", units: [["hexAcolyte", 3]] }],
+        weapons: [{ id: "sn-rim", x: 30, gun: "sniper", why: "acolytes across the rim" }],
+        mechanisms: [{ kind: "zipline", id: "clothesline", x: 22 }]
+      },
+      {
+        id: "S4",
+        name: "Bazaar Gate",
+        length: 48,
+        intro: card2("The Grand Bazaar", ["Sahil the RugMaster.", "He sells the floor out from under you."]),
+        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["sahil", 1]] }],
+        weapons: [{ id: "bz-sahil", x: 10, gun: "bazooka", why: "Sahil at the gate" }]
+      }
+    ]
+  });
+  registerLevel(L02);
+
+  // src/data/levels/L03/prim.js
+  function rotY(x, z, yawDeg) {
+    const t = (yawDeg || 0) * Math.PI / 180;
+    const c = Math.cos(t);
+    const s = Math.sin(t);
+    return [x * c + z * s, -x * s + z * c];
+  }
+  function place(parts, { at = [0, 0, 0], yaw = 0, id }) {
+    return parts.map((part, i) => {
+      const [x, z] = rotY(part.at[0], part.at[2], yaw);
+      return {
+        ...part,
+        id: `${id}-${part.id || i}`,
+        at: [at[0] + x, (at[1] || 0) + part.at[1], at[2] + z],
+        yaw: ((part.yaw || 0) + (yaw || 0)) % 360
+      };
+    });
+  }
+  function polar(cx, cz, radius, bearing, y = 0) {
+    const b = bearing * Math.PI / 180;
+    return [cx + radius * Math.sin(b), y, cz - radius * Math.cos(b)];
+  }
+  function span(a, b) {
+    return { length: b - a, centre: (a + b) / 2 };
+  }
+  function hedgeRing(id, { a, b, h, west, north, east, south }) {
+    const thick = b - a;
+    const westX = (a + b) / 2;
+    const eastX = 120 - westX;
+    const southZ = -westX;
+    const northZ = -(120 - westX);
+    const alongZ = span(a, 120 - a).length;
+    const z0 = -60 - alongZ / 2;
+    const z1 = -60 + alongZ / 2;
+    const alongX = 120 - 2 * b;
+    const x0 = b;
+    const x1 = 120 - b;
+    const parts = [];
+    splitWall(parts, `${id}-W`, west, z0, z1, (piece, n) => box({
+      id: `${id}-W${n}`,
+      at: [westX, h / 2, piece.centre],
+      size: [thick, h, piece.length],
+      mat: "hedge"
+    }));
+    splitWall(parts, `${id}-E`, east, z0, z1, (piece, n) => box({
+      id: `${id}-E${n}`,
+      at: [eastX, h / 2, piece.centre],
+      size: [thick, h, piece.length],
+      mat: "hedge"
+    }));
+    splitWall(parts, `${id}-S`, south, x0, x1, (piece, n) => box({
+      id: `${id}-S${n}`,
+      at: [piece.centre, h / 2, southZ],
+      size: [piece.length, h, thick],
+      mat: "hedge"
+    }));
+    splitWall(parts, `${id}-N`, north, x0, x1, (piece, n) => box({
+      id: `${id}-N${n}`,
+      at: [piece.centre, h / 2, northZ],
+      size: [piece.length, h, thick],
+      mat: "hedge"
+    }));
+    return parts;
+  }
+  function splitWall(out, _id, gap, from, to, make) {
+    if (!(to - from >= 0.5)) return;
+    const gaps = !gap ? [] : Array.isArray(gap) ? gap : [gap];
+    const cuts = gaps.map((g) => ({ a: g.at - (g.width || 4) / 2, b: g.at + (g.width || 4) / 2 })).sort((p, q) => p.a - q.a);
+    let cursor = from;
+    let n = 0;
+    for (const cut of cuts) {
+      if (cut.a - cursor >= 0.5) out.push(make(span(cursor, cut.a), String(n++)));
+      cursor = Math.max(cursor, cut.b);
+    }
+    if (to - cursor >= 0.5) out.push(make(span(cursor, to), gaps.length ? String(n) : ""));
+  }
+  function door2(id, at, size, extra = {}) {
+    return { kind: "door", id, at, size, ...extra };
+  }
+
+  // src/data/levels/L03/prefabs.js
+  function tree() {
+    return [
+      cylinder({ id: "trunk", at: [0, 0, 0], r: 0.6, h: 6, mat: "wood" }),
+      sphere({ id: "crown", at: [0, 7.5, 0], r: 3.2, mat: "hedge" })
+    ];
+  }
+  function truck() {
+    return [
+      box({ id: "body", at: [0, 1.7, 0], size: [6, 2.2, 2.4], mat: "metal" }),
+      box({ id: "cab", at: [0, 1.5, 4], size: [2, 1.8, 2.2], mat: "metal" }),
+      cylinder({ id: "w0", at: [-2.2, 0.3, -0.9], r: 0.6, h: 0.5, mat: "rock" }),
+      cylinder({ id: "w1", at: [2.2, 0.3, -0.9], r: 0.6, h: 0.5, mat: "rock" }),
+      cylinder({ id: "w2", at: [-2.2, 0.3, 0.9], r: 0.6, h: 0.5, mat: "rock" }),
+      cylinder({ id: "w3", at: [2.2, 0.3, 0.9], r: 0.6, h: 0.5, mat: "rock" }),
+      box({ id: "tail", at: [0, 0.3, -2.2], size: [2.2, 0.6, 2], mat: "metal" })
+    ];
+  }
+  function shrine() {
+    const stones = [];
+    for (let i = 0; i < 4; i++) {
+      const b = i * 90 + 45;
+      const t = b * Math.PI / 180;
+      stones.push(box({
+        id: `stone${i}`,
+        at: [Math.sin(t) * 3.5, 1.5, Math.cos(t) * 3.5],
+        size: [1, 3, 1],
+        mat: "stone"
+      }));
+    }
+    return [
+      disc({ id: "pad", at: [0, 0.02, 0], r: 4, mat: "neon" }),
+      cylinder({ id: "pedestal", at: [0, 0, 0], r: 0.8, h: 1.2, mat: "stone" }),
+      sphere({ id: "orb", at: [0, 2, 0], r: 0.5, mat: "neon" }),
+      ...stones
+    ];
+  }
+  function podStump() {
+    return [
+      cylinder({ id: "stump", at: [0, 0, 0], r: 0.6, h: 0.8, mat: "wood" }),
+      sphere({ id: "pod", at: [0, 1.15, 0], r: 0.45, mat: "toxic" })
+    ];
+  }
+  function scarecrow() {
+    return [
+      cylinder({ id: "pole", at: [0, 0, 0], r: 0.25, h: 2.2, mat: "wood" }),
+      box({ id: "arm", at: [0, 1.6, 0], size: [1.8, 0.5, 0.5], mat: "wood" }),
+      sphere({ id: "head", at: [0, 2.4, 0], r: 0.35, mat: "sand" })
+    ];
+  }
+  function scarecrowTower() {
+    const posts = [[-2.2, -2.2], [2.2, -2.2], [-2.2, 2.2], [2.2, 2.2]].map(([x, z], i) => cylinder({ id: `post${i}`, at: [x, 0, z], r: 0.3, h: 5, mat: "wood" }));
+    return [
+      ...posts,
+      box({ id: "deck", at: [0, 5.25, 0], size: [5, 0.5, 5], mat: "wood" }),
+      box({ id: "parN", at: [0, 6.1, -2.25], size: [5, 1.2, 0.5], mat: "wood" }),
+      box({ id: "parE", at: [2.25, 6.1, 0], size: [0.5, 1.2, 5], mat: "wood" }),
+      box({ id: "parW", at: [-2.25, 6.1, 0], size: [0.5, 1.2, 5], mat: "wood" }),
+      ...scarecrow().map((part) => ({ ...part, id: `crow-${part.id}`, at: [part.at[0], part.at[1] + 5.5, part.at[2]] }))
+    ];
+  }
+  function tractor() {
+    return [
+      box({ id: "body", at: [0, 1.2, 0], size: [4, 1.6, 2.2], mat: "metal" }),
+      box({ id: "cab", at: [-1, 2.7, 0], size: [1.6, 1.4, 1.8], mat: "metal" }),
+      cylinder({ id: "w0", at: [0, 0.6, -1.4], r: 1, h: 0.6, mat: "rock" }),
+      cylinder({ id: "w1", at: [0, 0.6, 1.4], r: 1, h: 0.6, mat: "rock" })
+    ];
+  }
+  function shed() {
+    return [
+      box({ id: "back", at: [0, 1.5, -2.5], size: [6, 3, 0.5], mat: "wood" }),
+      box({ id: "sideW", at: [-2.75, 1.5, 0], size: [0.5, 3, 5], mat: "wood" }),
+      box({ id: "sideE", at: [2.75, 1.5, 0], size: [0.5, 3, 5], mat: "wood" }),
+      box({ id: "roof", at: [0, 3.25, 0], size: [6.5, 0.5, 5.5], mat: "wood" }),
+      box({ id: "jambW", at: [-2.1, 1.5, 2.25], size: [1.8, 3, 0.5], mat: "wood" }),
+      box({ id: "jambE", at: [2.1, 1.5, 2.25], size: [1.8, 3, 0.5], mat: "wood" })
+    ];
+  }
+  function mound() {
+    return [
+      disc({ id: "disc", at: [0, 0.02, 0], r: 1.2, mat: "dirt" }),
+      cone({ id: "cone", at: [0, 0, 0], r: 1.2, h: 0.5, mat: "dirt" })
+    ];
+  }
+  function beanstalk() {
+    return [
+      cylinder({ id: "stalk", at: [0, 0, 0], r: 1.6, h: 24, mat: "hedge" }),
+      box({ id: "leaf1", at: [-3.5, 5, 0], size: [4, 0.5, 4], mat: "hedge" }),
+      box({ id: "leaf2", at: [0, 10.5, 3.5], size: [4, 0.5, 4], mat: "hedge" }),
+      box({ id: "leaf3", at: [3.5, 16, 0], size: [4, 0.5, 4], mat: "hedge" }),
+      box({ id: "leaf4", at: [0, 21.5, -3.5], size: [4, 0.5, 4], mat: "hedge" })
+    ];
+  }
+  function gazebo() {
+    const pillars = [];
+    for (let i = 0; i < 6; i++) {
+      const b = i * 60;
+      const t = b * Math.PI / 180;
+      pillars.push(cylinder({
+        id: `pil${i}`,
+        at: [Math.sin(t) * 4.5, 0.5, Math.cos(t) * 4.5],
+        r: 0.35,
+        h: 3.5,
+        mat: "stone"
+      }));
+    }
+    return [
+      cylinder({ id: "base", at: [0, -0.15, 0], r: 5, h: 0.5, mat: "stone" }),
+      ...pillars,
+      cylinder({ id: "roof", at: [0, 4, 0], r: 5.5, h: 0.5, mat: "wood" }),
+      cone({ id: "spire", at: [0, 4.5, 0], r: 1.5, h: 2, mat: "wood" })
+    ];
+  }
+  function topiary() {
+    return [
+      cylinder({ id: "stem", at: [0, 0, 0], r: 0.4, h: 1.2, mat: "wood" }),
+      sphere({ id: "ball", at: [0, 2.4, 0], r: 1.5, mat: "hedge" })
+    ];
+  }
+  function rootArch() {
+    return [
+      cylinder({ id: "l", at: [-2.5, 0, 0], r: 0.6, h: 5, mat: "wood" }),
+      cylinder({ id: "r", at: [2.5, 0, 0], r: 0.6, h: 5, mat: "wood" }),
+      box({ id: "lintel", at: [0, 5.5, 0], size: [7, 1, 1.5], mat: "wood" })
+    ];
+  }
+  function manaBloom() {
+    return [
+      cylinder({ id: "stem", at: [0, 0, 0], r: 0.25, h: 0.6, mat: "hedge" }),
+      sphere({ id: "flower", at: [0, 0.9, 0], r: 0.5, mat: "neon" }),
+      disc({ id: "disc", at: [0, 0.02, 0], r: 1, mat: "neon" })
+    ];
+  }
+
+  // src/data/levels/L03/encounters.js
+  function squad2(id, trigger, units, at, method = "placed", design = null) {
+    return { id, trigger, method, at, units, design };
+  }
+  function u(type, count, extra) {
+    return extra ? { type, count, ...extra } : { type, count };
+  }
+  function line(origin, count, step = 1.2, axis = 2) {
+    const pts = [];
+    for (let i = 0; i < count; i++) {
+      const p = origin.slice();
+      p[axis] += (i - (count - 1) / 2) * step;
+      pts.push(p);
+    }
+    return pts;
+  }
+  var E1 = {
+    id: "S1-E1",
+    name: "Scarecrow Row",
+    maxAlive: 10,
+    intensity: 0.4,
+    objective: { kind: "clearAll" },
+    activate: { min: [20, -2, -110], max: [150, 8, -50] },
+    squads: [
+      squad2("E1-a", { type: "onEnter" }, [u("floretSprout", 2)], [[90, 0, -80], [94, 0, -80]], "placed", "onEnter x>66, behind CB3 (99,-84) and CB4 (107,-116)"),
+      squad2("E1-b", { type: "time", t: 6 }, [u("midget", 4)], line([110, 0, -80], 4, 1.4, 0), "door", "onAlert or t+6, shed SD1, 0.4s apart"),
+      squad2("E1-c", { type: "onKills", n: 4 }, [u("obama", 2)], [[120, 0, -80], [124, 0, -80]], "hidden", "parapets of T1 and T2"),
+      squad2("E1-d", { type: "onRemain", n: 2 }, [u("midget", 3), u("floretSprout", 1)], line([130, 0, -80], 4, 1.4, 0), "door", "SD2, sprout 2s late toward CB7")
+    ]
+  };
+  var E2 = {
+    id: "S1-E2",
+    name: "Wisp Furrows",
+    maxAlive: 10,
+    intensity: 0.5,
+    objective: { kind: "clearAll" },
+    activate: { min: [168, -2, -90], max: [255, 8, -70] },
+    squads: [
+      squad2("E2-a", { type: "onEnter" }, [u("hexWisp", 2)], [[190, 1.2, -80], [194, 1.2, -80]], "hidden", "rise out of PK2 and PK5"),
+      squad2("E2-b", { type: "onKills", n: 2 }, [u("flyingMidget", 3)], line([200, 4, -80], 3, 2, 0), "air", "over the barn roof from the south"),
+      squad2("E2-c", { type: "onKills", n: 4 }, [u("riotMidget", 1), u("midget", 5)], line([210, 0, -80], 6, 1.4, 0), "door", "barn doorway, riot first"),
+      squad2("E2-d", { type: "onRemain", n: 3 }, [u("hexWisp", 3)], line([220, 1.2, -80], 3, 1.6, 0), "hidden", "through the silo wall and the hay")
+    ]
+  };
+  var E3 = {
+    id: "S2-E3",
+    name: "Dust in the Hedges",
+    maxAlive: 10,
+    intensity: 0.55,
+    objective: { kind: "clearAll" },
+    activate: { min: [2, -2, -80], max: [36, 6, -40] },
+    squads: [
+      squad2("E3-a", { type: "onEnter" }, [u("sewerMidget", 3)], line([12, 0, -60], 3, 1.4, 0), "burrow", "BM1 and BM2"),
+      squad2("E3-b", { type: "onKills", n: 2 }, [u("sewerMidget", 2)], line([16, 0, -60], 2, 1.4, 0), "burrow", "BM3 behind the player, BM4"),
+      squad2("E3-c", { type: "onKills", n: 5 }, [u("boomMidget", 3)], line([20, 0, -60], 3, 1.4, 0), "door", "onEnter corridor B, HD1, 0.6s apart"),
+      squad2("E3-d", { type: "onKills", n: 8 }, [u("sewerMidget", 3)], line([24, 0, -60], 3, 1.4, 0), "burrow", "onEnter corridor C, BM5 and BM6"),
+      squad2("E3-e", { type: "with", after: "E3-d", delay: 0 }, [u("midget", 3), u("hexAcolyte", 1)], line([28, 0, -60], 4, 1.4, 0), "door", "HD2, acolyte 3s late")
+    ]
+  };
+  var E4 = {
+    id: "S2-E4",
+    name: "Gazebo Court",
+    maxAlive: 10,
+    intensity: 0.8,
+    objective: { kind: "clearAll" },
+    activate: { min: [38, -2, -82], max: [82, 10, -38] },
+    lockdown: {
+      entry: "LD1-IN",
+      exit: "LD1-OUT",
+      threshold: { min: [42, -1, -64], max: [46, 3, -56] },
+      room: { min: [38, 0, -82], max: [82, 9, -38] },
+      waves: 4,
+      fallbackSec: 25
+    },
+    squads: [
+      squad2("E4-w1a", { type: "onEnter" }, [u("manaLeech", 1)], [[55, 0, -60]], "placed", "GZ-ROOF, alone for 4s"),
+      squad2("E4-w1b", { type: "with", after: "E4-w1a", delay: 4 }, [u("midget", 4)], line([58, 0, -60], 4, 1.3, 0), "door", "GZ-N"),
+      squad2("E4-w2a", { type: "onRemain", n: 2 }, [u("sewerMidget", 5)], line([62, 0, -60], 5, 1.3, 0), "burrow", "GZ-M1 M2 M4"),
+      squad2("E4-w2b", { type: "with", after: "E4-w2a", delay: 0 }, [u("manaLeech", 1)], [[68, 0, -60]], "door", "GZ-S"),
+      squad2("E4-w3a", { type: "onRemain", n: 2 }, [u("midget", 5), u("manaLeech", 1)], line([50, 0, -60], 6, 1.3, 0), "door", "GZ-N and GZ-S"),
+      squad2("E4-w3b", { type: "with", after: "E4-w3a", delay: 0 }, [u("sewerMidget", 3)], line([70, 0, -60], 3, 1.3, 0), "burrow", "GZ-M3 and GZ-M1"),
+      squad2("E4-w4a", { type: "onRemain", n: 2 }, [u("hexWisp", 3)], line([52, 1.2, -60], 3, 1.4, 0), "hidden", "GZ-E"),
+      squad2("E4-w4b", { type: "with", after: "E4-w4a", delay: 0 }, [u("midget", 3)], line([72, 0, -60], 3, 1.3, 0), "door", "GZ-S")
+    ]
+  };
+  var E5 = {
+    id: "S3-E5",
+    name: "First Bridge",
+    maxAlive: 10,
+    intensity: 0.6,
+    objective: { kind: "clearAll" },
+    activate: { min: [8, -2, -100], max: [100, 6, -20] },
+    squads: [
+      squad2("E5-a", { type: "onEnter" }, [u("barkBrute", 1)], [[43, 0, -60]], "placed", "middle of Bridge 1, in the runoff that strips bark"),
+      squad2("E5-b", { type: "onKills", n: 1 }, [u("boomMidget", 4)], line([70, 0, -60], 4, 1.4, 0), "door", "pump shack PS1, 0.6s apart"),
+      squad2("E5-c", { type: "onRemain", n: 1 }, [u("barkBrute", 1), u("midget", 4)], [[74, 0, -40], ...line([78, 0, -60], 4, 1.4, 0)], "door", "PS1, midgets 2s late, brute in RP1")
+    ]
+  };
+  var E6 = {
+    id: "S3-E6",
+    name: "Runoff Flats",
+    maxAlive: 10,
+    intensity: 0.65,
+    objective: { kind: "clearAll" },
+    activate: { min: [130, -2, -110], max: [200, 6, -20] },
+    plates: ["S3-PP1", "S3-PP2"],
+    designObjective: "switch: PP1 and PP2 held together for 1s, then clearAll",
+    squads: [
+      squad2("E6-a", { type: "onEnter" }, [u("gooGlob", 1)], [[150, 0, -60]], "placed", "in pool RP3"),
+      squad2("E6-b", { type: "onRemain", n: 0 }, [u("robotLaser", 2)], [[200, 0, -60], [204, 0, -60]], "hidden", "far-bank crates FC1 FC2"),
+      squad2("E6-c", { type: "with", after: "E6-b", delay: 0 }, [u("sewerMidget", 4)], line([155, 0, -60], 4, 1.4, 0), "burrow", "onSwitch of the first plate, S3-BM1..4"),
+      squad2("E6-d", { type: "onKills", n: 7 }, [u("gooGlob", 1), u("midget", 3)], line([210, 0, -60], 4, 1.4, 0), "door", "Bridge 3 grown, PS2, midgets 3s late")
+    ]
+  };
+  var E7 = {
+    id: "S4-E7",
+    name: "The Hothouse",
+    maxAlive: 10,
+    intensity: 0.85,
+    objective: { kind: "clearAll" },
+    activate: { min: [34, -2, -67], max: [98, 9, -23] },
+    lockdown: {
+      entry: "LD2-IN",
+      exit: "LD2-OUT",
+      threshold: { min: [38, -1, -48], max: [42, 3, -42] },
+      room: { min: [34, 0, -67], max: [98, 8, -23] },
+      waves: 4,
+      fallbackSec: 25
+    },
+    squads: [
+      squad2("E7-w1a", { type: "onEnter" }, [u("daycare", 1, { spawnBudget: 5 })], [[50, 0, -45]], "placed", "nest A, core opens 1.5s at each spawn"),
+      squad2("E7-w1b", { type: "with", after: "E7-w1a", delay: 0 }, [u("midget", 5)], line([54, 0, -45], 5, 1.3, 0), "summon", "budget 5, two every 6s once the nest ticker exists"),
+      squad2("E7-w2a", { type: "onRemain", n: 2 }, [u("floretSprout", 2)], [[60, 0, -45], [63, 0, -45]], "door", "HH-CE"),
+      squad2("E7-w2b", { type: "with", after: "E7-w2a", delay: 0 }, [u("sewerMidget", 4)], line([66, 0, -45], 4, 1.3, 0), "burrow", "HH-M1 and HH-M3"),
+      squad2("E7-w3a", { type: "onRemain", n: 2 }, [u("daycare", 1, { spawnBudget: 5 }), u("midget", 5)], [[74, 0, -45], ...line([78, 0, -45], 5, 1.2, 0)], "drop", "HH-ROOF nest B"),
+      squad2("E7-w3b", { type: "with", after: "E7-w3a", delay: 0 }, [u("manaLeech", 1)], [[84, 0, -45]], "door", "HH-S"),
+      squad2("E7-w3c", { type: "with", after: "E7-w3a", delay: 0 }, [u("hexWisp", 2)], [[86, 1.2, -45], [88, 1.2, -45]], "hidden", "HH-N through the glass"),
+      squad2("E7-w4", { type: "onRemain", n: 2 }, [u("barkBrute", 1), u("midget", 4)], [[66, 0, -66], ...line([70, 0, -45], 4, 1.3, 0)], "door", "HH-N brute in the north runoff, midgets on the lane")
+    ]
+  };
+  var E8 = {
+    id: "S4-E8",
+    name: "Compost Yard",
+    maxAlive: 10,
+    intensity: 0.5,
+    objective: { kind: "clearAll" },
+    activate: { min: [106, -2, -80], max: [168, 6, -20] },
+    squads: [
+      squad2("E8-a", { type: "onEnter" }, [u("gooGlob", 1)], [[134, 0, -45]], "placed", "in pool RP5"),
+      squad2("E8-b", { type: "time", t: 2 }, [u("boomMidget", 3)], line([140, 0, -45], 3, 1.4, 0), "door", "onAlert, shed S4-CSH, 0.6s apart"),
+      squad2("E8-c", { type: "onRemain", n: 2 }, [u("hexWisp", 2), u("midget", 2)], line([148, 0, -45], 4, 1.4, 0), "hidden", "bins CB3 CB5 and behind CB4")
+    ]
+  };
+  var F1 = {
+    id: "S5-F1",
+    name: "The Compost Hex",
+    maxAlive: 10,
+    intensity: 0.95,
+    objective: { kind: "boss" },
+    boss: "hexAuditor",
+    arena: { x: 45, z: -80, radius: 34 },
+    activate: { min: [20, -2, -114], max: [70, 12, -46] },
+    lockdown: {
+      entry: "LD3-IN",
+      exit: "LD3-OUT",
+      threshold: { min: [42, -1, -54], max: [48, 3, -50] },
+      room: { min: [11, 0, -114], max: [79, 12, -46] },
+      waves: 3,
+      fallbackSec: null
+    },
+    parts: [
+      { id: "audit", kind: "phase", hpFrom: 3e3, hpTo: 1800, ends: "60% HP", seconds: 50 },
+      { id: "rooted", kind: "intermission", ends: "third totem destroyed", seconds: 55, totems: ["TOT-N", "TOT-SE", "TOT-SW"] },
+      { id: "liquidation", kind: "phase", hpFrom: 1800, hpTo: 0, ends: "0 HP", seconds: 80, floodAt: 0.25 }
+    ],
+    squads: [
+      squad2("F1-boss", { type: "onEnter" }, [u("hexAuditor", 1)], [[45, 1.6, -80]], "placed", "arena centre C"),
+      squad2("F1-p1a", { type: "onBossHp", p: 85 }, [u("midget", 5)], line([45, 0, -90], 5, 1.4, 0), "burrow", "RM2 and RM5"),
+      squad2("F1-p1b", { type: "onBossHp", p: 70 }, [u("hexWisp", 2)], [[48, 1.2, -80], [42, 1.2, -80]], "summon", "HEAP"),
+      squad2("F1-p2a", { type: "onBossHp", p: 60 }, [u("sewerMidget", 3)], [[45, 0, -100], [47, 0, -100], [43, 0, -100]], "burrow", "TOT-N, shots break the post on the way"),
+      squad2("F1-p2b", { type: "onBossHp", p: 60 }, [u("manaLeech", 1), u("midget", 3)], line([55, 0, -80], 4, 1.4, 0), "summon", "TOT-SE"),
+      squad2("F1-p2c", { type: "onBossHp", p: 60 }, [u("barkBrute", 1, { elite: true })], [[26, 0, -69]], "burrow", "TOT-SW elite, runoff strips bark"),
+      squad2("F1-p2d", { type: "onBossHp", p: 60 }, [u("midget", 3)], line([45, 0, -96], 3, 1.4, 0), "burrow", "onPartDestroyed TOT-N, RM1 and RM6"),
+      squad2("F1-p3a", { type: "onBossHp", p: 45 }, [u("boomMidget", 3)], line([40, 0, -80], 3, 1.4, 0), "burrow", "RM3 and RM4"),
+      squad2("F1-p3b", { type: "onBossHp", p: 25 }, [u("hexWisp", 2)], [[50, 1.2, -80], [40, 1.2, -80]], "summon", "HEAP, flood starts"),
+      squad2("F1-p3c", { type: "onBossHp", p: 12 }, [u("sewerMidget", 3)], line([45, 0, -86], 3, 1.4, 0), "burrow", "RM1 RM3 RM5")
+    ]
+  };
+  var F2 = {
+    id: "S6-F2",
+    name: "Broccoli Head Sprout",
+    maxAlive: 10,
+    intensity: 0.7,
+    objective: { kind: "boss" },
+    boss: "broccoli",
+    fleeAt: 0.5,
+    fleeTo: "S6-LG",
+    activate: { min: [12, -2, -65], max: [58, 6, -16] },
+    squads: [
+      squad2("F2-boss", { type: "onEnter" }, [u("broccoli", 1)], [[36, 0.6, -40]], "placed", "on the vape tank, stage 1 only"),
+      squad2("F2-a", { type: "time", t: 8 }, [u("midget", 3)], line([36, 0, -48], 3, 1.4, 0), "door", "PT-N"),
+      squad2("F2-b", { type: "onBossHp", p: 80 }, [u("midget", 3)], line([30, 0, -40], 3, 1.4, 0), "door", "PT-W"),
+      squad2("F2-c", { type: "onBossHp", p: 65 }, [u("floretSprout", 2)], [[42, 0, -40], [46, 0, -40]], "hidden", "behind GV1 and GV2")
+    ]
+  };
+  var F3 = {
+    id: "S6-F3",
+    name: "Runoff Escape",
+    maxAlive: 10,
+    intensity: 0.6,
+    objective: { kind: "escape" },
+    zone: { min: [126, -2, -52], max: [144, 14, -36] },
+    activate: { min: [126, -2, -52], max: [144, 14, -36] },
+    squads: [
+      squad2("F3-a", { type: "onEnter" }, [u("sewerMidget", 2)], [[134, 9, -44], [136, 9, -46]], "burrow", "terrace 1, EM1 EM2"),
+      squad2("F3-b", { type: "onEnter" }, [u("floretSprout", 2)], [[132, 9, -42], [138, 9, -44]], "placed", "terrace 2"),
+      squad2("F3-c", { type: "time", t: 8 }, [u("sewerMidget", 2)], [[134, 9, -40], [136, 9, -48]], "burrow", "onEnter terrace 2, EM3 EM4"),
+      squad2("F3-d", { type: "time", t: 12 }, [u("floretSprout", 2)], [[130, 9, -44], [140, 9, -44]], "placed", "levee, can be outrun")
+    ]
+  };
+  var ENCOUNTERS = { E1, E2, E3, E4, E5, E6, E7, E8, F1, F2, F3 };
+  var EXPECTED_COUNTS = {
+    midget: 67,
+    sewerMidget: 34,
+    hexWisp: 16,
+    boomMidget: 13,
+    floretSprout: 11,
+    manaLeech: 5,
+    barkBrute: 4,
+    gooGlob: 3,
+    flyingMidget: 3,
+    obama: 2,
+    robotLaser: 2,
+    daycare: 2,
+    riotMidget: 1,
+    hexAcolyte: 1
+  };
+
+  // src/data/levels/L03/S1.js
+  var trees = [];
+  for (const z of [-152, -8]) {
+    for (let i = 0; i < 7; i++) {
+      trees.push(...place(tree(), { at: [18 + i * 36, 0, z], id: `S1-TREE-${z}-${i}` }));
+    }
+  }
+  var cabbageR = [2.2, 2.6, 3, 2.4, 2.6, 2.2, 3, 2.4];
+  var cabbageAt = [[74, 1.6, -70], [84, 2, -104], [96, 2.4, -84], [104, 1.8, -116], [112, 2, -66], [120, 1.6, -92], [134, 2.4, -78], [142, 1.8, -110]];
+  var pumpR = [1.6, 2.2, 1.8, 2.4, 2, 1.6, 2.4, 1.8];
+  var pumpAt = [[178, 1.1, -72], [186, 1.7, -94], [194, 1.3, -112], [200, 1.9, -78], [210, 1.5, -100], [216, 1.1, -120], [238, 1.9, -106], [246, 1.3, -86]];
+  function spheres(prefix, radii, ats, mat) {
+    return radii.map((r, i) => ({
+      kind: "sphere",
+      id: `${prefix}${i + 1}`,
+      at: ats[i],
+      r,
+      mat
+    }));
+  }
+  var S12 = {
+    id: "S1",
+    name: "Crop Fields",
+    origin: [0, 0, 0],
+    start: [18, 0, -80],
+    yaw: -Math.PI / 2,
+    footprint: [260, 160],
+    routeM: 290,
+    navBounds: { min: [0, -160], max: [260, 0] },
+    exit: { min: [259, -1, -83], max: [264, 4, -77] },
+    intro: { title: "The Vegetable Grove", lines: ["The Cabal grows it here.", "Bullets are a second opinion. Bring spells."] },
+    geometry: [
+      box({ id: "S1-FL", at: [130, -0.25, -80], size: [260, 0.5, 160], mat: "grass" }),
+      // `at` is only so the level view can skip this. It reads at[1] before the kind, and terrain has no mesh yet.
+      { kind: "terrain", id: "S1-T", at: [130, 0, -80], origin: [0, 0, -160], size: [260, 160], cell: 2, seed: 301, mat: "grass", noise: { amp: 0.4, freq: 0.03, octaves: 1 } },
+      box({ id: "S1-WN", at: [130, 3, -159], size: [260, 6, 2], mat: "hedge" }),
+      box({ id: "S1-WS", at: [130, 3, -1], size: [260, 6, 2], mat: "hedge" }),
+      box({ id: "S1-WW", at: [1, 3, -80], size: [2, 6, 160], mat: "hedge" }),
+      box({ id: "S1-WE1", at: [259, 3, -38.5], size: [2, 6, 77], mat: "hedge" }),
+      box({ id: "S1-WE2", at: [259, 3, -121.5], size: [2, 6, 77], mat: "hedge" }),
+      ...place(truck(), { at: [10, 0, -80], yaw: 90, id: "S1-TRK" }),
+      ...place(shrine(), { at: [34, 0, -88], id: "SH-YEET" }),
+      ...place(podStump(), { at: [46, 0, -74], id: "S1-ST1" }),
+      ...place(podStump(), { at: [46, 0, -80], id: "S1-ST2" }),
+      ...place(podStump(), { at: [46, 0, -86], id: "S1-ST3" }),
+      ...place(scarecrow(), { at: [58, 0, -74], id: "S1-SC1" }),
+      ...place(scarecrow(), { at: [58, 0, -80], id: "S1-SC2" }),
+      ...place(scarecrow(), { at: [58, 0, -86], id: "S1-SC3" }),
+      box({ id: "S1-LB", at: [64, 1.5, -80], size: [2, 3, 6], mat: "wood", tag: "target" }),
+      box({ id: "S1-F1", at: [64, 1.5, -39.5], size: [2, 3, 75], mat: "wood" }),
+      box({ id: "S1-F2", at: [64, 1.5, -120.5], size: [2, 3, 75], mat: "wood" }),
+      ...spheres("S1-CB", cabbageR, cabbageAt, "grass"),
+      box({ id: "S1-CW1", at: [86, 1.2, -60], size: [12, 2.4, 1.5], mat: "hedge" }),
+      box({ id: "S1-CW2", at: [108, 1.2, -100], size: [12, 2.4, 1.5], mat: "hedge" }),
+      box({ id: "S1-CW3", at: [126, 1.2, -124], size: [12, 2.4, 1.5], mat: "hedge" }),
+      box({ id: "S1-CW4", at: [140, 1.2, -60], size: [12, 2.4, 1.5], mat: "hedge" }),
+      ...place(scarecrowTower(), { at: [100, 0, -50], id: "S1-T1" }),
+      ...place(scarecrowTower(), { at: [128, 0, -112], id: "S1-T2" }),
+      ...place(tractor(), { at: [78, 0, -92], yaw: 20, id: "S1-TR1" }),
+      ...place(shed(), { at: [124, 0, -62], yaw: 180, id: "S1-SD1" }),
+      ...place(shed(), { at: [144, 0, -96], yaw: 270, id: "S1-SD2" }),
+      box({ id: "S1-CNL", at: [157, -0.2, -80], size: [10, 0.5, 156], mat: "toxic" }),
+      box({ id: "S1-PB1", at: [157, 0.25, -136], size: [12, 0.5, 3], mat: "wood" }),
+      ...spheres("S1-PK", pumpR, pumpAt, "gold"),
+      box({ id: "S1-BN1", at: [228, 4, -54.25], size: [18, 8, 0.5], mat: "wood" }),
+      box({ id: "S1-BN2", at: [219.25, 4, -60], size: [0.5, 8, 12], mat: "wood" }),
+      box({ id: "S1-BN3", at: [236.75, 4, -60], size: [0.5, 8, 12], mat: "wood" }),
+      box({ id: "S1-BN4", at: [222.5, 4, -65.75], size: [7, 8, 0.5], mat: "wood" }),
+      box({ id: "S1-BN5", at: [233.5, 4, -65.75], size: [7, 8, 0.5], mat: "wood" }),
+      box({ id: "S1-BN6", at: [228, 8.25, -60], size: [19, 0.5, 13], mat: "wood" }),
+      box({ id: "S1-BN7", at: [228, 4, -57], size: [17, 0.5, 5], mat: "wood" }),
+      stairs({ id: "S1-BN8", at: [221.5, 2, -61.5], size: [3, 4, 7], yaw: 0, mat: "wood" }),
+      cylinder({ id: "S1-SI", at: [250, 0, -50], r: 4, h: 14, mat: "metal" }),
+      cone({ id: "S1-SI-cap", at: [250, 14, -50], r: 4.4, h: 3, mat: "metal" }),
+      box({ id: "S1-HB1", at: [190, 0.6, -66], size: [2, 1.2, 1.2], mat: "sand" }),
+      box({ id: "S1-HB2", at: [204, 0.6, -90], size: [2, 1.2, 1.2], mat: "sand" }),
+      box({ id: "S1-HB3", at: [222, 0.6, -88], size: [2, 1.2, 1.2], mat: "sand" }),
+      box({ id: "S1-HB4", at: [232, 1.2, -114], size: [2, 2.4, 1.2], mat: "sand" }),
+      box({ id: "S1-HB5", at: [244, 0.6, -72], size: [2, 1.2, 1.2], mat: "sand" }),
+      box({ id: "S1-HB6", at: [214, 1.2, -72], size: [2, 2.4, 1.2], mat: "sand" }),
+      ...place(beanstalk(), { at: [244, 0, -142], id: "S1-BS" }),
+      ...place(manaBloom(), { at: [52, 0, -92], id: "MB1" }),
+      ...place(manaBloom(), { at: [108, 0, -86], id: "MB2" }),
+      ...place(manaBloom(), { at: [174, 0, -80], id: "MB3" }),
+      ...place(manaBloom(), { at: [228, 4.5, -57], id: "MB4" }),
+      disc({ id: "S1-MP1-pad", at: [95, 0.05, -54], r: 1.2, mat: "neon" }),
+      disc({ id: "S1-MP2-pad", at: [123, 0.05, -108], r: 1.2, mat: "neon" }),
+      disc({ id: "S1-MP3-pad", at: [149, 0.05, -80], r: 1.2, mat: "neon" }),
+      disc({ id: "S1-MP4-pad", at: [165, 0.05, -84], r: 1.2, mat: "neon" }),
+      ...trees
+    ],
+    weapons: [
+      { id: "W1", at: [80, 0.9, -94], gun: "sniper", why: "E1: Obamas on the towers, Sprouts across the field" }
+    ],
+    checkpoints: [
+      { id: "CP1", at: [34, 0, -80] },
+      { id: "CP2", at: [168, 0, -80], when: "S1-E1.cleared" }
+    ],
+    mechanisms: [
+      { kind: "door", id: "S1-GATE", at: [259, 2.5, -80], size: [1, 5, 6], opens: "S1-E2.cleared" },
+      { kind: "shrine", id: "SH-YEET-use", at: [34, 1, -88], spell: "yeet" },
+      { kind: "seedPod", id: "S1-POD1", at: [46, 1.1, -74], regrow: 12, damage: 150, radius: 4 },
+      { kind: "seedPod", id: "S1-POD2", at: [46, 1.1, -80], regrow: 12, damage: 150, radius: 4 },
+      { kind: "seedPod", id: "S1-POD3", at: [46, 1.1, -86], regrow: 12, damage: 150, radius: 4 },
+      { kind: "target", id: "S1-LB-hp", at: [64, 1.5, -80], hp: 200, bulletMul: 0.2, podHits: 2 },
+      { kind: "target", id: "S1-SC1-hp", at: [58, 1.2, -74], hp: 1 },
+      { kind: "target", id: "S1-SC2-hp", at: [58, 1.2, -80], hp: 1 },
+      { kind: "target", id: "S1-SC3-hp", at: [58, 1.2, -86], hp: 1 },
+      { kind: "jumpPad", id: "S1-MP1", at: [95, 0.2, -54], r: 1.2, power: 11, to: [100, 5.5, -50] },
+      { kind: "jumpPad", id: "S1-MP2", at: [123, 0.2, -108], r: 1.2, power: 11, to: [128, 5.5, -112] },
+      { kind: "jumpPad", id: "S1-MP3", at: [149, 0.2, -80], r: 1.2, power: 9, to: [166, 0, -80] },
+      { kind: "jumpPad", id: "S1-MP4", at: [165, 0.2, -84], r: 1.2, power: 9, to: [148, 0, -84] },
+      { kind: "jumpPad", id: "S1-BS-P0", at: [236, 0.2, -142], r: 1.2, power: 11, to: [240.5, 5, -142] },
+      { kind: "jumpPad", id: "S1-BS-P1", at: [240.5, 5.2, -142], r: 1.2, power: 11, to: [244, 10.5, -138.5] },
+      { kind: "jumpPad", id: "S1-BS-P2", at: [244, 10.7, -138.5], r: 1.2, power: 11, to: [247.5, 16, -142] },
+      { kind: "jumpPad", id: "S1-BS-P3", at: [247.5, 16.2, -142], r: 1.2, power: 11, to: [244, 21.5, -145.5] },
+      { kind: "hazard", id: "S1-CNL-HZ", min: [152, -1, -158], max: [162, 2, -2], dps: 12, enemyDps: 40, element: "toxic" },
+      { kind: "manaBloom", id: "MB1-use", at: [52, 0.6, -92], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB2-use", at: [108, 0.6, -86], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB3-use", at: [174, 0.6, -80], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB4-use", at: [228, 4.8, -57], mana: 50, regrow: 20 },
+      { kind: "ammo", id: "AB1", at: [30, 0.4, -84], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB2", at: [76, 0.4, -95], ammoType: "sniper", amount: 8 },
+      { kind: "ammo", id: "AB3", at: [168, 0.4, -76], ammoType: "shells", amount: 12 },
+      { kind: "secret", id: "S1-BONK", at: [244, 22.5, -145.5], modifier: "floorIsLava" },
+      { kind: "secret", id: "S1-AF1", at: [100, 6.2, -50], tickets: 15, story: "Invoice: 400 scarecrows. None of them scare." }
+    ],
+    encounters: [ENCOUNTERS.E1, ENCOUNTERS.E2],
+    navLinks: [
+      { from: { x: 95, z: -54 }, to: { x: 100, z: -50 }, kind: "pad" },
+      { from: { x: 123, z: -108 }, to: { x: 128, z: -112 }, kind: "pad" },
+      { from: { x: 149, z: -80 }, to: { x: 166, z: -80 }, kind: "pad" },
+      { from: { x: 165, z: -84 }, to: { x: 148, z: -84 }, kind: "pad" }
+    ]
+  };
+
+  // src/data/levels/L03/S2.js
+  var rings = [
+    ...hedgeRing("S2-HB", { a: 0, b: 2, h: 5, west: { at: -60, width: 6 }, east: { at: -60, width: 5 } }),
+    ...hedgeRing("S2-H1", { a: 7, b: 10, h: 3.5, west: [{ at: -30, width: 4 }, { at: -60, width: 5 }], north: { at: 30, width: 4 }, east: { at: -60, width: 5 } }),
+    ...hedgeRing("S2-H2", { a: 14, b: 17, h: 3.5, west: [{ at: -70, width: 4 }, { at: -60, width: 5 }], north: { at: 50, width: 4 }, east: { at: -60, width: 5 } }),
+    ...hedgeRing("S2-H3", { a: 21, b: 24, h: 3.5, west: [{ at: -50, width: 4 }, { at: -60, width: 5 }], north: { at: 64, width: 4 }, east: { at: -60, width: 5 } }),
+    ...hedgeRing("S2-H4", { a: 28, b: 31, h: 3.5, west: [{ at: -66, width: 4 }, { at: -60, width: 5 }], north: { at: 56, width: 4 }, east: { at: -60, width: 5 } }),
+    ...hedgeRing("S2-H5", { a: 35, b: 38, h: 9, west: { at: -60, width: 4 }, north: { at: 60, width: 4 }, east: { at: -60, width: 4 }, south: { at: 60, width: 4 } })
+  ];
+  var mounds = [[4.5, -50], [4.5, -40], [4.5, -74], [12, -38], [19, -62], [26, -58], [43, -43], [77, -43], [43, -77], [77, -77]];
+  var S22 = {
+    id: "S2",
+    name: "Hedge Maze",
+    origin: [259, 0, -20],
+    start: [3, 0, -60],
+    yaw: -Math.PI / 2,
+    footprint: [120, 120],
+    routeM: 232,
+    navBounds: { min: [0, -120], max: [120, 0] },
+    exit: { min: [120, -1, -64], max: [126, 4, -56] },
+    geometry: [
+      box({ id: "S2-FL", at: [60, -0.25, -60], size: [128, 0.5, 120], mat: "grass" }),
+      ...rings,
+      box({ id: "S2-LIN1", at: [101.5, 1.75, -57], size: [33, 3.5, 1], mat: "hedge" }),
+      box({ id: "S2-LIN2", at: [101.5, 1.75, -63], size: [33, 3.5, 1], mat: "hedge" }),
+      box({ id: "S2-BLKB", at: [12, 1.75, -98], size: [4, 3.5, 1], mat: "hedge" }),
+      box({ id: "S2-BLKD", at: [26, 1.75, -36], size: [4, 3.5, 1], mat: "hedge" }),
+      ...mounds.flatMap(([x, z], i) => place(mound(), { at: [x, 0, z], id: `S2-BM${i + 1}` })),
+      box({ id: "S2-LID", at: [60, 9.25, -60], size: [50, 0.5, 50], mat: "glass" }),
+      ...place(gazebo(), { at: [60, 0, -60], id: "S2-GZ" }),
+      box({ id: "S2-BN1", at: [50, 0.6, -50], size: [3, 1.2, 1], mat: "stone" }),
+      box({ id: "S2-BN2", at: [70, 0.6, -50], size: [3, 1.2, 1], mat: "stone" }),
+      box({ id: "S2-BN3", at: [50, 0.6, -70], size: [3, 1.2, 1], mat: "stone" }),
+      box({ id: "S2-BN4", at: [70, 0.6, -70], size: [3, 1.2, 1], mat: "stone" }),
+      ...place(topiary(), { at: [44, 0, -52], id: "S2-TP1" }),
+      ...place(topiary(), { at: [76, 0, -68], id: "S2-TP2" }),
+      ...place(topiary(), { at: [60, 0, -44], id: "S2-TP3" }),
+      ...place(topiary(), { at: [60, 0, -76], id: "S2-TP4" }),
+      cylinder({ id: "S2-UR1", at: [54, 0, -42], r: 1, h: 1.2, mat: "stone" }),
+      cylinder({ id: "S2-UR2", at: [66, 0, -42], r: 1, h: 1.2, mat: "stone" }),
+      cylinder({ id: "S2-UR3", at: [54, 0, -78], r: 1, h: 1.2, mat: "stone" }),
+      cylinder({ id: "S2-UR4", at: [66, 0, -78], r: 1, h: 1.2, mat: "stone" }),
+      ...place(manaBloom(), { at: [19, 0, -92], id: "MB5" }),
+      ...place(manaBloom(), { at: [79, 0, -66], id: "MB6" }),
+      ...place(manaBloom(), { at: [41, 0, -48], id: "MB6b" }),
+      ...place(manaBloom(), { at: [96, 0, -60], id: "MB7" }),
+      disc({ id: "S2-THR", at: [44, 0.05, -60], r: 2, mat: "neon" }),
+      disc({ id: "S2-GZP-pad", at: [66.5, 0.05, -60], r: 1.2, mat: "neon" })
+    ],
+    weapons: [
+      { id: "W2", at: [3, 0.9, -57], gun: "shotgun", why: "E3: burrowers at arm's length in 4 m corridors" },
+      { id: "W3", at: [3, 0.9, -63], gun: "mg", why: "E3 and E4: packs of fodder" }
+    ],
+    checkpoints: [
+      { id: "CP3", at: [3, 0, -60] },
+      { id: "CP4", at: [26, 0, -62], when: "S2-E3.cleared" },
+      { id: "CP5", at: [86, 0, -60], when: "S2-E4.cleared" }
+    ],
+    mechanisms: [
+      door2("LD1-IN", [37.7, 4.5, -60], [0.6, 9, 4]),
+      door2("LD1-OUT", [82.3, 4.5, -60], [0.6, 9, 4]),
+      door2("S2-XD", [110, 1.75, -60], [1, 3.5, 5], { opens: "S2-CD2" }),
+      door2("HD1", [12, 1.75, -98], [4, 3.5, 1]),
+      door2("HD2", [26, 1.75, -36], [4, 3.5, 1]),
+      { kind: "mover", id: "S2-TG-N", at: [29.5, 1.2, -65], from: [29.5, 1.2, -65], to: [29.5, 1.2, -66], size: [0.5, 2.4, 2], crush: 40, closed: 0.8, open: 0.4 },
+      { kind: "mover", id: "S2-TG-S", at: [29.5, 1.2, -67], from: [29.5, 1.2, -67], to: [29.5, 1.2, -66], size: [0.5, 2.4, 2], crush: 40, closed: 0.8, open: 0.4 },
+      { kind: "gooGear", id: "S2-GG1", at: [29.5, 1.5, -63.6], radius: 0.5, holds: "S2-TG-N", seconds: 4 },
+      { kind: "conduit", id: "S2-CD1", at: [65, 2, -60], radius: 0.4, spell: "chainZap", stun: 2, radiusEffect: 8, recharge: 20 },
+      { kind: "conduit", id: "S2-CD2", at: [106, 1.5, -57.6], radius: 0.4, barkCap: true },
+      { kind: "jumpPad", id: "S2-GZP", at: [66.5, 0.2, -60], r: 1.2, power: 10, to: [60, 4.5, -60] },
+      { kind: "manaBloom", id: "MB5-use", at: [19, 0.6, -92], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB6-use", at: [79, 0.6, -66], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB6b-use", at: [41, 0.6, -48], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB7-use", at: [96, 0.6, -60], mana: 50, regrow: 20 },
+      { kind: "ammo", id: "AB4", at: [6, 0.4, -57], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB5", at: [6, 0.4, -63], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB6", at: [26, 0.4, -60], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB7", at: [41, 0.4, -66], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB8", at: [41, 0.4, -54], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB9", at: [88, 0.4, -60], ammoType: "sniper", amount: 8 },
+      { kind: "ammoCrate", id: "RC1", at: [80, 0.4, -58], uses: 3, fraction: 0.5 },
+      { kind: "chest", id: "L1-CHEST", at: [80, 0.5, -62], opens: "S2-E4.cleared", tier: "uncommon" },
+      { kind: "secret", id: "S2-BAT", at: [108, 0.5, -104], mana: 10, regen: 0.5 },
+      { kind: "secret", id: "S2-AF2", at: [101, 0.4, -54], tickets: 15, story: "The maze is a tax shelter. Nothing in the middle is declared." }
+    ],
+    encounters: [ENCOUNTERS.E3, ENCOUNTERS.E4]
+  };
+
+  // src/data/levels/L03/S3.js
+  var mounds2 = [[138, -42], [148, -30], [160, -90], [170, -80]];
+  var S32 = {
+    id: "S3",
+    name: "Toxic Creek",
+    origin: [379, 0, -20],
+    start: [4, 0, -60],
+    yaw: -Math.PI / 2,
+    footprint: [230, 120],
+    routeM: 230,
+    navBounds: { min: [0, -120], max: [230, 0] },
+    exit: { min: [228, -1, -64], max: [234, 4, -56] },
+    voids: [{ id: "S3-CRK", min: [30, -20, -118], max: [196, -1, -2], to: [20, 0, -60], penalty: 0.15 }],
+    geometry: [
+      box({ id: "S3-CRK", at: [115, -8.25, -60], size: [230, 0.5, 120], mat: "toxic" }),
+      box({ id: "S3-APR", at: [-4, -0.25, -60], size: [12, 0.5, 16], mat: "grass" }),
+      box({ id: "S3-DECK", at: [115, -0.25, -60], size: [400, 0.5, 400], mat: "grass" }),
+      box({ id: "S3-WN", at: [115, 0.15, -119], size: [230, 0.5, 2], mat: "rock" }),
+      box({ id: "S3-WS", at: [115, 0.15, -1], size: [230, 0.5, 2], mat: "rock" }),
+      box({ id: "S3-WW1", at: [1, 3, -28.5], size: [2, 6, 57], mat: "hedge" }),
+      box({ id: "S3-WW2", at: [1, 3, -91.5], size: [2, 6, 57], mat: "hedge" }),
+      box({ id: "S3-WE1", at: [229, 3, -28.5], size: [2, 6, 57], mat: "hedge" }),
+      box({ id: "S3-WE2", at: [229, 3, -91.5], size: [2, 6, 57], mat: "hedge" }),
+      box({ id: "S3-NB", at: [15, -4, -60], size: [30, 8, 116], mat: "grass" }),
+      box({ id: "S3-IA", at: [81, -4, -60], size: [50, 8, 76], mat: "grass" }),
+      box({ id: "S3-IB", at: [152, -4, -60], size: [40, 8, 80], mat: "grass" }),
+      box({ id: "S3-FB", at: [213, -4, -60], size: [34, 8, 116], mat: "grass" }),
+      box({ id: "S3-BR1", at: [43, -0.25, -60], size: [26, 0.5, 8], mat: "wood" }),
+      box({ id: "S3-BR2", at: [119, -0.25, -50], size: [26, 0.5, 8], mat: "wood", tag: "collapse" }),
+      box({ id: "S3-BR3", at: [184, -0.25, -60], size: [24, 0.5, 8], mat: "wood", tag: "energyBridge" }),
+      box({ id: "S3-NC1", at: [20, 0.6, -56], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-NC2", at: [24, 0.6, -64], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-NC3", at: [17, 0.6, -62], size: [2, 1.2, 2], mat: "crate" }),
+      { kind: "sphere", id: "S3-AB1", at: [62, 1, -50], r: 1.6, mat: "rock" },
+      { kind: "sphere", id: "S3-AB2", at: [66, 1, -72], r: 1.6, mat: "rock" },
+      box({ id: "S3-AC1", at: [72, 0.6, -56], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-AC2", at: [76, 0.6, -66], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-AC3", at: [70, 0.6, -62], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-ALOG", at: [84, 0.6, -76], size: [6, 1.2, 1.2], mat: "wood" }),
+      disc({ id: "S3-RP1", at: [74, 0.05, -40], r: 5, mat: "toxic" }),
+      ...place(shed(), { at: [80, 0, -88], yaw: 0, id: "S3-PS1" }),
+      ...place(shrine(), { at: [92, 0, -42], id: "SH-SWARM" }),
+      cylinder({ id: "S3-SP1", at: [114, -8, -74], r: 2, h: 8, mat: "rock" }),
+      cylinder({ id: "S3-SP2", at: [124, -8, -70], r: 2, h: 8, mat: "rock" }),
+      cylinder({ id: "S3-SP3", at: [119, -8, -92], r: 2, h: 8, mat: "rock" }),
+      disc({ id: "S3-RP3", at: [146, 0.05, -70], r: 5, mat: "toxic" }),
+      disc({ id: "S3-RP4", at: [164, 0.05, -46], r: 4, mat: "toxic" }),
+      box({ id: "S3-BC1", at: [138, 0.6, -54], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-BC2", at: [150, 0.6, -48], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-BC3", at: [158, 0.6, -72], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-BC4", at: [168, 0.6, -62], size: [2, 1.2, 2], mat: "crate" }),
+      { kind: "sphere", id: "S3-BB1", at: [156, 1, -36], r: 1.6, mat: "rock" },
+      { kind: "sphere", id: "S3-BB2", at: [140, 1, -84], r: 1.6, mat: "rock" },
+      ...mounds2.flatMap(([x, z], i) => place(mound(), { at: [x, 0, z], id: `S3-BM${i + 1}` })),
+      box({ id: "S3-FC1", at: [198, 0.6, -54], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-FC2", at: [198, 0.6, -66], size: [2, 1.2, 2], mat: "crate" }),
+      box({ id: "S3-FC3", at: [206, 0.6, -72], size: [2, 1.2, 2], mat: "crate" }),
+      ...place(shed(), { at: [214, 0, -86], yaw: 0, id: "S3-PS2" }),
+      box({ id: "S3-BGF1", at: [101, 1.5, -35], size: [1, 3, 26], mat: "wood" }),
+      box({ id: "S3-BGF2", at: [101, 1.5, -83], size: [1, 3, 30], mat: "wood" }),
+      ...place(manaBloom(), { at: [22, 0, -66], id: "MB8" }),
+      ...place(manaBloom(), { at: [96, 0, -60], id: "MB9" }),
+      ...place(manaBloom(), { at: [152, 0, -58], id: "MB10" }),
+      ...place(manaBloom(), { at: [202, 0, -50], id: "MB11" }),
+      disc({ id: "S3-PP0-pad", at: [90, 0.04, -50], r: 1.2, mat: "neon" }),
+      disc({ id: "S3-PP1-pad", at: [142, 0.04, -36], r: 1.2, mat: "neon" }),
+      disc({ id: "S3-PP2-pad", at: [166, 0.04, -86], r: 1.2, mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP6", at: [94, 0, -74], when: "S3-E5.cleared" }
+    ],
+    mechanisms: [
+      { kind: "door", id: "S3-DE", at: [229, 2.5, -60], size: [1, 5, 6], opens: "S3-E6.cleared" },
+      { kind: "door", id: "S3-BG", at: [101, 1.5, -50], size: [1, 3, 4], heldBy: "S3-PP0" },
+      { kind: "ropeBridge", id: "S3-BR1-mech", from: [30, 0, -60], to: [56, 0, -60], width: 4 },
+      { kind: "ropeBridge", id: "S3-BR2-mech", from: [106, 0, -50], to: [132, 0, -50], width: 3, collapseOn: "x>114", resetAfterRescue: 4 },
+      { kind: "energyBridge", id: "S3-BR3-mech", from: [172, 0, -60], to: [196, 0, -60], width: 4, plates: ["S3-PP1", "S3-PP2"], latch: true },
+      { kind: "pressurePlate", id: "S3-PP0", at: [90, 0.1, -50], r: 1.2, holds: "S3-BG" },
+      { kind: "pressurePlate", id: "S3-PP1", at: [142, 0.1, -36], r: 1.2, group: "S3-BR3" },
+      { kind: "pressurePlate", id: "S3-PP2", at: [166, 0.1, -86], r: 1.2, group: "S3-BR3", hold: 1 },
+      { kind: "mushroomPad", id: "S3-MP5", at: [26, 0.2, -34], r: 1.2, power: 10, to: [59, 0, -34] },
+      { kind: "mushroomPad", id: "S3-MP6", at: [104, 0.2, -72], r: 1, power: 8, to: [114, 0, -74] },
+      { kind: "mushroomPad", id: "S3-MP7", at: [114, 0.2, -74], r: 1, power: 8, to: [124, 0, -70] },
+      { kind: "mushroomPad", id: "S3-MP8", at: [124, 0.2, -70], r: 1, power: 8, to: [134, 0, -66] },
+      { kind: "mushroomPad", id: "S3-MP9", at: [115.5, 0.2, -75.5], r: 1, power: 8, to: [119, 0, -92] },
+      { kind: "mushroomPad", id: "S3-MP9b", at: [119, 0.2, -92], r: 1, power: 8, to: [124, 0, -70] },
+      { kind: "hazard", id: "S3-RP1-HZ", min: [69, -1, -45], max: [79, 2, -35], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S3-BR1-HZ", min: [38, -1, -64], max: [48, 2, -56], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S3-BARK", min: [-8, -4, -124], max: [236, 6, 4], dps: 0, enemyDps: 0.01, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S3-RP3-HZ", min: [141, -1, -75], max: [151, 2, -65], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S3-RP4-HZ", min: [160, -1, -50], max: [168, 2, -42], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "depot", id: "DP1", at: [94, 0, -74] },
+      { kind: "shrine", id: "SH-SWARM-use", at: [92, 1, -42], spell: "swarm" },
+      { kind: "power", id: "PU1", at: [103.5, 0.5, -50], modifier: "turbo" },
+      { kind: "manaBloom", id: "MB8-use", at: [22, 0.6, -66], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB9-use", at: [96, 0.6, -60], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB10-use", at: [152, 0.6, -58], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB11-use", at: [202, 0.6, -50], mana: 50, regrow: 20 },
+      { kind: "ammo", id: "AB10", at: [22, 0.4, -58], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB11", at: [150, 0.4, -52], ammoType: "shells", amount: 12 },
+      { kind: "secret", id: "SC1", at: [119, 0.6, -92], gun: "epic" }
+    ],
+    encounters: [ENCOUNTERS.E5, ENCOUNTERS.E6],
+    navLinks: [
+      { from: { x: 26, z: -34 }, to: { x: 59, z: -34 }, kind: "pad" },
+      { from: { x: 104, z: -72 }, to: { x: 114, z: -74 }, kind: "pad" },
+      { from: { x: 114, z: -74 }, to: { x: 124, z: -70 }, kind: "pad" },
+      { from: { x: 124, z: -70 }, to: { x: 134, z: -66 }, kind: "pad" },
+      { from: { x: 115.5, z: -75.5 }, to: { x: 119, z: -92 }, kind: "pad" }
+    ]
+  };
+
+  // src/data/levels/L03/S4.js
+  var S42 = {
+    id: "S4",
+    name: "Greenhouses",
+    origin: [608, 0, -35],
+    start: [8, 0, -45],
+    yaw: -Math.PI / 2,
+    footprint: [170, 90],
+    routeM: 200,
+    navBounds: { min: [0, -90], max: [170, 0] },
+    exit: { min: [168, -1, -48], max: [174, 4, -42] },
+    geometry: [
+      box({ id: "S4-FL", at: [85, -0.25, -45], size: [400, 0.5, 400], mat: "dirt" }),
+      box({ id: "S4-WN", at: [85, 3, -89], size: [170, 6, 2], mat: "hedge" }),
+      box({ id: "S4-WS", at: [85, 3, -1], size: [170, 6, 2], mat: "hedge" }),
+      box({ id: "S4-WW1", at: [1, 3, -21], size: [2, 6, 42], mat: "hedge" }),
+      box({ id: "S4-WW2", at: [1, 3, -69], size: [2, 6, 42], mat: "hedge" }),
+      box({ id: "S4-WE1", at: [169, 3, -21], size: [2, 6, 42], mat: "hedge" }),
+      box({ id: "S4-WE2", at: [169, 3, -69], size: [2, 6, 42], mat: "hedge" }),
+      ...place(shed(), { at: [12, 0, -22], yaw: 180, id: "S4-PSH" }),
+      box({ id: "S4-PCR", at: [16, 0.75, -22], size: [1.5, 1.5, 1.5], mat: "crate" }),
+      box({ id: "S4-YF1", at: [33.5, 3, -11.5], size: [1, 6, 21], mat: "hedge" }),
+      box({ id: "S4-YF2", at: [33.5, 3, -78.5], size: [1, 6, 21], mat: "hedge" }),
+      box({ id: "HH-WN", at: [66, 4, -67.25], size: [64, 8, 0.5], mat: "glass" }),
+      box({ id: "HH-WS", at: [66, 4, -22.75], size: [64, 8, 0.5], mat: "glass" }),
+      box({ id: "HH-WW1", at: [33.75, 4, -29.5], size: [0.5, 8, 13], mat: "glass" }),
+      box({ id: "HH-WW2", at: [33.75, 4, -60.5], size: [0.5, 8, 13], mat: "glass" }),
+      box({ id: "HH-WE1", at: [98.25, 4, -29.5], size: [0.5, 8, 13], mat: "glass" }),
+      box({ id: "HH-WE2", at: [98.25, 4, -60.5], size: [0.5, 8, 13], mat: "glass" }),
+      box({ id: "HH-ROOF", at: [66, 8.25, -45], size: [65, 0.5, 45], mat: "glass" }),
+      box({ id: "HH-CWN", at: [66, 3, -65], size: [56, 0.5, 3], mat: "metal" }),
+      box({ id: "HH-CWS", at: [66, 3, -25], size: [56, 0.5, 3], mat: "metal" }),
+      box({ id: "HH-CWE", at: [95, 3, -45], size: [3, 0.5, 37], mat: "metal" }),
+      stairs({ id: "HH-ST1", at: [40, 1.6, -59.5], size: [3, 3.25, 7], yaw: 180, mat: "metal" }),
+      stairs({ id: "HH-ST2", at: [40, 1.6, -30.5], size: [3, 3.25, 7], yaw: 0, mat: "metal" }),
+      ...[46, 58, 74, 86].flatMap((x) => [-37, -53].map((z, i) => box({
+        id: `HH-PL-${x}-${i}`,
+        at: [x, 0.6, z],
+        size: [8, 1.2, 1.6],
+        mat: "wood"
+      }))),
+      ...place(mound(), { at: [42, 0, -28], id: "HH-M1" }),
+      ...place(mound(), { at: [66, 0, -60], id: "HH-M2" }),
+      ...place(mound(), { at: [90, 0, -28], id: "HH-M3" }),
+      box({ id: "HH-SUMP", at: [70, -0.2, -31], size: [6, 0.5, 4], mat: "toxic" }),
+      disc({ id: "HH-NB", at: [82, 0.05, -45], r: 2.5, mat: "neon" }),
+      disc({ id: "HH-THR", at: [40, 0.05, -45], r: 2, mat: "neon" }),
+      box({ id: "S4-TUN1", at: [102, 2, -42.75], size: [8, 4, 0.5], mat: "glass" }),
+      box({ id: "S4-TUN2", at: [102, 2, -47.25], size: [8, 4, 0.5], mat: "glass" }),
+      box({ id: "S4-CB1", at: [114, 1, -30], size: [4, 2, 4], mat: "wood" }),
+      box({ id: "S4-CB2", at: [126, 1, -62], size: [4, 2, 4], mat: "wood" }),
+      box({ id: "S4-CB3", at: [138, 1, -28], size: [4, 2, 4], mat: "wood" }),
+      box({ id: "S4-CB4", at: [146, 1, -58], size: [4, 2, 4], mat: "wood" }),
+      box({ id: "S4-CB5", at: [156, 1, -36], size: [4, 2, 4], mat: "wood" }),
+      box({ id: "S4-CB6", at: [120, 1, -58], size: [4, 2, 4], mat: "wood" }),
+      disc({ id: "S4-RP5", at: [134, 0.05, -45], r: 5, mat: "toxic" }),
+      ...place(shed(), { at: [152, 0, -74], yaw: 0, id: "S4-CSH" }),
+      ...place(podStump(), { at: [112, 0, -56], id: "S4-ST1" }),
+      ...place(podStump(), { at: [128, 0, -34], id: "S4-ST2" }),
+      ...place(manaBloom(), { at: [37, 0, -56], id: "MB12" }),
+      ...place(manaBloom(), { at: [94, 3.5, -65], id: "MB13" }),
+      ...place(manaBloom(), { at: [74, 0, -45], id: "MB14" }),
+      ...place(manaBloom(), { at: [112, 0, -60], id: "MB15" })
+    ],
+    weapons: [
+      { id: "W4", at: [40, 0.9, -38], gun: "bazooka", why: "E7: two nests" }
+    ],
+    checkpoints: [
+      { id: "CP7", at: [24, 0, -45], when: "S3-E6.cleared" },
+      { id: "CP8", at: [100, 0, -45], when: "S4-E7.cleared" }
+    ],
+    mechanisms: [
+      { kind: "door", id: "S4-DE", at: [169, 2.5, -45], size: [1, 5, 6], opens: "S4-E8.cleared" },
+      { kind: "door", id: "LD2-IN", at: [34, 4, -45], size: [0.6, 8, 4] },
+      { kind: "door", id: "LD2-OUT", at: [98, 4, -45], size: [0.6, 8, 4] },
+      { kind: "door", id: "HH-DN", at: [66, 1, -67], size: [2.4, 3, 0.6] },
+      { kind: "door", id: "HH-DS", at: [66, 1, -23], size: [2.4, 3, 0.6] },
+      { kind: "door", id: "HH-DCE", at: [98, 3.25, -58], size: [2.4, 3, 0.6] },
+      { kind: "hazard", id: "HH-SUMP-HZ", min: [67, -1, -33], max: [73, 1, -29], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "HH-N-HZ", min: [62, -1, -70], max: [70, 3, -63], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S4-BARK", min: [-8, -2, -92], max: [176, 8, 4], dps: 0, enemyDps: 0.01, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S4-RP5-HZ", min: [129, -1, -50], max: [139, 2, -40], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "seedPod", id: "S4-POD1", at: [112, 1.1, -56], regrow: 12, damage: 150, radius: 4 },
+      { kind: "seedPod", id: "S4-POD2", at: [128, 1.1, -34], regrow: 12, damage: 150, radius: 4 },
+      { kind: "power", id: "PU2", at: [66, 3.75, -65], modifier: "manaSurge" },
+      { kind: "manaBloom", id: "MB12-use", at: [37, 0.6, -56], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB13-use", at: [94, 3.8, -65], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB14-use", at: [74, 0.6, -45], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB15-use", at: [112, 0.6, -60], mana: 50, regrow: 20 },
+      { kind: "ammo", id: "AB12", at: [24, 0.4, -41], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB13", at: [12, 0.4, -22], ammoType: "rockets", amount: 3 },
+      { kind: "ammo", id: "AB14", at: [40, 0.4, -52], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB15", at: [62, 0.4, -45], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB16", at: [40, 0.4, -36], ammoType: "rockets", amount: 3 },
+      { kind: "ammo", id: "AB17", at: [102, 0.4, -45], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB18", at: [110, 0.4, -40], ammoType: "shells", amount: 12 },
+      { kind: "ammoCrate", id: "RC2", at: [95, 0.4, -49], uses: 3, fraction: 0.5 },
+      { kind: "chest", id: "L2-CHEST", at: [95, 0.5, -41], opens: "S4-E7.cleared", tier: "uncommon" },
+      { kind: "secret", id: "S4-AF3", at: [12, 3.6, -22], tickets: 15, story: "Shipment 6: to Los Angeles, by cloud." }
+    ],
+    encounters: [ENCOUNTERS.E7, ENCOUNTERS.E8]
+  };
+
+  // src/data/levels/L03/S5.js
+  function arenaWalls() {
+    const parts = [];
+    for (let i = 0; i < 16; i++) {
+      const bearing = i * 22.5;
+      const at = polar(45, -80, 35, bearing, 6);
+      const tag = String(i).padStart(2, "0");
+      if (i === 0 || i === 8) {
+        for (const side of [-1, 1]) {
+          const [dx, dz] = rotY(side * 4.5, 0, bearing);
+          parts.push(box({
+            id: `S5-W${tag}${side < 0 ? "a" : "b"}`,
+            at: [at[0] + dx, 6, at[2] + dz],
+            size: [5, 12, 2],
+            yaw: bearing,
+            mat: "rock"
+          }));
+        }
+      } else {
+        parts.push(box({
+          id: `S5-W${tag}`,
+          at,
+          size: [14.2, 12, 2],
+          yaw: bearing,
+          mat: "rock"
+        }));
+      }
+    }
+    return parts;
+  }
+  function floodZones() {
+    const zones = [];
+    for (let i = 0; i < 16; i++) {
+      const bearing = i * 22.5;
+      const at = polar(45, -80, 31, bearing, 0.5);
+      zones.push({
+        kind: "hazardSet",
+        id: `S5-FLD${String(i).padStart(2, "0")}`,
+        at,
+        size: [13, 1, 6],
+        yaw: bearing,
+        enabled: false,
+        dps: 12,
+        enemyDps: 40,
+        element: "toxic",
+        starts: "F1.hp<=0.25"
+      });
+    }
+    return zones;
+  }
+  var boulderBearings = [30, 90, 150, 210, 270, 330];
+  var podBearings = [0, 60, 120, 180, 240, 300];
+  var moundBearings = [20, 100, 140, 220, 260, 340];
+  var bloomBearings = [60, 180, 300];
+  var S52 = {
+    id: "S5",
+    name: "The Rootway",
+    origin: [732, 0, -80],
+    start: [45, 0, -4],
+    yaw: Math.PI,
+    footprint: [90, 120],
+    routeM: 110,
+    navBounds: { min: [0, -120], max: [90, 0] },
+    exit: { min: [41, -1, -120], max: [49, 6, -114] },
+    intro: { title: "The Compost Hex", lines: ["Sahil left a shade to guard the crop.", "It eats mana. Feed it its own orbs."] },
+    geometry: [
+      box({ id: "S5-FL", at: [45, -0.25, -60], size: [400, 0.5, 400], mat: "dirt" }),
+      box({ id: "S5-HW1", at: [34, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
+      box({ id: "S5-HW2", at: [56, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
+      box({ id: "S5-HW3a", at: [38, 2.5, -17], size: [8, 5, 2], mat: "wood" }),
+      box({ id: "S5-HW3b", at: [52, 2.5, -17], size: [8, 5, 2], mat: "wood" }),
+      box({ id: "S5-TW1", at: [41, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
+      box({ id: "S5-TW2", at: [49, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
+      ...place(rootArch(), { at: [45, 0, -22], id: "S5-AR1" }),
+      ...place(rootArch(), { at: [45, 0, -31], id: "S5-AR2" }),
+      ...place(rootArch(), { at: [45, 0, -40], id: "S5-AR3" }),
+      ...arenaWalls(),
+      disc({ id: "S5-LID", at: [45, 12, -80], r: 35, mat: "glass" }),
+      cylinder({ id: "S5-HEAP", at: [45, -0.2, -80], r: 6, h: 0.5, mat: "dirt" }),
+      cylinder({ id: "TOT-N", at: [45, 0, -102], r: 0.8, h: 4, mat: "wood" }),
+      sphere({ id: "TOT-N-eye", at: [45, 4.4, -102], r: 0.7, mat: "neon" }),
+      cylinder({ id: "TOT-SE", at: [64.1, 0, -69], r: 0.8, h: 4, mat: "wood" }),
+      sphere({ id: "TOT-SE-eye", at: [64.1, 4.4, -69], r: 0.7, mat: "neon" }),
+      cylinder({ id: "TOT-SW", at: [25.9, 0, -69], r: 0.8, h: 4, mat: "wood" }),
+      sphere({ id: "TOT-SW-eye", at: [25.9, 4.4, -69], r: 0.7, mat: "neon" }),
+      ...boulderBearings.map((b, i) => {
+        const at = polar(45, -80, 14, b, 1.4);
+        return { kind: "sphere", id: `S5-B${i}`, at, r: 2, mat: "rock" };
+      }),
+      box({ id: "S5-L1", at: polar(45, -80, 27, 90, 0.6), size: [1.5, 1.2, 8], yaw: 90, mat: "wood" }),
+      box({ id: "S5-L2", at: polar(45, -80, 27, 210, 0.6), size: [1.5, 1.2, 8], yaw: 210, mat: "wood" }),
+      box({ id: "S5-L3", at: polar(45, -80, 27, 330, 0.6), size: [1.5, 1.2, 8], yaw: 330, mat: "wood" }),
+      ...podBearings.flatMap((b, i) => place(podStump(), { at: polar(45, -80, 18, b, 0), id: `S5-POD${i + 1}` })),
+      ...moundBearings.flatMap((b, i) => place(mound(), { at: polar(45, -80, 26, b, 0), id: `S5-RM${i + 1}` })),
+      ...place(manaBloom(), { at: [45, 0, -30], id: "MB16" }),
+      ...bloomBearings.flatMap((b, i) => place(manaBloom(), { at: polar(45, -80, 24, b, 0), id: `MB${17 + i}` })),
+      disc({ id: "S5-THR", at: [45, 0.05, -52], r: 2, mat: "neon" })
+    ],
+    weapons: [
+      { id: "W5", at: [41, 0.9, -52], gun: "mg", why: "F1: the finale section holds its own gun" }
+    ],
+    checkpoints: [
+      { id: "CP9", at: [45, 0, -4] },
+      { id: "CP10", at: [45, 0, -116], when: "S5-F1.cleared" }
+    ],
+    mechanisms: [
+      { kind: "door", id: "LD3-IN", at: [45, 6, -45.3], size: [4, 12, 0.6] },
+      { kind: "door", id: "LD3-OUT", at: [45, 6, -114.7], size: [4, 12, 0.6] },
+      { kind: "depot", id: "DP2", at: [39, 0, -8] },
+      { kind: "target", id: "TOT-N-hp", at: [45, 2, -102], hp: 240, bark: true },
+      { kind: "target", id: "TOT-SE-hp", at: [64.1, 2, -69], hp: 240, bark: true },
+      { kind: "target", id: "TOT-SW-hp", at: [25.9, 2, -69], hp: 240, bark: true },
+      { kind: "hazard", id: "TOT-SW-HZ", min: [22, -1, -73], max: [30, 3, -65], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S5-BARK", min: [-4, -2, -124], max: [94, 8, 8], dps: 0, enemyDps: 0.01, stripsBark: true, element: "toxic" },
+      ...podBearings.map((b, i) => ({
+        kind: "seedPod",
+        id: `S5-POD-use${i + 1}`,
+        at: polar(45, -80, 18, b, 1.1),
+        regrow: 12,
+        damage: 150,
+        radius: 4
+      })),
+      ...floodZones(),
+      { kind: "power", id: "PU3", at: [45, 1, -80], modifier: "manaSurge", starts: "F1.part2" },
+      { kind: "manaBloom", id: "MB16-use", at: [45, 0.6, -30], mana: 50, regrow: 20 },
+      ...bloomBearings.map((b, i) => ({
+        kind: "manaBloom",
+        id: `MB${17 + i}-use`,
+        at: polar(45, -80, 24, b, 0.6),
+        mana: 50,
+        regrow: 20
+      })),
+      { kind: "ammo", id: "AB19", at: [49, 0.4, -52], ammoType: "bullets", amount: 60 },
+      { kind: "ammo", id: "AB20", at: [41, 0.4, -58], ammoType: "shells", amount: 12 },
+      { kind: "ammo", id: "AB21", at: [45, 0.4, -117], ammoType: "sniper", amount: 8 },
+      { kind: "ammoCrate", id: "RC3", at: [45, 0.4, -84], uses: 3, fraction: 0.5 },
+      { kind: "chest", id: "L3-CHEST", at: [45, 0.6, -80], opens: "S5-F1.cleared", guns: 2, tier: "rare" }
+    ],
+    encounters: [ENCOUNTERS.F1]
+  };
+
+  // src/data/levels/L03/S6.js
+  var planterBearings = [0, 60, 120, 180, 240, 300];
+  var S62 = {
+    id: "S6",
+    name: "The Patch",
+    origin: [741, 0, -189],
+    start: [36, 0, -8],
+    yaw: Math.PI,
+    footprint: [150, 100],
+    routeM: 210,
+    navBounds: { min: [0, -100], max: [150, 0] },
+    intro: {
+      title: "Something Smells Green",
+      lines: ["The Floret Lord is only a sprout.", "He will not stay for the whole fight."]
+    },
+    geometry: [
+      box({ id: "S6-FL", at: [75, -0.25, -50], size: [400, 0.5, 400], mat: "dirt" }),
+      box({ id: "S6-WN", at: [75, 6, -99], size: [150, 12, 2], mat: "hedge" }),
+      box({ id: "S6-WW", at: [1, 6, -50], size: [2, 12, 100], mat: "hedge" }),
+      box({ id: "S6-WE", at: [149, 6, -50], size: [2, 12, 100], mat: "hedge" }),
+      box({ id: "S6-WS1", at: [16.5, 6, -1], size: [33, 12, 2], mat: "hedge" }),
+      box({ id: "S6-WS2", at: [94.5, 6, -1], size: [111, 12, 2], mat: "hedge" }),
+      box({ id: "S6-AW", at: [11, 2, -40], size: [2, 4, 48], mat: "hedge" }),
+      box({ id: "S6-AN", at: [36, 2, -65], size: [48, 4, 2], mat: "hedge" }),
+      box({ id: "S6-AS1", at: [23, 2, -15], size: [22, 4, 2], mat: "hedge" }),
+      box({ id: "S6-AS2", at: [49, 2, -15], size: [22, 4, 2], mat: "hedge" }),
+      ...planterBearings.map((b, i) => box({
+        id: `S6-PL${i + 1}`,
+        at: polar(36, -40, 9, b, 0.6),
+        size: [3, 1.2, 1.2],
+        mat: "wood"
+      })),
+      sphere({ id: "S6-GV1", at: [20, 1.9, -24], r: 2.5, mat: "grass" }),
+      sphere({ id: "S6-GV2", at: [52, 1.9, -24], r: 2.5, mat: "grass" }),
+      sphere({ id: "S6-GV3", at: [20, 1.9, -58], r: 2.5, mat: "grass" }),
+      cylinder({ id: "S6-PED", at: [36, 0, -58], r: 2, h: 0.6, mat: "metal" }),
+      box({ id: "S6-T1", at: [75, 2.75, -40], size: [30, 0.5, 44], mat: "grass" }),
+      box({ id: "S6-T2", at: [105, 5.75, -40], size: [30, 0.5, 44], mat: "grass" }),
+      box({ id: "S6-LV", at: [135, 8.75, -50], size: [30, 0.5, 96], mat: "concrete" }),
+      box({ id: "S6-FN", at: [90, 6, -80], size: [60, 12, 36], mat: "hedge" }),
+      box({ id: "S6-FS", at: [90, 6, -10], size: [60, 12, 16], mat: "hedge" }),
+      ramp({ id: "S6-R1", at: [55, 1.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
+      ramp({ id: "S6-R2", at: [85, 4.5, -24], size: [10, 3, 5], yaw: 90, mat: "wood" }),
+      ramp({ id: "S6-R3", at: [115, 7.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
+      box({ id: "S6-HCB", at: [79, 4, -24], size: [1, 2, 5], mat: "sand", tag: "target" }),
+      ...place(podStump(), { at: [64, 3, -48], id: "S6-POD1" }),
+      ...place(podStump(), { at: [68, 3, -30], id: "S6-POD2" }),
+      ...place(mound(), { at: [70, 3, -44], id: "S6-EM1" }),
+      ...place(mound(), { at: [74, 3, -30], id: "S6-EM2" }),
+      ...place(mound(), { at: [98, 6, -36], id: "S6-EM3" }),
+      ...place(mound(), { at: [106, 6, -50], id: "S6-EM4" }),
+      ...place(truck(), { at: [134, 9, -44], yaw: 0, id: "S6-TRK" }),
+      cylinder({ id: "S6-WT", at: [140, 9, -90], r: 3, h: 18, mat: "hedge" }),
+      sphere({ id: "S6-WT-head", at: [140, 30, -90], r: 6, mat: "hedge" }),
+      sphere({ id: "S6-WT-f1", at: [134, 28, -90], r: 3, mat: "hedge" }),
+      sphere({ id: "S6-WT-f2", at: [146, 28, -90], r: 3, mat: "hedge" }),
+      sphere({ id: "S6-WT-f3", at: [140, 28, -84], r: 3, mat: "hedge" }),
+      ...place(manaBloom(), { at: [16, 0, -40], id: "MB20" }),
+      disc({ id: "S6-MP1-pad", at: [86, 3.05, -54], r: 1.2, mat: "neon" }),
+      disc({ id: "S6-MP2-pad", at: [116, 6.05, -26], r: 1.2, mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [],
+    mechanisms: [
+      { kind: "door", id: "S6-LG", at: [120.5, 11, -56], size: [1, 4, 5], opens: "S6-F2.fled" },
+      { kind: "door", id: "PT-N", at: [36, 1, -65], size: [2.4, 3, 0.6] },
+      { kind: "door", id: "PT-W", at: [11, 1, -40], size: [0.6, 3, 2.4] },
+      { kind: "risingHazard", id: "S6-RISE", min: [0, -1, -100], max: [120, 8.5, 0], rate: 0.18, dps: 12, element: "toxic", starts: "S6-F2.fled" },
+      { kind: "target", id: "S6-HCB-hp", at: [79, 4, -24], hp: 150, bulletSeconds: 8, podHits: 1 },
+      { kind: "seedPod", id: "S6-POD1-use", at: [64, 4.1, -48], regrow: 12, damage: 150, radius: 4 },
+      { kind: "seedPod", id: "S6-POD2-use", at: [68, 4.1, -30], regrow: 12, damage: 150, radius: 4 },
+      { kind: "mushroomPad", id: "S6-MP1", at: [86, 3.2, -54], r: 1.2, power: 9, to: [93, 6, -54] },
+      { kind: "mushroomPad", id: "S6-MP2", at: [116, 6.2, -26], r: 1.2, power: 9, to: [123, 9, -28] },
+      { kind: "power", id: "PU4", at: [48, 0.5, -50], modifier: "turbo" },
+      { kind: "manaBloom", id: "MB20-use", at: [16, 0.6, -40], mana: 50, regrow: 20 },
+      { kind: "ammo", id: "AB22", at: [36, 0.4, -8], ammoType: "bullets", amount: 60 }
+    ],
+    encounters: [ENCOUNTERS.F2, ENCOUNTERS.F3],
+    navLinks: [
+      { from: { x: 86, z: -54 }, to: { x: 93, z: -54 }, kind: "pad" },
+      { from: { x: 116, z: -26 }, to: { x: 123, z: -28 }, kind: "pad" }
+    ]
+  };
+
+  // src/data/levels/L03/enemies.js
+  var L03_ARCHETYPES = {
+    floretSprout: {
+      hp: 50,
+      speed: 6.2,
+      radius: 0.4,
+      height: 1.3,
+      seconds: 8,
+      attacks: { florets: 3, flight: 1.2, warningR: 1.6, damage: 6, every: 5, puffR: 2, puffDps: 3, puffTime: 3 },
+      yeetReturn: { window: 0.4, damageEach: 30 }
+    },
+    sewerMidget: {
+      hp: 40,
+      speed: 7.8,
+      radius: 0.45,
+      height: 1.3,
+      seconds: 3,
+      melee: 9,
+      burrow: { dust: 0.6, near: 12, surface: 4 },
+      gooPlug: 4
+    },
+    daycare: {
+      hp: 400,
+      speed: 0,
+      radius: 2,
+      height: 3,
+      seconds: 25,
+      spawn: { count: 2, every: 6, capAlive: 8, budget: 5, coreOpen: 1.5 },
+      damageTaken: { shellBullets: 0.5, core: 2.5, explosives: 1 },
+      gooJam: 4
+    },
+    hexWisp: {
+      hp: 45,
+      speed: 5,
+      fly: [1.2, 2.6],
+      radius: 0.5,
+      height: 1,
+      seconds: 5,
+      ghost: true,
+      damageTaken: { bullet: 0.2, explosive: 0.5, spell: 2, reflectedOrb: 2 },
+      orb: { every: 3.2, range: 16, damage: 8, speed: 9, life: 4 },
+      touch: { range: 1.5, windup: 0.6, damage: 6, mana: 12 },
+      look: [
+        { kind: "sphere", at: [0, 0.6, 0], r: 0.5, mat: "neon" },
+        { kind: "sphere", at: [-0.12, 0.7, 0.2], r: 0.08, mat: "neon" },
+        { kind: "sphere", at: [0.12, 0.7, 0.2], r: 0.08, mat: "neon" },
+        { kind: "cone", at: [0, 0.5, -0.4], r: 0.3, h: 0.8, mat: "neon" }
+      ]
+    },
+    barkBrute: {
+      hp: 260,
+      speed: 3.2,
+      turn: 90,
+      radius: 0.8,
+      height: 2.4,
+      seconds: 18,
+      club: { reach: 2.6, windup: 0.8, damage: 22, knockback: 8 },
+      charge: { from: 6, to: 14, windup: 0.7, speed: 10, distance: 10, damage: 18, knockback: 10, every: 6 },
+      bark: { hard: { bullet: 0, explosive: 0.25, spell: 1 }, softened: 4, cracked: 6, knotBullet: 1, strippedBullet: 1.25 },
+      yeet: { closed: 5, open: 8 },
+      look: [
+        { kind: "box", at: [0, 0.45, 0], size: [1, 0.9, 0.7], mat: "wood" },
+        { kind: "box", at: [0, 1.4, 0], size: [1.4, 1, 0.9], mat: "wood" },
+        { kind: "box", at: [0, 2.15, 0], size: [0.7, 0.5, 0.6], mat: "wood" }
+      ]
+    },
+    manaLeech: {
+      hp: 55,
+      speed: 3.8,
+      radius: 0.45,
+      height: 1.1,
+      seconds: 6,
+      latch: { range: 10, windup: 0.8, drain: 8, heal: 4, shieldDps: 4, maxLatched: 2, breakLos: 0.5, relatch: 2 },
+      keep: [6, 9],
+      look: [
+        { kind: "cylinder", at: [0, 0, 0], r: 0.4, h: 1.1, mat: "toxic" },
+        { kind: "disc", at: [0, 0.7, 0.4], r: 0.45, mat: "neon" }
+      ]
+    },
+    gooGlob: {
+      hp: { big: 90, medium: 40, small: 15 },
+      speed: { big: 3, medium: 4.2, small: 6 },
+      radius: { big: 1.1, medium: 0.7, small: 0.4 },
+      seconds: 14,
+      slam: { hop: 6, shadow: 1, damage: 14, radius: 2.5, puddle: 3, puddleTime: 5, slow: 0.4 },
+      split: [1, 2, 4],
+      core: 2.5,
+      immune: ["goo", "toxic"],
+      yeetKillWithoutSplit: true,
+      look: [
+        { kind: "sphere", at: [0, 1.1, 0], r: 1.1, mat: "toxic" },
+        { kind: "sphere", at: [0, 1.1, 0], r: 0.33, mat: "neon" }
+      ]
+    }
+  };
+  var L03_SPELLS = {
+    yeet: { mana: 20, cd: 3, length: 7, arc: 60, light: 8, bruteClosed: 5, bruteOpen: 8, riot: 5, bigObama: 2, boss: 0, wallHit: 20, slowSpeed: 14, returnMul: 5, returnMin: 30 },
+    gooBolt: { puddle: 3, puddleTime: 4, plugBurrow: 4, hexOrbit: 0.25 },
+    chainZap: { puddleHitsAll: true, barkCapNeedsGoo: true },
+    swarm: { life: 12, parkedMax: 30, commandCd: 0.5, commandMana: 0 },
+    manaSurge: { seconds: 20, regenMul: 4, breaksLatch: true },
+    magicCarpet: { gapDrop: 2 },
+    toxic: { enemyDps: 40, stripsBark: true, globImmune: true }
+  };
+
+  // src/data/levels/L03/index.js
+  var L03_PACING = [
+    ["B1", 31],
+    ["E1", 74],
+    ["canal", 5],
+    ["E2", 82],
+    ["toMaze", 5],
+    ["E3", 65],
+    ["E4", 138],
+    ["barkCap", 17],
+    ["toBridge", 5],
+    ["E5", 78],
+    ["depot1", 45],
+    ["swarm", 34],
+    ["E6", 94],
+    ["toHothouse", 12],
+    ["E7", 200],
+    ["toCompost", 4],
+    ["E8", 51],
+    ["depot2", 49],
+    ["tunnel", 7],
+    ["F1", 185],
+    ["F2", 65],
+    ["F3", 41]
+  ];
+  var L03_BOT = [
+    { section: "S1", steps: ["truck", "SH-YEET", "pod 2 twice at the barricade", "clear E1", "MP3", "clear E2", "S1-GATE"] },
+    { section: "S2", steps: ["W2 W3", "main ring route", "clear E3", "goo S2-GG1", "threshold", "four waves", "zap S2-CD1 when 3 are near the gazebo", "goo then zap S2-CD2"] },
+    { section: "S3", steps: ["Yeet the brute off Bridge 1", "clear E5", "DP1", "SH-SWARM", "buddy on S3-PP0", "sprint Bridge 2", "PP1 and swarm on PP2", "Bridge 3"] },
+    { section: "S4", steps: ["threshold", "four waves", "bazooka the nest cores", "clear E8", "S4-DE"] },
+    { section: "S5", steps: ["DP2", "threshold", "Yeet orbs in part 1", "goo then zap totems from TOT-SE", "stay inside radius 24 after the flood"] },
+    { section: "S6", steps: ["F2 until the flee", "R1", "S6-MP1", "R3", "truck"] }
+  ];
+  var BUILT = makeV2Level({
+    id: "L03",
+    name: "The Vegetable Grove",
+    stage: "grove",
+    tier: 3,
+    parTime: 20 * 60,
+    jetpack: false,
+    useNav: true,
+    maxAlive: 10,
+    startAmmo: { bullets: 240, shells: 24, sniper: 12, rockets: 4 },
+    lighting: { time: "twilight", fog: 1849880, sun: "west", fireflies: true },
+    bounds: { min: [-20, -30, -420], max: [980, 48, 40] },
+    sections: [S12, S22, S32, S42, S52, S62]
+  });
+  for (const sec of BUILT.sections) {
+    if (sec.navBounds) {
+      sec.navPlan = sec.navBounds;
+      delete sec.navBounds;
+    }
+    if (!sec.navLinks) continue;
+    const o = sec.origin;
+    sec.navLinks = sec.navLinks.map((link) => ({
+      ...link,
+      from: { x: link.from.x + o[0], z: link.from.z + o[2] },
+      to: { x: link.to.x + o[0], z: link.to.z + o[2] }
+    }));
+  }
+  BUILT.estimateSeconds = L03_PACING.reduce((sum, row) => sum + row[1], 0);
+  BUILT.pacing = L03_PACING;
+  BUILT.botRoute = L03_BOT;
+  BUILT.census = EXPECTED_COUNTS;
+  BUILT.archetypes = L03_ARCHETYPES;
+  BUILT.spellNotes = L03_SPELLS;
+  BUILT.difficulty = {
+    easy: { maxAlive: 8, fodder: -0.25, leechDrain: 5, aura: 10, bloomRegrow: 12, ammo: 1.5, barkSoft: 6, totemHp: 180, runoff: 0.14, waveTimer: 35 },
+    heroic: { maxAlive: 10, queueSooner: 0.3, fodder: 0.25, leechDrain: 12, aura: 15, auraRadius: 11, bloomRegrow: 30, knotNeedsSpell: true, totemHp: 300, ringEvery: 8, runoff: 0.22, waveTimer: 20 }
+  };
+  BUILT.loot = {
+    tierOdds: { common: 45, uncommon: 40, rare: 14, epic: 1, legendary: 0 },
+    baseTier: "uncommon",
+    chests: ["L1-CHEST", "L2-CHEST", "L3-CHEST"],
+    secretCache: "SC1",
+    elite: "F1-p2c"
+  };
+  var L03 = BUILT;
+  registerLevel(L03);
+
+  // src/data/levels/campaign.js
+  var card3 = (title, lines) => ({ title, lines });
+  var L04 = makeLevel({
+    id: "L04",
+    name: "The Blockchain Void",
+    stage: "void",
+    tier: 4,
+    parTime: 18 * 60,
+    jetpack: "pickup",
+    sections: [
+      {
+        id: "S1",
+        name: "Candle Forest",
+        length: 52,
+        floor: "metal",
+        encounters: [{ id: "E1", x: 18, space: "sky", units: [["bitbug", 5]] }],
+        weapons: [{ id: "mg-bugs", x: 28, gun: "mg", why: "bitbug flocks" }],
+        mechanisms: [
+          { kind: "jetpack", id: "jetpack-1", x: 12 },
+          { kind: "jumpPad", id: "updraft", x: 22, power: 14 }
+        ],
+        secret: { x: 8, modifier: "moonBoots" }
+      },
+      {
+        id: "S2",
+        name: "Mine Field",
+        length: 52,
+        floor: "metal",
+        intro: card3("Liquidity", ["Bitcoin Obama pumps the price. The Midget dumps it.", "You ride the chart."]),
+        encounters: [{ id: "E2", x: 16, space: "sky", units: [["jetObama", 2], ["balloonMidget", 3]] }],
+        weapons: [{ id: "sn-mine", x: 30, gun: "sniper", why: "jet Obamas between candles" }],
+        mechanisms: [
+          { kind: "fuel", id: "fuel-1", x: 12 },
+          { kind: "hazard", id: "gravity-well", x: 24, slow: 0.4, dps: 0 },
+          { kind: "power", id: "infinite-fuel", x: 36, modifier: "fuel" }
+        ]
+      },
+      {
+        id: "S3",
+        name: "The Exchange",
+        length: 50,
+        intro: card3("The Blockchain Void", ["The Pump and Dump Duo.", "One counts. One flies."]),
+        encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["obamaDuo", 1], ["midgetDuo", 1]] }],
+        weapons: [{ id: "bz-duo", x: 10, gun: "bazooka", why: "the duo on the exchange floor" }]
+      }
+    ]
+  });
+  var L05 = makeLevel({
+    id: "L05",
+    name: "Frostspire Black Site",
+    stage: "glacier",
+    tier: 5,
+    parTime: 18 * 60,
+    sections: [
+      {
+        id: "S1",
+        name: "Snowfield",
+        length: 54,
+        floor: "ice",
+        encounters: [{ id: "E1", x: 18, space: "field", units: [["auditSniper", 2], ["miningRig", 1]] }],
+        weapons: [
+          { id: "sn-snow", x: 10, gun: "sniper", why: "snipers on the snowfield" },
+          { id: "bz-turret", x: 14, gun: "bazooka", why: "mining rig turret" }
+        ],
+        mechanisms: [{ kind: "hazard", id: "ice-slick", x: 26, slow: 0.2, dps: 0 }],
+        secret: { x: 8, modifier: "taxSeason" }
+      },
+      {
+        id: "S2",
+        name: "Bunkers",
+        length: 48,
+        floor: "ice",
+        encounters: [{ id: "E2", x: 16, space: "interior", units: [["glowieAgent", 4]] }],
+        mechanisms: [
+          { kind: "switch", id: "generator", x: 12, opens: "shield-gate" },
+          { kind: "door", id: "shield-gate", x: 34, opens: "switch:generator" }
+        ]
+      },
+      {
+        id: "S3",
+        name: "Frost Halls",
+        length: 48,
+        floor: "ice",
+        encounters: [{ id: "E3", x: 16, space: "hold", units: [["glowieAgent", 2], ["auditSniper", 2]] }],
+        weapons: [{ id: "sg-hall", x: 28, gun: "shotgun", why: "frost halls" }],
+        mechanisms: [{ kind: "hazard", id: "drone-strike", x: 22, dps: 6 }]
+      }
+    ]
+  });
+  var L06 = makeLevel({
+    id: "L06",
+    name: "Vape Cabal Skyline",
+    stage: "city",
+    tier: 6,
+    parTime: 22 * 60,
+    jetpack: true,
+    lighting: { weather: "rain" },
+    sections: [
+      {
+        id: "S1",
+        name: "Freeway",
+        length: 56,
+        floor: "metal",
+        encounters: [{ id: "E1", x: 18, space: "rail", units: [["boomMidget", 3], ["riotMidget", 2]] }],
+        weapons: [{ id: "sg-traffic", x: 30, gun: "shotgun", why: "traffic jam" }],
+        mechanisms: [{ kind: "crusher", id: "bus-lane", x: 24 }],
+        secret: { x: 8, modifier: "duckHunt" }
+      },
+      {
+        id: "S2",
+        name: "Crane Yard",
+        length: 50,
+        floor: "metal",
+        encounters: [{ id: "E2", x: 16, space: "vertical", units: [["jetObama", 3]] }],
+        weapons: [{ id: "sn-crane", x: 28, gun: "sniper", why: "crane cab overlook" }],
+        mechanisms: [{ kind: "zipline", id: "roof-line", x: 20 }, { kind: "mover", id: "crane-hook", x: 34 }]
+      },
+      {
+        id: "S3",
+        name: "Rain Canyon",
+        length: 50,
+        floor: "metal",
+        encounters: [{ id: "E3", x: 16, space: "sky", units: [["bitbug", 4], ["balloonMidget", 2]] }],
+        weapons: [{ id: "mg-canyon", x: 12, gun: "mg", why: "bitbugs in the canyon" }]
+      },
+      {
+        id: "S4",
+        name: "Cabal Streets",
+        length: 48,
+        intro: card3("Los Angeles", ["Broccoli Head owns the night.", "The clouds are not weather."]),
+        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["broccoli", 1]] }],
+        weapons: [{ id: "bz-broc", x: 10, gun: "bazooka", why: "Broccoli Head" }]
+      }
+    ]
+  });
+  var L07 = makeLevel({
+    id: "L07",
+    name: "Hellfire Underworks",
+    stage: "volcano",
+    tier: 7,
+    parTime: 16 * 60,
+    sections: [
+      {
+        id: "S1",
+        name: "Shafts",
+        length: 48,
+        floor: "rock",
+        encounters: [{ id: "E1", x: 16, space: "interior", units: [["miniTinubu", 2], ["midget", 2]] }],
+        weapons: [{ id: "sg-shaft", x: 28, gun: "shotgun", why: "chargers in the shafts" }],
+        mechanisms: [{ kind: "barrel", id: "ore-barrel", x: 20 }],
+        secret: { x: 8, modifier: "lightsOut" }
+      },
+      {
+        id: "S2",
+        name: "Cart Run",
+        length: 52,
+        floor: "rock",
+        encounters: [{ id: "E2", x: 18, space: "rail", units: [["midget", 4]] }],
+        weapons: [{ id: "sn-cart", x: 12, gun: "sniper", why: "the cart ride" }],
+        mechanisms: [{ kind: "rail", id: "mine-cart", x: 22 }]
+      },
+      {
+        id: "S3",
+        name: "Furnace Gallery",
+        length: 48,
+        floor: "rock",
+        encounters: [{ id: "E3", x: 16, space: "arena", units: [["miniTinubu", 2], ["boomMidget", 2]] }],
+        mechanisms: [{ kind: "hazard", id: "lava-run", x: 26, dps: 14 }, { kind: "crusher", id: "press", x: 32 }]
+      },
+      {
+        id: "S4",
+        name: "Meltdown",
+        length: 48,
+        floor: "rock",
+        intro: card3("MELTDOWN", ["Reactors at 300%.", "Tinubu calls this a controlled burn. Run."]),
+        encounters: [{ id: "E4", x: 16, space: "corridor", units: [["miniTinubu", 2]] }],
+        weapons: [{ id: "bz-reactor", x: 10, gun: "bazooka", why: "the reactor ring" }]
+      }
+    ]
+  });
+  var L08 = makeLevel({
+    id: "L08",
+    name: "Government Office",
+    stage: "office",
+    tier: 8,
+    parTime: 18 * 60,
+    sections: [
+      {
+        id: "S1",
+        name: "Lobby",
+        length: 48,
+        floor: "metal",
+        encounters: [{ id: "E1", x: 16, space: "interior", units: [["glowieAgent", 4]] }],
+        weapons: [{ id: "mg-lobby", x: 28, gun: "mg", why: "the lobby" }],
+        mechanisms: [
+          { kind: "laser", id: "lobby-laser", x: 22 },
+          { kind: "door", id: "turnstile", x: 34, opens: "E1.cleared" }
+        ],
+        secret: { x: 8, modifier: "redTape" }
+      },
+      {
+        id: "S2",
+        name: "Cubicle Farm",
+        length: 48,
+        floor: "metal",
+        encounters: [{ id: "E2", x: 16, space: "corridor", units: [["riotMidget", 2], ["glowieAgent", 2]] }],
+        weapons: [{ id: "sg-cubes", x: 28, gun: "shotgun", why: "cubicle farm" }],
+        mechanisms: [{ kind: "elevator", id: "lift-2", x: 34, y: 0.4 }]
+      },
+      {
+        id: "S3",
+        name: "Server Floor",
+        length: 48,
+        floor: "metal",
+        encounters: [{ id: "E3", x: 16, space: "interior", units: [["auditSniper", 2], ["hexAcolyte", 2]] }],
+        weapons: [{ id: "sn-atrium", x: 28, gun: "sniper", why: "the atrium sightline" }],
+        mechanisms: [{ kind: "laser", id: "server-grid", x: 22, dps: 8 }]
+      },
+      {
+        id: "S4",
+        name: "The Roof",
+        length: 48,
+        intro: card3("Government Office", ["Glowie has a badge and a flashbang.", "Look away."]),
+        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["glowie", 1]] }],
+        weapons: [{ id: "bz-glowie", x: 10, gun: "bazooka", why: "Glowie on the roof" }]
+      }
+    ]
+  });
+  var L09 = makeLevel({
+    id: "L09",
+    name: "Moonlit Ruins",
+    stage: "moonlit",
+    tier: 9,
+    parTime: 28 * 60,
+    jetpack: "pickup",
+    sections: [
+      {
+        id: "S1",
+        name: "Ruin Plains",
+        length: 56,
+        floor: "rock",
+        encounters: [{ id: "E1", x: 18, space: "field", units: [["glowieAgent", 2], ["obama", 2], ["midget", 2]] }],
+        weapons: [
+          { id: "mg-camp", x: 10, gun: "mg", why: "camp cache" },
+          { id: "sn-camp", x: 14, gun: "sniper", why: "camp cache" },
+          { id: "bz-camp", x: 18, gun: "bazooka", why: "camp cache" }
+        ],
+        mechanisms: [
+          { kind: "portal", id: "moon-gate", x: 30, dx: 8 },
+          { kind: "jetpack", id: "moon-pack", x: 36 },
+          { kind: "hazard", id: "low-g", x: 24, slow: 0, dps: 0 }
+        ],
+        secret: { x: 8, modifier: "swarmSurge" }
+      },
+      {
+        id: "S2",
+        name: "Catacombs",
+        length: 50,
+        floor: "rock",
+        intro: card3("Descent", ["The plains were the map.", "The dead keep the other one."]),
+        encounters: [{ id: "E2", x: 16, space: "interior", units: [["hexAcolyte", 3], ["sewerMidget", 3]] }],
+        weapons: [{ id: "sg-cata", x: 28, gun: "shotgun", why: "catacomb standee" }]
+      },
+      {
+        id: "S3",
+        name: "Moon Gate",
+        length: 50,
+        intro: card3("The Moon Gate", ["Two Big Obamas. One key.", "Something older is waking up."]),
+        encounters: [
+          { id: "E3", x: 14, space: "arena", units: [["bigObama", 2]] },
+          { id: "E4", x: 28, space: "arena", objective: "boss", fleeAt: 0.7, units: [["tinubu", 1]] }
+        ]
+      }
+    ]
+  });
+  var L10 = makeLevel({
+    id: "L10",
+    name: "Hellfire Caldera",
+    stage: "volcano",
+    tier: 10,
+    parTime: 30 * 60,
+    jetpack: true,
+    sections: [
+      {
+        id: "S1",
+        name: "Ridge Trail",
+        length: 54,
+        floor: "rock",
+        encounters: [{ id: "E1", x: 18, space: "ledge", units: [["miniTinubu", 2], ["auditSniper", 2]] }],
+        weapons: [
+          { id: "mg-cache", x: 8, gun: "mg", why: "ridge cache" },
+          { id: "sg-cache", x: 12, gun: "shotgun", why: "ridge cache" },
+          { id: "sn-cache", x: 16, gun: "sniper", why: "ridge cache" },
+          { id: "bz-cache", x: 20, gun: "bazooka", why: "ridge cache" }
+        ],
+        mechanisms: [{ kind: "bridge", id: "rope-bridge", x: 32 }, { kind: "barrel", id: "ridge-barrel", x: 26 }],
+        secret: { x: 6, modifier: "ironSproto" }
+      },
+      {
+        id: "S2",
+        name: "Geyser Fields",
+        length: 52,
+        floor: "rock",
+        encounters: [{ id: "E2", x: 16, space: "field", units: [["boomMidget", 3], ["jetObama", 2]] }],
+        mechanisms: [
+          { kind: "jumpPad", id: "geyser", x: 12, power: 13 },
+          { kind: "hazard", id: "lava-pool", x: 28, dps: 16 }
+        ]
+      },
+      {
+        id: "S3",
+        name: "The Caldera",
+        length: 50,
+        intro: card3("Hellfire Caldera", ["Tinubu the Unshackled Demon.", "This is the audit."]),
+        encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["tinubu", 1]] }]
+      },
+      {
+        id: "S4",
+        name: "Eruption",
+        length: 46,
+        floor: "rock",
+        intro: card3("ERUPTION", ["The Demon is down. The volcano disagrees.", "Fly."]),
+        encounters: [{ id: "E4", x: 16, space: "sky", units: [["flyingMidget", 3], ["bitbug", 3]] }],
+        mechanisms: [{ kind: "fuel", id: "last-fuel", x: 10 }, { kind: "jumpPad", id: "vent", x: 24, power: 14 }]
+      }
+    ]
+  });
+  var CAMPAIGN_LEVELS = [L01, L02, L03, L04, L05, L06, L07, L08, L09, L10];
+
+  // src/data/levels/index.js
+  var LEVELS = { arena: arena_default };
+  for (const level of CAMPAIGN_LEVELS) LEVELS[level.id] = level;
+  var CAMPAIGN = CAMPAIGN_LEVELS.map((l) => l.id);
+  function getLevelData(id) {
+    const level = LEVELS[id] || LEVELS[resolveLevelId(id)];
+    if (!level) throw new Error(`unknown level: ${id}`);
+    return level;
+  }
+  function resolveLevelId(id) {
+    if (!id) return null;
+    const raw = String(id);
+    if (LEVELS[raw]) return raw;
+    const n = Number(raw);
+    if (n >= 1 && n <= CAMPAIGN.length) return CAMPAIGN[n - 1];
+    const hit = CAMPAIGN.find((k) => k.toLowerCase() === raw.toLowerCase());
+    return hit || null;
+  }
+
+  // src/sim/level/runtime.js
+  var cache = /* @__PURE__ */ new Map();
+  function getLevelRuntime(id) {
+    const key2 = String(id);
+    if (cache.has(key2)) return cache.get(key2);
+    const data = getLevelData(key2);
+    const sectionById2 = {};
+    for (const s of data.sections || []) sectionById2[s.id] = s;
+    const rt = { ...data, sectionById: sectionById2 };
+    cache.set(key2, rt);
+    cache.set(data.id, rt);
+    return rt;
+  }
+  function sectionById(levelId, sectionId) {
+    const rt = getLevelRuntime(levelId);
+    return rt.sectionById[sectionId] || rt.sections[0] || null;
+  }
+  function inBox(box2, x, y, z) {
+    if (!box2) return false;
+    const y0 = box2.min ? box2.min[1] : -1e9;
+    const y1 = box2.max ? box2.max[1] : 1e9;
+    const min = box2.min || box2;
+    const max = box2.max || box2;
+    if (box2.min) return x >= box2.min[0] && x <= box2.max[0] && y >= y0 && y <= y1 && z >= box2.min[2] && z <= box2.max[2];
+    return x >= min[0] && x <= max[0] && z >= min[2] && z <= max[2];
+  }
+  function nearPoint(at, x, y, z, r) {
+    if (!at) return false;
+    const dx = x - at[0], dy = y - (at[1] || 0), dz = z - at[2];
+    return dx * dx + dy * dy + dz * dz <= r * r;
+  }
+
+  // src/sim/campaign/solids.js
+  var STEP_UP = 0.4;
+  function solidFromPrimitive(prim) {
+    if (!prim) return null;
+    if (prim.kind === "box" || prim.kind === "ramp") {
+      let sx = prim.size[0], sy = prim.size[1], sz = prim.size[2];
+      const yaw = ((prim.yaw || 0) % 360 + 360) % 360;
+      if (yaw === 90 || yaw === 270) {
+        const t = sx;
+        sx = sz;
+        sz = t;
+      }
+      return {
+        kind: prim.kind,
+        id: prim.id,
+        yaw,
+        min: [prim.at[0] - sx / 2, prim.at[1] - sy / 2, prim.at[2] - sz / 2],
+        max: [prim.at[0] + sx / 2, prim.at[1] + sy / 2, prim.at[2] + sz / 2]
+      };
+    }
+    if (prim.kind === "cylinder") {
+      return {
+        kind: "box",
+        id: prim.id,
+        yaw: 0,
+        min: [prim.at[0] - prim.r, prim.at[1], prim.at[2] - prim.r],
+        max: [prim.at[0] + prim.r, prim.at[1] + prim.h, prim.at[2] + prim.r]
+      };
+    }
+    return null;
+  }
+  function solidsFromGeometry(geometry) {
+    const out = [];
+    for (const prim of geometry || []) {
+      const s = solidFromPrimitive(prim);
+      if (s) out.push(s);
+    }
+    return out;
+  }
+  function campaignSolidsOn(state) {
+    return !!(state && state.mode === "campaign" && state.level && state.level.useSolids);
+  }
+  function activeSolids(state) {
+    if (!campaignSolidsOn(state)) return null;
+    const base = state.level.solids || [];
+    const doors = state.level.closedDoors;
+    if (!doors || !doors.length) return base;
+    return base.concat(doors);
+  }
+  function overlapsXZ(s, x, z, r) {
+    return x + r > s.min[0] && x - r < s.max[0] && z + r > s.min[2] && z - r < s.max[2];
+  }
+  function surfaceY(s, x, z) {
+    if (s.kind !== "ramp") return s.max[1];
+    const spanZ = Math.max(1e-3, s.max[2] - s.min[2]);
+    const spanX = Math.max(1e-3, s.max[0] - s.min[0]);
+    let t;
+    if (s.yaw === 90) t = (x - s.min[0]) / spanX;
+    else if (s.yaw === 270) t = (s.max[0] - x) / spanX;
+    else if (s.yaw === 180) t = (s.max[2] - z) / spanZ;
+    else t = (z - s.min[2]) / spanZ;
+    if (t < 0) t = 0;
+    else if (t > 1) t = 1;
+    return s.min[1] + t * (s.max[1] - s.min[1]);
+  }
+  function groundHeight(solids, x, z, radius, feet, step = STEP_UP) {
+    let g = -Infinity;
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (!overlapsXZ(s, x, z, radius)) continue;
+      const top = surfaceY(s, x, z);
+      if (top > feet + step + 0.02) continue;
+      if (top > g) g = top;
+    }
+    return g;
+  }
+  function pushCircle(x, z, s, radius) {
+    const cx = Math.max(s.min[0], Math.min(x, s.max[0]));
+    const cz = Math.max(s.min[2], Math.min(z, s.max[2]));
+    let dx = x - cx, dz = z - cz;
+    let dist = Math.hypot(dx, dz);
+    if (dist >= radius) return null;
+    if (dist < 1e-6) {
+      const left = x - s.min[0], right = s.max[0] - x, back = z - s.min[2], fwd = s.max[2] - z;
+      const m = Math.min(left, right, back, fwd);
+      if (m === left) {
+        dx = -1;
+        dz = 0;
+      } else if (m === right) {
+        dx = 1;
+        dz = 0;
+      } else if (m === back) {
+        dx = 0;
+        dz = -1;
+      } else {
+        dx = 0;
+        dz = 1;
+      }
+      dist = 1;
+    }
+    const k = (radius - dist) / dist + 1e-4;
+    return { x: x + dx * k, z: z + dz * k };
+  }
+  function pushHorizontal(ent, solids, radius, height, step = STEP_UP) {
+    const feet = ent.pos.y;
+    const head = feet + height;
+    for (let n = 0; n < 3; n++) {
+      for (let i = 0; i < solids.length; i++) {
+        const s = solids[i];
+        const top = surfaceY(s, ent.pos.x, ent.pos.z);
+        if (top <= feet + step + 0.02) continue;
+        if (head <= s.min[1] + 0.01 || feet + step >= s.max[1]) continue;
+        const next2 = pushCircle(ent.pos.x, ent.pos.z, s, radius);
+        if (!next2) continue;
+        ent.pos.x = next2.x;
+        ent.pos.z = next2.z;
+      }
+    }
+  }
+  function snapToGround(ent, solids, radius, step = STEP_UP) {
+    const feet = ent.prevPos ? ent.prevPos.y : ent.pos.y;
+    const g = groundHeight(solids, ent.pos.x, ent.pos.z, radius * 0.2, Math.max(feet, ent.pos.y), step);
+    if (g === -Infinity) {
+      ent.onGround = false;
+      return;
+    }
+    const crossed = feet + 0.05 >= g - step && ent.pos.y <= g + 0.02;
+    if (crossed) {
+      ent.pos.y = g;
+      if (ent.vel && ent.vel.y < 0) ent.vel.y = 0;
+      ent.onGround = true;
+      return;
+    }
+    ent.onGround = Math.abs(ent.pos.y - g) < 0.02;
+  }
+  function firstSolid(solids, origin, dir, maxDist, allow = null) {
+    let best = null;
+    let bestT = -1;
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (allow && !allow(s)) continue;
+      const thin = s.max[1] - s.min[1] <= 0.6;
+      if (thin && s.max[1] <= origin.y + 0.05) continue;
+      const t = rayAabb(origin, dir, s.min, s.max, maxDist);
+      if (t < 0) continue;
+      if (bestT < 0 || t < bestT) {
+        bestT = t;
+        best = s;
+      }
+    }
+    return best ? { t: bestT, solid: best } : null;
+  }
+  function raySolids(solids, origin, dir, maxDist, allow = null) {
+    const hit = firstSolid(solids, origin, dir, maxDist, allow);
+    return hit ? hit.t : -1;
+  }
+  function rayAabb(o, d, min, max, maxDist) {
+    let t0 = 0, t1 = maxDist;
+    for (let axis = 0; axis < 3; axis++) {
+      const p = axis === 0 ? o.x : axis === 1 ? o.y : o.z;
+      const v = axis === 0 ? d.x : axis === 1 ? d.y : d.z;
+      const lo = min[axis], hi = max[axis];
+      if (Math.abs(v) < 1e-8) {
+        if (p < lo || p > hi) return -1;
+        continue;
+      }
+      let ta = (lo - p) / v, tb = (hi - p) / v;
+      if (ta > tb) {
+        const s = ta;
+        ta = tb;
+        tb = s;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return -1;
+    }
+    return t0 >= 0 && t0 <= maxDist ? t0 : -1;
+  }
+  function voidAt(pos, volumes) {
+    for (let i = 0; i < (volumes ? volumes.length : 0); i++) {
+      const v = volumes[i];
+      if (pos.x < v.min[0] || pos.x > v.max[0]) continue;
+      if (pos.y < v.min[1] || pos.y > v.max[1]) continue;
+      if (pos.z < v.min[2] || pos.z > v.max[2]) continue;
+      return v;
+    }
+    return null;
+  }
+
+  // src/sim/campaign/bossScript.js
+  function scriptBook(lv, encId) {
+    if (!lv.scripts) lv.scripts = {};
+    if (!lv.scripts[encId]) {
+      lv.scripts[encId] = { part: 0, partT: 0, spawned: {}, targets: {}, outside: false };
+    }
+    return lv.scripts[encId];
+  }
+  function bossOf(state, enc) {
+    for (const e of state.enemies) {
+      if (!e.dead && e.boss && e.campaignEnc === enc.id) return e;
+    }
+    return null;
+  }
+  function spawnTarget(state, enc, spec, boss2, player, index) {
+    const dx = player.pos.x - boss2.pos.x;
+    const dz = player.pos.z - boss2.pos.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const fx = dx / dist, fz = dz / dist;
+    const side = index % 2 === 0 ? 1 : -1;
+    const at = spec.at || [
+      boss2.pos.x + fx * 3 + -fz * side * 1.6,
+      0,
+      boss2.pos.z + fz * 3 + fx * side * 1.6
+    ];
+    const e = createEnemy(state, "midget", { pos: { x: at[0], z: at[2] } });
+    e.campaignEnc = enc.id;
+    e.partId = spec.id;
+    e.ai.scriptTarget = true;
+    const rise = spec.rise != null ? spec.rise : String(spec.id).startsWith("pylon") ? 1.5 : 0;
+    if (rise > 0) e.ai.riseT = rise;
+    e.state = "chase";
+    const hp = Math.max(1, Math.round((spec.hp || 1) * (state.tuning.enemyHpMult || 1)));
+    e.maxHp = hp;
+    e.hp = hp;
+    return e;
+  }
+  function spawnAdd(state, enc, unit, boss2) {
+    const type = unit[0];
+    const extra = unit[2] || {};
+    const e = createEnemy(state, type, { elite: !!extra.elite, pos: { x: boss2.pos.x + 2, z: boss2.pos.z + 2 } });
+    e.campaignEnc = enc.id;
+    e.state = "chase";
+    if (extra.hp) {
+      const hp = Math.max(1, Math.round(extra.hp * (state.tuning.enemyHpMult || 1)));
+      e.maxHp = hp;
+      e.hp = hp;
+    }
+    return e;
+  }
+  function targetsLeft(state, prog) {
+    let n = 0;
+    for (const id of Object.keys(prog.targets)) {
+      const e = state.enemies.find((en) => en.id === prog.targets[id]);
+      if (e && !e.dead) n++;
+    }
+    return n;
+  }
+  function deadTargets(state, prog) {
+    let n = 0;
+    for (const id of Object.keys(prog.targets)) {
+      const e = state.enemies.find((en) => en.id === prog.targets[id]);
+      if (!e || e.dead) n++;
+    }
+    return n;
+  }
+  function scriptShields(state, solidId) {
+    const book2 = state.level && state.level.scripts;
+    if (!book2 || !solidId) return false;
+    for (const prog of Object.values(book2)) {
+      for (const id of Object.keys(prog.targets)) {
+        const spec = (prog.specs || {})[id];
+        if (!spec || !spec.shields || spec.shields.indexOf(solidId) < 0) continue;
+        const e = state.enemies.find((en) => en.id === prog.targets[id]);
+        if (e && !e.dead) return true;
+      }
+    }
+    return false;
+  }
+  function applyField(state, p, center2, field, dt) {
+    if (!field || !p) return;
+    const d = Math.hypot(p.pos.x - (field.at ? field.at[0] : center2.x), p.pos.z - (field.at ? field.at[2] : center2.z));
+    if (d > (field.r || 0)) return;
+    if (field.slow != null && field.slow < 1) p.scriptSlow = Math.min(p.scriptSlow == null ? 1 : p.scriptSlow, field.slow);
+    if (field.dps) damagePlayer(state, p, { base: field.dps * dt, sourceKind: "world", fromPos: { x: p.pos.x, y: 0, z: p.pos.z } });
+  }
+  function tickBossScript(state, enc, dt) {
+    const script = enc.script;
+    if (!script || !script.parts || !script.parts.length) return;
+    const p = state.players[state.localPlayerId];
+    const boss2 = bossOf(state, enc);
+    if (!boss2) {
+      if (p && p.scriptSlow != null) delete p.scriptSlow;
+      return;
+    }
+    const lv = state.level;
+    const prog = scriptBook(lv, enc.id);
+    const part = script.parts[prog.part];
+    if (!part) return;
+    prog.partT += dt;
+    if (!prog.center) prog.center = { x: boss2.pos.x, z: boss2.pos.z };
+    const last = prog.part >= script.parts.length - 1;
+    boss2.boss.scripted = true;
+    boss2.boss.attackList = Array.isArray(part.attacks) ? part.attacks : null;
+    boss2.boss.attackScale = part.attacks && part.attacks.bolts === "half" ? 2 : 1;
+    if (part.duelStage) boss2.boss.phaseIdx = part.duelStage - 1;
+    if (p && p.scriptSlow != null) delete p.scriptSlow;
+    if (!prog.specs) prog.specs = {};
+    (part.targets || []).forEach((spec, i) => {
+      if (prog.targets[spec.id]) return;
+      const e = spawnTarget(state, enc, spec, boss2, p, i);
+      prog.targets[spec.id] = e.id;
+      prog.specs[spec.id] = spec;
+    });
+    if (part.immune && (part.targets || []).length) boss2.boss.invuln = targetsLeft(state, prog) > 0;
+    else boss2.boss.invuln = !!part.immune && !(part.targets || []).length && prog.partT < (part.seconds || 0);
+    boss2.boss.scriptHold = !part.immune && !last;
+    (part.adds || []).forEach((add2, i) => {
+      const key2 = `${part.id}:${i}`;
+      if (prog.spawned[key2]) return;
+      let ready = false;
+      if (add2.t != null) ready = prog.partT >= add2.t;
+      if (add2.on === "firstLoom" || add2.on === "firstTarget") ready = deadTargets(state, prog) >= 1;
+      if (add2.on === "secondPylon" || add2.on === "secondTarget") ready = deadTargets(state, prog) >= 2;
+      if (add2.onBossHp != null && boss2.maxHp > 0) ready = boss2.hp / boss2.maxHp * 100 <= add2.onBossHp;
+      if (!ready) return;
+      prog.spawned[key2] = true;
+      for (const unit of add2.units || []) {
+        const count = unit[1] || 1;
+        for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2);
+      }
+    });
+    for (const id of Object.keys(prog.targets)) {
+      const e = state.enemies.find((en) => en.id === prog.targets[id]);
+      if (e && !e.dead && e.ai.riseT > 0) e.ai.riseT -= dt;
+    }
+    if (part.immune && (part.targets || []).length && targetsLeft(state, prog) > 0 && p) {
+      const dx = p.pos.x - prog.center.x, dz = p.pos.z - prog.center.z;
+      const d = Math.hypot(dx, dz) || 1;
+      boss2.pos.x = prog.center.x - dx / d * 30;
+      boss2.pos.z = prog.center.z - dz / d * 30;
+      boss2.pos.y = part.perch != null ? part.perch : 6;
+    }
+    if (part.pit) applyField(state, p, prog.center, part.pit, dt);
+    for (const pool of part.pools || []) applyField(state, p, prog.center, pool, dt);
+    for (const vent of part.vents || []) {
+      if (!vent.period || (prog.partT + (vent.offset || 0)) % vent.period / vent.period < 0.45) {
+        applyField(state, p, prog.center, vent, dt);
+      }
+    }
+    if (part.ring && p) {
+      const d = Math.hypot(p.pos.x - prog.center.x, p.pos.z - prog.center.z);
+      const outside = d > part.ring;
+      if (outside && !prog.outside) damagePlayer(state, p, { base: 12, sourceKind: "world", fromPos: { x: prog.center.x, y: 0, z: prog.center.z } });
+      prog.outside = outside;
+    } else prog.outside = false;
+    const targetsDone = !(part.targets || []).length || (part.targets || []).every((spec) => {
+      const e = state.enemies.find((en) => en.id === prog.targets[spec.id]);
+      return !e || e.dead;
+    });
+    const barDone = !part.immune && (boss2.boss.barEmpty || boss2.dead);
+    const timed = part.immune && !(part.targets || []).length && prog.partT >= (part.seconds || 0);
+    if (!(targetsDone && part.immune) && !barDone && !timed) return;
+    if (last && !part.immune) return;
+    if (part.kind === "entry") {
+      boss2.boss.stunT = 3;
+      boss2.boss.action = { id: "stunned", t: 0 };
+    }
+    boss2.pos.x = prog.center.x;
+    boss2.pos.z = prog.center.z;
+    boss2.pos.y = 0;
+    prog.part += 1;
+    prog.partT = 0;
+    prog.targets = {};
+    boss2.boss.barEmpty = false;
+    boss2.boss.invuln = false;
+    const next2 = script.parts[prog.part];
+    if (!next2) return;
+    if (next2.hp) {
+      boss2.maxHp = next2.hp;
+      boss2.hp = next2.hp;
+    }
+  }
+
+  // src/sim/campaign/v2.js
+  function book(lv) {
+    if (!lv.v2) lv.v2 = { enc: {}, parts: {}, doorOpen: {} };
+    return lv.v2;
+  }
+  function encState(lv, id) {
+    const v = book(lv);
+    if (!v.enc[id]) v.enc[id] = { started: false, t: 0, kills: 0, alive: 0, squads: {}, sealed: false };
+    return v.enc[id];
+  }
+  function bindV2Section(state, sec) {
+    const lv = state.level;
+    let solids = sec && sec.solids ? sec.solids.slice() : solidsFromGeometry(sec && sec.geometry);
+    if (lv.brokenSolids) solids = solids.filter((s) => !lv.brokenSolids[s.id]);
+    lv.solids = solids;
+    lv.closedDoors = [];
+    lv.useSolids = true;
+  }
+  function beginV2(state) {
+    const lv = state.level;
+    lv.format = "v2";
+    lv.useSolids = true;
+    book(lv);
+  }
+  function squadKey(squad3, i) {
+    return squad3.id || String(i);
+  }
+  function noteKills(state, enc, prog) {
+    if (!prog.seen) prog.seen = {};
+    for (const e of state.enemies) {
+      if (!e.dead || e.campaignEnc !== enc.id || prog.seen[e.id]) continue;
+      prog.seen[e.id] = true;
+      prog.kills++;
+    }
+  }
+  function aliveOf(state, encId) {
+    let n = 0;
+    for (const e of state.enemies) if (!e.dead && e.campaignEnc === encId) n++;
+    return n;
+  }
+  function triggerReady(state, enc, squad3, prog) {
+    const tr = squad3.trigger || { type: "onEnter" };
+    if (tr.type === "onEnter") return prog.started;
+    if (tr.type === "time") return prog.t >= (tr.t || 0);
+    if (tr.type === "onKills") return prog.kills >= (tr.n || 1);
+    if (tr.type === "onRemain") {
+      const byCount = prog.started && aliveOf(state, enc.id) <= (tr.n ?? 2) && Object.keys(prog.squads).length > 0;
+      if (byCount) return true;
+      const waveSec = enc.lockdown && enc.lockdown.waveSec;
+      if (!waveSec || !prog.started) return false;
+      const keys = Object.keys(prog.squads);
+      if (!keys.length) return false;
+      const last = prog.squads[keys[keys.length - 1]];
+      if (prog.t - (last.at || 0) < waveSec) return false;
+      for (let i = 0; i < (enc.squads || []).length; i++) {
+        const sq = enc.squads[i];
+        if (prog.squads[squadKey(sq, i)]) continue;
+        return sq === squad3;
+      }
+      return false;
+    }
+    if (tr.type === "onAlert") {
+      const p = state.players[state.localPlayerId];
+      if (!p) return false;
+      if (tr.zBelow != null && p.pos.z < tr.zBelow) return true;
+      if (tr.zAbove != null && p.pos.z > tr.zAbove) return true;
+      if (tr.box && inBox(tr.box, p.pos.x, p.pos.y, p.pos.z)) return true;
+      for (const e of state.enemies) {
+        if (!e.dead && e.campaignEnc === enc.id && e.ai && e.ai.alert === "alerted") return true;
+      }
+      return false;
+    }
+    if (tr.type === "onHold") return (prog.hold || 0) >= (tr.p || 0);
+    if (tr.type === "onBossHp") {
+      for (const e of state.enemies) {
+        if (e.dead || !e.boss || e.campaignEnc !== enc.id) continue;
+        return e.hp / e.maxHp * 100 <= (tr.p ?? 100);
+      }
+      return false;
+    }
+    if (tr.type === "onPartDestroyed") return !!book(state.level).parts[tr.id];
+    if (tr.type === "with") {
+      const prev = prog.squads[tr.after];
+      return !!prev && prog.t - prev.at >= (tr.delay || 0);
+    }
+    return false;
+  }
+  function spawnOne(state, enc, squad3, at) {
+    const type = at.type;
+    const pos = at.pos;
+    const bossDef = BOSSES[type];
+    const e = bossDef ? createBoss(state, type, { pos: { x: pos[0], z: pos[2] } }) : createEnemy(state, type, { elite: !!at.elite, pos: { x: pos[0], z: pos[2] } });
+    e.pos.y = pos[1] || 0;
+    e.campaignEnc = enc.id;
+    e.spawnMethod = squad3.method || "placed";
+    if (enc.noAmmoDrop) e.noAmmoDrop = true;
+    if (at.partId) e.partId = at.partId;
+    if (bossDef) {
+      if (enc.arena) e.boss.arena = enc.arena;
+      emit(state, "bossSpawn", { id: e.id, bossType: type });
+    }
+    return e;
+  }
+  function trySpawn(state, enc, squad3, key2) {
+    const lv = state.level;
+    const prog = encState(lv, enc.id);
+    const cap = enc.maxAlive || lv.maxAlive || 8;
+    const spots = [];
+    let i = 0;
+    for (const u2 of squad3.units || []) {
+      for (let n = 0; n < u2.count; n++) {
+        const at = squad3.at && squad3.at[Math.min(i, squad3.at.length - 1)] || [0, 0, 0];
+        spots.push({ type: u2.type, pos: at, partId: u2.partId || null, elite: !!u2.elite });
+        i++;
+      }
+    }
+    const born = [];
+    for (const spot of spots) {
+      if (aliveOf(state, enc.id) >= cap) {
+        prog.queue = prog.queue || [];
+        prog.queue.push({ encId: enc.id, squad: key2, spot });
+        continue;
+      }
+      born.push(spawnOne(state, enc, squad3, spot));
+    }
+    prog.squads[key2] = { at: prog.t, count: spots.length };
+    emit(state, "squadSpawn", { encounter: enc.id, squad: key2, method: squad3.method || "placed", count: born.length });
+  }
+  function doorBox(m) {
+    if (!m || !m.at) return null;
+    return solidFromPrimitive({
+      kind: "box",
+      id: m.id,
+      at: m.at,
+      size: m.size || [0.6, 3.2, 3.2]
+    });
+  }
+  function pointInside(solid, x, y, z) {
+    return x >= solid.min[0] && x <= solid.max[0] && y >= solid.min[1] && y <= solid.max[1] && z >= solid.min[2] && z <= solid.max[2];
+  }
+  function pushClear(p, solid, toward) {
+    const y = p.pos.y + 1;
+    if (!pointInside(solid, p.pos.x, y, p.pos.z)) return true;
+    const cx = (solid.min[0] + solid.max[0]) / 2;
+    const cz = (solid.min[2] + solid.max[2]) / 2;
+    const tx = toward[0] - cx;
+    const tz = toward[2] - cz;
+    if (Math.abs(tx) >= Math.abs(tz)) p.pos.x = tx >= 0 ? solid.max[0] + 0.45 : solid.min[0] - 0.45;
+    else p.pos.z = tz >= 0 ? solid.max[2] + 0.45 : solid.min[2] - 0.45;
+    return !pointInside(solid, p.pos.x, y, p.pos.z);
+  }
+  function switchedDoorIds(sec) {
+    const ids = {};
+    for (const m of sec && sec.mechanisms || []) {
+      if ((m.kind === "switch" || m.kind === "conduit") && m.opens) ids[m.opens] = true;
+    }
+    return ids;
+  }
+  function refreshDoors(state, sec) {
+    const lv = state.level;
+    const switched = switchedDoorIds(sec);
+    const sealed = {};
+    for (const enc of sec && sec.encounters || []) {
+      const prog = encState(lv, enc.id);
+      if (!enc.lockdown || !prog.sealed) continue;
+      if (enc.lockdown.entry) sealed[enc.lockdown.entry] = enc;
+      if (enc.lockdown.exit && !enc.lockdown.noExit) sealed[enc.lockdown.exit] = enc;
+    }
+    const doors = [];
+    for (const m of sec && sec.mechanisms || []) {
+      if (m.kind !== "door") continue;
+      if (!sealed[m.id] && !(switched[m.id] && !lv.got[m.id])) continue;
+      const box2 = doorBox(m);
+      if (box2) doors.push(box2);
+    }
+    lv.closedDoors = doors;
+  }
+  function seal(state, sec, enc) {
+    const prog = encState(state.level, enc.id);
+    if (prog.sealed || !enc.lockdown) return;
+    const p = state.players[state.localPlayerId];
+    const entry = (sec.mechanisms || []).find((m) => m.kind === "door" && m.id === enc.lockdown.entry);
+    const box2 = doorBox(entry);
+    if (box2 && prog.sealDelay && p) {
+      const act = enc.activate;
+      const toward = act ? [
+        (act.min[0] + act.max[0]) / 2,
+        0,
+        (act.min[2] + act.max[2]) / 2
+      ] : [p.pos.x, 0, p.pos.z];
+      if (!pushClear(p, box2, toward)) return;
+    }
+    prog.sealed = true;
+    prog.sealWait = 0;
+    refreshDoors(state, sec);
+    emit(state, "lockdown", { encounter: enc.id, sealed: true });
+  }
+  function unseal(state, enc) {
+    const prog = encState(state.level, enc.id);
+    if (!prog.sealed) return;
+    prog.sealed = false;
+    refreshDoors(state, state._v2section);
+    emit(state, "lockdown", { encounter: enc.id, sealed: false });
+  }
+  function lockdownDelay(enc) {
+    if (!enc.lockdown) return 0;
+    if (enc.lockdown.delaySec != null) return enc.lockdown.delaySec;
+    return enc.lockdown.waveSec ? 1 : 0;
+  }
+  function considerSeal(state, sec, enc, prog, dt) {
+    if (!enc.lockdown || prog.sealed || lvCleared(state, enc)) return;
+    const p = state.players[state.localPlayerId];
+    const inside = enc.lockdown.threshold && inBox(enc.lockdown.threshold, p.pos.x, p.pos.y, p.pos.z);
+    if (!inside && !(prog.sealWait > 0)) return;
+    const delay = lockdownDelay(enc);
+    if (delay <= 0) {
+      seal(state, sec, enc);
+      return;
+    }
+    if (!(prog.sealWait > 0)) {
+      prog.sealWait = delay;
+      prog.sealDelay = true;
+    }
+    prog.sealWait -= dt;
+    if (prog.sealWait <= 0) seal(state, sec, enc);
+  }
+  function lvCleared(state, enc) {
+    return !!(state.level.cleared && state.level.cleared[enc.id]);
+  }
+  function v2Pre(state, dt) {
+    const lv = state.level;
+    const rt = state._v2section;
+    if (!rt) return;
+    const p = state.players[state.localPlayerId];
+    refreshDoors(state, rt);
+    for (const enc of rt.encounters || []) {
+      const prog = encState(lv, enc.id);
+      if (!prog.started) {
+        const box2 = enc.activate || enc.zone;
+        if (box2 && inBox(box2, p.pos.x, p.pos.y, p.pos.z)) {
+          prog.started = true;
+          lv.spawned[enc.id] = true;
+        }
+      }
+      if (!prog.started || lv.cleared[enc.id]) continue;
+      noteKills(state, enc, prog);
+      considerSeal(state, rt, enc, prog, dt);
+      prog.t += dt;
+      if (enc.objective && enc.objective.kind === "hold" && enc.hold && inBox(enc.hold, p.pos.x, p.pos.y, p.pos.z)) {
+        prog.hold = (prog.hold || 0) + dt;
+      }
+      (enc.squads || []).forEach((squad3, i) => {
+        const key2 = squadKey(squad3, i);
+        if (prog.squads[key2]) return;
+        if (!triggerReady(state, enc, squad3, prog)) return;
+        trySpawn(state, enc, squad3, key2);
+      });
+      if (prog.queue && prog.queue.length && aliveOf(state, enc.id) < (enc.maxAlive || lv.maxAlive || 8)) {
+        const job = prog.queue.shift();
+        const squad3 = (enc.squads || []).find((s, i) => squadKey(s, i) === job.squad) || { method: "door" };
+        spawnOne(state, enc, squad3, job.spot);
+      }
+    }
+  }
+  function objectiveDone(state, enc, prog) {
+    const kind = enc.objective && enc.objective.kind || "clearAll";
+    const spawned = Object.keys(prog.squads).length;
+    const pending = (enc.squads || []).length;
+    const alive2 = aliveOf(state, enc.id);
+    if (kind === "clearAll" || kind === "boss") return prog.started && spawned >= pending && alive2 === 0 && !(prog.queue && prog.queue.length);
+    if (kind === "reach" || kind === "escape" || kind === "switch") {
+      const p = state.players[state.localPlayerId];
+      return !!(enc.zone && inBox(enc.zone, p.pos.x, p.pos.y, p.pos.z));
+    }
+    if (kind === "hold" || kind === "survive" || kind === "capture") return (prog.hold || 0) >= (enc.objective && enc.objective.seconds || 1);
+    if (kind === "destroy") {
+      const ids = enc.objective && enc.objective.ids || [];
+      return ids.length > 0 && ids.every((id) => book(state.level).parts[id]);
+    }
+    if (kind === "escort") return (prog.hold || 0) >= (enc.objective && enc.objective.seconds || 1);
+    return false;
+  }
+  function markPartDestroyed(state, id) {
+    book(state.level).parts[id] = true;
+    emit(state, "partDestroyed", { id });
+  }
+  function v2Post(state, dt) {
+    const lv = state.level;
+    const sec = state._v2section;
+    if (!sec) return;
+    const p = state.players[state.localPlayerId];
+    for (const enc of sec.encounters || []) {
+      const prog = encState(lv, enc.id);
+      if (!prog.started || lv.cleared[enc.id]) continue;
+      tickBossScript(state, enc, dt);
+      noteKills(state, enc, prog);
+      if (enc.fleeAt) {
+        for (const e of state.enemies) {
+          if (e.dead || e.campaignEnc !== enc.id || !e.boss) continue;
+          if (e.hp / e.maxHp > enc.fleeAt) continue;
+          e.dead = true;
+          e.fled = true;
+          if (!lv.fled) lv.fled = {};
+          lv.fled[enc.id] = true;
+          const flag = `${enc.id}.fled`;
+          for (const m of sec && sec.mechanisms || []) {
+            if (m.opens === flag) lv.got[m.id] = true;
+          }
+          emit(state, "bossEscape", { id: e.id, bossType: e.type });
+        }
+      }
+      if (enc.lockdown && enc.lockdown.stallSec && prog.sealed && !lv.cleared[enc.id]) {
+        const left = [];
+        for (const e of state.enemies) if (!e.dead && e.campaignEnc === enc.id) left.push(e);
+        if (left.length > 0 && left.length <= (enc.lockdown.stallN || 2)) prog.stall = (prog.stall || 0) + dt;
+        else prog.stall = 0;
+        if ((prog.stall || 0) >= enc.lockdown.stallSec) {
+          for (const e of left) {
+            e.ai.charge = true;
+            e.marked = true;
+          }
+        }
+      }
+      if (objectiveDone(state, enc, prog)) {
+        lv.cleared[enc.id] = true;
+        unseal(state, enc);
+        emit(state, "encounterClear", { id: enc.id });
+      }
+    }
+    if (p.dead) {
+      let rewind = null;
+      for (const enc of sec.encounters || []) {
+        if (enc.lockdown && encState(lv, enc.id).sealed && !lv.cleared[enc.id]) rewind = enc.id;
+      }
+      if (rewind) {
+        lv._rewind = rewind;
+        return;
+      }
+      lv.lost = true;
+      emit(state, "levelLost", { level: lv.id });
+      return;
+    }
+    const rt = state._v2runtime;
+    if (sec.exit && (sec.encounters || []).every((e) => lv.cleared[e.id]) && inBox(sec.exit, p.pos.x, p.pos.y, p.pos.z)) {
+      const next2 = rt.sections[rt.sections.indexOf(sec) + 1];
+      if (next2 && !lv.transition) {
+        lv.transition = { to: next2.id, kind: "seamless", card: null };
+        emit(state, "sectionExit", { from: sec.id, to: next2.id });
+      }
+    }
+    let all = true;
+    for (const s of rt.sections) for (const e of s.encounters || []) if (!lv.cleared[e.id]) all = false;
+    if (all && rt.sections.length) {
+      lv.won = true;
+      lv.objective = "Level clear";
+      emit(state, "levelClear", { level: lv.id, time: lv.time, par: lv.parTime });
+    } else {
+      const open = (sec.encounters || []).find((e) => !lv.cleared[e.id]);
+      lv.objective = open ? open.lockdown && encState(lv, open.id).sealed ? `LOCKDOWN ${open.id}` : `Clear ${sec.name}` : `Exit: ${sec.name}`;
+    }
+    void dt;
+  }
+  function noteV2Section(state, sec, rt) {
+    state._v2section = sec;
+    state._v2runtime = rt;
+    state.level.useNav = !!(sec && sec.navBounds);
+    state.level.navBounds = sec && sec.navBounds;
+    state.level.flyerVolume = sec && sec.flyerVolume;
+    const lids = [];
+    for (const enc of sec && sec.encounters || []) {
+      const room = enc.lockdown && enc.lockdown.room;
+      if (room) lids.push(room);
+      if (enc.lid) lids.push(enc.lid);
+    }
+    if (lids.length) state.level.flyerLids = lids;
+    else if (state.level.flyerLids) delete state.level.flyerLids;
+    if (sec && sec.navLinks) state.level.navLinks = sec.navLinks;
+    else if (state.level.navLinks) delete state.level.navLinks;
+    if (sec && sec.voids && sec.voids.length) state.level.voids = sec.voids;
+    else if (state.level.voids) delete state.level.voids;
+    if (sec) bindV2Section(state, sec);
+  }
+
   // src/sim/combat.js
   function healPlayer(p, amount) {
     if (p.dead) return 0;
@@ -2062,11 +5530,11 @@ var SprotoShooterSim = (() => {
     return p.hp - before;
   }
   function damageEnemy(state, e, hit) {
-    if (e.dead || e.state === "spawning" || e.boss && e.boss.invuln) return 0;
+    if (e.dead || e.state === "spawning" || e.boss && e.boss.invuln || e.ai && (e.ai.buried > 0 || e.ai.audit || e.ai.riseT > 0)) return 0;
     let dmg = hit.base;
     const p = state.players[hit.sourceId];
     if (p) {
-      if (hit.sourceKind === "spell") dmg *= 1 + 0.08 * (p.skills.magic.level - 1);
+      if (hit.sourceKind === "spell" && state.tier > 1) dmg *= Math.pow(1.15, state.tier - 1);
     }
     const isWeak = hit.zone === "weak";
     if (isWeak) {
@@ -2081,13 +5549,42 @@ var SprotoShooterSim = (() => {
       if (hit.isSplash) dmg *= 1.5;
       if (hit.pellet) dmg *= 1.3;
     }
+    dmg *= archetypeDamageMul(e, p ? p.pos : null);
     const el = hit.element || "none";
     if (el !== "none") {
       if (e.affinity.weak === el) dmg *= 1.5;
       if (e.affinity.resist === el) dmg *= 0.5;
     }
+    const taken = sourceTakenMul(e, hit);
+    if (taken <= 0) return 0;
+    dmg *= taken;
     dmg = Math.max(1, Math.round(dmg));
     if (e.type === "dummy" && state.tuning.dummyInfinite) e.hp = e.maxHp + dmg;
+    if (e.boss && e.boss.scriptHold && e.hp - dmg <= 0) {
+      const dealt = Math.max(0, e.hp - 1);
+      e.hp = 1;
+      e.boss.barEmpty = true;
+      e.hitFlash = 0.08;
+      e.lastHit = { sourceId: hit.sourceId, sourceKind: hit.sourceKind, element: el, isCrit, isWeak, gunId: hit.gunId ?? null, wacky: hit.wacky ?? null };
+      if (p) {
+        state.run.damageDealt += dealt;
+        state.run.bestHit = Math.max(state.run.bestHit, dealt);
+      }
+      emit(state, "damage", {
+        sourceId: hit.sourceId,
+        targetId: e.id,
+        amount: dealt,
+        element: el,
+        isCrit,
+        isWeak,
+        zone: hit.zone,
+        pos: hit.point || { x: e.pos.x, y: e.pos.y + 1, z: e.pos.z },
+        sourceKind: hit.sourceKind,
+        killed: false,
+        pellet: !!hit.pellet
+      });
+      return dealt;
+    }
     e.hp -= dmg;
     e.poise += dmg;
     e.hitFlash = 0.08;
@@ -2192,6 +5689,15 @@ var SprotoShooterSim = (() => {
       summoned: e.summoned,
       isDummy: e.type === "dummy"
     });
+    if (e.partId) markPartDestroyed(state, e.partId);
+    const split = ENEMIES[e.type] && ENEMIES[e.type].split;
+    if (split) {
+      for (let i = 0; i < 2; i++) {
+        const baby = createEnemy(state, split, { pos: { x: e.pos.x + (i === 0 ? -0.6 : 0.6), z: e.pos.z }, summoned: true });
+        baby.campaignEnc = e.campaignEnc;
+        baby.state = "chase";
+      }
+    }
     if (e.type === "dummy") return;
     state.run.kills++;
     if (e.elite) state.run.eliteKills++;
@@ -2210,10 +5716,17 @@ var SprotoShooterSim = (() => {
     if (lh.wacky === "confettiKill") {
       explode(state, centerOf(e), { radius: 4, damage: 40, minFalloff: 0.4, selfMult: 0, knockback: 6 }, lh.sourceId, "none", "splash", true);
     }
+    const blast = archetypeDeathBlast(e);
+    if (blast && e.ai && !e.ai.blasted) {
+      e.ai.blasted = true;
+      explode(state, centerOf(e), { radius: blast.radius, damage: blast.damage, minFalloff: 0.4, selfMult: 0, knockback: 4 }, lh.sourceId || 0, "fire", "world");
+    }
     const p = state.players[state.localPlayerId];
     const ctx = { elite: e.elite, tier: e.tier, playerGunTypes: p.guns.filter((g) => g && !GUN_TYPES_BY_ID[g.type].bossOnly).map((g) => g.ammoType), summoned: e.summoned, boss: !!e.boss };
-    const specs = rollDrops(state.rng, e.type, ctx);
-    spawnDrops(state, specs, centerOf(e));
+    if (!e.noAmmoDrop) {
+      const specs = rollDrops(state.rng, e.type, ctx);
+      spawnDrops(state, specs, centerOf(e));
+    }
   }
   function revivePlayer(state, p) {
     p.downed = false;
@@ -2388,6 +5901,226 @@ var SprotoShooterSim = (() => {
   }
   var yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
 
+  // src/sim/campaign/mechanisms.js
+  function detonateBarrel(state, section, m) {
+    const lv = state.level;
+    if (lv.got[m.id]) return;
+    lv.got[m.id] = true;
+    const pos = { x: m.at[0], y: m.at[1] || 0.5, z: m.at[2] };
+    const element = m.element || "fire";
+    emit(state, "barrel", { id: m.id, pos, element });
+    explode(state, pos, { radius: m.radius || 4, damage: m.damage || 60, minFalloff: 0.35, selfMult: 0, knockback: 6 }, 0, element, "world");
+    const p = state.players[state.localPlayerId];
+    const d = Math.hypot(p.pos.x - pos.x, p.pos.y - pos.y, p.pos.z - pos.z);
+    const radius = m.radius || 4;
+    if (d < radius) damagePlayer(state, p, { base: (m.playerDamage || 25) * (1 - d / radius), sourceKind: "world", fromPos: pos });
+    for (const other of section && section.mechanisms || []) {
+      if (other.kind !== "barrel" || other.id === m.id || lv.got[other.id]) continue;
+      if (Math.hypot(other.at[0] - pos.x, other.at[2] - pos.z) > radius) continue;
+      detonateBarrel(state, section, other);
+    }
+  }
+  function tickSwitch(state, p, m, dt) {
+    const lv = state.level;
+    if (lv.got[m.id]) return;
+    const held = p.cmd && p.cmd.held && p.cmd.held.interact;
+    if (!m.needsHold) {
+      finishSwitch(state, m);
+      return;
+    }
+    if (!held) {
+      m._hold = 0;
+      return;
+    }
+    m._hold = (m._hold || 0) + dt;
+    if (m._hold >= (m.holdTime || 0.35)) finishSwitch(state, m);
+  }
+  function finishSwitch(state, m) {
+    const lv = state.level;
+    lv.got[m.id] = true;
+    emit(state, "switch", { id: m.id });
+    if (m.opens) lv.got[m.opens] = true;
+  }
+  function onMover(p, m) {
+    if (!m.carry) return Math.abs(p.pos.x - m.from[0]) < 1.6;
+    const dx = m.to[0] - m.from[0], dz = (m.to[2] || 0) - (m.from[2] || 0);
+    const len2 = dx * dx + dz * dz || 1;
+    const t = ((p.pos.x - m.from[0]) * dx + (p.pos.z - (m.from[2] || 0)) * dz) / len2;
+    const clamped = t < 0 ? 0 : t > 1 ? 1 : t;
+    const px = m.from[0] + dx * clamped;
+    const pz = (m.from[2] || 0) + dz * clamped;
+    return Math.hypot(p.pos.x - px, p.pos.z - pz) < 1.6;
+  }
+  function tickMover(state, p, m, dt) {
+    if (!m.carry || !m.from || !m.to) {
+      p.vel.x += (m.speed || 2) * dt;
+      return;
+    }
+    const dx = m.to[0] - p.pos.x, dz = m.to[2] - p.pos.z;
+    const dist = Math.hypot(dx, dz) || 1;
+    const step = Math.min(dist, (m.speed || 2) * dt);
+    p.pos.x += dx / dist * step;
+    p.pos.z += dz / dist * step;
+    if (m.to[1] != null) p.pos.y = m.to[1];
+  }
+  function slowEnemiesInHazard(state, m) {
+    if (!m.affectsEnemies || m.slow == null) return;
+    for (const e of state.enemies) {
+      if (e.dead) continue;
+      if (!insideZone(m, e.pos.x, e.pos.z)) continue;
+      e.vel.x *= m.slow;
+      e.vel.z *= m.slow;
+    }
+  }
+  function insideZone(m, x, z) {
+    if (m.min && m.max) return x >= m.min[0] && x <= m.max[0] && z >= m.min[2] && z <= m.max[2];
+    if (m.at && m.r) return Math.hypot(x - m.at[0], z - m.at[2]) <= m.r;
+    return false;
+  }
+  function hazardOn(lv, m) {
+    if (!lv) return true;
+    if (m.set) {
+      const sets = lv.hazardSets || {};
+      if (sets[m.set] == null) return false;
+      return !!sets[m.set];
+    }
+    if (m.when) {
+      if (m.when.endsWith(".cleared")) return !!lv.cleared[m.when.slice(0, -".cleared".length)];
+      if (m.when.startsWith("switch:")) return !!lv.got[m.when.slice("switch:".length)];
+      return !!lv.got[m.when];
+    }
+    return true;
+  }
+  function isZone(m) {
+    return m.kind === "hazardZone" || m.kind === "slow";
+  }
+  function zoneSlowOf(m) {
+    if (m.slow != null) return m.slow;
+    if (m.speed != null && m.speed <= 1) return m.speed;
+    return null;
+  }
+  function zoneList(sec) {
+    const extra = sec && sec.hazards || [];
+    return extra.length ? (sec.mechanisms || []).concat(extra) : sec && sec.mechanisms || [];
+  }
+  function playerZoneSlow(lv, sec, p) {
+    let slow = 1;
+    for (const m of zoneList(sec)) {
+      if (!isZone(m) || !hazardOn(lv, m)) continue;
+      const rate = zoneSlowOf(m);
+      if (rate == null) continue;
+      if (!insideZone(m, p.pos.x, p.pos.z)) continue;
+      if (rate < slow) slow = rate;
+    }
+    return slow;
+  }
+  function enemyZoneSlow(lv, sec, e) {
+    let slow = 1;
+    for (const m of sec && sec.mechanisms || []) {
+      if (!isZone(m) || !hazardOn(lv, m) || !m.affectsEnemies || m.slow == null) continue;
+      if (!insideZone(m, e.pos.x, e.pos.z)) continue;
+      if (m.slow < slow) slow = m.slow;
+    }
+    return slow;
+  }
+  function publishSlowZones(lv, sec) {
+    const zones = [];
+    for (const m of zoneList(sec)) {
+      if (!isZone(m) || !hazardOn(lv, m) || !(m.navCost > 1) || !m.min || !m.max) continue;
+      zones.push({ min: m.min, max: m.max, cost: m.navCost });
+    }
+    lv.slowZones = zones;
+    lv._zonesDirty = false;
+  }
+  function tickZoneDamage(state, p, m, dt) {
+    if (!isZone(m) || !hazardOn(state.level, m)) return;
+    if (!insideZone(m, p.pos.x, p.pos.z)) return;
+    if (m.dps) damagePlayer(state, p, { base: m.dps * dt, sourceKind: "world", fromPos: { x: m.min && m.min[0] || m.at[0], y: 0, z: m.min && m.min[2] || m.at[2] } });
+    if (m.affectsEnemies && m.dps) {
+      for (const e of state.enemies) {
+        if (e.dead || !insideZone(m, e.pos.x, e.pos.z)) continue;
+        e.hp -= m.dps * dt;
+        if (e.hp <= 0) {
+          e.hp = 0;
+          e.dead = true;
+        }
+      }
+    }
+  }
+  function targetKey(m) {
+    if (m.solid) return m.solid;
+    if (m.id && m.id.endsWith("-hp")) return m.id.slice(0, -"-hp".length);
+    return m.id;
+  }
+  function matchesTarget(m, solidId) {
+    if (!solidId) return false;
+    if (m.id === solidId || targetKey(m) === solidId) return true;
+    return solidId === `${m.id}-body` || solidId === `${m.id}-hp`;
+  }
+  function damageLevelSolid(state, solid, hit) {
+    const lv = state.level;
+    const sec = state._campaignSection || state._v2section;
+    if (!lv || !sec || !solid || !solid.id) return false;
+    const m = (sec.mechanisms || []).find((item) => item.kind === "target" && matchesTarget(item, solid.id));
+    if (!m || scriptShields(state, solid.id)) return false;
+    if (!lv.targets) lv.targets = {};
+    const rec = lv.targets[m.id] || (lv.targets[m.id] = { hp: m.hp, max: m.hp });
+    if (rec.hp <= 0) return true;
+    let dmg = hit.base || 0;
+    if (hit.sourceKind === "gun" && m.bulletMul != null) dmg *= m.bulletMul;
+    if ((hit.isSplash || hit.sourceKind === "world") && m.explosiveMul != null) dmg *= m.explosiveMul;
+    if (hit.sourceKind === "spell" && m.spellMul != null) dmg *= m.spellMul;
+    if (hit.zone === "weak" && m.weak) dmg *= m.weak;
+    rec.hp -= dmg;
+    if (rec.hp > 0) return false;
+    rec.hp = 0;
+    if (!lv.brokenSolids) lv.brokenSolids = {};
+    lv.brokenSolids[solid.id] = true;
+    if (lv.solids) lv.solids = lv.solids.filter((s) => s.id !== solid.id);
+    markPartDestroyed(state, m.id);
+    if (targetKey(m) !== m.id) markPartDestroyed(state, targetKey(m));
+    return true;
+  }
+  function tickRising(state, p, m, dt) {
+    if (m.kind !== "risingHazard" || !m.min || !m.max) return;
+    const lv = state.level;
+    if (m.starts && !(lv.fled && lv.fled[m.starts.slice(0, -".fled".length)])) return;
+    if (!lv.rise) lv.rise = {};
+    const st = lv.rise[m.id] || (lv.rise[m.id] = { y: m.min[1] });
+    st.y = Math.min(m.max[1], st.y + (m.rate || 0.18) * dt);
+    if (p.pos.x < m.min[0] || p.pos.x > m.max[0] || p.pos.z < m.min[2] || p.pos.z > m.max[2]) return;
+    if (p.pos.y < st.y) p.pos.y = st.y;
+    if (m.dps && p.pos.y <= st.y + 0.2) damagePlayer(state, p, { base: m.dps * dt, sourceKind: "world", fromPos: { x: p.pos.x, y: st.y, z: p.pos.z } });
+  }
+  function tickGeyser(state, p, m) {
+    if (m.kind !== "geyser" || !m.at || !hazardOn(state.level, m)) return;
+    const lv = state.level;
+    const period = m.period || 5;
+    const phase = ((lv.time + (m.offset || 0)) % period + period) % period;
+    const rumble = m.rumble == null ? 1.2 : m.rumble;
+    const book2 = lv.mech || (lv.mech = {});
+    const st = book2[m.id] || (book2[m.id] = {});
+    const warning = rumble > 0 && phase >= period - rumble;
+    if (warning && !st.warn) {
+      st.warn = true;
+      emit(state, "geyser", { id: m.id, phase: "rumble" });
+    }
+    if (!warning) st.warn = false;
+    const near2 = Math.hypot(p.pos.x - m.at[0], p.pos.z - m.at[2]) <= (m.r || 1.6);
+    if (phase < 0.45 && near2 && !st.hit) {
+      st.hit = true;
+      emit(state, "geyser", { id: m.id, phase: "erupt" });
+      if (m.damage) damagePlayer(state, p, { base: m.damage, sourceKind: "world", fromPos: { x: m.at[0], y: m.at[1] || 0, z: m.at[2] } });
+      if (m.to) {
+        p.pos.x = m.to[0];
+        p.pos.y = m.to[1] == null ? p.pos.y : m.to[1];
+        p.pos.z = m.to[2];
+        p.vel.y = Math.max(p.vel.y, 6);
+      }
+    }
+    if (phase >= 0.45) st.hit = false;
+  }
+
   // src/sim/player.js
   var EMPTY_CMD = { yaw: 0, pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
   function playerInput(state, commands) {
@@ -2421,6 +6154,8 @@ var SprotoShooterSim = (() => {
       const sprinting = canAct && c.held.sprint && c.moveZ > 0 && !p.zooming;
       let maxSpeed = sprinting ? TUNING.sprintSpeed : TUNING.walkSpeed;
       if (p.campaignSpeed) maxSpeed *= p.campaignSpeed;
+      if (state.mode === "campaign" && p.hazardSlow != null && p.hazardSlow < 1) maxSpeed *= p.hazardSlow;
+      if (state.mode === "campaign" && p.scriptSlow != null && p.scriptSlow < 1) maxSpeed *= p.scriptSlow;
       if (p.downed) maxSpeed *= TUNING.downedSpeedMult;
       if (c.pressed.jump) p.jumpBufferT = TUNING.jumpBuffer;
       else p.jumpBufferT = Math.max(0, p.jumpBufferT - dt);
@@ -2521,7 +6256,33 @@ var SprotoShooterSim = (() => {
       p.pos.y += p.vel.y * dt;
       p.pos.z += p.vel.z * dt;
       const wasAir = !p.onGround;
-      if (p.pos.y <= 0) {
+      const solids = activeSolids(state);
+      if (solids) {
+        pushHorizontal(p, solids, TUNING.playerRadius, TUNING.playerHeight, STEP_UP);
+        const beforeY = p.pos.y;
+        snapToGround(p, solids, TUNING.playerRadius, STEP_UP);
+        if (wasAir && p.onGround && beforeY - p.pos.y > 0.05 && p.vel.y < -6) {
+          emit(state, "land", { playerId: p.id, speed: 6 });
+        }
+        const hole = voidAt(p.pos, state.level.voids);
+        if (hole) {
+          const safe = state.level.safePos;
+          const useSafe = hole.mode !== "fixed" && safe;
+          const dest = useSafe ? [safe.x, safe.y, safe.z] : hole.to;
+          if (dest) {
+            p.pos.x = dest[0];
+            p.pos.y = dest[1];
+            p.pos.z = dest[2];
+            p.vel.x = p.vel.y = p.vel.z = 0;
+            p.onGround = true;
+            if (hole.penalty) damagePlayer(state, p, { base: p.maxHp * hole.penalty, sourceKind: "world", fromPos: p.pos });
+            if (hole.invuln) p.invulnT = Math.max(p.invulnT || 0, hole.invuln);
+            emit(state, "voidRescue", { id: hole.id || "void", penalty: hole.penalty || 0 });
+          }
+        } else if (p.onGround && state.level.voids) {
+          state.level.safePos = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
+        }
+      } else if (p.pos.y <= 0) {
         p.pos.y = 0;
         if (p.vel.y < 0) {
           if (wasAir && p.vel.y < -6) emit(state, "land", { playerId: p.id, speed: -p.vel.y });
@@ -2605,6 +6366,13 @@ var SprotoShooterSim = (() => {
     const ignore = {};
     const rng = gunRange(g);
     let remaining = Math.min(TUNING.hitscanRange, rng.max);
+    if (campaignSolidsOn(state)) {
+      const solids = activeSolids(state);
+      if (solids) {
+        const wall = firstSolid(solids, origin, dir, remaining);
+        if (wall && !damageLevelSolid(state, wall.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall.t;
+      }
+    }
     let pierce = st.pierce;
     let end = null;
     for (let i = 0; i <= pierce; i++) {
@@ -2855,7 +6623,7 @@ var SprotoShooterSim = (() => {
           emit(state, "manaShieldOff", { playerId: p.id });
         }
       } else if (!inAura) {
-        p.mana = Math.min(p.maxMana, p.mana + (TUNING.manaRegen + (p.skills.magic.level - 1)) * dt);
+        p.mana = Math.min(p.maxMana, p.mana + TUNING.manaRegen * dt);
       }
       if (state.tuning.godMode) {
         p.mana = p.maxMana;
@@ -2866,7 +6634,6 @@ var SprotoShooterSim = (() => {
   }
   function godTopUp(p) {
     if (p.tickets < TUNING.godTickets) p.tickets = TUNING.godTickets;
-    for (const k of Object.keys(p.resources)) if (p.resources[k] < TUNING.godResources) p.resources[k] = TUNING.godResources;
     for (const k of Object.keys(p.ammoCap)) if (p.ammo[k] < p.ammoCap[k]) p.ammo[k] = p.ammoCap[k];
     if (p.medkits < TUNING.medkitCarry) p.medkits = TUNING.medkitCarry;
   }
@@ -2885,105 +6652,16 @@ var SprotoShooterSim = (() => {
   }
 
   // src/sim/economy.js
-  var canAfford = (res, cost) => Object.entries(cost).every(([k, v]) => (res[k] || 0) >= v);
-  var pay = (res, cost) => {
-    for (const [k, v] of Object.entries(cost)) res[k] -= v;
-  };
-  var mergeCost = (a, b) => {
-    const o = { ...a };
-    for (const [k, v] of Object.entries(b)) o[k] = (o[k] || 0) + v;
-    return o;
-  };
-  function recipeUnlocked(state, p, r) {
-    return state.tuning.unlockAllRecipes || p.skills.crafting.level >= r.craftingLevel;
+  function startCraft(state, p) {
+    return fail(state, p, "Crafting is gone");
   }
-  function nearBox(state, p) {
-    for (const b of state.weaponBoxes) if (Math.hypot(p.pos.x - b.pos.x, p.pos.z - b.pos.z) <= b.interactRadius) return b;
-    return null;
+  function crafting() {
   }
-  function validateCraft(state, p, a) {
-    const r = RECIPES_BY_ID[a.recipeId];
-    if (!r) return "Unknown recipe";
-    const box2 = state.weaponBoxes.find((b) => b.id === a.boxId);
-    if (!box2 || Math.hypot(p.pos.x - box2.pos.x, p.pos.z - box2.pos.z) > box2.interactRadius + 0.5) return "Too far from the Weapon Box";
-    if (box2.craft) return "Box is busy";
-    if (!recipeUnlocked(state, p, r)) return `Needs Crafting Lv ${r.craftingLevel}`;
-    let cost = r.cost;
-    if (a.choice?.arcane) cost = mergeCost(cost, ARCANE_COST);
-    if (!canAfford(p.resources, cost)) return "Not enough resources";
-    if (r.category === "ammo" && p.ammo[r.ammoType] >= p.ammoCap[r.ammoType]) return "Ammo full";
-    if (r.id === "medkit" && p.medkits >= TUNING.medkitCarry) return "Medkits full";
-    return null;
+  function salvage(state, p) {
+    return fail(state, p, "Crafting is gone");
   }
-  function startCraft(state, p, a) {
-    const err = validateCraft(state, p, a);
-    if (err) {
-      emit(state, "actionFailed", { playerId: p.id, reason: err });
-      return false;
-    }
-    const r = RECIPES_BY_ID[a.recipeId];
-    const box2 = state.weaponBoxes.find((b) => b.id === a.boxId);
-    let cost = r.cost;
-    if (a.choice?.arcane) cost = mergeCost(cost, ARCANE_COST);
-    pay(p.resources, cost);
-    box2.craft = { recipeId: r.id, playerId: p.id, choice: a.choice || {}, t: 0, duration: r.craftTime, seed: next(state.rng) };
-    emit(state, "craftStart", { boxId: box2.id, recipeId: r.id, playerId: p.id });
-    return true;
-  }
-  function crafting(state, dt) {
-    const intermission = state.wave && state.wave.phase === "intermission";
-    for (const box2 of state.weaponBoxes) {
-      box2.glow = intermission || state.mode === "sandbox";
-      const c = box2.craft;
-      if (!c) continue;
-      c.t += dt;
-      if (c.t < c.duration) continue;
-      box2.craft = null;
-      const p = state.players[c.playerId];
-      const r = RECIPES_BY_ID[c.recipeId];
-      let gunId = null;
-      if (r.category === "gun") {
-        const forced = { type: r.gunType, quality: r.quality };
-        if (r.options.chooseElement && c.choice.element) forced.element = c.choice.element;
-        if (r.options.choosePart && c.choice.part) forced.part = c.choice.part;
-        const gun = generateGun({ seed: c.seed, level: state.tier, forced, arcane: !!(r.options.arcane && c.choice.arcane) });
-        gun.id = nextId(state);
-        gun.source = "craft";
-        gunId = gun.id;
-        spawnGunPickup(state, gun, { x: box2.pos.x * 0.9, z: box2.pos.z }, "craft");
-      } else if (r.category === "ammo") {
-        p.ammo[r.ammoType] = Math.min(p.ammoCap[r.ammoType], p.ammo[r.ammoType] + r.amount);
-      } else if (r.id === "medkit") {
-        p.medkits = Math.min(TUNING.medkitCarry, p.medkits + 1);
-      }
-      state.run.crafts++;
-      emit(state, "craftComplete", { boxId: box2.id, recipeId: r.id, playerId: p.id, gunId, category: r.category, pos: { ...box2.pos } });
-    }
-  }
-  function salvage(state, p, slot) {
-    if (!(state.tuning.unlockAllRecipes || p.skills.crafting.level >= SALVAGE_LEVEL)) return fail(state, p, `Salvage needs Crafting Lv ${SALVAGE_LEVEL}`);
-    if (!nearBox(state, p)) return fail(state, p, "Stand at a Weapon Box");
-    const g = p.guns[slot];
-    if (!g) return;
-    if (p.guns.filter(Boolean).length <= 1) return fail(state, p, "Can't salvage your last gun");
-    const y = salvageYield(g);
-    for (const [k, v] of Object.entries(y)) p.resources[k] += v;
-    p.guns[slot] = null;
-    ensureActiveGun(p);
-    emit(state, "salvage", { playerId: p.id, gunId: g.id, yield: y });
-  }
-  function reroll(state, p, slot, stat) {
-    if (!(state.tuning.unlockAllRecipes || p.skills.crafting.level >= REROLL_LEVEL)) return fail(state, p, `Reroll needs Crafting Lv ${REROLL_LEVEL}`);
-    if (!nearBox(state, p)) return fail(state, p, "Stand at a Weapon Box");
-    const g = p.guns[slot];
-    if (!g || !REROLLABLE.includes(stat)) return;
-    let cost = REROLL_COST;
-    if (g.quality === "legendary") cost = mergeCost(cost, { manaCrystal: 1 });
-    if (!canAfford(p.resources, cost)) return fail(state, p, "Not enough resources");
-    pay(p.resources, cost);
-    const rerolls = g.rerolls.filter((r) => r.stat !== stat).concat([{ stat, salt: next(state.rng) }]);
-    p.guns[slot] = regenerate(g, { rerolls });
-    emit(state, "reroll", { playerId: p.id, gunId: g.id, stat });
+  function reroll(state, p) {
+    return fail(state, p, "Crafting is gone");
   }
   function fail(state, p, reason) {
     emit(state, "actionFailed", { playerId: p.id, reason });
@@ -3083,10 +6761,11 @@ var SprotoShooterSim = (() => {
       spawnGunPickup(state, gun, spot, "vending");
       detail = `${gun.quality} ${gun.type}`;
     } else if (o === "resources") {
-      p.resources.scrap += 20;
-      const spec = ["springs", "goo", "plating"][Math.floor(float(state.rng) * 3)];
-      p.resources[spec] += 8;
-      detail = `20 Scrap + 8 ${spec}`;
+      const carried = p.guns.filter((g) => g);
+      const t = carried.length ? carried[0].ammoType : "bullets";
+      const add2 = TUNING.ammoDrop[t] || 0;
+      p.ammo[t] = Math.min(p.ammoCap[t], p.ammo[t] + add2);
+      detail = `${add2} ${t}`;
     } else if (o === "jackpot") {
       p.tickets += 60;
       detail = "60 tickets";
@@ -3098,7 +6777,7 @@ var SprotoShooterSim = (() => {
   }
   function buyUpgrade(state, p, id) {
     if (!shopOpen(state)) return;
-    const def = SHOP.upgrades.find((u) => u.id === id);
+    const def = SHOP.upgrades.find((u2) => u2.id === id);
     const up = state.shop.upgrades;
     const rank = id === "slot4" ? up.slot4 ? 1 : 0 : up[id];
     if (!def || rank >= def.prices.length) return fail(state, p, "Maxed out");
@@ -3299,685 +6978,130 @@ var SprotoShooterSim = (() => {
     emit(state, "ticketsGained", { amount: tk, reason: "Wave clear" });
   }
 
-  // src/data/levels/arena.js
-  var R = TUNING.arenaRadius;
-  var arena_default = {
-    id: "arena",
-    name: "Arena",
-    stage: null,
-    legacy: true,
-    radius: R,
-    tier: 1,
-    parTime: 0,
-    bounds: { min: [-R, -40, -R], max: [R, 80, R] },
-    sections: []
-  };
-
-  // src/data/levels/kit.js
-  function box({ id, at, size, yaw = 0, mat = "stone", tag } = {}) {
-    return { kind: "box", id, at: at.slice(), size: size.slice(), yaw, mat, tag };
-  }
-
-  // src/data/levels/assemble.js
-  function shiftAt(at, dx) {
-    return [at[0] + dx, at[1], at[2]];
-  }
-  function makeLevel(def) {
-    let cursor = 0;
-    const sections = [];
-    for (let i = 0; i < def.sections.length; i++) {
-      const s = def.sections[i];
-      const len = s.length ?? 46;
-      const width2 = s.width ?? 22;
-      const x0 = cursor;
-      const x1 = x0 + len;
-      const geometry = [
-        box({ id: `${s.id}-floor`, at: [(x0 + x1) / 2, -0.25, width2 / 2], size: [len + 1, 0.5, width2], mat: s.floor || "stone" }),
-        box({ id: `${s.id}-wallN`, at: [(x0 + x1) / 2, 1.6, 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" }),
-        box({ id: `${s.id}-wallS`, at: [(x0 + x1) / 2, 1.6, width2 - 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" })
-      ];
-      for (const c of s.cover || []) {
-        const h = c.h || 1.2;
-        geometry.push(box({
-          id: `${s.id}-cov-${c.x}`,
-          at: [x0 + c.x, h / 2, c.z ?? width2 * 0.32],
-          size: [1.4, h, 1.4],
-          mat: "crate",
-          tag: "cover"
-        }));
-      }
-      for (const prim of s.props || []) {
-        const copy = { ...prim, at: prim.at ? shiftAt(prim.at, x0) : prim.at, origin: prim.origin ? shiftAt(prim.origin, x0) : prim.origin };
-        geometry.push(copy);
-      }
-      const encounters = (s.encounters || []).map((e) => encounterAt(e, s.id, x0, width2));
-      const mechanisms = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
-      if (s.secret) {
-        mechanisms.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
-      }
-      const weapons = (s.weapons || []).map((w) => ({
-        kind: "rack",
-        id: w.id,
-        at: [x0 + w.x, 0.9, width2 * 0.62],
-        gun: w.gun,
-        why: w.why
-      }));
-      const checkpoints = (s.checkpoints || []).map((c) => ({
-        id: c.id,
-        at: [x0 + c.x, 0, width2 / 2],
-        when: prefixRef(c.when, s)
-      }));
-      const next2 = def.sections[i + 1];
-      const exit = next2 ? {
-        min: [x1 - 4, -1, 2],
-        max: [x1 - 0.4, 4, width2 - 2],
-        to: next2.id,
-        kind: s.transition || "seamless",
-        card: s.card || null
-      } : null;
-      sections.push({
-        id: s.id,
-        name: s.name,
-        start: [x0 + 3.5, 0, width2 / 2],
-        yaw: 0,
-        geometry,
-        encounters,
-        mechanisms,
-        weapons,
-        checkpoints,
-        exit,
-        intro: s.intro || null
-      });
-      cursor = x1 - 2;
-    }
-    const width = def.sections[0].width ?? 22;
+  // src/sim/campaign/sectionMotion.js
+  function pointOn(from, to, u2) {
     return {
-      id: def.id,
-      name: def.name,
-      stage: def.stage,
-      tier: def.tier,
-      parTime: def.parTime,
-      jetpack: def.jetpack || false,
-      gravityMult: def.gravityMult || 1,
-      lighting: def.lighting || null,
-      bounds: { min: [-10, -25, -6], max: [cursor + 12, 48, width + 6] },
-      sections,
-      modifiers: def.modifiers || []
+      x: from[0] + (to[0] - from[0]) * u2,
+      y: (from[1] || 0) + ((to[1] || 0) - (from[1] || 0)) * u2,
+      z: from[2] + (to[2] - from[2]) * u2
     };
   }
-  function prefixRef(opens, s) {
-    if (!opens || typeof opens !== "string") return opens;
-    if (!opens.endsWith(".cleared")) return opens;
-    const id = opens.slice(0, -".cleared".length);
-    if ((s.encounters || []).some((e) => e.id === id)) return `${s.id}-${id}.cleared`;
-    return opens;
+  function lengthOf(from, to) {
+    const dy = (to[1] || 0) - (from[1] || 0);
+    return Math.hypot(to[0] - from[0], dy, to[2] - from[2]) || 1;
   }
-  function encounterAt(e, sid, x0, width) {
-    const x = x0 + e.x;
-    const at = [];
-    const units = [];
-    let n = 0;
-    for (const [type, count] of e.units) {
-      units.push({ type, count });
-      for (let k = 0; k < count; k++) at.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
+  function near(p, q, r) {
+    return Math.hypot(p.pos.x - q.x, p.pos.z - q.z) <= r && Math.abs(p.pos.y - q.y) < 2.2;
+  }
+  function rideBook(lv) {
+    if (!lv.rides) lv.rides = {};
+    return lv.rides;
+  }
+  function stepPlatform(st, from, to, speed, dt, pause) {
+    const len = lengthOf(from, to);
+    const prev = pointOn(from, to, st.u);
+    if (st.pause > 0) {
+      st.pause -= dt;
+      return { prev, next: prev };
     }
-    return {
-      id: `${sid}-${e.id}`,
-      space: e.space || "corridor",
-      zone: { min: [x - 8, -2, 1], max: [x + 16, 14, width - 1] },
-      activate: { min: [x - 4, -1, 1.2], max: [x + 3, 6, width - 1.2] },
-      objective: { kind: e.objective || "clearAll" },
-      maxAlive: e.maxAlive || 12,
-      fleeAt: e.fleeAt || 0,
-      squads: [{ delay: 0, units, at }]
-    };
-  }
-  function placeMech(m, s, x0, width) {
-    const x = x0 + m.x;
-    const z = m.z ?? width * 0.28;
-    const base = { kind: m.kind, id: m.id, opens: prefixRef(m.opens, s), modifier: m.modifier, dps: m.dps, slow: m.slow, power: m.power, speed: m.speed };
-    if (m.kind === "door") return { ...base, at: [x, 1.6, z], size: [0.8, 3.2, 3.2], yaw: 0 };
-    if (m.kind === "switch") return { ...base, at: [x, 1, z], holdTime: m.holdTime ?? 0.35 };
-    if (m.kind === "barrel") return { ...base, at: [x, 0.55, z], hp: 30 };
-    if (m.kind === "jumpPad") return { ...base, at: [x, 0.2, width / 2], power: m.power || 11, r: 1.4 };
-    if (m.kind === "hazard") return { ...base, min: [x - 2, -1, z - 2], max: [x + 2, 2, z + 2], dps: m.dps ?? 8, slow: m.slow ?? 0 };
-    if (m.kind === "mover" || m.kind === "carpet" || m.kind === "elevator") {
-      return { ...base, kind: "mover", from: [x, 0.4, 3], to: [x, m.y ?? 0.4, width - 3], speed: m.speed || 2.2 };
+    st.u += (st.dir || 1) * (speed / len) * dt;
+    if (st.u >= 1) {
+      st.u = 1;
+      st.dir = -1;
+      st.pause = pause || 0;
+    } else if (st.u <= 0) {
+      st.u = 0;
+      st.dir = 1;
+      st.pause = pause || 0;
     }
-    if (m.kind === "zipline") return { ...base, from: [x, 3.5, width / 2], to: [x + 12, 2.2, width / 2] };
-    if (m.kind === "portal") return { ...base, at: [x, 1, 4], to: [x + (m.dx || 10), 0, width / 2] };
-    if (m.kind === "laser") return { ...base, at: [x, 1.2, 4], size: [0.4, 1.6, 3], dps: m.dps || 12 };
-    if (m.kind === "rail") return { ...base, from: [x, 0.3, width / 2], to: [x + 18, 0.3, width / 2], speed: m.speed || 10 };
-    if (m.kind === "crusher") return { ...base, at: [x, 2.6, z], size: [2.4, 1, 2.4], speed: 1.2 };
-    if (m.kind === "bridge") return { ...base, from: [x, 0, width / 2], to: [x + 6, 0, width / 2], width: 2 };
-    if (m.kind === "jetpack" || m.kind === "fuel" || m.kind === "power" || m.kind === "depot") return { ...base, at: [x, 1, width * 0.4] };
-    return { ...base, at: [x, 1, z] };
+    return { prev, next: pointOn(from, to, st.u) };
   }
-
-  // src/data/levels/campaign.js
-  var card = (title, lines) => ({ title, lines });
-  var L01 = makeLevel({
-    id: "L01",
-    name: "Sproto Landing",
-    stage: "city",
-    tier: 1,
-    parTime: 10 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Drop Zone",
-        length: 48,
-        encounters: [{ id: "E1", x: 16, space: "corridor", units: [["midget", 4]] }],
-        weapons: [{ id: "sg-alley", x: 30, gun: "shotgun", why: "E2 mall corridors" }],
-        mechanisms: [
-          { kind: "door", id: "mall-door", x: 34, opens: "E1.cleared" },
-          { kind: "switch", id: "gate-switch", x: 12, opens: "side-door" },
-          { kind: "door", id: "side-door", x: 14, opens: "switch:gate-switch" },
-          { kind: "barrel", id: "barrel-1", x: 22 }
-        ],
-        checkpoints: [{ id: "cp1", x: 36, when: "E1.cleared" }],
-        secret: { x: 10, modifier: "bigHead" },
-        cover: [{ x: 20, h: 1.2 }]
-      },
-      {
-        id: "S2",
-        name: "Mall",
-        length: 48,
-        transition: "seamless",
-        encounters: [{ id: "E2", x: 16, space: "interior", units: [["obama", 2], ["flyingMidget", 2]] }],
-        mechanisms: [
-          { kind: "jumpPad", id: "lift-pad", x: 12, power: 10 },
-          { kind: "mover", id: "parking-lift", x: 28 }
-        ],
-        checkpoints: [{ id: "cp2", x: 34, when: "E2.cleared" }],
-        cover: [{ x: 22, h: 1.4 }]
-      },
-      {
-        id: "S3",
-        name: "Gate Plaza",
-        length: 48,
-        intro: card("Gate Plaza", ["A Big Bitcoin Obama is counting the take.", "The gate does not open until he drops it."]),
-        encounters: [{ id: "E3", x: 16, space: "arena", units: [["bigObama", 1]] }],
-        checkpoints: [{ id: "cp3", x: 8, when: "E3.cleared" }]
-      }
-    ]
-  });
-  var L02 = makeLevel({
-    id: "L02",
-    name: "The Grand Bazaar",
-    stage: "desert",
-    tier: 2,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Souk Alleys",
-        length: 50,
-        floor: "sand",
-        encounters: [{ id: "E1", x: 16, space: "corridor", units: [["riotMidget", 3], ["obama", 2]] }],
-        weapons: [{ id: "sg-souk", x: 28, gun: "shotgun", why: "phalanx in the alleys" }],
-        mechanisms: [
-          { kind: "hazard", id: "quicksand", x: 24, slow: 0.45, dps: 0 },
-          { kind: "barrel", id: "spice-barrel", x: 20 }
-        ],
-        secret: { x: 8, modifier: "confetti" }
-      },
-      {
-        id: "S2",
-        name: "Dune Sea",
-        length: 52,
-        floor: "sand",
-        intro: card("Into the Dunes", ["The souk was the easy part.", "Sahil's caravan route crosses the Dune Sea."]),
-        encounters: [{ id: "E2", x: 18, space: "field", units: [["boomMidget", 4]] }],
-        mechanisms: [
-          { kind: "jumpPad", id: "sand-geyser", x: 12, power: 12 },
-          { kind: "carpet", id: "carpet-1", x: 30 },
-          { kind: "power", id: "overshield", x: 36, modifier: "overshield" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "Canyon Rim",
-        length: 50,
-        floor: "sand",
-        encounters: [{ id: "E3", x: 16, space: "ledge", units: [["hexAcolyte", 3]] }],
-        weapons: [{ id: "sn-rim", x: 30, gun: "sniper", why: "acolytes across the rim" }],
-        mechanisms: [{ kind: "zipline", id: "clothesline", x: 22 }]
-      },
-      {
-        id: "S4",
-        name: "Bazaar Gate",
-        length: 48,
-        intro: card("The Grand Bazaar", ["Sahil the RugMaster.", "He sells the floor out from under you."]),
-        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["sahil", 1]] }],
-        weapons: [{ id: "bz-sahil", x: 10, gun: "bazooka", why: "Sahil at the gate" }]
-      }
-    ]
-  });
-  var L03 = makeLevel({
-    id: "L03",
-    name: "The Vegetable Grove",
-    stage: "grove",
-    tier: 3,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Crop Fields",
-        length: 52,
-        floor: "dirt",
-        encounters: [{ id: "E1", x: 18, space: "field", units: [["floretSprout", 3]] }],
-        weapons: [{ id: "sn-field", x: 10, gun: "sniper", why: "sprouts across the furrows" }],
-        mechanisms: [{ kind: "jumpPad", id: "mushroom", x: 28, power: 11 }],
-        secret: { x: 8, modifier: "floorIsLava" }
-      },
-      {
-        id: "S2",
-        name: "Hedge Maze",
-        length: 52,
-        floor: "hedge",
-        encounters: [{ id: "E2", x: 16, space: "corridor", units: [["sewerMidget", 4], ["daycare", 1]] }],
-        weapons: [
-          { id: "mg-maze", x: 26, gun: "mg", why: "burrowers in the hedges" },
-          { id: "sg-maze", x: 30, gun: "shotgun", why: "close hedges" }
-        ],
-        mechanisms: [{ kind: "bridge", id: "vine-bridge", x: 34 }, { kind: "power", id: "turbo", x: 12, modifier: "turbo" }],
-        cover: [{ x: 20, h: 1.6, z: 8 }, { x: 22, h: 1.6, z: 14 }]
-      },
-      {
-        id: "S3",
-        name: "Greenhouses",
-        length: 46,
-        floor: "dirt",
-        encounters: [{ id: "E3", x: 16, space: "interior", units: [["floretSprout", 2], ["midget", 3]] }],
-        mechanisms: [{ kind: "hazard", id: "runoff", x: 24, dps: 10 }, { kind: "door", id: "airlock", x: 34, opens: "E3.cleared" }]
-      },
-      {
-        id: "S4",
-        name: "The Patch",
-        length: 46,
-        intro: card("Something Smells Green", ["The Floret Lord is only a sprout.", "He will not stay for the whole fight."]),
-        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", fleeAt: 0.5, units: [["broccoli", 1]] }],
-        weapons: [{ id: "bz-nest", x: 10, gun: "bazooka", why: "the sprout in the patch" }]
-      }
-    ]
-  });
-  var L04 = makeLevel({
-    id: "L04",
-    name: "The Blockchain Void",
-    stage: "void",
-    tier: 4,
-    parTime: 18 * 60,
-    jetpack: "pickup",
-    sections: [
-      {
-        id: "S1",
-        name: "Candle Forest",
-        length: 52,
-        floor: "metal",
-        encounters: [{ id: "E1", x: 18, space: "sky", units: [["bitbug", 5]] }],
-        weapons: [{ id: "mg-bugs", x: 28, gun: "mg", why: "bitbug flocks" }],
-        mechanisms: [
-          { kind: "jetpack", id: "jetpack-1", x: 12 },
-          { kind: "jumpPad", id: "updraft", x: 22, power: 14 }
-        ],
-        secret: { x: 8, modifier: "moonBoots" }
-      },
-      {
-        id: "S2",
-        name: "Mine Field",
-        length: 52,
-        floor: "metal",
-        intro: card("Liquidity", ["Bitcoin Obama pumps the price. The Midget dumps it.", "You ride the chart."]),
-        encounters: [{ id: "E2", x: 16, space: "sky", units: [["jetObama", 2], ["balloonMidget", 3]] }],
-        weapons: [{ id: "sn-mine", x: 30, gun: "sniper", why: "jet Obamas between candles" }],
-        mechanisms: [
-          { kind: "fuel", id: "fuel-1", x: 12 },
-          { kind: "hazard", id: "gravity-well", x: 24, slow: 0.4, dps: 0 },
-          { kind: "power", id: "infinite-fuel", x: 36, modifier: "fuel" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "The Exchange",
-        length: 50,
-        intro: card("The Blockchain Void", ["The Pump and Dump Duo.", "One counts. One flies."]),
-        encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["obamaDuo", 1], ["midgetDuo", 1]] }],
-        weapons: [{ id: "bz-duo", x: 10, gun: "bazooka", why: "the duo on the exchange floor" }]
-      }
-    ]
-  });
-  var L05 = makeLevel({
-    id: "L05",
-    name: "Frostspire Black Site",
-    stage: "glacier",
-    tier: 5,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Snowfield",
-        length: 54,
-        floor: "ice",
-        encounters: [{ id: "E1", x: 18, space: "field", units: [["auditSniper", 2], ["miningRig", 1]] }],
-        weapons: [
-          { id: "sn-snow", x: 10, gun: "sniper", why: "snipers on the snowfield" },
-          { id: "bz-turret", x: 14, gun: "bazooka", why: "mining rig turret" }
-        ],
-        mechanisms: [{ kind: "hazard", id: "ice-slick", x: 26, slow: 0.2, dps: 0 }],
-        secret: { x: 8, modifier: "taxSeason" }
-      },
-      {
-        id: "S2",
-        name: "Bunkers",
-        length: 48,
-        floor: "ice",
-        encounters: [{ id: "E2", x: 16, space: "interior", units: [["glowieAgent", 4]] }],
-        mechanisms: [
-          { kind: "switch", id: "generator", x: 12, opens: "shield-gate" },
-          { kind: "door", id: "shield-gate", x: 34, opens: "switch:generator" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "Frost Halls",
-        length: 48,
-        floor: "ice",
-        encounters: [{ id: "E3", x: 16, space: "hold", units: [["glowieAgent", 2], ["auditSniper", 2]] }],
-        weapons: [{ id: "sg-hall", x: 28, gun: "shotgun", why: "frost halls" }],
-        mechanisms: [{ kind: "hazard", id: "drone-strike", x: 22, dps: 6 }]
-      }
-    ]
-  });
-  var L06 = makeLevel({
-    id: "L06",
-    name: "Vape Cabal Skyline",
-    stage: "city",
-    tier: 6,
-    parTime: 22 * 60,
-    jetpack: true,
-    lighting: { weather: "rain" },
-    sections: [
-      {
-        id: "S1",
-        name: "Freeway",
-        length: 56,
-        floor: "metal",
-        encounters: [{ id: "E1", x: 18, space: "rail", units: [["boomMidget", 3], ["riotMidget", 2]] }],
-        weapons: [{ id: "sg-traffic", x: 30, gun: "shotgun", why: "traffic jam" }],
-        mechanisms: [{ kind: "crusher", id: "bus-lane", x: 24 }],
-        secret: { x: 8, modifier: "duckHunt" }
-      },
-      {
-        id: "S2",
-        name: "Crane Yard",
-        length: 50,
-        floor: "metal",
-        encounters: [{ id: "E2", x: 16, space: "vertical", units: [["jetObama", 3]] }],
-        weapons: [{ id: "sn-crane", x: 28, gun: "sniper", why: "crane cab overlook" }],
-        mechanisms: [{ kind: "zipline", id: "roof-line", x: 20 }, { kind: "mover", id: "crane-hook", x: 34 }]
-      },
-      {
-        id: "S3",
-        name: "Rain Canyon",
-        length: 50,
-        floor: "metal",
-        encounters: [{ id: "E3", x: 16, space: "sky", units: [["bitbug", 4], ["balloonMidget", 2]] }],
-        weapons: [{ id: "mg-canyon", x: 12, gun: "mg", why: "bitbugs in the canyon" }]
-      },
-      {
-        id: "S4",
-        name: "Cabal Streets",
-        length: 48,
-        intro: card("Los Angeles", ["Broccoli Head owns the night.", "The clouds are not weather."]),
-        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["broccoli", 1]] }],
-        weapons: [{ id: "bz-broc", x: 10, gun: "bazooka", why: "Broccoli Head" }]
-      }
-    ]
-  });
-  var L07 = makeLevel({
-    id: "L07",
-    name: "Hellfire Underworks",
-    stage: "volcano",
-    tier: 7,
-    parTime: 16 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Shafts",
-        length: 48,
-        floor: "rock",
-        encounters: [{ id: "E1", x: 16, space: "interior", units: [["miniTinubu", 2], ["midget", 2]] }],
-        weapons: [{ id: "sg-shaft", x: 28, gun: "shotgun", why: "chargers in the shafts" }],
-        mechanisms: [{ kind: "barrel", id: "ore-barrel", x: 20 }],
-        secret: { x: 8, modifier: "lightsOut" }
-      },
-      {
-        id: "S2",
-        name: "Cart Run",
-        length: 52,
-        floor: "rock",
-        encounters: [{ id: "E2", x: 18, space: "rail", units: [["midget", 4]] }],
-        weapons: [{ id: "sn-cart", x: 12, gun: "sniper", why: "the cart ride" }],
-        mechanisms: [{ kind: "rail", id: "mine-cart", x: 22 }]
-      },
-      {
-        id: "S3",
-        name: "Furnace Gallery",
-        length: 48,
-        floor: "rock",
-        encounters: [{ id: "E3", x: 16, space: "arena", units: [["miniTinubu", 2], ["boomMidget", 2]] }],
-        mechanisms: [{ kind: "hazard", id: "lava-run", x: 26, dps: 14 }, { kind: "crusher", id: "press", x: 32 }]
-      },
-      {
-        id: "S4",
-        name: "Meltdown",
-        length: 48,
-        floor: "rock",
-        intro: card("MELTDOWN", ["Reactors at 300%.", "Tinubu calls this a controlled burn. Run."]),
-        encounters: [{ id: "E4", x: 16, space: "corridor", units: [["miniTinubu", 2]] }],
-        weapons: [{ id: "bz-reactor", x: 10, gun: "bazooka", why: "the reactor ring" }]
-      }
-    ]
-  });
-  var L08 = makeLevel({
-    id: "L08",
-    name: "Government Office",
-    stage: "office",
-    tier: 8,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Lobby",
-        length: 48,
-        floor: "metal",
-        encounters: [{ id: "E1", x: 16, space: "interior", units: [["glowieAgent", 4]] }],
-        weapons: [{ id: "mg-lobby", x: 28, gun: "mg", why: "the lobby" }],
-        mechanisms: [
-          { kind: "laser", id: "lobby-laser", x: 22 },
-          { kind: "door", id: "turnstile", x: 34, opens: "E1.cleared" }
-        ],
-        secret: { x: 8, modifier: "redTape" }
-      },
-      {
-        id: "S2",
-        name: "Cubicle Farm",
-        length: 48,
-        floor: "metal",
-        encounters: [{ id: "E2", x: 16, space: "corridor", units: [["riotMidget", 2], ["glowieAgent", 2]] }],
-        weapons: [{ id: "sg-cubes", x: 28, gun: "shotgun", why: "cubicle farm" }],
-        mechanisms: [{ kind: "elevator", id: "lift-2", x: 34, y: 0.4 }]
-      },
-      {
-        id: "S3",
-        name: "Server Floor",
-        length: 48,
-        floor: "metal",
-        encounters: [{ id: "E3", x: 16, space: "interior", units: [["auditSniper", 2], ["hexAcolyte", 2]] }],
-        weapons: [{ id: "sn-atrium", x: 28, gun: "sniper", why: "the atrium sightline" }],
-        mechanisms: [{ kind: "laser", id: "server-grid", x: 22, dps: 8 }]
-      },
-      {
-        id: "S4",
-        name: "The Roof",
-        length: 48,
-        intro: card("Government Office", ["Glowie has a badge and a flashbang.", "Look away."]),
-        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["glowie", 1]] }],
-        weapons: [{ id: "bz-glowie", x: 10, gun: "bazooka", why: "Glowie on the roof" }]
-      }
-    ]
-  });
-  var L09 = makeLevel({
-    id: "L09",
-    name: "Moonlit Ruins",
-    stage: "moonlit",
-    tier: 9,
-    parTime: 28 * 60,
-    jetpack: "pickup",
-    sections: [
-      {
-        id: "S1",
-        name: "Ruin Plains",
-        length: 56,
-        floor: "rock",
-        encounters: [{ id: "E1", x: 18, space: "field", units: [["glowieAgent", 2], ["obama", 2], ["midget", 2]] }],
-        weapons: [
-          { id: "mg-camp", x: 10, gun: "mg", why: "camp cache" },
-          { id: "sn-camp", x: 14, gun: "sniper", why: "camp cache" },
-          { id: "bz-camp", x: 18, gun: "bazooka", why: "camp cache" }
-        ],
-        mechanisms: [
-          { kind: "portal", id: "moon-gate", x: 30, dx: 8 },
-          { kind: "jetpack", id: "moon-pack", x: 36 },
-          { kind: "hazard", id: "low-g", x: 24, slow: 0, dps: 0 }
-        ],
-        secret: { x: 8, modifier: "swarmSurge" }
-      },
-      {
-        id: "S2",
-        name: "Catacombs",
-        length: 50,
-        floor: "rock",
-        intro: card("Descent", ["The plains were the map.", "The dead keep the other one."]),
-        encounters: [{ id: "E2", x: 16, space: "interior", units: [["hexAcolyte", 3], ["sewerMidget", 3]] }],
-        weapons: [{ id: "sg-cata", x: 28, gun: "shotgun", why: "catacomb standee" }]
-      },
-      {
-        id: "S3",
-        name: "Moon Gate",
-        length: 50,
-        intro: card("The Moon Gate", ["Two Big Obamas. One key.", "Something older is waking up."]),
-        encounters: [
-          { id: "E3", x: 14, space: "arena", units: [["bigObama", 2]] },
-          { id: "E4", x: 28, space: "arena", objective: "boss", fleeAt: 0.7, units: [["tinubu", 1]] }
-        ]
-      }
-    ]
-  });
-  var L10 = makeLevel({
-    id: "L10",
-    name: "Hellfire Caldera",
-    stage: "volcano",
-    tier: 10,
-    parTime: 30 * 60,
-    jetpack: true,
-    sections: [
-      {
-        id: "S1",
-        name: "Ridge Trail",
-        length: 54,
-        floor: "rock",
-        encounters: [{ id: "E1", x: 18, space: "ledge", units: [["miniTinubu", 2], ["auditSniper", 2]] }],
-        weapons: [
-          { id: "mg-cache", x: 8, gun: "mg", why: "ridge cache" },
-          { id: "sg-cache", x: 12, gun: "shotgun", why: "ridge cache" },
-          { id: "sn-cache", x: 16, gun: "sniper", why: "ridge cache" },
-          { id: "bz-cache", x: 20, gun: "bazooka", why: "ridge cache" }
-        ],
-        mechanisms: [{ kind: "bridge", id: "rope-bridge", x: 32 }, { kind: "barrel", id: "ridge-barrel", x: 26 }],
-        secret: { x: 6, modifier: "ironSproto" }
-      },
-      {
-        id: "S2",
-        name: "Geyser Fields",
-        length: 52,
-        floor: "rock",
-        encounters: [{ id: "E2", x: 16, space: "field", units: [["boomMidget", 3], ["jetObama", 2]] }],
-        mechanisms: [
-          { kind: "jumpPad", id: "geyser", x: 12, power: 13 },
-          { kind: "hazard", id: "lava-pool", x: 28, dps: 16 }
-        ]
-      },
-      {
-        id: "S3",
-        name: "The Caldera",
-        length: 50,
-        intro: card("Hellfire Caldera", ["Tinubu the Unshackled Demon.", "This is the audit."]),
-        encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["tinubu", 1]] }]
-      },
-      {
-        id: "S4",
-        name: "Eruption",
-        length: 46,
-        floor: "rock",
-        intro: card("ERUPTION", ["The Demon is down. The volcano disagrees.", "Fly."]),
-        encounters: [{ id: "E4", x: 16, space: "sky", units: [["flyingMidget", 3], ["bitbug", 3]] }],
-        mechanisms: [{ kind: "fuel", id: "last-fuel", x: 10 }, { kind: "jumpPad", id: "vent", x: 24, power: 14 }]
-      }
-    ]
-  });
-  var CAMPAIGN_LEVELS = [L01, L02, L03, L04, L05, L06, L07, L08, L09, L10];
-
-  // src/data/levels/index.js
-  var LEVELS = { arena: arena_default };
-  for (const level of CAMPAIGN_LEVELS) LEVELS[level.id] = level;
-  var CAMPAIGN = CAMPAIGN_LEVELS.map((l) => l.id);
-  function getLevelData(id) {
-    const level = LEVELS[id] || LEVELS[resolveLevelId(id)];
-    if (!level) throw new Error(`unknown level: ${id}`);
-    return level;
+  function carry(p, prev, next2) {
+    if (!near(p, prev, 1.35)) return;
+    p.pos.x += next2.x - prev.x;
+    p.pos.y = next2.y;
+    p.pos.z += next2.z - prev.z;
   }
-  function resolveLevelId(id) {
-    if (!id) return null;
-    const raw = String(id);
-    if (LEVELS[raw]) return raw;
-    const n = Number(raw);
-    if (n >= 1 && n <= CAMPAIGN.length) return CAMPAIGN[n - 1];
-    const hit = CAMPAIGN.find((k) => k.toLowerCase() === raw.toLowerCase());
-    return hit || null;
+  function noteSafeGround(state, sec) {
+    const v = sec && sec.voidRescue;
+    const lv = state.level;
+    if (!v) {
+      if (lv.safePos) delete lv.safePos;
+      return;
+    }
+    const p = state.players[state.localPlayerId];
+    if (!p || p.pos.y < v.y + 2) return;
+    lv.safePos = { x: p.pos.x, y: Math.max(0, p.pos.y), z: p.pos.z };
   }
-
-  // src/sim/level/runtime.js
-  var cache = /* @__PURE__ */ new Map();
-  function getLevelRuntime(id) {
-    const key = String(id);
-    if (cache.has(key)) return cache.get(key);
-    const data = getLevelData(key);
-    const sectionById2 = {};
-    for (const s of data.sections || []) sectionById2[s.id] = s;
-    const rt = { ...data, sectionById: sectionById2 };
-    cache.set(key, rt);
-    cache.set(data.id, rt);
-    return rt;
+  function tickVoid(state, sec) {
+    const v = sec && sec.voidRescue;
+    if (!v) return;
+    const lv = state.level;
+    const p = state.players[state.localPlayerId];
+    if (p && p.pos.y < v.y) {
+      const back = lv.safePos || { x: sec.start[0], y: sec.start[1] || 0, z: sec.start[2] };
+      p.pos.x = back.x;
+      p.pos.y = back.y;
+      p.pos.z = back.z;
+      p.vel.x = 0;
+      p.vel.y = 0;
+      p.vel.z = 0;
+      damagePlayer(state, p, { base: p.maxHp * (v.penalty == null ? 0.25 : v.penalty), sourceKind: "world", fromPos: { x: back.x, y: back.y, z: back.z } });
+      emit(state, "voidRescue", { penalty: v.penalty == null ? 0.25 : v.penalty });
+    }
+    for (const e of state.enemies) {
+      if (e.dead || e.pos.y >= v.y) continue;
+      e.noAmmoDrop = true;
+      e.lastHit = { sourceId: p ? p.id : 0, sourceKind: "world", element: "none" };
+      onEnemyKilled(state, e);
+    }
   }
-  function sectionById(levelId, sectionId) {
-    const rt = getLevelRuntime(levelId);
-    return rt.sectionById[sectionId] || rt.sections[0] || null;
-  }
-  function inBox(box2, x, y, z) {
-    if (!box2) return false;
-    const y0 = box2.min ? box2.min[1] : -1e9;
-    const y1 = box2.max ? box2.max[1] : 1e9;
-    const min = box2.min || box2;
-    const max = box2.max || box2;
-    if (box2.min) return x >= box2.min[0] && x <= box2.max[0] && y >= y0 && y <= y1 && z >= box2.min[2] && z <= box2.max[2];
-    return x >= min[0] && x <= max[0] && z >= min[2] && z <= max[2];
-  }
-  function nearPoint(at, x, y, z, r) {
-    if (!at) return false;
-    const dx = x - at[0], dy = y - (at[1] || 0), dz = z - at[2];
-    return dx * dx + dy * dy + dz * dz <= r * r;
+  function tickRides(state, sec, dt) {
+    const carpets = sec && sec.carpets || [];
+    const zips = (sec && sec.links || []).filter((link) => link.kind === "zipline");
+    const lv = state.level;
+    if (!carpets.length && !zips.length) {
+      if (lv.rides) delete lv.rides;
+      return;
+    }
+    const book2 = rideBook(lv);
+    const p = state.players[state.localPlayerId];
+    if (!p) return;
+    for (const c of carpets) {
+      if (!c.from || !c.to) continue;
+      const st = book2[c.id] || (book2[c.id] = { u: 0, dir: 1, pause: 0, armed: c.mode !== "onTrigger" });
+      if (!st.armed) {
+        if (near(p, pointOn(c.from, c.to, 0), 1.35)) st.armed = true;
+        else continue;
+      }
+      const pause = c.mode === "onTrigger" ? c.returnAfter == null ? 4 : c.returnAfter : c.pause || 0;
+      const moved = stepPlatform(st, c.from, c.to, c.speed || 3, dt, pause);
+      if (st.u === 1) st.reached = true;
+      carry(p, moved.prev, moved.next);
+      if (c.mode === "onTrigger" && st.reached && st.u === 0 && st.pause <= 0) {
+        st.armed = false;
+        st.reached = false;
+      }
+    }
+    for (const z of zips) {
+      if (!z.from || !z.to) continue;
+      const st = book2[z.id] || (book2[z.id] = { u: 0, dir: 1, pause: 0, riding: false });
+      if (!st.riding) {
+        if (near(p, pointOn(z.from, z.to, 0), 1.2)) st.riding = true;
+        else continue;
+      }
+      const len = lengthOf(z.from, z.to);
+      const prev = pointOn(z.from, z.to, st.u);
+      st.u = Math.min(1, st.u + (z.speed || 16) / len * dt);
+      const next2 = pointOn(z.from, z.to, st.u);
+      p.pos.x += next2.x - prev.x;
+      p.pos.y = next2.y;
+      p.pos.z += next2.z - prev.z;
+      if (st.u >= 1) {
+        st.riding = false;
+        st.u = 0;
+      }
+    }
   }
 
   // src/sim/campaign/campaign.js
@@ -4011,12 +7135,20 @@ var SprotoShooterSim = (() => {
       time: 0
     };
     p.unlockedSlots = 4;
+    clearCampaignSpells(state, p);
+    if (rt.startAmmo) {
+      for (const k of Object.keys(rt.startAmmo)) p.ammo[k] = rt.startAmmo[k];
+    }
     p.jetpack = jet;
     p.campaignSpeed = 1;
     p.pos = { x: first.start[0], y: first.start[1], z: first.start[2] };
     p.prevPos = { ...p.pos };
     p.vel = { x: 0, y: 0, z: 0 };
     p.yaw = first.yaw || 0;
+    if (rt.format === "v2") {
+      beginV2(state);
+      noteV2Section(state, first, rt);
+    }
     emit(state, "modeStart", { mode: "campaign", tier: state.tier, level: rt.id });
     if (first.intro) emit(state, "levelCard", { title: first.intro.title, lines: first.intro.lines });
     saveCheckpoint(state, "start");
@@ -4029,6 +7161,7 @@ var SprotoShooterSim = (() => {
       lv.transition = null;
       const sec = sectionById(lv.id, lv.section);
       lv.intro = sec && sec.intro ? sec.intro : null;
+      if (lv.format === "v2") noteV2Section(state, sec, getLevelRuntime(lv.id));
       if (lv.intro) emit(state, "levelCard", { title: lv.intro.title, lines: lv.intro.lines });
     } else if (lv.intro) lv.intro = null;
   }
@@ -4040,7 +7173,33 @@ var SprotoShooterSim = (() => {
     if (p.padCd > 0) p.padCd -= dt;
     const sec = sectionById(lv.id, lv.section);
     if (!sec) return;
-    for (const m of sec.mechanisms || []) touchMechanism(state, p, lv, sec, m, dt);
+    for (const m of sec.mechanisms || []) {
+      touchMechanism(state, p, lv, sec, m, dt);
+      tickZoneDamage(state, p, m, dt);
+      tickGeyser(state, p, m);
+      tickRising(state, p, m, dt);
+    }
+    for (const g of sec.geysers || []) tickGeyser(state, p, g.kind ? g : { ...g, kind: "geyser" });
+    noteSafeGround(state, sec);
+    let zoned = false;
+    for (const m of sec.mechanisms || []) if (isZone(m)) {
+      zoned = true;
+      break;
+    }
+    if (!zoned && sec.hazards && sec.hazards.length) zoned = true;
+    if (zoned) {
+      state._campaignSection = sec;
+      const slow = playerZoneSlow(lv, sec, p);
+      if (slow < 1) p.hazardSlow = slow;
+      else if (p.hazardSlow != null) delete p.hazardSlow;
+      if (lv._zonesDirty || lv._zoneSec !== sec.id) publishSlowZones(lv, sec);
+      lv._zoneSec = sec.id;
+    } else if (state._campaignSection || lv.slowZones || p.hazardSlow != null || lv._zoneSec) {
+      delete state._campaignSection;
+      delete lv.slowZones;
+      delete lv._zoneSec;
+      if (p.hazardSlow != null) delete p.hazardSlow;
+    }
     for (const w of sec.weapons || []) {
       if (lv.got[w.id]) continue;
       if (!nearPoint(w.at, p.pos.x, p.pos.y + 1, p.pos.z, 3.2)) continue;
@@ -4055,6 +7214,10 @@ var SprotoShooterSim = (() => {
       saveCheckpoint(state, c.id);
       emit(state, "checkpoint", { id: c.id });
     }
+    if (lv.format === "v2") {
+      v2Pre(state, dt);
+      return;
+    }
     for (const enc of sec.encounters || []) {
       if (lv.spawned[enc.id] || lv.cleared[enc.id]) continue;
       if (!inBox(enc.activate, p.pos.x, p.pos.y, p.pos.z)) continue;
@@ -4063,14 +7226,45 @@ var SprotoShooterSim = (() => {
     }
     lv.objective = objectiveText(lv, sec);
   }
+  function hurtEnemiesInHazard(state, p, m, dt) {
+    for (const e of state.enemies) {
+      if (e.dead || e.type === "gooGlob" || e.type && e.type.startsWith("gooGlob")) continue;
+      if (!inBox(m, e.pos.x, e.pos.y, e.pos.z)) continue;
+      e.hp -= m.enemyDps * dt;
+      if (m.stripsBark && e.ai && e.ai.armour && e.ai.armour !== "stripped") e.ai.armour = "stripped";
+      if (e.hp <= 0) {
+        e.lastHit = { sourceId: p.id, sourceKind: "world", element: "none" };
+        onEnemyKilled(state, e);
+      }
+    }
+  }
   function campaignPost(state, dt) {
     const lv = state.level;
     if (!lv || lv.won || lv.lost) return;
-    const p = state.players[state.localPlayerId];
+    const motionSec = sectionById(lv.id, lv.section);
+    if (motionSec) {
+      tickVoid(state, motionSec);
+      tickRides(state, motionSec, dt);
+    }
     for (const e of state.enemies) {
       if (e.dead || !e.boss || !BOSSES[e.type] || !BOSSES[e.type].campaign) continue;
       tickDuelBoss(state, e, dt);
     }
+    if (lv.format === "v2") {
+      v2Post(state, dt);
+      const again = state.level;
+      if (again && again._rewind) {
+        const encounter = again._rewind;
+        delete again._rewind;
+        if (restoreCheckpoint(state)) emit(state, "lockdownReset", { encounter });
+        else {
+          state.level.lost = true;
+          emit(state, "levelLost", { level: state.level.id });
+        }
+      }
+      return;
+    }
+    const p = state.players[state.localPlayerId];
     for (const e of state.enemies) {
       if (e.dead || e.type !== "daycare") continue;
       e.ai.nestT = (e.ai.nestT || 1.2) - dt;
@@ -4091,6 +7285,8 @@ var SprotoShooterSim = (() => {
           if (e.hp / e.maxHp <= enc.fleeAt) {
             e.dead = true;
             e.fled = true;
+            if (!lv.fled) lv.fled = {};
+            lv.fled[enc.id] = true;
             emit(state, "bossEscape", { id: e.id, bossType: e.type });
           }
         }
@@ -4133,16 +7329,25 @@ var SprotoShooterSim = (() => {
   function flagOn(lv, when) {
     if (!when) return true;
     if (when.endsWith(".cleared")) return !!lv.cleared[when.slice(0, -".cleared".length)];
+    if (when.endsWith(".fled")) return !!(lv.fled && lv.fled[when.slice(0, -".fled".length)]);
+    if (when.endsWith(".destroyed")) return !!(lv.v2 && lv.v2.parts && lv.v2.parts[when.slice(0, -".destroyed".length)]);
     if (when.startsWith("switch:")) return !!lv.got[when.slice("switch:".length)];
     return !!lv.got[when];
   }
   function touchMechanism(state, p, lv, sec, m, dt) {
     const x = p.pos.x, y = p.pos.y, z = p.pos.z;
-    if (m.kind === "switch" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.5)) {
-      lv.got[m.id] = true;
-      emit(state, "switch", { id: m.id });
+    if (m.kind === "switch" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.5)) tickSwitch(state, p, m, dt);
+    if (m.kind === "depot" && m.at && nearPoint(m.at, x, y + 1, z, 2.4)) {
+      if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 30 * dt);
+      for (const type of Object.keys(p.ammo)) {
+        const cap = p.ammoCap[type];
+        if (p.ammo[type] < cap) p.ammo[type] = Math.min(cap, p.ammo[type] + 40 * dt);
+      }
+      for (const g of p.guns) {
+        if (g && g.stats && g.ammoInMag < g.stats.magSize) g.ammoInMag = g.stats.magSize;
+      }
     }
-    if (m.kind === "door" && !lv.got[m.id] && flagOn(lv, m.opens)) {
+    if (m.kind === "door" && m.opens && !lv.got[m.id] && flagOn(lv, m.opens)) {
       lv.got[m.id] = true;
       emit(state, "door", { id: m.id, open: true });
     }
@@ -4159,6 +7364,8 @@ var SprotoShooterSim = (() => {
         p.vel.x *= k;
         p.vel.z *= k;
       }
+      slowEnemiesInHazard(state, m);
+      if (m.enemyDps) hurtEnemiesInHazard(state, p, m, dt);
     }
     if ((m.kind === "jetpack" || m.kind === "fuel") && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.8)) {
       lv.got[m.id] = true;
@@ -4170,10 +7377,34 @@ var SprotoShooterSim = (() => {
       lv.got[m.id] = true;
       grantModifier(state, p, m.modifier);
     }
+    if (m.kind === "shrine" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 2.2)) {
+      lv.got[m.id] = true;
+      grantSpell(state, p, m.spell || "gooBolt");
+      p.mana = p.maxMana;
+      emit(state, "shrine", { id: m.id, spell: m.spell || "gooBolt" });
+    }
+    if (m.kind === "ammo" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.4)) {
+      lv.got[m.id] = true;
+      createPickup(state, {
+        kind: "ammo",
+        ammoType: m.ammoType || "bullets",
+        amount: m.amount || 60,
+        pos: { x: m.at[0], y: (m.at[1] || 0) + 0.4, z: m.at[2] }
+      });
+    }
+    if (m.kind === "chest" && !lv.got[m.id] && flagOn(lv, m.opens) && nearPoint(m.at, x, y + 1, z, 2.2)) {
+      lv.got[m.id] = true;
+      giveWorldGun(state, p, m.gun || "mg");
+    }
     if (m.kind === "secret" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.7)) {
       lv.got[m.id] = true;
-      grantModifier(state, p, m.modifier);
-      emit(state, "secret", { id: m.id, modifier: m.modifier });
+      if (m.modifier) grantModifier(state, p, m.modifier);
+      if (m.tickets) p.tickets += m.tickets;
+      if (m.mana) {
+        p.maxMana += m.mana;
+        p.mana = p.maxMana;
+      }
+      emit(state, "secret", { id: m.id, modifier: m.modifier || null });
     }
     if (m.kind === "portal" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.4)) {
       lv.got[m.id] = true;
@@ -4188,17 +7419,14 @@ var SprotoShooterSim = (() => {
     if (m.kind === "rail" && Math.abs(p.pos.z - m.from[2]) < 2 && p.pos.x >= m.from[0] && p.pos.x <= m.to[0]) {
       p.vel.x += (m.speed || 10) * dt * 3;
     }
-    if (m.kind === "mover" && Math.abs(p.pos.x - m.from[0]) < 1.6) {
-      p.vel.x += (m.speed || 2) * dt;
-    }
+    if (m.kind === "mover" && m.from && onMover(p, m)) tickMover(state, p, m, dt);
     if (m.kind === "laser" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.3)) {
       damagePlayer(state, p, { base: (m.dps || 12) * dt, sourceKind: "world", fromPos: { x: m.at[0], y: m.at[1], z: m.at[2] } });
     }
     if (m.kind === "barrel" && !lv.got[m.id]) {
       const hit = state.enemies.some((e) => e.dead && e.campaignEnc && Math.hypot(e.pos.x - m.at[0], e.pos.z - m.at[2]) < 2.2);
       if (hit || nearPoint(m.at, x, y + 1, z, 1.2) && p.cmd && p.cmd.held && p.cmd.held.fire) {
-        lv.got[m.id] = true;
-        emit(state, "barrel", { id: m.id, pos: { x: m.at[0], y: m.at[1], z: m.at[2] } });
+        detonateBarrel(state, sec, m);
       }
     }
   }
@@ -4248,23 +7476,30 @@ var SprotoShooterSim = (() => {
     emit(state, "worldGun", { type, slot });
   }
   function spawnSquad(state, enc) {
-    const squad = enc.squads[0];
+    const squad3 = enc.squads[0];
     let i = 0;
-    for (const u of squad.units) {
-      for (let n = 0; n < u.count; n++) {
-        const at = squad.at[i] || squad.at[squad.at.length - 1];
+    for (const u2 of squad3.units) {
+      for (let n = 0; n < u2.count; n++) {
+        const at = squad3.at[i] || squad3.at[squad3.at.length - 1];
         i++;
-        const boss2 = BOSSES[u.type] && BOSSES[u.type].campaign;
-        const e = boss2 ? createBoss(state, u.type, { pos: { x: at[0], z: at[2] } }) : createEnemy(state, u.type, { pos: { x: at[0], z: at[2] } });
+        const boss2 = BOSSES[u2.type] && BOSSES[u2.type].campaign;
+        const e = boss2 ? createBoss(state, u2.type, { pos: { x: at[0], z: at[2] } }) : createEnemy(state, u2.type, { pos: { x: at[0], z: at[2] } });
         e.campaignEnc = enc.id;
-        if (boss2) emit(state, "bossSpawn", { id: e.id, bossType: u.type });
+        if (boss2) emit(state, "bossSpawn", { id: e.id, bossType: u2.type });
       }
     }
   }
   function tickDuelBoss(state, e, dt) {
     const def = BOSSES[e.type];
+    if (e.boss.stunT > 0) {
+      e.boss.stunT -= dt;
+      e.vel.x = 0;
+      e.vel.z = 0;
+      if (e.boss.stunT <= 0 && e.boss.action && e.boss.action.id === "stunned") e.boss.action = { id: "idle", t: 0 };
+      return;
+    }
     const frac = e.hp / e.maxHp;
-    e.boss.phaseIdx = frac <= 0.33 ? 2 : frac <= 0.66 ? 1 : 0;
+    if (!e.boss.scripted) e.boss.phaseIdx = frac <= 0.33 ? 2 : frac <= 0.66 ? 1 : 0;
     const t = livingPlayer(state);
     if (t) {
       const dx = t.pos.x - e.pos.x, dz = t.pos.z - e.pos.z;
@@ -4278,8 +7513,10 @@ var SprotoShooterSim = (() => {
     e.pos.z += e.vel.z * dt;
     e.ai.atk = (e.ai.atk == null ? 0.8 : e.ai.atk) - dt;
     if (e.ai.atk > 0 || !t) return;
-    e.ai.atk = def.attackEvery || 1.6;
-    const name = def.attacks[Math.floor(float(state.rng) * def.attacks.length)];
+    const scale = e.boss.scripted && e.boss.attackScale ? e.boss.attackScale : 1;
+    e.ai.atk = (def.attackEvery || 1.6) * scale;
+    const attacks = e.boss.scripted && e.boss.attackList ? e.boss.attackList : def.attacks;
+    const name = attacks[Math.floor(float(state.rng) * attacks.length)];
     bossAttack(state, e, def, t, name);
   }
   function livingPlayer(state) {
@@ -4309,6 +7546,11 @@ var SprotoShooterSim = (() => {
         const m = createEnemy(state, "midget", { pos: { x: e.pos.x + 2, z: e.pos.z }, summoned: true });
         m.campaignEnc = e.campaignEnc;
       }
+      return;
+    }
+    if (name === "carpetSweep") {
+      const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
+      if (d < 15) damagePlayer(state, t, { base: 14, sourceKind: "boss", fromPos: e.pos });
       return;
     }
     if (name === "slam" || name === "rugSlam") {
@@ -4346,6 +7588,18 @@ var SprotoShooterSim = (() => {
     if (!lv) return;
     bucket(state)[id] = structuredClone(state);
     lv.checkpoint = id;
+  }
+  function restoreCheckpoint(state) {
+    const lv = state.level;
+    if (!lv) return false;
+    const b = snaps.get(state);
+    const snap = b && (b[lv.checkpoint] || b.start);
+    if (!snap) return false;
+    const fresh = structuredClone(snap);
+    for (const k of Object.keys(state)) delete state[k];
+    Object.assign(state, fresh);
+    snaps.set(state, b);
+    return true;
   }
 
   // src/sim/actions.js
@@ -4427,6 +7681,11 @@ var SprotoShooterSim = (() => {
       else placeSandboxLegendary(state, p, tier);
       emit(state, "modeStart", { mode: state.testMode ? "test" : "sandbox", tier });
     }
+    if (state.mode !== "campaign") {
+      if (!p.spellUnlocks) p.spellUnlocks = {};
+      p.spellUnlocks.gooBolt = true;
+      syncSpellbook(state, p);
+    }
   }
   function startBossFight(state, p, type, tier) {
     if (!BOSSES[type]) type = Object.keys(BOSSES)[0];
@@ -4484,8 +7743,7 @@ var SprotoShooterSim = (() => {
   }
   function setGodMode(state, p, on) {
     state.tuning.godMode = !!on;
-    for (const id of SPELL_IDS) p.perks[id] = on || p.skills[PERKS_BY_ID[id].skill].level >= PERKS_BY_ID[id].level;
-    if (!p.perks.manaShield) p.spells.manaShieldOn = false;
+    syncSpellbook(state, p);
     if (!on) return;
     if (p.dead || p.downed) respawn(state, p);
     p.hp = Math.max(p.hp, Math.min(GOD_HP, p.maxHp));
@@ -4574,6 +7832,23 @@ var SprotoShooterSim = (() => {
         spawnGunPickup(state, gun, aheadOf(p, 3), "debug");
         break;
       }
+      case "campaignSection": {
+        const rt = getLevelRuntime(state.level.id);
+        const sec = rt.sectionById[args.id];
+        if (!sec) break;
+        state.level.section = sec.id;
+        state.level.intro = null;
+        state.level.transition = null;
+        if (state.level.format === "v2") noteV2Section(state, sec, rt);
+        if (args.x != null) {
+          p.pos.x = args.x;
+          p.pos.y = args.y || 0;
+          p.pos.z = args.z || 0;
+          p.prevPos = { ...p.pos };
+          p.vel = { x: 0, y: 0, z: 0 };
+        }
+        break;
+      }
       case "killAll":
         for (const e of state.enemies) if (!e.dead && e.type !== "dummy") {
           e.lastHit = { sourceId: p.id, sourceKind: "gun" };
@@ -4587,14 +7862,13 @@ var SprotoShooterSim = (() => {
         p.tickets += args.amount || 100;
         break;
       case "giveResources":
-        for (const k of RES_IDS) p.resources[k] += k === "bossCore" || k === "manaCrystal" ? 3 : args.amount || 100;
         break;
       case "giveXp":
         addXp(state, p, args.skill, args.amount || 100);
         break;
       case "levelSkill": {
         const s = p.skills[args.skill];
-        if (s.level < 10) addXp(state, p, args.skill, (xpToNext(args.skill, s.level) - s.xp + 1) / (1 + 0.1 * (state.tier - 1)));
+        if (s && s.level < 10) addXp(state, p, args.skill, (xpToNext(args.skill, s.level) - s.xp + 1) / (1 + 0.1 * (state.tier - 1)));
         break;
       }
       case "maxSkills":
@@ -4754,6 +8028,236 @@ var SprotoShooterSim = (() => {
     }
   }
 
+  // src/sim/campaign/perception.js
+  var blocksSight = (s) => s.sight !== false;
+  function hasLOS(state, from, to, max = 80) {
+    const dx = to.x - from.x, dy = to.y - from.y, dz = to.z - from.z;
+    const dist = Math.hypot(dx, dy, dz);
+    if (dist < 0.05) return true;
+    if (dist > max) return false;
+    const solids = activeSolids(state);
+    if (!solids) return true;
+    const dir = { x: dx / dist, y: dy / dist, z: dz / dist };
+    const hit = raySolids(solids, from, dir, dist, blocksSight);
+    return hit < 0 || hit > dist - 0.25;
+  }
+  function sensePlayer(state, e, target) {
+    if (!e.ai.alert || e.ai.alert === "alerted") return true;
+    const sight = e.ai.sight || 28;
+    const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
+    const dist = Math.hypot(dx, dz);
+    const from = { x: e.pos.x, y: e.pos.y + e.height * 0.8, z: e.pos.z };
+    const to = { x: target.pos.x, y: target.pos.y + 1.2, z: target.pos.z };
+    let wake = dist <= sight && hasLOS(state, from, to);
+    if (!wake) {
+      const hear = e.ai.hearing || 16;
+      for (let i = 0; i < state.events.length; i++) {
+        if (state.events[i].type === "shot" && dist <= hear) {
+          wake = true;
+          break;
+        }
+      }
+    }
+    if (!wake) return false;
+    e.ai.alert = "alerted";
+    return true;
+  }
+
+  // src/sim/campaign/nav.js
+  var CELL = 1;
+  var grids = /* @__PURE__ */ new WeakMap();
+  function blocked(solids, x, z) {
+    let floor2 = -Infinity;
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (x < s.min[0] || x > s.max[0] || z < s.min[2] || z > s.max[2]) continue;
+      const top = surfaceY(s, x, z);
+      const thin = s.kind === "ramp" || s.max[1] - s.min[1] <= 0.6;
+      if (thin && top > floor2) floor2 = top;
+    }
+    if (floor2 === -Infinity) {
+      const g = groundHeight(solids, x, z, 0.15, 0, 0.5);
+      if (g === -Infinity) return true;
+      floor2 = g;
+    }
+    for (let i = 0; i < solids.length; i++) {
+      const s = solids[i];
+      if (x < s.min[0] || x > s.max[0] || z < s.min[2] || z > s.max[2]) continue;
+      const top = surfaceY(s, x, z);
+      if (top > floor2 + 0.45 && s.min[1] < floor2 + 1.5) return true;
+    }
+    return false;
+  }
+  function key(ix, iz) {
+    return `${ix},${iz}`;
+  }
+  function zoneCostAt(zones, x, z) {
+    let cost = 1;
+    for (let i = 0; i < zones.length; i++) {
+      const zone2 = zones[i];
+      if (x < zone2.min[0] || x > zone2.max[0] || z < zone2.min[2] || z > zone2.max[2]) continue;
+      if (zone2.cost > cost) cost = zone2.cost;
+    }
+    return cost;
+  }
+  function bakeNav(solids, bounds, links = [], cell = CELL, zones = []) {
+    const x0 = bounds.min[0], z0 = bounds.min[1];
+    const nx = Math.max(1, Math.ceil((bounds.max[0] - x0) / cell));
+    const nz = Math.max(1, Math.ceil((bounds.max[1] - z0) / cell));
+    const open = /* @__PURE__ */ new Set();
+    for (let iz = 0; iz < nz; iz++) {
+      for (let ix = 0; ix < nx; ix++) {
+        const x = x0 + (ix + 0.5) * cell, z = z0 + (iz + 0.5) * cell;
+        if (!blocked(solids, x, z)) open.add(key(ix, iz));
+      }
+    }
+    const extra = [];
+    for (let i = 0; i < links.length; i++) {
+      const a = cellAt(bounds, links[i].from, cell);
+      const b = cellAt(bounds, links[i].to, cell);
+      if (!a || !b) continue;
+      extra.push({ a: key(a.ix, a.iz), b: key(b.ix, b.iz), to: links[i].to, kind: links[i].kind || "link" });
+      open.add(key(a.ix, a.iz));
+      open.add(key(b.ix, b.iz));
+    }
+    const cost = /* @__PURE__ */ new Map();
+    if (zones.length) {
+      for (let iz = 0; iz < nz; iz++) {
+        for (let ix = 0; ix < nx; ix++) {
+          const x = x0 + (ix + 0.5) * cell, z = z0 + (iz + 0.5) * cell;
+          const c = zoneCostAt(zones, x, z);
+          if (c > 1) cost.set(key(ix, iz), c);
+        }
+      }
+    }
+    return { bounds, cell, nx, nz, open, extra, cost };
+  }
+  function cellAt(bounds, pos, cell = CELL) {
+    const ix = Math.floor((pos.x - bounds.min[0]) / cell);
+    const iz = Math.floor(((pos.z != null ? pos.z : pos.y) - bounds.min[1]) / cell);
+    return { ix, iz };
+  }
+  function center(grid, ix, iz) {
+    return {
+      x: grid.bounds.min[0] + (ix + 0.5) * grid.cell,
+      z: grid.bounds.min[1] + (iz + 0.5) * grid.cell
+    };
+  }
+  function navGridFor(state) {
+    const solids = activeSolids(state);
+    const bounds = state.level && state.level.navBounds;
+    if (!solids || !bounds) return null;
+    const links = state.level.navLinks || [];
+    const zones = state.level.slowZones || [];
+    const cached = grids.get(solids);
+    if (cached && cached.bounds === bounds && cached.links === links && cached.zones === zones) return cached.grid;
+    const grid = bakeNav(solids, bounds, links, CELL, zones);
+    grids.set(solids, { bounds, links, zones, grid });
+    return grid;
+  }
+  function nearestOpen(grid, pos) {
+    const c = cellAt(grid.bounds, pos, grid.cell);
+    if (grid.open.has(key(c.ix, c.iz))) return c;
+    let best = null, bd = 1e9;
+    for (let iz = 0; iz < grid.nz; iz++) {
+      for (let ix = 0; ix < grid.nx; ix++) {
+        if (!grid.open.has(key(ix, iz))) continue;
+        const p = center(grid, ix, iz);
+        const d = (p.x - pos.x) ** 2 + (p.z - pos.z) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = { ix, iz };
+        }
+      }
+    }
+    return best;
+  }
+  function findPath(grid, from, to) {
+    if (!grid) return null;
+    const a = nearestOpen(grid, from);
+    const b = nearestOpen(grid, to);
+    if (!a || !b) return null;
+    const start2 = key(a.ix, a.iz), goal = key(b.ix, b.iz);
+    if (start2 === goal) return [center(grid, a.ix, a.iz)];
+    const open = [start2];
+    const came = /* @__PURE__ */ new Map();
+    const g = /* @__PURE__ */ new Map([[start2, 0]]);
+    const seen2 = /* @__PURE__ */ new Set();
+    const neigh = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    while (open.length) {
+      let bi = 0, bg = g.get(open[0]) + 0;
+      for (let i = 1; i < open.length; i++) {
+        const k = open[i];
+        const [ix2, iz2] = k.split(",").map(Number);
+        const h = Math.abs(ix2 - b.ix) + Math.abs(iz2 - b.iz);
+        const f = g.get(k) + h;
+        if (f < bg) {
+          bg = f;
+          bi = i;
+        }
+      }
+      const cur = open.splice(bi, 1)[0];
+      if (cur === goal) break;
+      if (seen2.has(cur)) continue;
+      seen2.add(cur);
+      const [ix, iz] = cur.split(",").map(Number);
+      for (let n = 0; n < neigh.length; n++) {
+        const jx = ix + neigh[n][0], jz = iz + neigh[n][1];
+        const nk = key(jx, jz);
+        if (!grid.open.has(nk)) continue;
+        const ng = g.get(cur) + (grid.cost && grid.cost.get(nk) || 1);
+        if (ng < (g.get(nk) ?? 1e9)) {
+          g.set(nk, ng);
+          came.set(nk, cur);
+          open.push(nk);
+        }
+      }
+      for (let n = 0; n < grid.extra.length; n++) {
+        const link = grid.extra[n];
+        const nk = link.a === cur ? link.b : link.b === cur ? link.a : null;
+        if (!nk) continue;
+        const ng = g.get(cur) + 2;
+        if (ng < (g.get(nk) ?? 1e9)) {
+          g.set(nk, ng);
+          came.set(nk, cur);
+          open.push(nk);
+        }
+      }
+    }
+    if (!came.has(goal) && start2 !== goal) return null;
+    const cells = [goal];
+    let walk = goal;
+    while (came.has(walk)) {
+      walk = came.get(walk);
+      cells.push(walk);
+    }
+    cells.reverse();
+    return cells.map((k) => {
+      const [ix, iz] = k.split(",").map(Number);
+      return center(grid, ix, iz);
+    });
+  }
+  function navWaypoint(state, from, to) {
+    if (!state.level || !state.level.useNav) return null;
+    const grid = navGridFor(state);
+    const path = findPath(grid, from, to);
+    if (!path || path.length < 2) return path && path[0] ? path[0] : null;
+    return path[1];
+  }
+  function clampFlyer(e, volume) {
+    if (!volume) return;
+    const m = volume.min, M = volume.max;
+    if (e.pos.x < m[0]) e.pos.x = m[0];
+    if (e.pos.x > M[0]) e.pos.x = M[0];
+    if (e.pos.y < m[1]) e.pos.y = m[1];
+    if (e.pos.y > M[1]) {
+      e.pos.y = M[1];
+      if (e.vel.y > 0) e.vel.y = 0;
+    }
+    if (e.pos.z < m[2]) e.pos.z = m[2];
+    if (e.pos.z > M[2]) e.pos.z = M[2];
+  }
+
   // src/sim/enemies.js
   function nearestPlayer(state, pos) {
     let best = null, bd = Infinity;
@@ -4772,7 +8276,8 @@ var SprotoShooterSim = (() => {
     e.stateT = 0;
   }
   function steer(state, e, target, w, invertSeek = false) {
-    let sx = target.pos.x - e.pos.x, sz = target.pos.z - e.pos.z;
+    const seek = !invertSeek && e.ai.navPoint ? e.ai.navPoint : target.pos;
+    let sx = seek.x - e.pos.x, sz = seek.z - e.pos.z;
     const sl = Math.hypot(sx, sz) || 1;
     sx /= sl;
     sz /= sl;
@@ -4842,7 +8347,7 @@ var SprotoShooterSim = (() => {
         } else from = { x: e.pos.x - Math.sin(e.yaw) * 0.6 * sc, y: e.pos.y + e.height * 0.7 * sc, z: e.pos.z - Math.cos(e.yaw) * 0.6 * sc };
         const dx = t.pos.x - from.x, dy = t.pos.y + 1.1 - from.y, dz = t.pos.z - from.z;
         const dl = Math.hypot(dx, dy, dz) || 1;
-        const d2 = cone(state, { x: dx / dl, y: dy / dl, z: dz / dl }, gun.spread);
+        const d2 = cone2(state, { x: dx / dl, y: dy / dl, z: dz / dl }, gun.spread);
         const kind = gun.kind || (gun.small ? "pellet" : "bullet");
         createProjectile(state, {
           kind,
@@ -4877,7 +8382,7 @@ var SprotoShooterSim = (() => {
     }
     return false;
   }
-  function cone(state, aim, spreadDeg) {
+  function cone2(state, aim, spreadDeg) {
     const th = deg(spreadDeg) * Math.sqrt(float(state.rng));
     const ph = float(state.rng) * Math.PI * 2;
     const up = Math.abs(aim.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
@@ -4987,7 +8492,7 @@ var SprotoShooterSim = (() => {
         approachVel(e, { x: wx / wl, z: wz / wl }, speed, def.accel, dt);
         e.vel.y += ((ai.alt - e.pos.y) * 3 - e.vel.y) * Math.min(1, 4 * dt);
         faceToward(e, t, deg(720), dt);
-        ai.shooting = enemyGun(state, e, t, def.gun, dt, true);
+        ai.shooting = def.gun ? enemyGun(state, e, t, def.gun, dt, true) : false;
       }
     },
     bigObama: {
@@ -5053,11 +8558,27 @@ var SprotoShooterSim = (() => {
         e.ai.aimT = 0;
         approachVel(e, { x: 0, z: 0 }, 0, 25, dt);
         if (e.stateT >= def.staggerTime) setState(e, "chase");
+      } else if (e.ai.scriptTarget) {
+        approachVel(e, { x: 0, z: 0 }, 0, 30, dt);
+      } else if (e.ai.buried > 0) {
+        e.ai.buried -= dt;
+        approachVel(e, { x: 0, z: 0 }, 0, 30, dt);
+      } else if (e.ai.alert && e.ai.alert !== "alerted" && !e.ai.charge && !sensePlayer(state, e, target)) {
+        approachVel(e, { x: 0, z: 0 }, 0, 30, dt);
       } else {
+        if (e.ai.charge) e.ai.alert = "alerted";
+        if (state.mode === "campaign" && state.level && state.level.useNav) {
+          const far = Math.hypot(target.pos.x - e.pos.x, target.pos.z - e.pos.z);
+          e.ai.navPoint = far > 2.5 ? navWaypoint(state, e.pos, target.pos) : null;
+        }
         if (e.state === "idle" && e.type !== "dummy") setState(e, "chase");
         const slow = e.status.goo ? 1 - e.status.goo.slow : 1;
+        const zone2 = state.mode === "campaign" ? enemyZoneSlow(state.level, state._campaignSection, e) : 1;
+        const rush = e.ai.charge ? 1.8 : 1;
         const beh = BEHAVIORS[e.type] || BEHAVIORS[def.behavior];
-        beh.update(state, e, target, def, def.speed * e.speedMult * slow, dt);
+        beh.update(state, e, target, def, def.speed * e.speedMult * slow * zone2 * rush, dt);
+        if (e.ai.bubble > 0) e.ai.bubble -= dt;
+        tickArchetype(state, e, target, dt);
       }
       if (def.flying) {
         if (e.state === "stagger" || e.state === "spawning") e.vel.y += ((e.state === "spawning" ? 2 : -3) - e.vel.y) * Math.min(1, 5 * dt);
@@ -5065,10 +8586,29 @@ var SprotoShooterSim = (() => {
       e.pos.x += e.vel.x * dt;
       e.pos.y += e.vel.y * dt;
       e.pos.z += e.vel.z * dt;
-      const floorY = def.flying ? 0.6 : 0;
-      if (e.pos.y <= floorY) {
-        e.pos.y = floorY;
-        if (e.vel.y < 0) e.vel.y = 0;
+      const solids = activeSolids(state);
+      if (def.ghost) {
+        if (state.mode === "campaign" && state.level && state.level.navBounds) {
+          const b = state.level.navBounds;
+          if (e.pos.x < b.min[0]) e.pos.x = b.min[0];
+          if (e.pos.x > b.max[0]) e.pos.x = b.max[0];
+          if (e.pos.z < b.min[1]) e.pos.z = b.min[1];
+          if (e.pos.z > b.max[1]) e.pos.z = b.max[1];
+        }
+        if (!def.flying && solids) snapToGround(e, solids, e.radius * e.scale);
+      } else if (solids && !def.flying) {
+        pushHorizontal(e, solids, e.radius * e.scale, e.height * e.scale);
+        snapToGround(e, solids, e.radius * e.scale);
+      } else if (def.flying && state.mode === "campaign" && state.level && state.level.flyerLids) {
+        for (let i = 0; i < state.level.flyerLids.length; i++) clampFlyer(e, state.level.flyerLids[i]);
+      } else if (def.flying && state.mode === "campaign" && state.level && state.level.flyerVolume) {
+        clampFlyer(e, state.level.flyerVolume);
+      } else {
+        const floorY = def.flying ? 0.6 : 0;
+        if (e.pos.y <= floorY) {
+          e.pos.y = floorY;
+          if (e.vel.y < 0) e.vel.y = 0;
+        }
       }
       if (e.state !== "chase" && e.state !== "attack") {
         e.vel.x *= Math.max(0, 1 - 4 * dt);
@@ -5347,12 +8887,12 @@ var SprotoShooterSim = (() => {
           emit(state, "bossTelegraph", { id: e.id, kind: "slam" });
         }
         integrate();
-        const rings = e.boss.phaseIdx >= 1 ? 2 : 1;
+        const rings2 = e.boss.phaseIdx >= 1 ? 2 : 1;
         a.data.landed = a.data.landed || a.t > 0.3 && e.pos.y <= 0;
         if (a.data.landed) {
           a.data.lt = (a.data.lt || 0) + dt;
           a.data.spawned = a.data.spawned || 0;
-          if (a.data.spawned < rings && a.data.lt >= a.data.spawned * 0.6) {
+          if (a.data.spawned < rings2 && a.data.lt >= a.data.spawned * 0.6) {
             a.data.spawned++;
             createHazard(state, { kind: "shockwave", pos: { x: e.pos.x, y: 0, z: e.pos.z }, radius: def.radius, maxRadius: 22, speed: 10, height: 0.6, ttl: 3, damage: def.slamDamage * e.dmgMult, ownerId: e.id });
             emit(state, "explosion", { pos: { x: e.pos.x, y: 0.2, z: e.pos.z }, radius: 4, element: "none", slam: true });
@@ -5508,10 +9048,21 @@ var SprotoShooterSim = (() => {
         e.pos.x += gx / gl * Math.min(gl, sp * dt);
         e.pos.z += gz / gl * Math.min(gl, sp * dt);
       }
-      const r = Math.hypot(e.pos.x, e.pos.z);
-      if (r > ARENA_R - 4) {
-        e.pos.x *= (ARENA_R - 4) / r;
-        e.pos.z *= (ARENA_R - 4) / r;
+      if (state.mode !== "campaign") {
+        const r = Math.hypot(e.pos.x, e.pos.z);
+        if (r > ARENA_R - 4) {
+          e.pos.x *= (ARENA_R - 4) / r;
+          e.pos.z *= (ARENA_R - 4) / r;
+        }
+      } else if (e.boss.arena) {
+        const c = e.boss.arena;
+        const ax = e.pos.x - c.x, az = e.pos.z - c.z;
+        const ar = Math.hypot(ax, az);
+        const limit = Math.max(1, (c.radius || 30) - 4);
+        if (ar > limit) {
+          e.pos.x = c.x + ax / ar * limit;
+          e.pos.z = c.z + az / ar * limit;
+        }
       }
       e.yaw = yawTo(e.pos, t.pos);
     }
@@ -5841,6 +9392,15 @@ var SprotoShooterSim = (() => {
       }
       const len = Math.hypot(p.vel.x, p.vel.y, p.vel.z) * dt;
       const dir = len > 0 ? { x: p.vel.x * dt / len, y: p.vel.y * dt / len, z: p.vel.z * dt / len } : { x: 0, y: 0, z: 1 };
+      const shotSolids = activeSolids(state);
+      if (shotSolids && len > 0) {
+        const wall = raySolids(shotSolids, p.pos, dir, len);
+        if (wall >= 0) {
+          p.pos = { x: p.pos.x + dir.x * wall, y: p.pos.y + dir.y * wall, z: p.pos.z + dir.z * wall };
+          detonate(state, p);
+          continue;
+        }
+      }
       const end = { x: p.pos.x + p.vel.x * dt, y: p.pos.y + p.vel.y * dt, z: p.pos.z + p.vel.z * dt };
       let consumed = false;
       if (p.faction === "player") {
@@ -6026,8 +9586,10 @@ var SprotoShooterSim = (() => {
         k.pos.x += k.vel.x * dt;
         k.pos.y += k.vel.y * dt;
         k.pos.z += k.vel.z * dt;
-        if (k.pos.y < 0.6) {
-          k.pos.y = 0.6;
+        const dropSolids = activeSolids(state);
+        const floor2 = dropSolids ? Math.max(0.6, groundHeight(dropSolids, k.pos.x, k.pos.z, 0.2, k.pos.y, 2) + 0.3) : 0.6;
+        if (k.pos.y < floor2) {
+          k.pos.y = floor2;
           k.vel.y = 0;
           k.vel.x *= 0.85;
           k.vel.z *= 0.85;
@@ -6102,7 +9664,6 @@ var SprotoShooterSim = (() => {
         p.ammo[k.ammoType] = Math.min(p.ammoCap[k.ammoType], p.ammo[k.ammoType] + k.amount);
         break;
       case "resource":
-        p.resources[k.resId] += k.amount;
         break;
       case "tickets":
         p.tickets += k.amount;
@@ -6156,12 +9717,12 @@ var SprotoShooterSim = (() => {
     }
   }
   function cleanup(state) {
-    for (const key of ["enemies", "projectiles", "pickups", "hazards", "allies"]) {
-      const arr = state[key];
+    for (const key2 of ["enemies", "projectiles", "pickups", "hazards", "allies"]) {
+      const arr = state[key2];
       let w = 0;
       for (let i = 0; i < arr.length; i++) {
         const it = arr[i];
-        const keep = key === "enemies" ? !(it.dead && (it.deadT = (it.deadT || 0) + 1) > 1) : !it.dead;
+        const keep = key2 === "enemies" ? !(it.dead && (it.deadT = (it.deadT || 0) + 1) > 1) : !it.dead;
         if (keep) arr[w++] = it;
       }
       arr.length = w;
@@ -6174,8 +9735,8 @@ var SprotoShooterSim = (() => {
       p.prevPos.y = p.pos.y;
       p.prevPos.z = p.pos.z;
     }
-    for (const key of ["enemies", "projectiles", "pickups", "allies"]) {
-      for (const e of state[key]) {
+    for (const key2 of ["enemies", "projectiles", "pickups", "allies"]) {
+      for (const e of state[key2]) {
         e.prevPos.x = e.pos.x;
         e.prevPos.y = e.pos.y;
         e.prevPos.z = e.pos.z;
@@ -6282,7 +9843,10 @@ var SprotoShooterSim = (() => {
       id: "obama",
       duelId: "obama",
       levelId: "L04",
-      encounterId: "S3-E3",
+      // SB-BOSS is the payable fight. The corridor level still calls it S3-E3,
+      // so a tree without SB-BOSS keeps issuing that encounter.
+      encounterId: "SB-BOSS",
+      legacyEncounterId: "S3-E3",
       parts: ["obamaDuo", "midgetDuo"],
       countAs: 1
     },
@@ -6319,6 +9883,15 @@ var SprotoShooterSim = (() => {
     if (id === "obamaDuo" || id === "midgetDuo") return "obama_is_one";
     return null;
   }
+  function resolveCanonicalEncounter(boss2) {
+    const ids = [boss2.encounterId, boss2.legacyEncounterId];
+    for (let i = 0; i < ids.length; i++) {
+      if (!ids[i]) continue;
+      const found = findEncounter(boss2.levelId, ids[i]);
+      if (found) return found;
+    }
+    return null;
+  }
   function findEncounter(levelId, encounterId) {
     const level = CAMPAIGN_LEVELS.find((l) => l.id === levelId);
     if (!level) return null;
@@ -6329,20 +9902,20 @@ var SprotoShooterSim = (() => {
     return null;
   }
   function sameParts(units, parts) {
-    const got = units.map((u) => u.type).slice().sort();
-    const want = parts.slice().sort();
-    if (got.length !== want.length) return false;
-    for (let i = 0; i < got.length; i++) if (got[i] !== want[i]) return false;
-    return units.every((u) => u.count === 1);
+    for (let i = 0; i < parts.length; i++) {
+      const got = units.filter((u2) => u2.type === parts[i]);
+      if (got.length !== 1 || got[0].count !== 1) return false;
+    }
+    return parts.length > 0;
   }
   function assertCanonicalManifest() {
     for (const boss2 of CANONICAL_BOSSES) {
-      const found = findEncounter(boss2.levelId, boss2.encounterId);
+      const found = resolveCanonicalEncounter(boss2);
       if (!found) throw new Error(`missing canonical encounter ${boss2.id}`);
       if (found.encounter.fleeAt) throw new Error(`${boss2.id} encounter flees and cannot pay`);
       const units = [];
-      for (const squad of found.encounter.squads || []) {
-        for (const u of squad.units || []) units.push(u);
+      for (const squad3 of found.encounter.squads || []) {
+        for (const u2 of squad3.units || []) units.push(u2);
       }
       if (!sameParts(units, boss2.parts)) throw new Error(`${boss2.id} parts drifted`);
       for (let i = 0; i < boss2.parts.length; i++) {
@@ -6369,17 +9942,17 @@ var SprotoShooterSim = (() => {
     };
   }
   function encounterFacts(boss2) {
-    const found = findEncounter(boss2.levelId, boss2.encounterId);
+    const found = resolveCanonicalEncounter(boss2);
     const units = [];
-    for (const squad of found.encounter.squads) {
-      for (const u of squad.units) units.push({ type: u.type, count: u.count });
+    for (const squad3 of found.encounter.squads) {
+      for (const u2 of squad3.units) units.push({ type: u2.type, count: u2.count });
     }
     return {
       id: boss2.id,
       duelId: boss2.duelId,
       distinctFrom: boss2.distinctFrom || [],
       levelId: boss2.levelId,
-      encounterId: boss2.encounterId,
+      encounterId: found.encounter.id,
       sectionStart: found.section.start,
       fleeAt: found.encounter.fleeAt || 0,
       units,
@@ -6471,9 +10044,9 @@ var SprotoShooterSim = (() => {
     teleport: "teleport",
     position: "teleport"
   };
-  function hostileKey(key) {
-    if (key === "__proto__" || key === "constructor" || key === "prototype") return "malformed";
-    return HOSTILE[key] || null;
+  function hostileKey(key2) {
+    if (key2 === "__proto__" || key2 === "constructor" || key2 === "prototype") return "malformed";
+    return HOSTILE[key2] || null;
   }
   function inspectValue(value, depth = 0) {
     if (depth > 12) return "malformed";
@@ -6690,7 +10263,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
+  var SOURCE_COMMIT = "82d5ab51b0eaa487f225f86e77ff93e94133dc89";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
@@ -6711,11 +10284,13 @@ var SprotoShooterSim = (() => {
   function canonicalLoadoutOk(state) {
     const p = state.players[state.localPlayerId];
     if (!p || p.tickets !== 0 || p.unlockedSlots !== 4) return false;
-    const resources = p.resources || {};
-    const names = Object.keys(resources);
-    for (let i = 0; i < names.length; i++) if (resources[names[i]] !== 0) return false;
-    if (p.skills.health.level !== 1 || p.skills.magic.level !== 1) return false;
-    if (!p.perks.gooBolt || !p.perks.craftT1 || p.perks.swarm || p.perks.meteor) return false;
+    if (p.resources) {
+      const names = Object.keys(p.resources);
+      for (let i = 0; i < names.length; i++) if (p.resources[names[i]] !== 0) return false;
+    }
+    if (!p.skills.health || p.skills.health.level !== 1 || !p.skills.gunslinger || p.skills.gunslinger.level !== 1) return false;
+    if (p.skills.magic || p.skills.crafting) return false;
+    if (!p.perks.gooBolt || p.perks.craftT1 || p.perks.swarm || p.perks.meteor) return false;
     const guns = p.guns.filter(Boolean);
     if (guns.length !== 1) return false;
     const g = guns[0];
@@ -6732,12 +10307,14 @@ var SprotoShooterSim = (() => {
     state.level.transition = null;
     state.level.won = false;
     state.level.lost = false;
+    if (state.level.format === "v2") noteV2Section(state, section, getLevelRuntime(boss2.levelId));
     p.pos = { x: section.start[0], y: section.start[1], z: section.start[2] };
     p.prevPos = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
     p.vel = { x: 0, y: 0, z: 0 };
     p.yaw = section.yaw || 0;
     p.pitch = 0;
     state.mode = "campaign";
+    grantSpell(state, p, "gooBolt");
     state.tuning = {
       godMode: false,
       enemyHpMult: 1,
@@ -6766,7 +10343,7 @@ var SprotoShooterSim = (() => {
     if (typeof input.seed !== "number" || !Number.isInteger(input.seed) || input.seed < 1 || input.seed > 4294967295) {
       return reject(input.seed < 0 ? "negative" : "malformed");
     }
-    const found = findEncounter(boss2.levelId, boss2.encounterId);
+    const found = resolveCanonicalEncounter(boss2);
     if (!found) return reject("malformed");
     const issuance = {
       v: PROTOCOL_VERSION,
@@ -6778,7 +10355,7 @@ var SprotoShooterSim = (() => {
       seed: input.seed,
       levelId: boss2.levelId,
       sectionId: found.section.id,
-      encounterId: boss2.encounterId,
+      encounterId: found.encounter.id,
       canonicalBoss: boss2.id,
       parts: boss2.parts.slice(),
       countAs: 1,
