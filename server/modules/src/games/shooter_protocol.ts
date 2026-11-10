@@ -1,6 +1,6 @@
 // Free 1v1 wire contract. The arena bundle is vendor/shooter-pvp-sim.js
 // (sproto-shooter build/shooter-pvp-sim.js). The campaign verifier
-// vendor/shooter-sim.js stays on fingerprint 3c657fb5 and is not this match.
+// vendor/shooter-sim.js is the campaign verifier (fingerprint CAMPAIGN_FINGERPRINT) and is not this match.
 // scripts/check-shooter-pvp-sim-version.mjs fails when the file hash, these
 // constants, the live bundle, or shooter main disagree.
 //
@@ -27,13 +27,13 @@ namespace ShooterProto {
   export var KIND = "sproto_shooter_free";
   export var MODE = "free";
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
-  export var BUNDLE_SHA256 = "fbc50576b6ddfd0feef3aaf7ab3f508308bac9a8548e3e29f0f5a8f9e94ff346";
+  export var COMMIT = "ce6f5f232c1abdf78bbde8f4ac65b1b475109c01";
+  export var BUNDLE_SHA256 = "887c20aaf62b7404b415265081302a553fdbddc24ee0cd72deba62935bafddb4";
   export var PROTOCOL = 2;
   export var SIM = 2;
   export var FINGERPRINT = "17d87c54";
   export var LOADOUT_HASH = "4cdfab55";
-  export var CAMPAIGN_FINGERPRINT = "3c657fb5";
+  export var CAMPAIGN_FINGERPRINT = "cea1f88b";
 
   export var OP_HELLO = 1;
   export var OP_WELCOME = 2;

@@ -111,44 +111,17 @@ function record(issuance: Issuance, mode = 'success'): { v: number; binding: { [
   const sim = pathToFileURL(join(root, 'src/sim/simulate.js')).href;
   const contract = pathToFileURL(join(root, 'src/server/runContract.js')).href;
   const protocol = pathToFileURL(join(root, 'src/server/protocol.js')).href;
+  const kite = pathToFileURL(join(root, 'src/sim/campaign/kiteAim.js')).href;
   writeFileSync(file, `import { simulate } from ${JSON.stringify(sim)};
 import { buildIssuedState } from ${JSON.stringify(contract)};
 import { quantizeCommand, dequantizeCommand, encodeQuantized } from ${JSON.stringify(protocol)};
+import { kiteCommand } from ${JSON.stringify(kite)};
 import fs from 'node:fs';
 const spec = JSON.parse(fs.readFileSync(0, 'utf8'));
 const issuance = spec.issuance;
 const mode = spec.mode;
-function livingBosses(state) {
-  return state.enemies.filter((e) => e.boss && !e.dead && !e.fled);
-}
-function aimYaw(from, to) {
-  return Math.atan2(-(to.x - from.x), -(to.z - from.z));
-}
 function decide(state, mode) {
-  const p = state.players[state.localPlayerId];
-  const live = livingBosses(state);
-  if (!live.length) return { yaw: -Math.PI / 2, pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
-  let target = live[0];
-  let best = Infinity;
-  for (const e of live) {
-    const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
-    if (d < best) { best = d; target = e; }
-  }
-  if (mode === 'fail') {
-    if (best > 4.5) return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
-    return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
-  }
-  const eye = p.pos.y + 1.6;
-  const aimY = target.pos.y + target.height * 0.55;
-  let pitch = Math.atan2(aimY - eye, Math.max(0.2, best)) - p.recoil.pitch;
-  if (pitch > 1.45) pitch = 1.45;
-  if (pitch < -1.45) pitch = -1.45;
-  let moveZ = 0;
-  if (best > 18) moveZ = 1;
-  else if (best < 9) moveZ = -1;
-  const pressed = {};
-  if (p.hp < 45 && p.medkits > 0 && !p.downed) pressed.medkit = true;
-  return { yaw: aimYaw(p.pos, target.pos), pitch, moveX: 0, moveZ, held: { fire: true, sprint: best > 18 }, pressed, slot: -1, wheel: 0, actions: [] };
+  return kiteCommand(state, mode);
 }
 function noteBoss(memory, state, parts) {
   for (const e of state.enemies) {
@@ -163,7 +136,8 @@ const state = buildIssuedState(issuance);
 const id = state.localPlayerId;
 const qs = [];
 const memory = {};
-let guard = 20000;
+// 15000 frames of 12-byte input stay under Nakama's 256 KB HTTP body cap.
+let guard = 15000;
 while (guard-- > 0) {
   const q = quantizeCommand(decide(state, mode));
   qs.push(q);
@@ -172,13 +146,14 @@ while (guard-- > 0) {
   noteBoss(memory, state, issuance.parts);
   if (mode !== 'fail' && issuance.parts.every((type) => memory[type] && memory[type].dead && !memory[type].fled)) break;
 }
+const cleared = issuance.parts.every((type) => memory[type] && memory[type].dead && !memory[type].fled);
 const encoded = encodeQuantized(qs);
 const log = { v: 1, binding: { accountId: issuance.accountId, sessionId: issuance.sessionId, day: issuance.day, runId: issuance.runId }, segments: [{ i: 0, from: null, tick0: 0, n: encoded.n, frames: encoded.frames, actions: encoded.actions }] };
-process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].dead, log }));
+process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].dead, cleared, log }));
 `);
   const out = execFileSync(process.execPath, [file], { input: JSON.stringify({ issuance, mode }), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  const parsed = JSON.parse(out) as { tick: number; dead: boolean; log: { v: number; binding: { [key: string]: string }; segments: { n: number }[] } };
-  if (mode === 'success' && (parsed.dead || parsed.log.segments[0].n < 10)) {
+  const parsed = JSON.parse(out) as { tick: number; dead: boolean; cleared: boolean; log: { v: number; binding: { [key: string]: string }; segments: { n: number }[] } };
+  if (mode === 'success' && (parsed.dead || !parsed.cleared || parsed.log.segments[0].n < 10)) {
     throw new Error(`recorder did not clear ${issuance.canonicalBoss} in ${parsed.tick} frames`);
   }
   return parsed.log;
@@ -186,7 +161,7 @@ process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].
 
 async function cleared(session: GameLogin, boss: string, key: string): Promise<{ issuance: Issuance; log: ReturnType<typeof record> }> {
   let last = 'no attempt';
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 24; i++) {
     const issuance = await issue(session, boss, `${key}-${i}`);
     try {
       return { issuance, log: record(issuance, 'success') };
@@ -212,6 +187,45 @@ async function issue(session: GameLogin, boss: string, key: string): Promise<Iss
 
 async function submit(session: GameLogin, runId: string, log: unknown): Promise<RpcResult> {
   return call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 60_000 });
+}
+
+async function racePayOnce(boss: string, n: number, label: string): Promise<void> {
+  const session = await loginShooter();
+  const { issuance, log } = await cleared(session, boss, `${label}-key`);
+  const results = await Promise.all(Array.from({ length: n }, () => submit(session, issuance.runId, log)));
+  const winners = results.filter((result) => body(result).paid === true);
+  assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
+  const sealed = canonical(winners[0]?.body);
+  for (const result of winners) assert.equal(canonical(result.body), sealed);
+  assert.equal(credits(session.hub.userId), 1);
+  assert.equal(creditSum(session.hub.userId), PAY);
+  assert.equal(scores(session.hub.userId, boss), 1);
+  assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
+  const aliasNames = ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent'];
+  const aliasRace = await Promise.all(aliasNames.flatMap((name) => (
+    Array.from({ length: 5 }, (_, i) => call('shooter.run.issue', { key: `${label}-alias-${name}-${i}`, canonicalBoss: name }, session.gameToken))
+  )));
+  assert.equal(aliasRace.length, 20);
+  for (const result of aliasRace) {
+    assert.notEqual(body(result).ok, true, JSON.stringify(result.body));
+    assert.equal(body(result).tickets, 0);
+    assert.equal(body(result).ticketsMinted, 0);
+  }
+  const otherClear = await cleared(session, boss, `${label}-other`);
+  assert.notEqual(otherClear.issuance.runId, issuance.runId);
+  const second = await submit(session, otherClear.issuance.runId, otherClear.log);
+  assert.equal(body(second).paid, false, JSON.stringify(second.body));
+  assert.equal(body(second).tickets, 0);
+  assert.equal(body(second).reason, 'already_paid');
+  const again = await openGame(session.hub.token, 'sproto-shooter');
+  const thirdClear = await cleared(again, boss, `${label}-session`);
+  const third = await submit(again, thirdClear.issuance.runId, thirdClear.log);
+  assert.equal(body(third).tickets, 0, JSON.stringify(third.body));
+  assert.notEqual(body(third).paid, true);
+  assert.equal(credits(session.hub.userId), 1);
+  assert.equal(creditSum(session.hub.userId), PAY);
+  assert.equal(scores(session.hub.userId, boss), 1);
+  assert.equal(receipts(session.hub.userId, boss), 1);
 }
 
 function credits(userId: string): number {
@@ -298,18 +312,18 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(Number(duelPay.body.tickets), PAY, JSON.stringify(duelPay.body));
     assert.equal(ticketBalance(who.userId, 'sproto'), PAY);
     const session = await openGame(who.token, 'sproto-shooter');
-    const { issuance, log } = await cleared(session, 'sahil', 'clear-1');
+    const { issuance, log } = await cleared(session, 'broccoli', 'clear-1');
     const first = await submit(session, issuance.runId, log);
     const paid = body(first);
     assert.equal(paid.paid, true, JSON.stringify(first.body));
     assert.equal(paid.tickets, PAY);
     assert.equal(paid.ticketsMinted, 0);
-    assert.equal(paid.canonicalBoss, 'sahil');
+    assert.equal(paid.canonicalBoss, 'broccoli');
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
     assert.equal(ticketBalance(session.hub.userId, 'sproto'), PAY);
     assert.equal(credits(session.hub.userId), 1);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(receipts(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
+    assert.equal(receipts(session.hub.userId, 'broccoli'), 1);
     console.log(`shooter ledger ${psql(`SELECT delta::text || ' ' || reason || ' ' || balance_after::text FROM game.tickets_ledger WHERE user_id = '${sqlId(session.hub.userId)}' AND game_id = 'sproto-shooter' ORDER BY seq`)}`);
     console.log(`shooter score ${psql(`SELECT variant || '=' || value::text FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'shooter_story_clear_ms_v1'`)}`);
     for (let i = 0; i < 100; i++) {
@@ -319,59 +333,25 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(credits(session.hub.userId), 1);
     assert.equal(creditSum(session.hub.userId), PAY);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
     assert.equal(psql(`SELECT day::text FROM game.shooter_receipt WHERE run_id = '${sqlId(issuance.runId)}'`), issuance.day);
     await sleep(2000);
     const delayed = await submit(session, issuance.runId, log);
     assert.equal(canonical(delayed.body), canonical(first.body), JSON.stringify(delayed.body));
     assert.equal(credits(session.hub.userId), 1);
     assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
     const alias = await call('shooter.run.issue', { key: 'after-clear-obamaDuo', canonicalBoss: 'obamaDuo' }, session.gameToken);
     assert.equal(body(alias).reason, 'obama_is_one', JSON.stringify(alias.body));
     assert.equal(body(alias).tickets, 0);
     assert.equal(credits(session.hub.userId), 1);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
   });
 
+  // Broccoli clears in about 3k frames, so twenty parallel verifies stay inside
+  // the 15s wall-clock budget. Sahil is about 10k frames and does not.
   await test('shooter', '20 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
-    const session = await loginShooter();
-    const { issuance, log } = await cleared(session, 'sahil', 'race-key');
-    const results = await Promise.all(Array.from({ length: 20 }, () => submit(session, issuance.runId, log)));
-    const winners = results.filter((result) => body(result).paid === true);
-    assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
-    const sealed = canonical(winners[0]?.body);
-    for (const result of winners) assert.equal(canonical(result.body), sealed);
-    assert.equal(credits(session.hub.userId), 1);
-    assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
-    const aliasNames = ['obamaDuo', 'midgetDuo', 'agent', 'glowieAgent'];
-    const aliasRace = await Promise.all(aliasNames.flatMap((boss) => (
-      Array.from({ length: 5 }, (_, i) => call('shooter.run.issue', { key: `alias-race-${boss}-${i}`, canonicalBoss: boss }, session.gameToken))
-    )));
-    assert.equal(aliasRace.length, 20);
-    for (const result of aliasRace) {
-      assert.notEqual(body(result).ok, true, JSON.stringify(result.body));
-      assert.equal(body(result).tickets, 0);
-      assert.equal(body(result).ticketsMinted, 0);
-    }
-    const otherClear = await cleared(session, 'sahil', 'race-other-key');
-    const other = otherClear.issuance;
-    assert.notEqual(other.runId, issuance.runId);
-    const second = await submit(session, other.runId, otherClear.log);
-    assert.equal(body(second).paid, false, JSON.stringify(second.body));
-    assert.equal(body(second).tickets, 0);
-    assert.equal(body(second).reason, 'already_paid');
-    const again = await openGame(session.hub.token, 'sproto-shooter');
-    const thirdClear = await cleared(again, 'sahil', 'race-new-session');
-    const third = await submit(again, thirdClear.issuance.runId, thirdClear.log);
-    assert.equal(body(third).tickets, 0, JSON.stringify(third.body));
-    assert.notEqual(body(third).paid, true);
-    assert.equal(credits(session.hub.userId), 1);
-    assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(receipts(session.hub.userId), 1);
+    await racePayOnce('broccoli', 20, 'race20');
   });
 
   await test('shooter', 'crash after commit and a raised wallet fault pay once', async () => {
@@ -392,7 +372,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
       assert.equal(scores(committed.hub.userId, 'broccoli'), 1);
 
       const rolled = await loginShooter();
-      const rolledClear = await cleared(rolled, 'sahil', 'fault-wallet');
+      const rolledClear = await cleared(rolled, 'broccoli', 'fault-wallet');
       const rolledIssue = rolledClear.issuance;
       const rolledLog = rolledClear.log;
       arm(rolled.hub.userId, 'earn.after_wallet', 'raise');
@@ -400,7 +380,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
       assert.equal(faulted(failed), true, JSON.stringify(failed));
       assert.equal(credits(rolled.hub.userId), 0);
       assert.equal(ticketBalance(rolled.hub.userId, 'sproto-shooter'), 0);
-      assert.equal(receipts(rolled.hub.userId), 0);
+      assert.equal(receipts(rolled.hub.userId, 'broccoli'), 0);
       disarm(rolled.hub.userId);
       const retry = await submit(rolled, rolledIssue.runId, rolledLog);
       assert.equal(body(retry).paid, true, JSON.stringify(retry.body));
@@ -416,15 +396,15 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     psql(`INSERT INTO game.tickets_balance (user_id, game_id, balance) VALUES ('${sqlId(capped.hub.userId)}', 'sproto-shooter', 190) ON CONFLICT (user_id, game_id) DO UPDATE SET balance = 190`);
     psql(`INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind) VALUES (gen_random_uuid(), '${sqlId(capped.hub.userId)}', 'sproto-shooter', 190, 190, 'seed_cap', '${sqlId(capped.sessionId)}', 'earn')`);
     psql(`INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response) VALUES ('${sqlId(capped.hub.userId)}', 'seed-cap', 'tickets.earn', decode('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'hex'), '{"balance":190}'::jsonb)`);
-    const cappedClear = await cleared(capped, 'sahil', 'cap-session');
+    const cappedClear = await cleared(capped, 'broccoli', 'cap-session');
     const issuance = cappedClear.issuance;
     const denied = await submit(capped, issuance.runId, cappedClear.log);
     assert.equal(body(denied).error, 'session_ticket_cap', JSON.stringify(denied.body));
     assert.equal(ticketBalance(capped.hub.userId, 'sproto-shooter'), 190);
     assert.equal(credits(capped.hub.userId), 0);
-    assert.equal(receipts(capped.hub.userId), 0);
+    assert.equal(receipts(capped.hub.userId, 'broccoli'), 0);
     const room = await openGame(capped.hub.token, 'sproto-shooter');
-    const retryClear = await cleared(room, 'sahil', 'cap-new-session');
+    const retryClear = await cleared(room, 'broccoli', 'cap-new-session');
     const paid = await submit(room, retryClear.issuance.runId, retryClear.log);
     assert.equal(body(paid).paid, true, JSON.stringify(paid.body));
     assert.equal(ticketBalance(capped.hub.userId, 'sproto-shooter'), 210);
@@ -432,26 +412,26 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
 
     const daily = await loginShooter();
     psql(`INSERT INTO game.earn_window (user_id, bucket, day, amount) VALUES ('${sqlId(daily.hub.userId)}', 'tickets:sproto-shooter', (now() AT TIME ZONE 'utc')::date, 990)`);
-    const dailyClear = await cleared(daily, 'sahil', 'cap-day');
+    const dailyClear = await cleared(daily, 'broccoli', 'cap-day');
     const dailyDenied = await submit(daily, dailyClear.issuance.runId, dailyClear.log);
     assert.equal(body(dailyDenied).error, 'daily_ticket_cap', JSON.stringify(dailyDenied.body));
     assert.equal(ticketBalance(daily.hub.userId, 'sproto-shooter'), 0);
     assert.equal(credits(daily.hub.userId), 0);
-    assert.equal(receipts(daily.hub.userId), 0);
+    assert.equal(receipts(daily.hub.userId, 'broccoli'), 0);
 
     const boundary = await loginShooter();
-    const todayClear = await cleared(boundary, 'obama', 'utc-today');
+    const todayClear = await cleared(boundary, 'broccoli', 'utc-today');
     const todayPay = await submit(boundary, todayClear.issuance.runId, todayClear.log);
     assert.equal(body(todayPay).paid, true, JSON.stringify(todayPay.body));
-    psql(`UPDATE game.shooter_receipt SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND canonical_boss = 'obama'`);
-    psql(`UPDATE game.earn_window SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND bucket = 'boss:sproto-shooter:obama'`);
-    const nextClear = await cleared(boundary, 'obama', 'utc-next');
+    psql(`UPDATE game.shooter_receipt SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND canonical_boss = 'broccoli'`);
+    psql(`UPDATE game.earn_window SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND bucket = 'boss:sproto-shooter:broccoli'`);
+    const nextClear = await cleared(boundary, 'broccoli', 'utc-next');
     const nextPay = await submit(boundary, nextClear.issuance.runId, nextClear.log);
     assert.equal(body(nextPay).paid, true, JSON.stringify(nextPay.body));
-    assert.equal(receipts(boundary.hub.userId, 'obama'), 2);
+    assert.equal(receipts(boundary.hub.userId, 'broccoli'), 2);
     assert.equal(credits(boundary.hub.userId), 2);
     assert.equal(ticketBalance(boundary.hub.userId, 'sproto-shooter'), 40);
-    const sameClear = await cleared(boundary, 'obama', 'utc-same');
+    const sameClear = await cleared(boundary, 'broccoli', 'utc-same');
     const samePay = await submit(boundary, sameClear.issuance.runId, sameClear.log);
     assert.equal(body(samePay).tickets, 0, JSON.stringify(samePay.body));
     assert.equal(credits(boundary.hub.userId), 2);

@@ -173,6 +173,33 @@ function assigned(source, name) {
   return match[2] !== undefined ? match[2] : Number(match[3]);
 }
 
+function probeCampaign(src, commit) {
+  const sandbox = { console: { log() {}, warn() {}, error() {} } };
+  sandbox.globalThis = sandbox;
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox, { filename: 'shooter-sim.js' });
+  const api = sandbox.SprotoShooterSim;
+  if (!api || typeof api.contentFingerprintOf !== 'function' || typeof api.buildIssuance !== 'function') {
+    throw new Error('campaign bundle has no verifier');
+  }
+  if (api.SOURCE_COMMIT !== commit) throw new Error(`campaign bundle bakes ${api.SOURCE_COMMIT}, not ${commit}`);
+  if (api.PROTOCOL_VERSION !== 1) throw new Error(`campaign protocol ${api.PROTOCOL_VERSION}, expected 1`);
+  const fingerprint = api.contentFingerprintOf();
+  if (!/^[0-9a-f]{8}$/.test(fingerprint)) throw new Error(`bad campaign fingerprint ${fingerprint}`);
+  const economy = api.ECONOMY || {};
+  if (economy.mintsTickets !== false || economy.ticketsMintedByArtifact !== 0 || economy.wagerMayCreateTickets !== false) {
+    throw new Error('campaign bundle can mint');
+  }
+  const issuance = { accountId: 'a', sessionId: 'b', day: '2026-11-07', runId: 'c', seed: 1 };
+  const obama = api.buildIssuance({ ...issuance, canonicalBoss: 'obamaDuo' });
+  if (obama.ok || obama.reason !== 'obama_is_one' || obama.ticketsMinted !== 0) throw new Error('obamaDuo was not rejected');
+  const agent = api.buildIssuance({ ...issuance, canonicalBoss: 'agent' });
+  if (agent.ok || agent.reason !== 'glowie_not_agent' || agent.ticketsMinted !== 0) throw new Error('agent was not kept off glowie');
+  const sahil = api.buildIssuance({ ...issuance, canonicalBoss: 'sahil' });
+  if (!sahil.ok || sahil.ticketsMinted !== 0) throw new Error(`sahil issuance was not payable (${sahil.reason || 'no reason'})`);
+  return { fingerprint, protocol: 1 };
+}
+
 function setVar(source, name, value) {
   const re = new RegExp(`(export var ${name} = )"[^"]*"`);
   if (!re.test(source)) throw new Error(`no ${name} constant to update`);
@@ -245,7 +272,7 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
   writes.push([PROTOCOL_TS, proto]);
   const lines = [`pvp: ${commit} ${sha} protocol ${pin.protocol} sim ${pin.sim} content ${pin.contentFingerprint} golden ${checked.golden.tick} ${checked.golden.stateHash}; hosted ${checked.hosted.outcome}/${checked.hosted.reason} replay ${checked.hosted.policy}`];
 
-  // ---- campaign verifier: re-pin only when nothing but the baked commit moved
+  // ---- campaign verifier
   const campaignPinPath = join(VENDOR, 'shooter-sim.pin.json');
   const campaignPin = JSON.parse(readFileSync(campaignPinPath, 'utf8'));
   const vendoredCampaign = readFileSync(join(VENDOR, 'shooter-sim.js'), 'utf8');
@@ -255,7 +282,59 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
   } else if (campaignPin.commit === commit) {
     lines.push('campaign: already pinned to this commit');
   } else if (normalize(vendoredCampaign, campaignPin.commit) !== normalize(built.campaign, commit)) {
-    throw new Error(`campaign bundle changed at ${commit} beyond the baked commit: re-vendor it separately, or pass --pvp-only (nothing was written)`);
+    const probed = probeCampaign(built.campaign, commit);
+    const cSha = sha256(built.campaign);
+    const next = {
+      ...campaignPin,
+      commit,
+      sourceCommit: commit,
+      sha256: cSha,
+      bundleSha256: cSha,
+      bundleBytes: Buffer.byteLength(built.campaign),
+      fingerprint: probed.fingerprint,
+      contentFingerprint: probed.fingerprint,
+      protocol: probed.protocol,
+      protocolVersion: probed.protocol,
+    };
+    let rewards = readFileSync(REWARDS_TS, 'utf8');
+    rewards = setVar(rewards, 'COMMIT', commit);
+    rewards = setVar(rewards, 'BUNDLE_SHA256', cSha);
+    rewards = setVar(rewards, 'FINGERPRINT', probed.fingerprint);
+    writes.push([join(VENDOR, 'shooter-sim.js'), built.campaign]);
+    writes.push([campaignPinPath, `${JSON.stringify(next, null, 2)}\n`]);
+    writes.push([REWARDS_TS, rewards]);
+    const pvpFile = writes.find((row) => row[0].endsWith('shooter-pvp-sim.pin.json'));
+    if (pvpFile) {
+      const pvpPin = JSON.parse(pvpFile[1]);
+      pvpPin.campaignContentFingerprint = probed.fingerprint;
+      pvpPin.campaignProtocol = probed.protocol;
+      pvpFile[1] = `${JSON.stringify(pvpPin, null, 2)}\n`;
+    }
+    const protoWrite = writes.find((row) => row[0] === PROTOCOL_TS);
+    if (!protoWrite) throw new Error('pvp pin write did not include shooter_protocol.ts');
+    protoWrite[1] = setVar(protoWrite[1], 'CAMPAIGN_FINGERPRINT', probed.fingerprint);
+    for (const rel of CAMPAIGN_TRIPWIRES) {
+      const file = join(root, rel);
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes(campaignPin.sha256)) throw new Error(`${rel} does not name the campaign sha256`);
+      writes.push([file, text.split(campaignPin.sha256).join(cSha).split(campaignPin.fingerprint).join(probed.fingerprint)]);
+    }
+    const fingerprintFiles = [
+      'scripts/check-shooter-sim-version.mjs',
+      'scripts/load/shooter-bots.ts',
+      'server/modules/src/games/shooter_rewards.ts',
+    ];
+    for (const rel of fingerprintFiles) {
+      const file = join(root, rel);
+      const text = readFileSync(file, 'utf8');
+      if (!text.includes(campaignPin.fingerprint)) throw new Error(`${rel} does not name the campaign fingerprint`);
+      const already = writes.find((row) => row[0] === file);
+      const base = already ? already[1] : text;
+      const nextText = base.split(campaignPin.fingerprint).join(probed.fingerprint);
+      if (already) already[1] = nextText;
+      else writes.push([file, nextText]);
+    }
+    lines.push(`campaign: rebaked ${campaignPin.commit} -> ${commit} fingerprint ${campaignPin.fingerprint} -> ${probed.fingerprint} (${cSha})`);
   } else {
     const cSha = sha256(built.campaign);
     const next = { ...campaignPin, commit, sourceCommit: commit, sha256: cSha, bundleSha256: cSha, bundleBytes: Buffer.byteLength(built.campaign) };

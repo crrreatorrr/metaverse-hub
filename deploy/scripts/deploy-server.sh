@@ -22,9 +22,10 @@ source "$(dirname "$(readlink -f "$0")")/lib.sh"
 
 usage() {
   cat <<'EOF'
-usage: deploy-server.sh [--no-drain] [--game <id>=<build-dir>]...
+usage: deploy-server.sh [--no-drain] [--allow-open] [--game <id>=<build-dir>]...
 
   --no-drain          skip maintenance and restart at once (rollback, or an empty server)
+  --allow-open        restart even if a Shooter wager is held or a hard match is live
   --game id=dir       after the server is healthy, publish this game build with deploy-game.sh
 
 environment:
@@ -40,10 +41,12 @@ EOF
 }
 
 drain=1
+allow_open=0
 games=()
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --no-drain) drain=0 ;;
+    --allow-open) allow_open=1 ;;
     --game)
       if [ "$#" -lt 2 ]; then
         usage >&2
@@ -323,6 +326,13 @@ if [ "$drain" = 1 ]; then
 else
   log "3-5/9 skipped (--no-drain)"
 fi
+
+log "checking shooter holds and live matches before restart"
+drain_args=()
+if [ "$allow_open" = 1 ]; then
+  drain_args+=(--allow-open)
+fi
+"${scripts}/check-nakama-drain.sh" ${drain_args[@]+"${drain_args[@]}"}
 
 log "6/9 switching nakama to ${image}"
 if [ "$tag" != prod ]; then

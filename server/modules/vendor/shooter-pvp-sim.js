@@ -47,11 +47,8 @@ var SprotoShooterPvp = (() => {
     arenaRadius: 45,
     spawnRadius: 43,
     spawnPointCount: 16,
-    weaponBoxes: [{ x: -28, z: 0 }, { x: 28, z: 0 }],
-    boxRadius: 1,
-    boxInteractRadius: 3,
     eyeHeight: 1.6,
-    slideEye: 0.9,
+    slideEye: 0.72,
     downedEye: 0.6,
     playerRadius: 0.4,
     playerHeight: 1.8,
@@ -65,10 +62,24 @@ var SprotoShooterPvp = (() => {
     doubleJumpVel: 7,
     coyote: 0.1,
     jumpBuffer: 0.1,
-    slideMinSpeed: 5,
-    slideBoost: 13,
-    slideTime: 0.75,
-    slideCd: 0.4,
+    slideMinSpeed: 4.2,
+    slideBoost: 16,
+    slideCruise: 8,
+    slideDrag: 2.4,
+    slideTime: 0.7,
+    slideCd: 0.22,
+    slideHopCd: 0.85,
+    slideHopBoost: 1.12,
+    slideSlope: 14,
+    slideStamina: 0.14,
+    staminaSprint: 4.5,
+    staminaRegenDelay: 0.55,
+    staminaRegen: 1.7,
+    staminaRefill: 0.28,
+    grappleRange: 30,
+    grappleCd: 6,
+    grapplePull: 90,
+    grappleArrive: 1.35,
     dashSpeed: 24,
     dashTime: 0.15,
     dashCd: 2,
@@ -79,7 +90,6 @@ var SprotoShooterPvp = (() => {
     fovScope: 12,
     // god mode keeps you at or above these while it's on
     godTickets: 99999,
-    godResources: 9999,
     maxHp: 100,
     maxShield: 50,
     maxMana: 100,
@@ -2296,7 +2306,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
+  var SOURCE_COMMIT = "ce6f5f232c1abdf78bbde8f4ac65b1b475109c01";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

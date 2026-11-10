@@ -26,7 +26,7 @@ Files and secrets, created by you and kept out of git:
 
 `NAKAMA_HTTP_KEY`, the console password, and the console signing key stay on the server. They must not appear in a client bundle. `TICKET_HMAC_KEY`, `RECOVERY_PEPPER`, the session keys, and `POSTGRES_PASSWORD` stay on the server too.
 
-`deploy/scripts/check-dist-secrets.sh` reads the dist before a publish. It fails if any file contains a dev default (`defaultkey`, `localhttpkey`, `localdb`, and the rest of that list), a PEM or OpenSSH private key, or the live HTTP key, console password, or console signing key. `--defaults-only` is the CI scan, which has no `deploy/.env` and still refuses dev defaults and private keys. A bundle that still has the dev server key does not ship.
+`deploy/scripts/check-dist-secrets.sh` reads the dist before a publish. It fails if any file contains a dev credential literal (`defaultkey`, `localhttpkey`, `localdb`, and the rest of that list), a PEM or OpenSSH private key, or the live HTTP key, console password, or console signing key. The login field name `password` is not one of those literals. `--defaults-only` is the CI scan, which has no `deploy/.env` and still refuses the credential literals and private keys. A bundle that still has the dev server key does not ship.
 
 H5 readiness for Shooter and Coop is `docs/two-game-release.md`. That document does not deploy, buy a server, or turn a public flag on. `shooter_pvp`, `shooter_pvp_wager`, and `shooter_pvp_ranked` stay `off` in `game.server_flags`. `GAME_COOP_*` in `.env` is the SharedArrayBuffer header for one game, not those flags.
 
@@ -264,6 +264,8 @@ Unattended upgrades install Ubuntu security updates and do not reboot. Reboot fo
 ### Upgrading Nakama without killing live matches
 
 `deploy/scripts/deploy-server.sh` is the runbook for a server change (the Nakama module, `compose.yml` or `nakama/`). It is run by you, by hand, on the VPS. A hub deploy must not end a live duel, arena or coop match, so the script drains the single Nakama node before it restarts it. Two Nakama nodes at once are not safe on OSS Nakama.
+
+Before the restart, `deploy/scripts/check-nakama-drain.sh` refuses to continue while `game.shooter_wager` has a row in `held` or `maint.live` reports a hard match. A boot on this single node refunds every held Shooter wager. Run the check on its own first. `--allow-open` is the explicit override; `--no-drain` does not skip it.
 
 ```bash
 cd /opt/metaverse

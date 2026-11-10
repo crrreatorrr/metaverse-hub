@@ -13,9 +13,9 @@ namespace ShooterRewards {
   export var BOARD_ID = "shooter_story_clear_ms_v1";
   export var PAY = 20;
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "acafce3a39046d8117f29f068b3a57358fa89f77";
-  export var BUNDLE_SHA256 = "fd0497741b3672bea457c333a01373248cf94cbf25df61dc63145c74d040a6c2";
-  export var FINGERPRINT = "3c657fb5";
+  export var COMMIT = "ce6f5f232c1abdf78bbde8f4ac65b1b475109c01";
+  export var BUNDLE_SHA256 = "dbdff8bfd63b69782c998235825753a144411de1c2d5ac1d62720947246364b1";
+  export var FINGERPRINT = "cea1f88b";
   export var PROTOCOL = 1;
   var BOSSES = ["sahil", "obama", "broccoli", "glowie", "tinubu"];
 
@@ -404,5 +404,22 @@ HubSchema.register({
       RETURN jsonb_build_object('error', 'idempotency_mismatch', 'ok', false, 'paid', false, 'tickets', 0, 'ticketsMinted', 0);
     END;
     $fn$`,
+  ],
+});
+
+// 0040 is already applied, so its fingerprint literal stays. This replaces the
+// live function with the rebaked campaign fingerprint. A fresh database runs
+// 0040 first, then this. 0047 is the duel relic staves migration on main.
+HubSchema.register({
+  id: "0048_shooter_campaign_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE src text;
+    BEGIN
+      src := pg_get_functiondef('game.settle_shooter_clear(uuid,uuid,text,text,date,text,text,bigint,integer,text,text)'::regprocedure);
+      src := replace(src, '3c657fb5', 'cea1f88b');
+      EXECUTE src;
+    END;
+    $fp$`,
   ],
 });
