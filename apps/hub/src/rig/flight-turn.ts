@@ -1,7 +1,7 @@
 import { MOVEMENT } from '../core/movement';
 
-const TURN_SECONDS = 0.37;
-const REMOTE_TURN_SECONDS = 0.35;
+// Finish around the jump apex, before even an elevated platform can land.
+const TURN_SECONDS = 0.23;
 const ABORT_SECONDS = 0.12;
 
 export interface FlightTiming {
@@ -9,10 +9,11 @@ export interface FlightTiming {
   dt: number;
   remote?: boolean;
   restart?: boolean;
+  takeoff?: boolean;
 }
 
-/** Progress through the authored air window. Remote velocity is a smoothed
- * estimate, so only the flight clock advances the turn. */
+/** Progress through the authored air window. Remotes confirm a launch from
+ * rising snapshots, then play the turn on a clock. */
 export function createFlightTurn() {
   let elapsed = 0;
   let previousVy: number | null = null;
@@ -26,25 +27,30 @@ export function createFlightTurn() {
     interrupted = false;
   }
 
-  function update({ dt, airborne, remote, restart }: FlightTiming, vy: number): number {
+  function update({ dt, airborne, remote, restart, takeoff }: FlightTiming, vy: number): number {
     if (restart) reset();
     if (!airborne) {
       reset();
       return 0;
     }
-    if (previousVy === null) {
-      sawLaunch = !remote && vy >= MOVEMENT.jump * 0.7;
-      interrupted = !remote && !sawLaunch;
-    }
-    else if (sawLaunch && elapsed < ABORT_SECONDS && previousVy > 0) {
+    if (remote) {
+      sawLaunch ||= takeoff === true;
+    } else if (previousVy === null) {
+      sawLaunch = vy >= MOVEMENT.jump * 0.7;
+    } else if (sawLaunch && elapsed < ABORT_SECONDS && previousVy > 0) {
       // An early head hit stops the ascent faster than gravity. Keep the
       // anticipation pose and let the landing crossfade settle it.
       interrupted ||= previousVy + MOVEMENT.gravity * dt - vy > 1;
     }
     previousVy = vy;
-    if (!interrupted) elapsed += dt;
-    return Math.min(1, elapsed / (remote ? REMOTE_TURN_SECONDS : TURN_SECONDS));
+    if (sawLaunch && !interrupted) elapsed += dt;
+    return Math.min(1, elapsed / TURN_SECONDS);
   }
 
-  return { update, reset, get launched() { return sawLaunch; } };
+  return {
+    update,
+    reset,
+    get launched() { return sawLaunch; },
+    get needsRecovery() { return !interrupted && elapsed >= TURN_SECONDS * 0.55 && elapsed < TURN_SECONDS; },
+  };
 }

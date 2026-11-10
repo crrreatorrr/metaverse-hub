@@ -294,13 +294,15 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const poseDt = n.lastPoseAt === null ? dt : Math.max(0, (nowMs - n.lastPoseAt) / 1000);
           const airborne = anim === 'jump';
           // A 10 Hz stream can miss the single grounded frame between jumps.
-          const takeoff = airborne && n.descending && n.lastY !== null && poseDt > 0 && (r.y - n.lastY) / poseDt > 1.2;
           const discontinuity = n.lastPoseAt === null || poseDt > 0.4 || (n.lastY !== null && Math.abs(r.y - n.lastY) > 2);
-          const restart = takeoff || discontinuity;
+          const rising = !discontinuity && n.lastY !== null && poseDt > 0 && (r.y - n.lastY) / poseDt > 1.2;
+          const restart = discontinuity || (airborne && n.descending && rising);
           // The jump flag may have switched anywhere within this frame.
           // Start near takeoff, especially when frames are far apart.
           const startingNearGround = airborne && !n.airborne && n.lastY !== null && r.y - n.lastY < 0.1;
           const flightDt = discontinuity ? dt : startingNearGround ? poseDt * 0.5 : poseDt;
+          // Slow the turn at coarse render intervals to preserve the inverted pose.
+          const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
           n.lastY = r.y;
@@ -308,7 +310,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           n.airborne = airborne;
           n.vy = MathUtils.damp(n.vy, rise, 12, dt);
           n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run', {
-            airborne, vy: n.vy, flight: { airborne, dt: flightDt, remote: true, restart },
+            airborne, vy: n.vy, flight: { airborne, dt: flightStep, remote: true, restart, takeoff: rising },
           });
           const dist = camera.position.distanceTo(n.root.position);
           head.set(r.x, r.y - STAND_Y + 2.15, r.z).project(camera);

@@ -86,8 +86,16 @@ player.step(1 / 60, { ...alongBackWall, jump: true }, speeds);
 assert.ok(!player.grounded && player.velocity.y > 0, 'back wall contact does not swallow the sprint-jump');
 for (const hz of [20, 60, 120]) {
   player.spawn(2.333, clubFloor, 7.75);
+  const flight = createFlightTurn();
+  let phase = 0;
+  let landed = false;
   for (let frame = 0; frame < 2 * hz; frame++) {
     player.step(1 / hz, { ...idle, forward: frame / hz < 0.21 ? -1 : 0, jump: frame === 0 }, speeds);
+    if (!landed && player.grounded) {
+      assert.equal(phase, 1, `Flying Midget finishes the turn before touching the stool at ${hz} Hz`);
+      landed = true;
+    }
+    phase = flight.update({ dt: 1 / hz, airborne: !player.grounded }, player.velocity.y);
   }
   assert.ok(player.grounded && Math.abs(player.position.y - clubFloor - 0.86) < 0.01, `club stool still catches a jump at ${hz} Hz`);
 }
@@ -209,12 +217,21 @@ for (const hz of [30, 60, 120]) {
   for (let frame = 0; frame < Math.ceil(0.38 * hz); frame++) {
     // Remote vertical speed can hold and then step at a snapshot boundary.
     const vy = frame * dt < 0.2 ? 2.5 : -2.5;
-    const next = flight.update({ dt, airborne: true, remote: true }, vy);
+    const next = flight.update({ dt, airborne: true, remote: true, takeoff: frame === 0 }, vy);
     assert.ok(next >= phase);
     phase = next;
   }
   assert.equal(phase, 1, `a remote flight completes the turn before landing at ${hz} Hz`);
-  assert.ok(flight.update({ dt, airborne: true, remote: true, restart: true }, 2.5) < 0.2, 'a new remote takeoff restarts the turn');
+  assert.ok(flight.update({ dt, airborne: true, remote: true, restart: true, takeoff: true }, 2.5) < 0.2, 'a new remote takeoff restarts the turn');
+  flight.reset();
+  for (let frame = 0; frame < hz; frame++) {
+    assert.equal(flight.update({ dt, airborne: true, remote: true }, -1), 0, 'a remote drop never turns');
+  }
+  assert.ok(flight.update({ dt, airborne: true, remote: true, takeoff: true }, 2.5) > 0, 'rising snapshots can confirm a late remote takeoff');
+  for (let frame = 1; frame < Math.ceil(0.15 * hz); frame++) {
+    flight.update({ dt, airborne: true, remote: true }, -1);
+  }
+  assert.equal(flight.needsRecovery, true, 'a mid-turn remote landing should blend from the recovery pose');
   assert.equal(flight.update({ dt, airborne: false }, 0), 0);
   const takeoff = flight.update({ dt, airborne: true }, MOVEMENT.jump);
   assert.equal(flight.launched, true);

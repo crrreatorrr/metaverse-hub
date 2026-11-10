@@ -226,6 +226,7 @@ export function createAvatarRig(): AvatarRig {
   function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (!mixer || !actions) return;
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
+    const recover = hasBackflip && pose === 'air' && !flight.airborne && flightTurn.needsRecovery;
     const flightPhase = hasBackflip ? flightTurn.update(flight, air?.vy ?? 0) : null;
     const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
     const airborne = hasBackflip && flightTurn.launched ? flight.airborne : air?.airborne;
@@ -244,7 +245,11 @@ export function createAvatarRig(): AvatarRig {
       }
       pose = next;
     }
-    if (pose === 'air' && actions.air) {
+    if (recover && actions.air) {
+      // A coarse remote update can jump straight from mid-turn to contact.
+      // The landing blend should start with the feet facing the floor.
+      actions.air.time = AIR_WINDOW[1] * actions.air.getClip().duration;
+    } else if (pose === 'air' && actions.air) {
       // Most jump clips scrub by vertical velocity. Flying Midget's full turn
       // needs continuous progress even when a remote's reported speed steps.
       const clip = actions.air.getClip();
