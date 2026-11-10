@@ -883,7 +883,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (node) node.textContent = `Verse ${formatVerse(balance)}`;
   }
 
+  let shownRelics: readonly string[] = [];
   function showRelics(ids: readonly string[]): void {
+    shownRelics = ids;
     engine.setRelics(ids);
     content.onRelicsChanged?.(ids.filter(isRelicId));
     menu.setRelics(ids);
@@ -1132,9 +1134,14 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       void joinShardChat(session, plaza.room);
       plaza.profile({ character: look.character, staff: look.staff, pet: activePet });
       showPlazaStatus('online', '');
-      remoteWorld.onRoster(() => {
-        if (plaza) showPlazaStatus(plazaState, plazaDetail);
-      });
+      const syncRoster = () => {
+        if (!plaza) return;
+        const ids = remoteWorld.selfRelics;
+        if (ids && (ids.length !== shownRelics.length || ids.some((id) => !shownRelics.includes(id)))) showRelics(ids);
+        showPlazaStatus(plazaState, plazaDetail);
+      };
+      remoteWorld.onRoster(syncRoster);
+      syncRoster();
     } catch (error) {
       plaza = null;
       showPlazaStatus('offline', 'Plaza offline: only you are here');

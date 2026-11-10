@@ -1,4 +1,4 @@
-import type { GameId } from '@metaverse/hub-sdk';
+import type { GameId, RelicId } from '@metaverse/hub-sdk';
 import { MOVEMENT } from './core/movement';
 
 /**
@@ -95,10 +95,19 @@ export const STAFFS = [
   { id: 'momentum', label: 'Momentum Staff', line: 'Blink Dash.', asset: 'world/v2/staffs/staff_momentum.glb', icon: 'world/v2/staffs/icons/momentum.webp', accent: '#ffc23a' },
   { id: 'moonward', label: 'Moonward Staff', line: 'COOM Bolt.', asset: 'world/v2/staffs/staff_moonward.glb', icon: 'world/v2/staffs/icons/moonward.webp', accent: '#d9b45a' },
   { id: 'nobu', label: 'Nobu Staff', line: 'Bark Bolt.', asset: 'world/v2/staffs/staff_nobu.glb', icon: 'world/v2/staffs/icons/nobu.webp', accent: '#2f6bff' },
+  { id: 'fighters_might', label: 'Fighter\'s Might', line: 'Fist Bolt.', asset: 'world/v2/staffs/staff_fighters_might.glb', icon: 'world/v2/staffs/icons/fighters_might.webp', accent: '#ff3a3a' },
+  { id: 'alien_ray', label: 'Alien Ray Staff', line: 'Alien Ray.', asset: 'world/v2/staffs/staff_alien_ray.glb', icon: 'world/v2/staffs/icons/alien_ray.webp', accent: '#ff8c2a' },
+  { id: 'shooter', label: 'Shooter Staff', line: 'Requires Dragon Scale.', asset: 'world/v2/staffs/staff_shooter.glb', icon: 'world/v2/staffs/icons/shooter.webp', accent: '#ff942b' },
+  { id: 'fighter', label: 'Fighter Staff', line: 'Requires Tinubu\'s Crown.', asset: 'world/v2/staffs/staff_fighter.glb', icon: 'world/v2/staffs/icons/fighter.webp', accent: '#56eaff' },
 ] as const;
 export type StaffId = (typeof STAFFS)[number]['id'];
 export type StaffConfig = (typeof STAFFS)[number];
 export const DEFAULT_STAFF: StaffId = 'sproto';
+
+export const STAFF_RELICS: Partial<Record<StaffId, RelicId>> = {
+  shooter: 'dragon_scale',
+  fighter: 'tinubu_crown',
+};
 
 export function isStaffId(value: string): value is StaffId {
   return STAFFS.some((entry) => entry.id === value);
