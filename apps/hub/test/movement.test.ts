@@ -1,11 +1,13 @@
 import assert from 'node:assert/strict';
-import { BoxGeometry, PlaneGeometry } from 'three';
+import { fileURLToPath } from 'node:url';
+import { AnimationMixer, BoxGeometry, PlaneGeometry, Quaternion, Vector3 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_FOV, SPRINT_SPEED, WALK_SPEED } from '../src/config';
+import { loadGLB } from './support/load-glb';
 
 assert.deepEqual(MOVEMENT, {
   gravity: -28, jump: 6.4, terminal: -40, walk: 7.8, sprint: 16,
@@ -164,3 +166,37 @@ for (const hz of [20, 60, 120]) {
   assert.ok(!balanced.grounded && balanced.velocity.y > 0, `joint support accepts a jump at ${hz} Hz`);
 }
 splitFloor.dispose();
+
+const flyer = await loadGLB(fileURLToPath(new URL('../public/world/v2/avatar/flyer.glb', import.meta.url)));
+const idleClip = flyer.animations.find((clip) => clip.name === 'idle');
+const flightClip = flyer.animations.find((clip) => clip.name === 'run');
+const jumpClip = flyer.animations.find((clip) => clip.name === 'jump');
+const hips = flyer.scene.getObjectByName('Hips');
+assert.ok(hips && idleClip && flightClip && jumpClip, 'Flying Midget has a dedicated jump');
+const mixer = new AnimationMixer(flyer.scene);
+mixer.clipAction(idleClip).play();
+mixer.setTime(0);
+const idleHips = hips.getWorldPosition(new Vector3());
+mixer.stopAllAction();
+mixer.clipAction(flightClip).play();
+mixer.setTime(0);
+const flightHips = hips.getWorldPosition(new Vector3());
+assert.ok(Math.hypot(flightHips.x - idleHips.x, flightHips.z - idleHips.z) < 0.025, 'idle and flight share the horizontal origin');
+mixer.stopAllAction();
+mixer.clipAction(jumpClip).play();
+mixer.setTime(jumpClip.duration * 0.15);
+const inverseTakeoff = hips.quaternion.clone().invert();
+const relative = new Quaternion();
+const up = new Vector3();
+let previousPitch = 0;
+let turn = 0;
+for (let step = 1; step <= 60; step++) {
+  mixer.setTime(jumpClip.duration * (0.15 + 0.7 * step / 60));
+  up.set(0, 1, 0).applyQuaternion(relative.copy(hips.quaternion).multiply(inverseTakeoff));
+  const pitch = Math.atan2(up.z, up.y);
+  const delta = pitch - previousPitch;
+  turn += Math.atan2(Math.sin(delta), Math.cos(delta));
+  previousPitch = pitch;
+}
+assert.ok(Math.abs(turn + 2 * Math.PI) < 0.08, 'Flying Midget completes one backward turn before the landing blend');
+mixer.stopAllAction();
