@@ -82,8 +82,8 @@ export interface AvatarRig {
   readonly group: Group;
   /** Fetch the mesh. Call after the first-load byte snapshot. */
   load(): void;
-  /** `air` drives the jump clip. `speed` is the actual horizontal travel in metres per second. */
-  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void;
+  /** `air` drives the jump clip. `speed` is horizontal metres per second, or null during a brief pose gap. */
+  update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void;
   /** Character, staff and Relic aura. Applies now, or when the mesh arrives. */
   setLook(look: AvatarLook): void;
 }
@@ -239,17 +239,19 @@ export function createAvatarRig(): AvatarRig {
     return to === 'run' ? AVATAR_BLEND.jogToDash : AVATAR_BLEND.dashToJog;
   }
 
-  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void {
+  function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void {
     if (!mixer || !actions) return;
-    if (actions.walk === actions.run) {
-      // The creature has one run cycle. Keep its phase through speed changes
-      // and blend to idle when a wall stops the body.
-      const travel = moving ? (speed ?? (sprint ? SPRINT_SPEED : WALK_SPEED)) : 0;
-      strideSpeed = MathUtils.damp(strideSpeed ?? travel, travel, 24, dt);
+    const sharedStride = actions.walk === actions.run;
+    if (sharedStride) {
+      // Keep the last measured rate during a brief remote pose gap.
+      const requestedSpeed = sprint ? SPRINT_SPEED : WALK_SPEED;
+      const travel = moving ? (speed === null ? strideSpeed ?? requestedSpeed : speed ?? requestedSpeed) : 0;
+      strideSpeed = MathUtils.damp(strideSpeed ?? travel, travel, 36, dt);
       const authored = groundSpeedOf(actions.walk.getClip()) * (model?.scale.y ?? 1);
       const stride = authored > 0 ? authored : SPRINT_SPEED / AVATAR_CLIPS.run.timeScale;
       actions.walk.timeScale = MathUtils.clamp(strideSpeed / stride, 0, TIME_SCALE_MAX);
-      moving = moving && strideSpeed > 0.4;
+      // Filter tiny collision corrections while allowing slow analogue input.
+      moving = moving && strideSpeed > 0.02;
     }
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
     const recover = hasBackflip && pose === 'air' && !flight.airborne && flightTurn.needsRecovery;
@@ -261,9 +263,12 @@ export function createAvatarRig(): AvatarRig {
       const from = poseAction(pose);
       const to = poseAction(next);
       if (from !== to) {
+        const time = to.time;
         to.reset();
-        // jog ↔ dash: keep the step phase (both clips put the left foot down at t = 0)
-        if ((pose === 'walk' || pose === 'run') && (next === 'walk' || next === 'run')) {
+        if (sharedStride && to === actions.walk) {
+          to.time = time;
+        } else if ((pose === 'walk' || pose === 'run') && (next === 'walk' || next === 'run')) {
+          // jog ↔ dash: both clips put the left foot down at t = 0.
           to.time = (from.time / from.getClip().duration) * to.getClip().duration;
         }
         to.setEffectiveWeight(1).play();
@@ -356,7 +361,7 @@ export function createAvatarRig(): AvatarRig {
     if (socket) aura.setColor(socket.color);
   }
 
-  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number): void {
+  function tick(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number | null): void {
     if (aura.group.visible) {
       auraClock += dt;
       aura.ring.rotation.z += dt * 0.9;

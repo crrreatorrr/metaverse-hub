@@ -29,6 +29,7 @@ import { isCharacterId, isStaffId } from './config';
 import { defaultLook } from './look';
 import type { OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
+import { SNAP_DISTANCE } from './net/interp';
 import { ANIMS, zoneOf, type Pose } from './net/protocol';
 import type { RemotePlayer, RemoteWorld } from './net/remoteWorld';
 
@@ -304,7 +305,10 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const flightDt = discontinuity ? dt : startingNearGround ? poseDt * 0.5 : poseDt;
           // Slow the turn at coarse render intervals to preserve the inverted pose.
           const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
-          const speed = !discontinuity && poseDt > 0 && travel < 5 ? travel / poseDt : undefined;
+          let speed: number | null | undefined;
+          if (!discontinuity && poseDt > 0 && travel <= SNAP_DISTANCE) {
+            speed = travel === 0 && p?.interp.awaitingPose(nowMs) ? null : travel / poseDt;
+          }
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
           n.lastY = r.y;
