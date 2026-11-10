@@ -139,11 +139,11 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
 
   function step(dt: number, input: MoveInput, speeds: MoveSpeeds): void {
     const frame = Math.min(Math.max(dt, 0), 0.05);
-    if (frame === 0) return;
     if (input.jump && grounded) {
       velocity.y = JUMP_VELOCITY;
       grounded = false;
     }
+    if (frame === 0) return;
     const substeps = 4;
     for (let i = 0; i < substeps; i += 1) substep(frame / substeps, input, speeds);
     if (![position.x, position.y, position.z].every(Number.isFinite)) {

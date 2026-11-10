@@ -44,6 +44,12 @@ for (let direction = 0; direction < 1; direction++) {
   assert.ok(Math.hypot(player.position.x, player.position.z) > 290, `reached edge: ${direction}`);
   assert.ok(Math.hypot(player.position.x, player.position.z) < 320, `edge wall: ${direction}`);
 }
+// Input can be delivered on a frame whose timer has been reset.
+player.step(0, { ...idle, jump: true }, speeds);
+assert.ok(Math.abs(player.position.y - restY) < 0.02, 'zero delta does not integrate motion');
+player.step(1 / 60, idle, speeds);
+assert.ok(player.position.y > restY + 0.08, 'zero-delta jump still launches on the next frame');
+
 // The club wall has triangulated seams where a side contact can point
 // upward. A sprint-jump into the back wall must settle on the club floor.
 const clubFloor = -300 + STAND_Y;
