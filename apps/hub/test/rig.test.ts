@@ -1,7 +1,7 @@
 // Gait retarget and foot-plant checks on the shipped avatar GLBs (apps/hub/public/world/v2/avatar).
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Object3D } from 'three';
+import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Object3D, type SkinnedMesh } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
@@ -21,6 +21,49 @@ function restHeight(root: Object3D): number {
   root.updateMatrixWorld(true);
   const box = new Box3().setFromObject(root, true);
   return box.max.y - box.min.y;
+}
+
+/** Boot geometry can be weighted to a shin instead of a foot or toe. */
+function checkBootClearance(root: Object3D, gait: AnimationClip): void {
+  const boots: { mesh: SkinnedMesh; indices: number[] }[] = [];
+  const vertex = new Vector3();
+  root.traverse((obj) => {
+    const mesh = obj as SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const joints = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const indices = [];
+    for (let i = 0; i < joints.count; i += 1) {
+      let strongest = 0;
+      for (let j = 1; j < weights.itemSize; j += 1) {
+        if (weights.getComponent(i, j) > weights.getComponent(i, strongest)) strongest = j;
+      }
+      const bone = mesh.skeleton.bones[joints.getComponent(i, strongest)];
+      if (bone && /^(Left|Right)(Leg|Foot|ToeBase)$/.test(bone.name)) indices.push(i);
+    }
+    if (indices.length) boots.push({ mesh, indices });
+  });
+  assert.ok(boots.length > 0);
+  const lowest = () => {
+    root.updateMatrixWorld(true);
+    let y = Infinity;
+    for (const { mesh, indices } of boots) {
+      for (const index of indices) {
+        mesh.getVertexPosition(index, vertex).applyMatrix4(mesh.matrixWorld);
+        y = Math.min(y, vertex.y);
+      }
+    }
+    return y;
+  };
+  const floor = lowest();
+  const mixer = new AnimationMixer(root);
+  mixer.clipAction(gait).play();
+  for (let i = 0; i < 120; i += 1) {
+    mixer.setTime(gait.duration * i / 120);
+    assert.ok(lowest() >= floor - 0.001, `Mega Tinubu's ${gait.name} boot clips the floor at sample ${i}`);
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
 }
 
 async function main(): Promise<void> {
@@ -136,6 +179,7 @@ async function main(): Promise<void> {
     for (const name of P4_CLIPS) {
       const drift = Math.abs(lowest(clip(clips, name)) - floor) * fit;
       assert.ok(drift < 0.06, `${character.id} ${name}: toes ${drift.toFixed(3)} m off the idle floor`);
+      if (character.id === 'megatinubu') checkBootClearance(SkeletonUtils.clone(rig.scene), clip(clips, name));
     }
   }
   // 4. The Sproto Shooter cast ship a standing `idle` and a measured `run` (the plaza plays it for both gaits, see
