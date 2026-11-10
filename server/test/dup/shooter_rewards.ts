@@ -312,18 +312,18 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(Number(duelPay.body.tickets), PAY, JSON.stringify(duelPay.body));
     assert.equal(ticketBalance(who.userId, 'sproto'), PAY);
     const session = await openGame(who.token, 'sproto-shooter');
-    const { issuance, log } = await cleared(session, 'sahil', 'clear-1');
+    const { issuance, log } = await cleared(session, 'broccoli', 'clear-1');
     const first = await submit(session, issuance.runId, log);
     const paid = body(first);
     assert.equal(paid.paid, true, JSON.stringify(first.body));
     assert.equal(paid.tickets, PAY);
     assert.equal(paid.ticketsMinted, 0);
-    assert.equal(paid.canonicalBoss, 'sahil');
+    assert.equal(paid.canonicalBoss, 'broccoli');
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
     assert.equal(ticketBalance(session.hub.userId, 'sproto'), PAY);
     assert.equal(credits(session.hub.userId), 1);
-    assert.equal(scores(session.hub.userId), 1);
-    assert.equal(receipts(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
+    assert.equal(receipts(session.hub.userId, 'broccoli'), 1);
     console.log(`shooter ledger ${psql(`SELECT delta::text || ' ' || reason || ' ' || balance_after::text FROM game.tickets_ledger WHERE user_id = '${sqlId(session.hub.userId)}' AND game_id = 'sproto-shooter' ORDER BY seq`)}`);
     console.log(`shooter score ${psql(`SELECT variant || '=' || value::text FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}' AND board_id = 'shooter_story_clear_ms_v1'`)}`);
     for (let i = 0; i < 100; i++) {
@@ -333,19 +333,19 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(credits(session.hub.userId), 1);
     assert.equal(creditSum(session.hub.userId), PAY);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-shooter'), PAY);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
     assert.equal(psql(`SELECT day::text FROM game.shooter_receipt WHERE run_id = '${sqlId(issuance.runId)}'`), issuance.day);
     await sleep(2000);
     const delayed = await submit(session, issuance.runId, log);
     assert.equal(canonical(delayed.body), canonical(first.body), JSON.stringify(delayed.body));
     assert.equal(credits(session.hub.userId), 1);
     assert.equal(creditSum(session.hub.userId), PAY);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
     const alias = await call('shooter.run.issue', { key: 'after-clear-obamaDuo', canonicalBoss: 'obamaDuo' }, session.gameToken);
     assert.equal(body(alias).reason, 'obama_is_one', JSON.stringify(alias.body));
     assert.equal(body(alias).tickets, 0);
     assert.equal(credits(session.hub.userId), 1);
-    assert.equal(scores(session.hub.userId), 1);
+    assert.equal(scores(session.hub.userId, 'broccoli'), 1);
   });
 
   // Broccoli clears in about 3k frames, so twenty parallel verifies stay inside
@@ -372,7 +372,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
       assert.equal(scores(committed.hub.userId, 'broccoli'), 1);
 
       const rolled = await loginShooter();
-      const rolledClear = await cleared(rolled, 'sahil', 'fault-wallet');
+      const rolledClear = await cleared(rolled, 'broccoli', 'fault-wallet');
       const rolledIssue = rolledClear.issuance;
       const rolledLog = rolledClear.log;
       arm(rolled.hub.userId, 'earn.after_wallet', 'raise');
@@ -380,7 +380,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
       assert.equal(faulted(failed), true, JSON.stringify(failed));
       assert.equal(credits(rolled.hub.userId), 0);
       assert.equal(ticketBalance(rolled.hub.userId, 'sproto-shooter'), 0);
-      assert.equal(receipts(rolled.hub.userId), 0);
+      assert.equal(receipts(rolled.hub.userId, 'broccoli'), 0);
       disarm(rolled.hub.userId);
       const retry = await submit(rolled, rolledIssue.runId, rolledLog);
       assert.equal(body(retry).paid, true, JSON.stringify(retry.body));
@@ -396,15 +396,15 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     psql(`INSERT INTO game.tickets_balance (user_id, game_id, balance) VALUES ('${sqlId(capped.hub.userId)}', 'sproto-shooter', 190) ON CONFLICT (user_id, game_id) DO UPDATE SET balance = 190`);
     psql(`INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind) VALUES (gen_random_uuid(), '${sqlId(capped.hub.userId)}', 'sproto-shooter', 190, 190, 'seed_cap', '${sqlId(capped.sessionId)}', 'earn')`);
     psql(`INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response) VALUES ('${sqlId(capped.hub.userId)}', 'seed-cap', 'tickets.earn', decode('aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'hex'), '{"balance":190}'::jsonb)`);
-    const cappedClear = await cleared(capped, 'sahil', 'cap-session');
+    const cappedClear = await cleared(capped, 'broccoli', 'cap-session');
     const issuance = cappedClear.issuance;
     const denied = await submit(capped, issuance.runId, cappedClear.log);
     assert.equal(body(denied).error, 'session_ticket_cap', JSON.stringify(denied.body));
     assert.equal(ticketBalance(capped.hub.userId, 'sproto-shooter'), 190);
     assert.equal(credits(capped.hub.userId), 0);
-    assert.equal(receipts(capped.hub.userId), 0);
+    assert.equal(receipts(capped.hub.userId, 'broccoli'), 0);
     const room = await openGame(capped.hub.token, 'sproto-shooter');
-    const retryClear = await cleared(room, 'sahil', 'cap-new-session');
+    const retryClear = await cleared(room, 'broccoli', 'cap-new-session');
     const paid = await submit(room, retryClear.issuance.runId, retryClear.log);
     assert.equal(body(paid).paid, true, JSON.stringify(paid.body));
     assert.equal(ticketBalance(capped.hub.userId, 'sproto-shooter'), 210);
@@ -412,26 +412,26 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
 
     const daily = await loginShooter();
     psql(`INSERT INTO game.earn_window (user_id, bucket, day, amount) VALUES ('${sqlId(daily.hub.userId)}', 'tickets:sproto-shooter', (now() AT TIME ZONE 'utc')::date, 990)`);
-    const dailyClear = await cleared(daily, 'sahil', 'cap-day');
+    const dailyClear = await cleared(daily, 'broccoli', 'cap-day');
     const dailyDenied = await submit(daily, dailyClear.issuance.runId, dailyClear.log);
     assert.equal(body(dailyDenied).error, 'daily_ticket_cap', JSON.stringify(dailyDenied.body));
     assert.equal(ticketBalance(daily.hub.userId, 'sproto-shooter'), 0);
     assert.equal(credits(daily.hub.userId), 0);
-    assert.equal(receipts(daily.hub.userId), 0);
+    assert.equal(receipts(daily.hub.userId, 'broccoli'), 0);
 
     const boundary = await loginShooter();
-    const todayClear = await cleared(boundary, 'obama', 'utc-today');
+    const todayClear = await cleared(boundary, 'broccoli', 'utc-today');
     const todayPay = await submit(boundary, todayClear.issuance.runId, todayClear.log);
     assert.equal(body(todayPay).paid, true, JSON.stringify(todayPay.body));
-    psql(`UPDATE game.shooter_receipt SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND canonical_boss = 'obama'`);
-    psql(`UPDATE game.earn_window SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND bucket = 'boss:sproto-shooter:obama'`);
-    const nextClear = await cleared(boundary, 'obama', 'utc-next');
+    psql(`UPDATE game.shooter_receipt SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND canonical_boss = 'broccoli'`);
+    psql(`UPDATE game.earn_window SET day = (now() AT TIME ZONE 'utc')::date - 1 WHERE user_id = '${sqlId(boundary.hub.userId)}' AND bucket = 'boss:sproto-shooter:broccoli'`);
+    const nextClear = await cleared(boundary, 'broccoli', 'utc-next');
     const nextPay = await submit(boundary, nextClear.issuance.runId, nextClear.log);
     assert.equal(body(nextPay).paid, true, JSON.stringify(nextPay.body));
-    assert.equal(receipts(boundary.hub.userId, 'obama'), 2);
+    assert.equal(receipts(boundary.hub.userId, 'broccoli'), 2);
     assert.equal(credits(boundary.hub.userId), 2);
     assert.equal(ticketBalance(boundary.hub.userId, 'sproto-shooter'), 40);
-    const sameClear = await cleared(boundary, 'obama', 'utc-same');
+    const sameClear = await cleared(boundary, 'broccoli', 'utc-same');
     const samePay = await submit(boundary, sameClear.issuance.runId, sameClear.log);
     assert.equal(body(samePay).tickets, 0, JSON.stringify(samePay.body));
     assert.equal(credits(boundary.hub.userId), 2);
