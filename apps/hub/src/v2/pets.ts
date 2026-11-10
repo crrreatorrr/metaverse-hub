@@ -114,7 +114,7 @@ export function createPetFollower(parent: Object3D): PetFollower {
   const tmp = new Vector3();
 
   function play(name: string, fade = FADE): void {
-    if (name === current) return;
+    if (name === current || !levels[0]?.actions.has(name)) return;
     for (const level of levels) {
       const next = level.actions.get(name);
       if (!next) continue;
@@ -142,6 +142,8 @@ export function createPetFollower(parent: Object3D): PetFollower {
     levels = [];
     current = '';
     placed = false;
+    stillFor = 0;
+    idleFor = 0;
     group.visible = false;
   }
 
@@ -164,7 +166,7 @@ export function createPetFollower(parent: Object3D): PetFollower {
       group.addLevel(levels[1].root, LOD1_DISTANCE);
       for (const level of levels) level.mixer.addEventListener('finished', onFinished as never);
       active = id;
-      play('spawn_poof', 0);
+      play(levels[0].actions.has('spawn_poof') ? 'spawn_poof' : 'idle', 0);
     },
     emote(name) { play(name, 0.1); },
     update(dt, player, standY, sprint) {
@@ -211,7 +213,7 @@ export function createPetFollower(parent: Object3D): PetFollower {
         if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play('idle');
         if (current === 'idle') {
           idleFor += dt;
-          if (idleFor > IDLE_TO_SIT) play('sit_enter', 0.1);
+          if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter')) play('sit_enter', 0.1);
         } else if (current !== 'sit' && current !== 'sit_enter') idleFor = 0;
       }
       const rate = current === 'follow_run' ? speed / RUN_REF : current === 'follow_walk' ? speed / WALK_REF : 1;

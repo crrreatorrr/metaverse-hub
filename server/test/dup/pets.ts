@@ -159,11 +159,11 @@ async function profileAndLoadout(): Promise<void> {
   await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
-  // The Z1A1 clear grants hpos10i_core (live since 0043), which derives pet_speed_sproto.
+  // The Z1A1 clear grants hpos10i_core (live since 0043), which derives the Speed and Runner pets.
   // The act-2 clear's pet_honk_sproto is still held and stays out.
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
-    { owned: ['pet_speed_sproto'], active: null },
+    { owned: ['pet_runner', 'pet_speed_sproto'], active: null },
     JSON.stringify(profile.body),
   );
   assert.equal(

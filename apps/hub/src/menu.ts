@@ -35,38 +35,33 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
 /** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
-const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
-  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Sun God' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green' },
-  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Pissing Sproto' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto' },
+const RELIC_INFO: Record<RelicId, { game: string; how: string; fighter: string; unlock?: string }> = {
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', fighter: 'Sun God' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', fighter: 'Captain Green' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', fighter: 'Pissing Sproto' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', fighter: 'Captain Sproto' },
   tidebreaker_belt: {
     game: 'Sproto Fighter (Bar arcade)',
     how: 'Win Story World 1, Tidebreaker Marina.',
-    pet: '',
     fighter: '',
     unlock: "Tidebreaker Belt aura · Fighter's Might (Sproto Duel) · Champion's Crown (NOBU) · Champion Sproto (People's Bitcoin) · Tidebreaker skin (HPOS10I)",
   },
   breakwater_coin: {
     game: 'Sproto Arcade (Bar arcade)',
     how: 'Beat Fat Head Dave at Tidebreak Marina, the first story boss. God mode counts.',
-    pet: '',
     fighter: 'Pissing Sproto',
     unlock: "Repeats Cone's Tip: Nobu's staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
   },
   marina_anchor: {
     game: 'Sproto Coop Battle (Bar arcade)',
     how: 'Clear stage 1, Tidebreak Marina, alone or online. God mode counts.',
-    pet: '',
     fighter: '',
     unlock: 'Marina Anchor aura · no items in other games yet',
   },
   dragon_scale: {
     game: 'Sproto Shooter (The Range)',
     how: 'Clear wave 1 of Wave Mode. God mode counts.',
-    pet: '',
     fighter: '',
-    unlock: 'Dragon Scale aura · no items in other games yet',
   },
 };
 
@@ -80,6 +75,12 @@ interface PetInfo {
 
 /** Hub pet catalog, mirrored from `server/modules/src/pets.ts` and docs/m6-server-prep.md. */
 const PETS: readonly PetInfo[] = [
+  { id: 'pet_fighter', name: 'Fighter Pet', from: 'Relic: Tidebreaker Belt', relic: 'tidebreaker_belt' },
+  { id: 'pet_mecha', name: 'Mecha Pet', from: 'Relic: Breakwater Coin', relic: 'breakwater_coin' },
+  { id: 'pet_president', name: 'President Pet', from: 'Relic: Genesis Block Shard', relic: 'genesis_shard' },
+  { id: 'pet_wizard', name: 'Wizard Pet', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
+  { id: 'pet_runner', name: 'Runner Pet', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
+  { id: 'pet_soldier', name: 'Soldier Pet', from: 'Relic: Dragon Scale', relic: 'dragon_scale' },
   { id: 'pet_speed_sproto', name: 'Speed Sproto', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
   { id: 'pet_nobu', name: 'Nobu', from: "Relic: Cone's Tip", relic: 'cones_tip' },
   { id: 'pet_duelist_sproto', name: 'Duelist Sproto', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
@@ -392,6 +393,9 @@ export function createMenu(options: MenuOptions): Menu {
   const relicCards = new Map<string, HTMLElement>();
   for (const socket of RELICS) {
     const info = RELIC_INFO[socket.id];
+    const unlocks = [info.unlock ?? `${socket.name} aura`];
+    unlocks.push(...PETS.filter((pet) => pet.relic === socket.id).map((pet) => pet.name));
+    if (info.fighter) unlocks.push(`Fighter: ${info.fighter}`);
     const card = el('li', 'relic-card');
     card.style.setProperty('--relic', socket.color);
     const gem = el('span', 'relic-gem');
@@ -400,7 +404,7 @@ export function createMenu(options: MenuOptions): Menu {
       el('strong', '', socket.name),
       el('span', 'relic-game', info.game),
       el('span', 'relic-how', info.how),
-      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.name} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
+      el('span', 'relic-unlock', `Unlocks: ${unlocks.join(' · ')}`),
     );
     const state = el('span', 'relic-badge', 'Locked');
     const toggle = el('button', 'relic-toggle');
