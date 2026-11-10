@@ -67,3 +67,24 @@ For crowd reproduction use `/hub/?bots=49` and
 the local starter without any server or economy changes. A GPU-capable browser is
 needed to assess the production frame-time target; software-rendered cloud Chrome
 measurements are comparative only.
+
+The 1280×720 cloud Chrome crowd run rendered 6 near and 43 far avatars:
+
+| Scene | Main scene draws | RAF median | RAF p95 |
+| --- | ---: | ---: | ---: |
+| 49 remotes, no pets | 124 | 1583 ms | 2767 ms |
+| 49 remotes + pets + local starter | 140 | 1467 ms | 2717 ms |
+
+Both stay below the existing 150-draw warning threshold. This environment uses
+SwiftShader and cannot validate a production GPU FPS target. The HUD's displayed
+FPS is based on clamped simulation delta and is not a reliable timing measure on
+this software renderer; the table uses requestAnimationFrame intervals.
+
+### Existing CI blocker
+
+The PR's Shooter simulation check fails because upstream main
+`82d5ab51b0eaa487f225f86e77ff93e94133dc89` changes simulation/data/server sources
+since the hub's pin `acafce3a39046d8117f29f068b3a57358fa89f77`. The check script,
+Shooter/Coop vendor artifacts and pin metadata are unchanged by this PR. Resolving
+that upstream drift requires a separate coordinated Shooter refresh; this change
+does not bypass the check. Fighter and Coop sim-version workflows pass.
