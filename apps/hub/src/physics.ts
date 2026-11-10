@@ -95,12 +95,14 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
 
     let floorY = -Infinity;
     let ceilingY = Infinity;
+    let floorContact = false;
     let wallLift = false;
     const intersectsBounds = (box: Box3) => box.intersectsBox(tempBox) ? INTERSECTED : NOT_INTERSECTED;
     function separate(sideways: boolean): void {
       tempSegment.copy(incomingSegment);
       floorY = -Infinity;
       ceilingY = Infinity;
+      floorContact = false;
       wallLift = false;
       bvh.shapecast({
         intersectsBounds,
@@ -134,7 +136,12 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
             // with a vertical normal component can support or cap the capsule.
             if (supportsVerticalContact) {
               const correctedY = tempSegment.start.y + direction.y * depth;
-              if (direction.y >= 0.45 && contactY <= tempSegment.end.y + 1e-6) floorY = Math.max(floorY, correctedY);
+              if (direction.y > 0 && contactY <= tempSegment.end.y + 1e-6) {
+                // Two shallow contacts can jointly support the capsule, even
+                // when neither provides a standalone floor-height correction.
+                floorContact = true;
+                if (direction.y >= 0.45) floorY = Math.max(floorY, correctedY);
+              }
               if (direction.y <= -0.45 && contactY >= tempSegment.start.y - 1e-6) ceilingY = Math.min(ceilingY, correctedY);
             }
             tempSegment.start.addScaledVector(direction, depth);
@@ -149,7 +156,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     // Look for support at the incoming position before treating a top edge
     // as a wall only. The extra query is limited to ambiguous edge contacts.
     let supportedEdge = false;
-    if (wallLift && !Number.isFinite(floorY)) {
+    if (wallLift && !floorContact) {
       supportedEdge = bvh.shapecast({
         intersectsBounds,
         intersectsTriangle: (tri) => Math.abs(tri.getNormal(normal).y) >= 0.45 &&
@@ -168,7 +175,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     }
     const len = delta.length();
     const rising = velocity.y > 0.2;
-    grounded = !rising && (Number.isFinite(floorY) || supportedEdge) && delta.y > Math.abs(dt * velocity.y * 0.25);
+    grounded = !rising && (floorContact || supportedEdge) && delta.y > Math.abs(dt * velocity.y * 0.25);
     if (len > 1e-5) {
       position.addScaledVector(delta, (len - 1e-5) / len);
       if (!grounded && !rising) {

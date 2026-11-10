@@ -145,3 +145,22 @@ for (const hz of [20, 60, 120]) {
   assert.ok(falling.grounded && Math.abs(falling.position.y - STAND_Y - edgeHeight) < 0.01, `solid platform supports landing at ${hz} Hz`);
 }
 edges.dispose();
+
+// A capsule can also balance between two upward surfaces. Neither edge
+// alone pushes mostly upward, but together they support a jump.
+const halfGap = 0.39;
+const splitPieces = [
+  new BoxGeometry(20, 1, 20).translate(0, -0.5, 0),
+  ...[-1, 1].map(side => new PlaneGeometry(2, 8).rotateX(-Math.PI / 2).translate(side * (1 + halfGap), edgeHeight, 0)),
+];
+const splitFloor = mergeGeometries(splitPieces);
+for (const geometry of splitPieces) geometry.dispose();
+const balanced = createPlayerController(new MeshBVH(splitFloor));
+for (const hz of [20, 60, 120]) {
+  balanced.spawn(0, STAND_Y + 3, 0);
+  for (let frame = 0; frame < 2 * hz; frame++) balanced.step(1 / hz, idle, speeds);
+  assert.ok(balanced.grounded && balanced.position.y > STAND_Y + 1, `two floor edges jointly support the capsule at ${hz} Hz`);
+  balanced.step(1 / hz, { ...idle, jump: true }, speeds);
+  assert.ok(!balanced.grounded && balanced.velocity.y > 0, `joint support accepts a jump at ${hz} Hz`);
+}
+splitFloor.dispose();
