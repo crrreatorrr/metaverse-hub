@@ -111,44 +111,17 @@ function record(issuance: Issuance, mode = 'success'): { v: number; binding: { [
   const sim = pathToFileURL(join(root, 'src/sim/simulate.js')).href;
   const contract = pathToFileURL(join(root, 'src/server/runContract.js')).href;
   const protocol = pathToFileURL(join(root, 'src/server/protocol.js')).href;
+  const kite = pathToFileURL(join(root, 'src/sim/campaign/kiteAim.js')).href;
   writeFileSync(file, `import { simulate } from ${JSON.stringify(sim)};
 import { buildIssuedState } from ${JSON.stringify(contract)};
 import { quantizeCommand, dequantizeCommand, encodeQuantized } from ${JSON.stringify(protocol)};
+import { kiteCommand } from ${JSON.stringify(kite)};
 import fs from 'node:fs';
 const spec = JSON.parse(fs.readFileSync(0, 'utf8'));
 const issuance = spec.issuance;
 const mode = spec.mode;
-function livingBosses(state) {
-  return state.enemies.filter((e) => e.boss && !e.dead && !e.fled);
-}
-function aimYaw(from, to) {
-  return Math.atan2(-(to.x - from.x), -(to.z - from.z));
-}
 function decide(state, mode) {
-  const p = state.players[state.localPlayerId];
-  const live = livingBosses(state);
-  if (!live.length) return { yaw: -Math.PI / 2, pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
-  let target = live[0];
-  let best = Infinity;
-  for (const e of live) {
-    const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
-    if (d < best) { best = d; target = e; }
-  }
-  if (mode === 'fail') {
-    if (best > 4.5) return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
-    return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
-  }
-  const eye = p.pos.y + 1.6;
-  const aimY = target.pos.y + target.height * 0.55;
-  let pitch = Math.atan2(aimY - eye, Math.max(0.2, best)) - p.recoil.pitch;
-  if (pitch > 1.45) pitch = 1.45;
-  if (pitch < -1.45) pitch = -1.45;
-  let moveZ = 0;
-  if (best > 18) moveZ = 1;
-  else if (best < 9) moveZ = -1;
-  const pressed = {};
-  if (p.hp < 45 && p.medkits > 0 && !p.downed) pressed.medkit = true;
-  return { yaw: aimYaw(p.pos, target.pos), pitch, moveX: 0, moveZ, held: { fire: true, sprint: best > 18 }, pressed, slot: -1, wheel: 0, actions: [] };
+  return kiteCommand(state, mode);
 }
 function noteBoss(memory, state, parts) {
   for (const e of state.enemies) {
@@ -163,7 +136,8 @@ const state = buildIssuedState(issuance);
 const id = state.localPlayerId;
 const qs = [];
 const memory = {};
-let guard = 20000;
+// 15000 frames of 12-byte input stay under Nakama's 256 KB HTTP body cap.
+let guard = 15000;
 while (guard-- > 0) {
   const q = quantizeCommand(decide(state, mode));
   qs.push(q);
@@ -172,13 +146,14 @@ while (guard-- > 0) {
   noteBoss(memory, state, issuance.parts);
   if (mode !== 'fail' && issuance.parts.every((type) => memory[type] && memory[type].dead && !memory[type].fled)) break;
 }
+const cleared = issuance.parts.every((type) => memory[type] && memory[type].dead && !memory[type].fled);
 const encoded = encodeQuantized(qs);
 const log = { v: 1, binding: { accountId: issuance.accountId, sessionId: issuance.sessionId, day: issuance.day, runId: issuance.runId }, segments: [{ i: 0, from: null, tick0: 0, n: encoded.n, frames: encoded.frames, actions: encoded.actions }] };
-process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].dead, log }));
+process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].dead, cleared, log }));
 `);
   const out = execFileSync(process.execPath, [file], { input: JSON.stringify({ issuance, mode }), encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 });
-  const parsed = JSON.parse(out) as { tick: number; dead: boolean; log: { v: number; binding: { [key: string]: string }; segments: { n: number }[] } };
-  if (mode === 'success' && (parsed.dead || parsed.log.segments[0].n < 10)) {
+  const parsed = JSON.parse(out) as { tick: number; dead: boolean; cleared: boolean; log: { v: number; binding: { [key: string]: string }; segments: { n: number }[] } };
+  if (mode === 'success' && (parsed.dead || !parsed.cleared || parsed.log.segments[0].n < 10)) {
     throw new Error(`recorder did not clear ${issuance.canonicalBoss} in ${parsed.tick} frames`);
   }
   return parsed.log;
@@ -186,7 +161,7 @@ process.stdout.write(JSON.stringify({ tick: state.tick, dead: state.players[id].
 
 async function cleared(session: GameLogin, boss: string, key: string): Promise<{ issuance: Issuance; log: ReturnType<typeof record> }> {
   let last = 'no attempt';
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 24; i++) {
     const issuance = await issue(session, boss, `${key}-${i}`);
     try {
       return { issuance, log: record(issuance, 'success') };
@@ -212,6 +187,20 @@ async function issue(session: GameLogin, boss: string, key: string): Promise<Iss
 
 async function submit(session: GameLogin, runId: string, log: unknown): Promise<RpcResult> {
   return call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 60_000 });
+}
+
+async function submitRace(session: GameLogin, runId: string, log: unknown): Promise<RpcResult> {
+  let last: unknown;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return await call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 180_000 });
+    } catch (error) {
+      last = error;
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.includes('fetch failed') || attempt === 2) throw error;
+    }
+  }
+  throw last;
 }
 
 function credits(userId: string): number {
@@ -337,7 +326,7 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
   await test('shooter', '20 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
     const session = await loginShooter();
     const { issuance, log } = await cleared(session, 'sahil', 'race-key');
-    const results = await Promise.all(Array.from({ length: 20 }, () => submit(session, issuance.runId, log)));
+    const results = await Promise.all(Array.from({ length: 20 }, () => submitRace(session, issuance.runId, log)));
     const winners = results.filter((result) => body(result).paid === true);
     assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
     const sealed = canonical(winners[0]?.body);

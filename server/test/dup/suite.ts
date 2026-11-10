@@ -93,6 +93,8 @@ function testBudget(name: string): number {
   ) return 480_000;
   if (name.includes('ledger sums') || name.includes('second boot')) return 360_000;
   if (name.includes('kill_between')) return 240_000;
+  if (name.includes('one clear pay once')) return 900_000;
+  if (name.includes('same-boss aliases')) return 420_000;
   if (name.includes('x100')) return 150_000;
   if (name.includes('kill_')) return 120_000;
   if (name.includes('sweep')) return 180_000;

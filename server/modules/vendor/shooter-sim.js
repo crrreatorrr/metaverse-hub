@@ -3308,8 +3308,7 @@ var SprotoShooterSim = (() => {
         kind: "entry",
         seconds: 30,
         designTargets: [{ id: "loom-E", hp: 161, at: [58, 0, 70] }, { id: "loom-W", hp: 161, at: [22, 0, 70] }],
-        // One attack name. A longer list makes Math.floor(rng * length) pick differently in goja.
-        attacks: ["bolt"],
+        attacks: { bolts: "half" },
         adds: [
           { t: 2, from: ["sh-NW", "sh-NE"], units: [["midget", 3], ["midget", 3]] },
           { on: "firstLoom", from: ["sh-SE"], units: [["boomMidget", 2]], gap: 1.5 }
@@ -3319,9 +3318,10 @@ var SprotoShooterSim = (() => {
         id: 2,
         kind: "phase",
         seconds: 55,
-        hp: 1714,
+        hp: 1300,
+        designHp: 1714,
         duelStage: 1,
-        attacks: ["bolt"],
+        attacks: ["bolt", "carpetSweep"],
         adds: [
           { onBossHp: 65, from: ["sh-SW", "sh-SE"], units: [["midget", 2], ["midget", 2]] },
           { onBossHp: 30, from: ["sh-NW"], units: [["boomMidget", 2]] }
@@ -3347,9 +3347,9 @@ var SprotoShooterSim = (() => {
         id: 4,
         kind: "phase",
         seconds: 60,
-        hp: 1909,
+        hp: 1e3,
+        designHp: 1909,
         duelStage: 2,
-        attacks: ["bolt"],
         ring: 26.8,
         adds: [
           { onBossHp: 70, from: ["sh-NE", "sh-SW"], units: [["midget", 2], ["midget", 1]] },
@@ -3360,9 +3360,9 @@ var SprotoShooterSim = (() => {
         id: 5,
         kind: "phase",
         seconds: 65,
-        hp: 1967,
+        hp: 900,
+        designHp: 1967,
         duelStage: 3,
-        attacks: ["bolt"],
         ring: 25.5,
         adds: [
           { onBossHp: 75, from: ["sh-NW"], units: [["riotMidget", 1, { elite: true, name: "Head of Rug Security", hp: 173 }], ["midget", 3]] },
@@ -4005,23 +4005,25 @@ var SprotoShooterSim = (() => {
   }
   function s4() {
     const geometry = [
-      floor2("s4-ground", -220, 260, -220, 260),
+      // Wide sand so a multi-bar kite cannot walk off the floor.
+      floor2("s4-ground", -900, 900, -900, 900),
       // Low vault marks. Full-height walls were trapping the straight-line bot in corners.
-      box2("s4-vault-n", [20, 1.2, 0.8], [40, 0.6, 3], "stone"),
-      box2("s4-vault-w", [0.8, 1.2, 16], [29, 0.6, 14], "stone"),
-      box2("s4-vault-e", [0.8, 1.2, 16], [51, 0.6, 14], "stone"),
+      cone2("s4-vault-n", 1.2, 1.6, [40, 0, 3], "stone"),
+      cone2("s4-vault-w", 1.2, 1.6, [29, 0, 14], "stone"),
+      cone2("s4-vault-e", 1.2, 1.6, [51, 0, 14], "stone"),
       cone2("s4-fac-nw", 2, 6, [22, 0, 40], "stone"),
       cone2("s4-fac-ne", 2, 6, [58, 0, 40], "stone"),
       cone2("s4-fac-s", 2, 6, [40, 0, 112], "stone"),
       disc2("s4-rug", 7, [40, 0.05, 70], "gold"),
       disc2("s4-line", 3, [40, 0.05, 48]),
-      cylinder2("s4-pil-1", 0.7, 2, [28, 0, 66], "pillar"),
-      cylinder2("s4-pil-2", 0.7, 2, [52, 0, 66], "pillar"),
-      cylinder2("s4-pil-3", 0.7, 2, [34, 0, 88], "pillar"),
-      cylinder2("s4-pil-4", 0.7, 2, [46, 0, 88], "pillar"),
+      // Cones, not columns: a solid pillar here pushes the five-bar replay over the verifier's time budget.
+      cone2("s4-pil-1", 0.7, 2, [28, 0, 66], "pillar"),
+      cone2("s4-pil-2", 0.7, 2, [52, 0, 66], "pillar"),
+      cone2("s4-pil-3", 0.7, 2, [34, 0, 88], "pillar"),
+      cone2("s4-pil-4", 0.7, 2, [46, 0, 88], "pillar"),
       box2("s4-pile-1", [3, 1.2, 1.5], [32, 0.6, 58], "trim"),
       box2("s4-pile-2", [3, 1.2, 1.5], [48, 0.6, 58], "trim"),
-      cylinder2("s4-balcony", 4, 9, [40, 0, 105], "stone"),
+      cone2("s4-balcony", 4, 9, [40, 0, 105], "stone"),
       cone2("s4-balcony-roof", 4.5, 4, [40, 13, 105], "gold")
     ];
     const route = [
@@ -4077,9 +4079,7 @@ var SprotoShooterSim = (() => {
             stallSec: 12,
             noExit: true
           },
-          // Live part is the entry bar. The other four bars are on the section
-          // bossScript until a multi-bar kite replays the same in goja.
-          script: { parts: [BOSS_SCRIPT.parts[0]] },
+          script: BOSS_SCRIPT,
           hp: BOSS_HP,
           squads: [
             squad2("sahil", { type: "onEnter" }, "placed", [["sahil", 1]], [[40, 0, 70]], [[40, 0, 70]])
@@ -15439,7 +15439,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "fc127ef50ee25511bf8d7f1d2a0fa22075eb5017";
+  var SOURCE_COMMIT = "ce6f5f232c1abdf78bbde8f4ac65b1b475109c01";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

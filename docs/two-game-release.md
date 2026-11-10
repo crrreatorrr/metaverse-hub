@@ -25,9 +25,9 @@ C5 could not run its own Nakama restart step or the wallet-fault half, and its t
 | Piece | Value |
 |---|---|
 | Hub parent | `8753d1c` (hub #123). Squash `dcc8e6b` (hub #122) |
-| Shooter `main` | `fc127ef50ee25511bf8d7f1d2a0fa22075eb5017` (through shooter #61, L04). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
-| Shooter free / wager bundle | sha256 `35120ac493a1e202d90ebb6db88f121a23193b218aba56af60d390ad0cacabd3`, content `17d87c54`, loadout `4cdfab55`, golden tick 65 hash `6545ca0a`, global `SprotoShooterPvp` |
-| Shooter campaign bundle | sha256 `3abc106f49e93c013bc8a0729d3d79ffe6e9c292d93cfe33923d87b747d40c5b`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
+| Shooter `main` | `ce6f5f232c1abdf78bbde8f4ac65b1b475109c01` (through the L02 Sahil fight). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
+| Shooter free / wager bundle | sha256 `887c20aaf62b7404b415265081302a553fdbddc24ee0cd72deba62935bafddb4`, content `17d87c54`, loadout `4cdfab55`, golden tick 65 hash `6545ca0a`, global `SprotoShooterPvp` |
+| Shooter campaign bundle | sha256 `dbdff8bfd63b69782c998235825753a144411de1c2d5ac1d62720947246364b1`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
 | Coop game `main` | `ae9dd750878c4046d43825fff1724c129c4c1fdb` |
 | Coop hub pin | commit `9a0b5d9f97460617b4b2bb8445dae6849f163d51`, protocol 1, state 1, fingerprint `f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e`, bundle `28f9236d0df78c62cf600ad08c9924f8dd260b6948d7a73baf60230936934fac` |
 | Coop loop | 20 Hz, 3 substeps, 60 Hz sim, snapshot 10 Hz, reconnect 15 s, match `sproto_coop` |
