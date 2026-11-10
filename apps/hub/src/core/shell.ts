@@ -466,8 +466,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const previousX = player.position.x;
     const previousZ = player.position.z;
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
-    const speed = dt > 0 ? Math.hypot(player.position.x - previousX, player.position.z - previousZ) / dt : undefined;
-    const moving = Math.hypot(input.forward, input.strafe) > 0;
+    const moveAmount = Math.min(1, Math.hypot(input.forward, input.strafe));
+    const moving = moveAmount > 0;
+    const requestedSpeed = moveAmount * (input.sprint ? SPRINT_SPEED : WALK_SPEED);
+    const travel = Math.hypot(player.position.x - previousX, player.position.z - previousZ);
+    // A blocked capsule can shift slightly as it resolves contact. Compare the
+    // shift to the requested motion so gentle stick input still drives the rig.
+    const speed = dt > 0 ? (travel < requestedSpeed * dt * 0.005 ? 0 : travel / dt) : undefined;
     airTime = player.grounded ? 0 : airTime + dt;
     const air = {
       airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,

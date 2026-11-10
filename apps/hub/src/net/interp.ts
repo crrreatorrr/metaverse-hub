@@ -12,8 +12,8 @@ export interface Interp {
   push(at: number, pose: Pose): void;
   /** Interpolated pose at `now - INTERP_DELAY_MS`, or null before the first sample. */
   sample(now: number, out: Pose): Pose | null;
-  /** The render time just passed the newest snapshot. Give the next packet one delay window to arrive. */
-  awaitingPose(now: number): boolean;
+  /** Milliseconds by which the render time has passed the newest snapshot. */
+  poseHoldMs(now: number): number;
   latest(): Pose | null;
   clear(): void;
 }
@@ -58,11 +58,9 @@ export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
       Object.assign(out, { x: a.x, y: a.y, z: a.z, yaw: a.yaw, anim: a.anim });
       return out;
     },
-    awaitingPose(now) {
+    poseHoldMs(now) {
       const last = samples[samples.length - 1];
-      if (!last) return false;
-      const gap = now - delayMs - last.at;
-      return gap > 0 && gap <= delayMs;
+      return last ? Math.max(0, now - delayMs - last.at) : 0;
     },
     latest() {
       const last = samples[samples.length - 1];

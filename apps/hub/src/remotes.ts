@@ -29,7 +29,7 @@ import { isCharacterId, isStaffId } from './config';
 import { defaultLook } from './look';
 import type { OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
-import { SNAP_DISTANCE } from './net/interp';
+import { INTERP_DELAY_MS, SNAP_DISTANCE } from './net/interp';
 import { ANIMS, zoneOf, type Pose } from './net/protocol';
 import type { RemotePlayer, RemoteWorld } from './net/remoteWorld';
 
@@ -307,7 +307,12 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
           let speed: number | null | undefined;
           if (!discontinuity && poseDt > 0 && travel <= SNAP_DISTANCE) {
-            speed = p?.interp.awaitingPose(nowMs) ? null : travel / poseDt;
+            const heldMs = p?.interp.poseHoldMs(nowMs) ?? 0;
+            const sampleDt = poseDt - heldMs / 1000;
+            // On the frame that reaches the last pose, divide travel by the
+            // time spent interpolating. Later held frames have no new speed.
+            if (sampleDt > 0.0001 && travel > 0) speed = travel / sampleDt;
+            else speed = heldMs > 0 && heldMs <= INTERP_DELAY_MS ? null : 0;
           }
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
