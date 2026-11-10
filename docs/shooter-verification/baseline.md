@@ -37,7 +37,7 @@ Issuance and settlement require an open, redeemed game session with `lease_until
 
 [main.ts](../../server/modules/src/main.ts) registers legacy `shooter.run.issue` and `shooter.run.submit`. There is no durable v2 append/status/finish queue or worker gateway. [schema.ts](../../server/modules/src/schema.ts) merges numeric migrations with root-level `HubSchema.register` calls, sorts them and rejects duplicate numbers/IDs.
 
-Relevant IDs: `0039_sproto_shooter_coop` in `games/sproto_shooter.ts`; `0040_shooter_boss_receipt` and `0048_shooter_campaign_fingerprint` in `games/shooter_rewards.ts`; `0041_coop_boss_receipt`, `0042_server_flags`, `0043_hpos10i_core_live`, `0044_pb_godmode`, `0045_coop_shooter_relics`, `0046_shooter_wager_escrow`, `0047_duel_relic_staves`. Highest observed ID is 0048, **not a reservation of 0049**. Re-enumerate current main, including root-registered modules, when PR 06 begins. Preserve applied checksums. The old fingerprint in 0040 is intentional: additive migration 0048 updates the installed SQL function.
+Relevant IDs: `0039_sproto_shooter_coop` in `games/sproto_shooter.ts`; `0040_shooter_boss_receipt` and `0048_shooter_campaign_fingerprint` in `games/shooter_rewards.ts`; `0041_coop_boss_receipt`, `0042_server_flags`, `0043_hpos10i_core_live`, `0044_pb_godmode`, `0045_coop_shooter_relics`, `0046_shooter_wager_escrow`, `0047_duel_relic_staves`; and root-registered `0049_sproto_duel_wager_flag` in `src/sproto_duel.ts`. Highest observed ID is 0049, **not a reservation of 0050**. Re-enumerate current main, including root-registered modules, when PR 06 begins. Preserve applied checksums. The old fingerprint in 0040 is intentional: additive migration 0048 updates the installed SQL function.
 
 ## Known replay and persistence risks
 
