@@ -71,6 +71,8 @@ function checkBootClearance(root: Object3D, clips: readonly AnimationClip[], fit
   }
   const avatar = new Object3D();
   const pivot = new Object3D();
+  avatar.position.set(2, 0.86, -3);
+  avatar.rotation.y = 0.7;
   avatar.add(pivot);
   pivot.add(root);
   root.scale.setScalar(fit);
@@ -91,7 +93,7 @@ function checkBootClearance(root: Object3D, clips: readonly AnimationClip[], fit
   for (let i = 0; i < 12; i += 1) {
     mixer.update(1 / 60);
     support(1 / 60, true);
-    assert.ok(lowest() >= -0.001, `Mega Tinubu's boot clips while stopping at frame ${i}`);
+    assert.ok(lowest() >= avatar.position.y - 0.001, `Mega Tinubu's boot clips while stopping at frame ${i}`);
   }
   mixer.stopAllAction();
   mixer.uncacheRoot(root);
