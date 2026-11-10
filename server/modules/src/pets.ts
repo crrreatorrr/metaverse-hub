@@ -18,6 +18,8 @@ namespace HubPets {
     id: string;
     /** Relic that derives ownership. Empty means the row lives in item_owned. */
     relic: string;
+    /** Owned by every account. */
+    free?: boolean;
     /** True when a canonical session.event can match an item_rule for this id. */
     live: boolean;
     /** True only for the exchange / four-relic backfill migration. */
@@ -26,7 +28,10 @@ namespace HubPets {
     store: boolean;
   }
 
+  var DEFAULT_PET = "pet_pepe_bull";
+
   var PETS: PetDef[] = [
+    { id: DEFAULT_PET, relic: "", live: false, backfill: false, store: false, free: true },
     { id: "pet_fighter", relic: "tidebreaker_belt", live: false, backfill: false, store: false },
     { id: "pet_mecha", relic: "breakwater_coin", live: false, backfill: false, store: false },
     { id: "pet_president", relic: "genesis_shard", live: false, backfill: false, store: false },
@@ -83,7 +88,7 @@ namespace HubPets {
     }
     var store = 0;
     for (var s = 0; s < PETS.length; s++) if (PETS[s].store) store++;
-    if (PETS.length !== 20 || live !== 7 || backfill !== 2 || relics !== 9 || store !== 2) throw new Error("pet_count");
+    if (PETS.length !== 21 || live !== 7 || backfill !== 2 || relics !== 9 || store !== 2) throw new Error("pet_count");
     var pup = petById("pet_sproto_pup");
     if (!seen["pet_sproto_pup"] || pup.backfill || pup.store || pup.relic || !pup.live) throw new Error("pup_grant");
     var baby = petById("pet_baby_sproto");
@@ -150,7 +155,7 @@ namespace HubPets {
   function nonRelicList(): string {
     var parts: string[] = [];
     for (var i = 0; i < PETS.length; i++) {
-      if (PETS[i].relic) continue;
+      if (PETS[i].relic || PETS[i].free) continue;
       parts.push(sqlQuote(PETS[i].id));
     }
     return parts.join(", ");
@@ -193,8 +198,7 @@ namespace HubPets {
 
   /**
    * The only pet-ownership check. profilePets and setHub both call this.
-   * Relic summons come from relic_claim. Every other catalog pet comes
-   * from item_owned. This does not grant.
+   * Starter pets are free, relic summons come from relic_claim, and earned pets come from item_owned.
    */
   function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
     var have: { [id: string]: boolean } = { pet_starter: true };
@@ -210,6 +214,7 @@ namespace HubPets {
     var relics = queryList(nk, relicSql, [userId]);
     for (var p = 0; p < PETS.length; p++) {
       var def = PETS[p];
+      if (def.free) have[def.id] = true;
       if (def.relic && relics.indexOf(def.relic) >= 0) have[def.id] = true;
     }
     // Materialize the authoritative entitlement snapshot in owner-readable, server-write-only storage.
@@ -250,7 +255,7 @@ namespace HubPets {
 
   function readHub(nk: nkruntime.Nakama, userId: string): HubSlot {
     var rows = nk.storageRead([{ collection: HUB_COLLECTION, key: HUB_KEY, userId: userId }]);
-    if (!rows || !rows.length || !rows[0]) return { pet: null, seq: 0, version: "", updatedAt: "" };
+    if (!rows || !rows.length || !rows[0]) return { pet: DEFAULT_PET, seq: 0, version: "", updatedAt: "" };
     var row = rows[0];
     var value = row.value && isObject(row.value) ? row.value : {};
     return {

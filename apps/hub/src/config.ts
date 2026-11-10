@@ -54,6 +54,9 @@ const DUEL_PLAYER_HEIGHT = 1.9;
  */
 export const CHARACTERS = [
   { id: 'wizard', label: 'Wizard', blurb: 'The plaza regular.', asset: AVATAR_ASSET, portrait: 'world/v2/avatar/portraits/wizard.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false },
+  { id: 'pepe', label: 'Pepe', blurb: 'The original.', asset: 'world/v2/avatar/pepe.glb', portrait: 'world/v2/avatar/portraits/pepe.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false },
+  { id: 'pepe-general', label: 'Pepe General', blurb: 'Dressed for duty.', asset: 'world/v2/avatar/pepe-general.glb', portrait: 'world/v2/avatar/portraits/pepe-general.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false },
+  { id: 'pepe-tux', label: 'Pepe Tux', blurb: 'Black tie and a toast.', asset: 'world/v2/avatar/pepe-tux.glb', portrait: 'world/v2/avatar/portraits/pepe-tux.webp', duelHeight: DUEL_PLAYER_HEIGHT, ownStaff: false },
   { id: 'sahil', label: 'Sahil', blurb: 'Sproto Duel, first boss.', asset: 'world/v2/avatar/sahil.glb', portrait: 'world/v2/avatar/portraits/sahil.webp', duelHeight: 2.0, ownStaff: true },
   { id: 'obama', label: 'Bitcoin Obama', blurb: 'Shills the pump.', asset: 'world/v2/avatar/obama.glb', portrait: 'world/v2/avatar/portraits/obama.webp', duelHeight: 2.1, ownStaff: false },
   { id: 'midget', label: 'The Midget', blurb: "Obama's partner. Quick feet.", asset: 'world/v2/avatar/midget.glb', portrait: 'world/v2/avatar/portraits/midget.webp', duelHeight: 1.25, ownStaff: false },
@@ -122,7 +125,7 @@ export function staffScale(character: CharacterConfig): number {
  * Bodies with no hand for a staff: the soldier's gun, the bots' blasters and cannon, the brutes' fists, claws and
  * drill, the dragon. The picked staff stays in the look and returns on any other avatar.
  */
-const NO_STAFF: ReadonlySet<CharacterId> = new Set<CharacterId>(['soldier', 'laser', 'shooterbot', 'monster', 'beast', 'cargolem', 'mole', 'dragon']);
+const NO_STAFF: ReadonlySet<CharacterId> = new Set<CharacterId>(['soldier', 'laser', 'shooterbot', 'monster', 'beast', 'cargolem', 'mole', 'dragon', 'pepe', 'pepe-general', 'pepe-tux']);
 
 /** False when the picked staff is not mounted: the body can't hold one, or carries its own (`ownStaff`). */
 export function holdsStaff(character: CharacterConfig): boolean {
