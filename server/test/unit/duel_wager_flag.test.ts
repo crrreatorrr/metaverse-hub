@@ -17,7 +17,7 @@ function pair(wager: string) {
 }
 
 function duels() {
-  return mod.nk.matchList(20, true, null, null, null, null).filter((row) => row.handlerName === 'sproto_duel').length;
+  return [...mod.nk.matches.values()].filter((match) => match.module === 'sproto_duel' && !match.ended).length;
 }
 
 const wager = Duel.onMatched(null, mod.logger, mod.nk, pair('1'));
