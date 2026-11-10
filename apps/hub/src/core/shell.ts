@@ -28,6 +28,7 @@ import { createOverheads } from '../overheads';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight } from '../config';
 import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
+import { createPetCollision } from './pet-collision';
 import { EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
@@ -108,6 +109,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   });
   const world = Object.defineProperties(Object.create(engine), Object.getOwnPropertyDescriptors(content)) as typeof engine & RealmContent;
   const PORTALS = content.portals ?? [];
+  const petCollision = createPetCollision(world.collider.bvh);
+  engine.setPetCollision(petCollision);
   engine.loadAvatar();
   document.documentElement.dataset.realm = definition.id;
   document.documentElement.dataset.realmReady = '1';
@@ -119,10 +122,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
   // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
   // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
-  // visits. ?pet=<pet asset id> previews any pet for this visit and is not saved.
+  // development visits. Production waits for the account profile. ?pet=<id> is a DEV-only art preview.
   const PET_KEY = 'hub:pet';
   const petParam = new URLSearchParams(window.location.search).get('pet');
-  let activePet: string | null = petParam ?? loadStoredPet();
+  let activePet: string | null = import.meta.env.DEV ? petParam ?? loadStoredPet() : null;
   if (activePet) void world.setPet(activePet);
 
   function loadStoredPet(): string | null {
@@ -154,7 +157,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   /** The pet the server has on this account (profile.get pets.active). */
   function adoptServerPet(pets: ProfileResult['pets']): void {
-    if (!pets || petParam) return;
+    if (!pets || (import.meta.env.DEV && petParam)) return;
     const id = pets.active && (EQUIPPABLE_PET_IDS as readonly string[]).includes(pets.active) ? pets.active : null;
     storePet(id);
     applyPet(id);
@@ -162,13 +165,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   /** Pets menu: deploy (id) or recall (null) a pet, then save it on the account. */
   function deployPet(id: string | null): void {
-    applyPet(id);
-    storePet(id);
-    void savePet(id);
+    petSaves = petSaves.then(() => savePet(id));
   }
 
+  let petSaves = Promise.resolve();
   async function savePet(id: string | null): Promise<void> {
-    if (!sessionPromise) return; // offline: this browser's copy is all there is
+    if (!sessionPromise) return; // Equipping requires the account RPC.
     let session: HubSession;
     try {
       session = await sessionPromise;
@@ -181,6 +183,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       let ack = await send(Date.now());
       // Another device saved with a later clock: go one past its seq.
       if (!ack.ok && ack.reason === 'stale_seq') ack = await send(Math.max(Date.now(), ack.seq + 1));
+      if (ack.ok) { storePet(ack.slots?.pet ?? null); applyPet(ack.slots?.pet ?? null); }
       // Not owned (or still stale): show what the server has, unless another deploy came since.
       if (!ack.ok && activePet === id) {
         const kept = ack.slots?.pet ?? null;
@@ -257,10 +260,14 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const remoteWorld = createRemoteWorld();
   const remotes = createRemotes(world.scene, remoteWorld, {
     realm: definition.id,
+    petCollision,
     hud: hudRoot instanceof HTMLElement ? hudRoot : document.body,
     setOrbitAvatars: (avatars) => world.setRemoteOrbit(avatars),
     viewport: () => ({ width: window.innerWidth, height: window.innerHeight }),
   });
+  let otherPetsHidden = false;
+  try { otherPetsHidden = localStorage.getItem('hub:hide-other-pets') === '1'; } catch { /* Optional preference. */ }
+  remotes.setPetsHidden(otherPetsHidden);
   const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : document.body);
 
   // Sims (Menu → Sims): characters only this screen sees. They join the RemoteWorld so
@@ -345,6 +352,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       saveMoveStick(next);
     },
     deployablePets: EQUIPPABLE_PET_IDS,
+    otherPetsHidden: () => otherPetsHidden,
+    setOtherPetsHidden(hidden) {
+      otherPetsHidden = hidden;
+      remotes.setPetsHidden(hidden);
+      try { localStorage.setItem('hub:hide-other-pets', hidden ? '1' : '0'); } catch { /* Optional preference. */ }
+    },
     activePet: () => activePet,
     setActivePet: deployPet,
   });
@@ -1152,7 +1165,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const botCount = import.meta.env.DEV ? Number(new URLSearchParams(window.location.search).get('bots') ?? 0) : 0;
   if (import.meta.env.DEV && botCount > 0) {
     const { startBots } = await import('../net/bots');
-    startBots(remoteWorld, botCount);
+    startBots(remoteWorld, botCount, undefined, new URLSearchParams(location.search).has('botPets'));
   }
 
   void boot()

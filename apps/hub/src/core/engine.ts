@@ -6,6 +6,7 @@ import type { AvatarLook } from '../look';
 import { CAMERA_FOV } from '../config';
 import { STAND_Y } from '../physics';
 import { animated, initLoaders, mountGlow } from '../v2/core';
+import type { PetCollision } from './pet-motion';
 import { createPetFollower } from '../v2/pets';
 import { addOrbitGems } from '../m3/orbitGems';
 import type { OrbitAvatar } from '../m3/types';
@@ -69,6 +70,7 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
 
   await initLoaders(renderer);
   // Attach actors after initial realm geometry has loaded, preserving the plaza's load order.
+  let petCollision: PetCollision | undefined;
   let actor: ReturnType<typeof mountActors> | null = null;
   function mountActors() {
     const rig = new Group();
@@ -80,7 +82,10 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     bob.add(avatar);
     rig.add(bob);
     scene.add(rig);
-    const pets = createPetFollower(scene);
+    const collision: PetCollision = position => petCollision?.(position);
+    collision.blocked = (bounds, transform) => petCollision?.blocked?.(bounds, transform) ?? false;
+    collision.beamRange = (origin, direction, range) => petCollision?.beamRange?.(origin, direction, range) ?? range;
+    const pets = createPetFollower(scene, collision);
 
     const shadowMat = new MeshBasicMaterial({
       map: radialShadow(),
@@ -138,6 +143,7 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     get shadowMat() { return actors().shadowMat; },
     get sceneDraws() { return sceneDraws; },
     setLook: (look: AvatarLook) => actors().avatarRig.setLook(look),
+    setPetCollision(collide: PetCollision) { petCollision = collide; },
     setPet: (id: string | null) => actors().pets.setPet(id),
     loadAvatar: () => actors().avatarRig.load(),
     setRelics(ids: readonly string[]) { owned = [...ids]; syncGems(); },

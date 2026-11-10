@@ -1,10 +1,13 @@
 import {
-  AnimationMixer, LOD, LoopOnce, LoopRepeat, Vector3,
-  type AnimationAction, type AnimationClip, type Material, type Mesh, type MeshStandardMaterial, type Object3D,
+  AnimationMixer, Box3, LOD, LoopOnce, LoopRepeat, Matrix4, Mesh, MeshStandardMaterial, SphereGeometry, Vector3,
+  type AnimationAction, type AnimationClip, type Material, type Object3D,
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { WORLD_ROOT, loadGLTF } from './core';
+import { createPetMotion, type PetCollision } from '../core/pet-motion';
+import FOLLOWERS from '../../../../server/data/follower-pets.json';
 import PETS_DATA from './pets.json';
+import CLEARANCE from './pet-clearance.json';
 
 /**
  * M6 hub pets (ken-games/pets/drop-for-tech, contract m6-pet-v1). One pet follows the local avatar.
@@ -14,27 +17,27 @@ import PETS_DATA from './pets.json';
  * Equippable ids are exactly the server catalog ids in server/modules/src/pets.ts that have art in this
  * drop. pet_sproto_base / pet_nobu_base are the shared rigs (item_id null): shipped, not equippable.
  */
+// Padded model-space bounds sampled across both GLBs at 60 Hz, as min XYZ then max XYZ.
+const CLEARANCE_BOXES: Record<string, Record<string, readonly number[]>> = CLEARANCE;
 type PetEntry = (typeof PETS_DATA.pets)[keyof typeof PETS_DATA.pets];
 interface Pulse { node: string; material: string; min: number; max: number; hz: number }
 
 export const PET_ASSET_IDS = Object.keys(PETS_DATA.pets) as (keyof typeof PETS_DATA.pets)[];
 export type PetAssetId = (typeof PET_ASSET_IDS)[number];
 /** Server catalog ids (HubPets.PETS) that this drop has a model for. */
-export const EQUIPPABLE_PET_IDS = PET_ASSET_IDS.filter((id) => (PETS_DATA.pets[id] as PetEntry).item_id === id);
+export const EQUIPPABLE_PET_IDS: readonly string[] = FOLLOWERS.map(pet => pet.id);
 
 const PET_DIR = `${WORLD_ROOT}v2/pets/`;
 const LOD1_DISTANCE: number = PETS_DATA.contract.lod.switch_m;
-const FOLLOW_RIGHT: number = PETS_DATA.contract.follow.offset_avatar_local_m.right;
-const FOLLOW_BACK: number = PETS_DATA.contract.follow.offset_avatar_local_m.back;
-/** Spec section 3: gap above 8 m -> spawn_poof + snap. */
-const SNAP_GAP = 8;
 const STOP_TO_IDLE = 0.5;
 const IDLE_TO_SIT = 10;
+const IDLE_TRICK_DELAY = PETS_DATA.contract.clips.idle_trick.delay_s;
+const IDLE_TRICKS = ['idle_trick', 'idle_trick_2'] as const;
 const FADE = 0.2;
-const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy']);
+const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy', ...IDLE_TRICKS]);
 /**
  * Follow clips play at 1x at the avatar's jog (follow_walk) and dash (follow_run) and scale with the pet's
- * real speed, so legs slow down as the spring settles instead of paddling at full rate. Run starts above
+ * real speed, so legs slow down as the follower settles instead of paddling at full rate. Run starts above
  * RUN_ENTER m/s and ends below RUN_EXIT, from the pet's own speed (it lags the avatar).
  */
 const WALK_REF = 7.8;
@@ -43,13 +46,17 @@ const RUN_ENTER = 11;
 const RUN_EXIT = 9;
 const RATE_MIN = 0.45;
 const RATE_MAX = 1.5;
+const SPAWN_CLEARANCE_OFFSETS = [0.12, 0.24, 0.36, 0.48, 0.60];
+// The baked clips are grounded individually. Leave room for blended joints.
+const GROUND_CLEARANCE = 0.003;
+const SPAWN_CLEARANCE_STEPS = SPAWN_CLEARANCE_OFFSETS.flatMap(d => [[-d, 0], [d, 0], [0, -d], [0, d]]);
 
 export function isPetAssetId(id: string): id is PetAssetId {
   return (PET_ASSET_IDS as string[]).includes(id);
 }
 
-/** One LOD level: its own scene clone + mixer. Both levels play the same clip so a swap keeps the pose. */
-interface Level { root: Object3D; mixer: AnimationMixer; clips: readonly AnimationClip[]; actions: Map<string, AnimationAction>; mats: { mat: MeshStandardMaterial; pulse: Pulse }[] }
+/** One LOD level: its own scene clone + mixer. Only the visible level is advanced. */
+interface Level { root: Object3D; mixer: AnimationMixer; clips: readonly AnimationClip[]; actions: Map<string, AnimationAction>; mats: { mat: MeshStandardMaterial; pulse: Pulse }[]; beam?: Object3D; beamScaleY?: number }
 
 function makeLevel(scene: Object3D, clips: readonly AnimationClip[], id: string, pulses: readonly Pulse[]): Level {
   const root = SkeletonUtils.clone(scene);
@@ -78,49 +85,65 @@ function makeLevel(scene: Object3D, clips: readonly AnimationClip[], id: string,
     actions.set(clip.name, action);
   }
   actions.get(`${id}_parts`)?.play(); // always on, only touches part nodes
-  return { root, mixer, clips, actions, mats };
+  return { root, mixer, clips, actions, mats, beam: root.getObjectByName('Laser_Beam') };
 }
 
 export interface PetFollower {
   readonly group: LOD;
-  readonly active: PetAssetId | null;
+  readonly active: string | null;
   /** Body clip currently playing (debug / tests). */
   readonly current: string;
   /** Equip a pet by id (null = none). Unknown ids are ignored with a warning. */
   setPet(id: string | null): Promise<void>;
   /** Per frame. `player` is the avatar rig position (capsule centre), `standY` its height above the ground. */
   update(dt: number, player: Vector3, standY: number, sprint: boolean): void;
+  dispose(): void;
   /** Play a one-shot emote (emote_happy / emote_dance / spawn_poof). */
   emote(name: 'emote_happy' | 'emote_dance' | 'spawn_poof'): void;
 }
 
-export function createPetFollower(parent: Object3D): PetFollower {
+export function createPetFollower(parent: Object3D, collide?: PetCollision): PetFollower {
   const group = new LOD();
   group.name = 'hub-pet';
   group.visible = false;
   parent.add(group);
-  let active: PetAssetId | null = null;
+  let active: string | null = null;
   let levels: Level[] = [];
   let current = '';
+  let idleAnimation = 'idle';
   let token = 0;
-  let placed = false;
+
   let stillFor = 0;
   let idleFor = 0;
+  let trickPlayed = false;
+  let nextTrick = 0;
+  let tricks: string[] = [];
+  let poseFadeUntil = 0;
+  let fadingPose = '';
+  let hasSafePose = false;
+  const transform = new Matrix4();
+  const bounds = new Box3();
+  const beamOrigin = new Vector3();
+  const beamDirection = new Vector3();
   let time = 0;
-  const heading = new Vector3(0, 0, -1);
-  const lastPlayer = new Vector3();
-  const target = new Vector3();
-  const velocity = new Vector3();
-  const tmp = new Vector3();
+  const motion = createPetMotion(collide);
+  const orbGeometry = new SphereGeometry((FOLLOWERS.find(pet => pet.id === 'pet_starter')?.size ?? 0.45) / 2, 8, 6);
+  const orbMaterial = new MeshStandardMaterial({ color: '#94e9ff', emissive: '#225577' });
+  const orb = new Mesh(orbGeometry, orbMaterial);
+  orb.position.y = 0.28;
 
   function play(name: string, fade = FADE): void {
-    if (name === current) return;
+    if (name === current || !levels[0]?.actions.has(name)) return;
     for (const level of levels) {
       const next = level.actions.get(name);
       if (!next) continue;
       const prev = level.actions.get(current);
       next.reset().play();
       if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
+    }
+    if (clearance(current)) {
+      fadingPose = current;
+      poseFadeUntil = time + fade;
     }
     current = name;
   }
@@ -129,20 +152,52 @@ export function createPetFollower(parent: Object3D): PetFollower {
     const name = event.action.getClip().name;
     if (name !== current) return;
     if (name === 'sit_enter') play('sit', 0); // sit's first key = sit_enter's last key
-    else if (name === 'spawn_poof' || name === 'emote_happy') play('idle');
+    else if (name === 'spawn_poof' || name === 'emote_happy' || tricks.includes(name)) play(idleAnimation);
   }
 
   function clear(): void {
     for (const level of levels) {
       level.mixer.stopAllAction();
+      level.mixer.uncacheRoot(level.root);
+      for (const { mat } of level.mats) mat.dispose();
       level.mixer.removeEventListener('finished', onFinished as never);
     }
     group.clear();
     group.levels.length = 0;
     levels = [];
     current = '';
-    placed = false;
+    motion.reset();
+    stillFor = 0;
+    idleFor = 0;
+    trickPlayed = false;
+    nextTrick = 0;
+    tricks = [];
+    poseFadeUntil = 0;
+    fadingPose = '';
+    hasSafePose = false;
     group.visible = false;
+  }
+
+  function clearance(clip: string) {
+    return active ? CLEARANCE_BOXES[active]?.[clip] : undefined;
+  }
+
+  function fits(clip: string): boolean {
+    const extent = clearance(clip);
+    if (!extent || !collide?.blocked) return true;
+    bounds.min.set(extent[0], extent[1], extent[2]);
+    bounds.max.set(extent[3], extent[4], extent[5]);
+    return !collide.blocked(bounds, transform);
+  }
+
+  function clipBeam(beam: Object3D): void {
+    if (!collide?.beamRange || beam.scale.y <= 0.001) return;
+    beam.updateWorldMatrix(true, false);
+    beamOrigin.setFromMatrixPosition(beam.matrixWorld);
+    beamDirection.set(0, 1, 0).transformDirection(beam.matrixWorld);
+    // The authored peak beam is two metres, including the hub model scale.
+    const length = 2 * beam.scale.y;
+    beam.scale.y *= collide.beamRange(beamOrigin, beamDirection, length) / length;
   }
 
   return {
@@ -151,75 +206,128 @@ export function createPetFollower(parent: Object3D): PetFollower {
     get current() { return current; },
     async setPet(id) {
       const mine = ++token;
+      if (id === active) return;
+      const definition = FOLLOWERS.find(pet => pet.id === id);
       if (id === null) { clear(); active = null; return; }
+      if (id === 'pet_starter') {
+        clear(); active = id; group.addLevel(orb, 0); current = 'idle';
+        motion.setFollowSpeed(definition?.followSpeed ?? 8);
+        return;
+      }
       if (!isPetAssetId(id)) { console.warn('[pets] unknown pet id', id); return; }
       const entry = PETS_DATA.pets[id] as PetEntry;
       const pulses = (entry.pulses ?? []) as Pulse[];
       const file = (path: string) => `${PET_DIR}${path.replace(/^glb\//, '')}`;
-      const [near, far] = await Promise.all([loadGLTF(file(entry.file)), loadGLTF(file(entry.lod1))]);
+      const [near, far] = await Promise.all([loadGLTF(file(definition?.model ?? entry.file)), loadGLTF(file(entry.lod1))]);
       if (mine !== token) return;
       clear();
+      motion.setFollowSpeed(definition?.followSpeed ?? 8);
+      idleAnimation = definition?.idleAnimation ?? 'idle';
       levels = [makeLevel(near.scene, near.animations, id, pulses), makeLevel(far.scene, far.animations, id, pulses)];
+      tricks = IDLE_TRICKS.filter(name => levels.every(level => level.actions.has(name)));
+      const height = id === 'pet_sproto_pup' ? PETS_DATA.contract.height_m.sproto_pup : PETS_DATA.contract.height_m.sproto;
+      for (const level of levels) {
+        level.root.scale.setScalar((definition?.size ?? height) / height);
+        if (CLEARANCE_BOXES[id] && id !== 'pet_mecha') level.root.position.y += GROUND_CLEARANCE;
+      }
       group.addLevel(levels[0].root, 0);
       group.addLevel(levels[1].root, LOD1_DISTANCE);
       for (const level of levels) level.mixer.addEventListener('finished', onFinished as never);
       active = id;
-      play('spawn_poof', 0);
+      play(levels[0].actions.has('spawn_poof') ? 'spawn_poof' : idleAnimation, 0);
+      for (const level of levels) level.mixer.update(0);
     },
-    emote(name) { play(name, 0.1); },
+    dispose() { ++token; clear(); active = null; parent.remove(group); orbGeometry.dispose(); orbMaterial.dispose(); },
+    emote(name) { if (fits(name)) play(name, 0.1); },
     update(dt, player, standY, sprint) {
-      if (!active || levels.length === 0) return;
+      if (!active) return;
       time += dt;
-      const groundY = player.y - standY;
-      tmp.subVectors(player, lastPlayer).setY(0);
-      const moved = tmp.length();
-      lastPlayer.copy(player);
-      if (moved > 1e-4 && moved < 2) heading.copy(tmp).normalize();
-      // Spring target: avatar-local 0.6 m right and 0.9 m back (right of heading h is (-h.z, 0, h.x)).
-      target.set(
-        player.x - heading.x * FOLLOW_BACK - heading.z * FOLLOW_RIGHT,
-        groundY,
-        player.z - heading.z * FOLLOW_BACK + heading.x * FOLLOW_RIGHT,
-      );
-      const gap = Math.hypot(target.x - group.position.x, target.z - group.position.z);
-      if (!placed || gap > SNAP_GAP || Math.abs(group.position.y - groundY) > 4) {
-        group.position.copy(target);
-        group.rotation.y = Math.atan2(heading.x, heading.z);
-        velocity.set(0, 0, 0);
-        group.visible = true;
-        if (placed) play('spawn_poof', 0);
-        placed = true;
-      } else {
-        // Critically damped spring toward the target.
-        const k = 80; // steady lag 2v/sqrt(k): ~1.7 m at jog 7.8, ~3.6 m at dash 16 (snap gap is 8 m)
-        const c = 2 * Math.sqrt(k);
-        tmp.subVectors(target, group.position);
-        velocity.addScaledVector(tmp, k * dt).addScaledVector(velocity, -c * dt);
-        group.position.addScaledVector(velocity, dt);
-        group.position.y = groundY;
+      const oldX = group.position.x;
+      const oldZ = group.position.z;
+      motion.update(dt, player, standY);
+      let speed = motion.speed;
+      const yaw = speed > 0.6
+        ? Math.atan2(motion.position.x - oldX, motion.position.z - oldZ)
+        : group.rotation.y;
+      transform.makeRotationY(yaw).setPosition(motion.position);
+      let canMove = fits('base');
+      if (!canMove && !hasSafePose) {
+        const { x, y, z } = motion.position;
+        for (const [dx, dz] of SPAWN_CLEARANCE_STEPS) {
+          transform.setPosition(x + dx, y, z + dz);
+          if (!fits('base')) continue;
+          motion.position.set(x + dx, y, z + dz);
+          speed = 0;
+          canMove = true;
+          break;
+        }
       }
-      const speed = Math.hypot(velocity.x, velocity.z);
+      if (canMove) {
+        group.position.copy(motion.position);
+        group.rotation.y = yaw;
+        hasSafePose = true;
+      } else if (hasSafePose) {
+        motion.position.copy(group.position);
+        transform.makeRotationY(group.rotation.y).setPosition(group.position);
+        speed = 0;
+      } else {
+        return;
+      }
+      group.visible = true;
+      if (active === 'pet_starter') {
+        orb.position.y = 0.28 + Math.sin(time * (speed > 0.6 ? 14 : 3)) * 0.04;
+        current = speed > 0.6 ? 'follow_walk' : 'idle';
+        return;
+      }
+      let refreshBoth = false;
+      if (!fits(current)) {
+        refreshBoth = true;
+        for (const level of levels) level.actions.get(current)?.stop();
+        play(idleAnimation, 0);
+      }
+      if (time <= poseFadeUntil && !fits(fadingPose)) {
+        refreshBoth = true;
+        for (const level of levels) level.actions.get(fadingPose)?.stop();
+        poseFadeUntil = 0;
+      }
       const busy = current === 'spawn_poof' || current === 'emote_happy';
       if (speed > 0.6) {
         stillFor = 0;
         idleFor = 0;
-        group.rotation.y = Math.atan2(velocity.x, velocity.z); // +Z forward
-        const running = current === 'follow_run' ? speed > RUN_EXIT : speed > RUN_ENTER || (sprint && moved > 0 && speed > RUN_EXIT);
+        trickPlayed = false;
+        const running = current === 'follow_run' ? speed > RUN_EXIT : speed > RUN_ENTER || (sprint && speed > RUN_EXIT);
         if (!busy) play(running ? 'follow_run' : 'follow_walk');
       } else {
         stillFor += dt;
-        if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play('idle');
-        if (current === 'idle') {
+        if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play(idleAnimation);
+        if (current === idleAnimation) {
           idleFor += dt;
-          if (idleFor > IDLE_TO_SIT) play('sit_enter', 0.1);
+          if (!trickPlayed && stillFor >= IDLE_TRICK_DELAY && tricks.length > 0 && fits(tricks[nextTrick])) {
+            trickPlayed = true;
+            play(tricks[nextTrick], 0.12);
+            nextTrick = (nextTrick + 1) % tricks.length;
+          } else if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter') && fits('sit_enter')) {
+            play('sit_enter', 0.1);
+          }
         } else if (current !== 'sit' && current !== 'sit_enter') idleFor = 0;
       }
       const rate = current === 'follow_run' ? speed / RUN_REF : current === 'follow_walk' ? speed / WALK_REF : 1;
       const timeScale = current === 'follow_run' || current === 'follow_walk' ? Math.min(RATE_MAX, Math.max(RATE_MIN, rate)) : 1;
+      // Keep the one-shot and its outgoing fade synchronized across LODs.
+      const updateTrick = refreshBoth || tricks.includes(current) || time - dt < poseFadeUntil;
       for (const level of levels) {
         const action = level.actions.get(current);
         if (action) action.timeScale = timeScale;
-        level.mixer.update(dt);
+        if (level.root.visible || updateTrick) {
+          // Restore the authored scale first. The mixer skips writing a
+          // property when its keyed value stays constant across frames.
+          if (level.beam && level.beamScaleY !== undefined) level.beam.scale.y = level.beamScaleY;
+          level.mixer.update(dt);
+          if (level.beam) {
+            level.beamScaleY = level.beam.scale.y;
+            clipBeam(level.beam);
+          }
+        }
         for (const { mat, pulse } of level.mats) {
           mat.emissiveIntensity = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(time * Math.PI * 2 * pulse.hz));
         }
