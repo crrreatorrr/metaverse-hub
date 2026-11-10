@@ -51,6 +51,7 @@ const RATE_MAX = 1.5;
 const SPAWN_CLEARANCE_OFFSETS = [0.12, 0.24, 0.36, 0.48, 0.60];
 // The baked clips are grounded individually. Leave room for blended joints.
 const GROUND_CLEARANCE = 0.003;
+const BULL_SIDESTEPS = [Math.PI / 2, -Math.PI / 2, Math.PI, 0];
 const SPAWN_CLEARANCE_STEPS = SPAWN_CLEARANCE_OFFSETS.flatMap(d => [[-d, 0], [d, 0], [0, -d], [0, d]]);
 
 export function isPetAssetId(id: string): id is PetAssetId {
@@ -124,6 +125,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
   let fadingPose = '';
   let hasSafePose = false;
   const ownerPosition = new Vector3();
+  const sideSpot = new Vector3(), sweepSpot = new Vector3();
   const transform = new Matrix4();
   const bounds = new Box3();
   const beamOrigin = new Vector3();
@@ -185,16 +187,35 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     return active ? CLEARANCE_BOXES[active]?.[clip] : undefined;
   }
 
-  function fits(clip: string): boolean {
+  function fits(clip: string, ignoreOwner = false): boolean {
     const extent = clearance(clip);
     if (!extent) return true;
     bounds.min.set(extent[0], extent[1], extent[2]);
     bounds.max.set(extent[3], extent[4], extent[5]);
-    if (active === DEFAULT_PET_ID) {
+    if (active === DEFAULT_PET_ID && !ignoreOwner) {
       const gap = Math.hypot(transform.elements[12] - ownerPosition.x, transform.elements[14] - ownerPosition.z);
-      if (gap < 1) return false;
+      if (gap < 1.05) return false;
     }
     return !collide?.blocked?.(bounds, transform);
+  }
+
+  /** Move to the side of the owner if they turn back into the Bull's trail. */
+  function sidestepBull(): boolean {
+    const from = hasSafePose ? group.position : motion.position;
+    for (const offset of BULL_SIDESTEPS) {
+      const angle = motion.headingYaw + offset;
+      sideSpot.set(ownerPosition.x + Math.sin(angle) * 1.25, motion.position.y, ownerPosition.z + Math.cos(angle) * 1.25);
+      let clear = true;
+      const steps = Math.max(1, Math.ceil(from.distanceTo(sideSpot) / 0.2));
+      for (let step = 1; step <= steps; step += 1) {
+        transform.setPosition(sweepSpot.lerpVectors(from, sideSpot, step / steps));
+        if (!fits('base', true)) { clear = false; break; }
+      }
+      if (!clear || !fits('base')) continue;
+      motion.position.copy(sideSpot);
+      return true;
+    }
+    return false;
   }
 
   function clipBeam(beam: Object3D): void {
@@ -262,7 +283,20 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
         : active === DEFAULT_PET_ID && !hasSafePose ? motion.headingYaw : group.rotation.y;
       transform.makeRotationY(yaw).setPosition(motion.position);
       let canMove = fits('base');
-      if (!canMove && !hasSafePose) {
+      if (!canMove && active === DEFAULT_PET_ID) {
+        // A cached pose can become unsafe when the owner doubles back.
+        transform.makeRotationY(group.rotation.y).setPosition(group.position);
+        if (!hasSafePose || !fits('base')) {
+          transform.makeRotationY(yaw);
+          canMove = sidestepBull();
+          if (!canMove) {
+            group.visible = false;
+            hasSafePose = false;
+            return;
+          }
+          speed = 0;
+        }
+      } else if (!canMove && !hasSafePose) {
         const { x, y, z } = motion.position;
         for (const [dx, dz] of SPAWN_CLEARANCE_STEPS) {
           transform.setPosition(x + dx, y, z + dz);
