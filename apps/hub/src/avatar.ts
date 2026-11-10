@@ -45,7 +45,7 @@ import {
 import type { AvatarLook } from './look';
 import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
-import { createFlightTurn } from './rig/flight-turn';
+import { createFlightTurn, type FlightTiming } from './rig/flight-turn';
 import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
 
@@ -53,6 +53,8 @@ import { loadGLTF } from './v2/core';
 export interface AvatarAir {
   airborne: boolean;
   vy: number;
+  /** Physical or interpolated flight timing for a complete aerial turn. */
+  flight?: FlightTiming;
 }
 
 type Gait = 'idle' | 'walk' | 'run';
@@ -223,9 +225,11 @@ export function createAvatarRig(): AvatarRig {
 
   function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (!mixer || !actions) return;
-    const flightPhase = hasBackflip ? flightTurn.update(dt, air?.airborne ?? false, air?.vy ?? 0) : null;
+    const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
+    const flightPhase = hasBackflip ? flightTurn.update(flight, air?.vy ?? 0) : null;
     const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
-    const next: Pose = air?.airborne && actions.air ? 'air' : gait;
+    const airborne = hasBackflip ? flight.airborne : air?.airborne;
+    const next: Pose = airborne && actions.air ? 'air' : gait;
     if (next !== pose) {
       const from = poseAction(pose);
       const to = poseAction(next);

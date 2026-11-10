@@ -453,7 +453,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const moving = Math.hypot(input.forward, input.strafe) > 0;
     airTime = player.grounded ? 0 : airTime + dt;
-    const air = { airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE, vy: player.velocity.y };
+    const air = {
+      airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,
+      vy: player.velocity.y,
+      flight: { airborne: !player.grounded, dt },
+    };
     // P4: the jog / dash clips bake their own bounce, so the procedural bob stays at 0.
     world.bob.position.y = 0;
     bodyYaw = dampAngle(bodyYaw, player.facingYaw, TURN_RATE, dt);

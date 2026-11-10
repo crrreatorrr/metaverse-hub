@@ -206,16 +206,19 @@ for (const hz of [30, 60, 120]) {
   const dt = 1 / hz;
   const flight = createFlightTurn();
   let phase = 0;
-  for (let frame = 0; frame < Math.ceil(0.35 * hz); frame++) {
+  for (let frame = 0; frame < Math.ceil(0.38 * hz); frame++) {
     // Remote vertical speed can hold and then step at a snapshot boundary.
     const vy = frame * dt < 0.2 ? 2.5 : -2.5;
-    const next = flight.update(dt, true, vy);
+    const next = flight.update({ dt, airborne: true, remote: true }, vy);
     assert.ok(next >= phase);
     phase = next;
   }
   assert.equal(phase, 1, `a remote flight completes the turn before landing at ${hz} Hz`);
-  assert.equal(flight.update(dt, false, 0), 0);
-  const takeoff = flight.update(dt, true, MOVEMENT.jump);
-  assert.equal(flight.update(dt, true, 0), takeoff, `early ceiling contact stops the turn at ${hz} Hz`);
-  assert.equal(flight.update(dt, true, -1), takeoff);
+  assert.ok(flight.update({ dt, airborne: true, remote: true, restart: true }, 2.5) < 0.2, 'a new remote takeoff restarts the turn');
+  assert.equal(flight.update({ dt, airborne: false }, 0), 0);
+  const takeoff = flight.update({ dt, airborne: true }, MOVEMENT.jump);
+  assert.equal(flight.update({ dt, airborne: true }, 0), takeoff, `early ceiling contact stops the turn at ${hz} Hz`);
+  assert.equal(flight.update({ dt, airborne: true }, -1), takeoff);
+  assert.equal(flight.update({ dt, airborne: false }, 0), 0);
+  assert.equal(flight.update({ dt, airborne: true }, -1), 0, 'walking off an edge does not start a backflip');
 }
