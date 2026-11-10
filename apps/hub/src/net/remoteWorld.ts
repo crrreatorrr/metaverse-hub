@@ -20,6 +20,7 @@ export interface RemotePlayer {
 export interface RemoteWorld {
   readonly players: ReadonlyMap<number, RemotePlayer>;
   readonly selfSlot: number | null;
+  readonly selfRelics: readonly string[] | null;
   readonly shard: number;
   applySnapshot(s: Snapshot, now: number): void;
   applyDelta(d: Delta, now: number): void;
@@ -35,6 +36,7 @@ export function createRemoteWorld(): RemoteWorld {
   const players = new Map<number, RemotePlayer>();
   const users = new Map<string, number>();
   let selfSlot: number | null = null;
+  let selfRelics: readonly string[] | null = null;
   let shard = 0;
   const listeners = new Set<() => void>();
   const notify = () => {
@@ -42,7 +44,10 @@ export function createRemoteWorld(): RemoteWorld {
   };
 
   function upsert(e: RosterEntry): void {
-    if (e.s === selfSlot) return;
+    if (e.s === selfSlot) {
+      selfRelics = e.r;
+      return;
+    }
     const existing = players.get(e.s);
     if (existing && existing.userId !== e.u) {
       users.delete(existing.userId);
@@ -88,11 +93,13 @@ export function createRemoteWorld(): RemoteWorld {
   return {
     players,
     get selfSlot() { return selfSlot; },
+    get selfRelics() { return selfRelics; },
     get shard() { return shard; },
     applySnapshot(s, now) {
       players.clear();
       users.clear();
       selfSlot = s.you;
+      selfRelics = null;
       shard = s.shard;
       for (const e of s.roster) upsert(e);
       rows(s.p, now);
@@ -124,6 +131,7 @@ export function createRemoteWorld(): RemoteWorld {
       players.clear();
       users.clear();
       selfSlot = null;
+      selfRelics = null;
       notify();
     },
     onRoster(cb) {
