@@ -29,6 +29,7 @@ import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, W
 import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { createPetCollision } from './pet-collision';
+import { createPlanarSpeed } from './planar-speed';
 import { EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
@@ -120,6 +121,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const player = createPlayerController(world.collider.bvh);
   const initial = definition.spawn(window.location.hash);
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
+  const planarSpeed = createPlanarSpeed(initial.x, initial.z);
   // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
   // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
   // development visits. Production waits for the account profile. ?pet=<id> is a DEV-only art preview.
@@ -463,16 +465,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const pads = navigator.getGamepads?.() ?? [];
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
     const input = readInput(padMove);
-    const previousX = player.position.x;
-    const previousZ = player.position.z;
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
-    const moveAmount = Math.min(1, Math.hypot(input.forward, input.strafe));
-    const moving = moveAmount > 0;
-    const requestedSpeed = moveAmount * (input.sprint ? SPRINT_SPEED : WALK_SPEED);
-    const travel = Math.hypot(player.position.x - previousX, player.position.z - previousZ);
-    // A blocked capsule can shift slightly as it resolves contact. Compare the
-    // shift to the requested motion so gentle stick input still drives the rig.
-    const speed = dt > 0 ? (travel < requestedSpeed * dt * 0.005 ? 0 : travel / dt) : undefined;
+    const speed = planarSpeed.sample(dt, player.position.x, player.position.z);
+    const moving = Math.hypot(input.forward, input.strafe) > 0;
     airTime = player.grounded ? 0 : airTime + dt;
     const air = {
       airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,
@@ -507,6 +502,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       dwell = initialDwell();
       yaw = warp.yaw;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
+      planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
       bodyYaw = player.facingYaw;
       airTime = 0;

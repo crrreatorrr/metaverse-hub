@@ -4,6 +4,7 @@ import { AnimationMixer, BoxGeometry, PlaneGeometry, Quaternion, Vector3 } from 
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
+import { createPlanarSpeed } from '../src/core/planar-speed';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
 import { createFlightTurn } from '../src/rig/flight-turn';
@@ -56,6 +57,25 @@ assert.ok(player.position.y > restY + 0.08, 'zero-delta jump still launches on t
 // The club wall has triangulated seams where a side contact can point
 // upward. A sprint-jump into the back wall must settle on the club floor.
 const clubFloor = -300 + STAND_Y;
+// Contact between the counter and stools repeatedly nudges the stopped capsule.
+{
+  const x = 3.1;
+  const z = 9.33;
+  player.spawn(x, clubFloor, z, Math.PI);
+  const cadence = createPlanarSpeed(x, z);
+  for (let i = 0; i < 300; i++) {
+    player.step(1 / 60, { ...idle, forward: 1, yaw: Math.PI }, speeds);
+    const speed = cadence.sample(1 / 60, player.position.x, player.position.z)!;
+    if (i >= 120) assert.ok(speed < 0.02, `blocked cadence: ${speed}`);
+  }
+  // Gentle sustained input clears the same threshold, including after a warp.
+  cadence.reset(2, 5);
+  assert.equal(cadence.sample(0, 2, 5), undefined);
+  for (let i = 1; i <= 30; i++) {
+    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5)!;
+    assert.ok(Math.abs(speed - 0.025) < 1e-9);
+  }
+}
 const clubYaw = 3.68;
 player.spawn(4.15, clubFloor, 12.13, clubYaw);
 let clubPeak = clubFloor;

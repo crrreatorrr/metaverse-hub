@@ -1,6 +1,6 @@
 // Remote pose interpolation: render 150 ms in the past between the two samples
 // that straddle that time. Yaw takes the short arc; a jump over 5 m snaps.
-import type { Pose } from './protocol';
+import { ANIMS, type Pose } from './protocol';
 
 export const INTERP_DELAY_MS = 150;
 export const SNAP_DISTANCE = 5;
@@ -14,8 +14,14 @@ export interface Interp {
   sample(now: number, out: Pose): Pose | null;
   /** Milliseconds by which the render time has passed the newest snapshot. */
   poseHoldMs(now: number): number;
+  /** Cadence for sparse centimetre steps. A new idle or a long gap ends the estimate. */
+  slowGroundSpeed(now: number): number | undefined;
   latest(): Pose | null;
   clear(): void;
+}
+
+function isGroundMoving(anim: number): boolean {
+  return ANIMS[anim] === 'walk' || ANIMS[anim] === 'run';
 }
 
 function shortArc(from: number, to: number, t: number): number {
@@ -61,6 +67,15 @@ export function createInterp(delayMs = INTERP_DELAY_MS): Interp {
     poseHoldMs(now) {
       const last = samples[samples.length - 1];
       return last ? Math.max(0, now - delayMs - last.at) : 0;
+    },
+    slowGroundSpeed(now) {
+      const last = samples[samples.length - 1];
+      const previous = samples[samples.length - 2];
+      if (!last || !previous || !isGroundMoving(last.anim) || !isGroundMoving(previous.anim)) return undefined;
+      const interval = last.at - previous.at;
+      if (interval < delayMs || interval > 600 || now - last.at > interval + delayMs) return undefined;
+      const travel = Math.hypot(last.x - previous.x, last.z - previous.z);
+      return travel > 0 && travel < 0.021 ? travel * 1000 / interval : undefined;
     },
     latest() {
       const last = samples[samples.length - 1];

@@ -67,6 +67,22 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.equal(out.x, 40, 'teleports snap');
 }
 
+// A 0.025 m/s walk sends a changed centimetre every 400 ms.
+{
+  const it = createInterp();
+  const push = (at: number, x: number, anim: number) => it.push(at, { x, y: 0, z: 0, yaw: 0, anim });
+  push(0, 0, 1);
+  push(400, 0.01, 1);
+  assert.ok(Math.abs((it.slowGroundSpeed(799) ?? 0) - 0.025) < 1e-9);
+  assert.equal(it.slowGroundSpeed(951), undefined, 'stop holding after the expected next sample');
+  push(800, 0.02, 1);
+  assert.ok(Math.abs((it.slowGroundSpeed(1199) ?? 0) - 0.025) < 1e-9);
+  push(1200, 0.02, 0);
+  assert.equal(it.slowGroundSpeed(1200), undefined, 'an explicit idle ends the cadence estimate');
+  it.clear();
+  assert.equal(it.slowGroundSpeed(1300), undefined);
+}
+
 // RemoteWorld: snapshot excludes self, roster add/upd/del, deltas feed interp.
 {
   const w = createRemoteWorld();

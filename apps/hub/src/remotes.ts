@@ -311,8 +311,11 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
             const sampleDt = poseDt - heldMs / 1000;
             // On the frame that reaches the last pose, divide travel by the
             // time spent interpolating. Later held frames have no new speed.
-            if (sampleDt > 0.0001 && travel > 0) speed = travel / sampleDt;
-            else speed = heldMs > 0 && heldMs <= INTERP_DELAY_MS ? null : 0;
+            speed = p?.interp.slowGroundSpeed(nowMs);
+            if (speed === undefined) {
+              if (sampleDt > 0.0001 && travel > 0) speed = travel / sampleDt;
+              else speed = heldMs > 0 && heldMs <= INTERP_DELAY_MS ? null : 0;
+            }
           }
           if (!airborne || restart) n.descending = false;
           else if (rise < -0.8) n.descending = true;
