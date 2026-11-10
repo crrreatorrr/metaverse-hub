@@ -45,6 +45,7 @@ import {
 import type { AvatarLook } from './look';
 import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
+import { createFlightTurn } from './rig/flight-turn';
 import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
 
@@ -99,6 +100,8 @@ export function createAvatarRig(): AvatarRig {
   group.name = 'player-avatar';
   let mixer: AnimationMixer | null = null;
   let actions: (Record<Gait, AnimationAction> & { air: AnimationAction | null }) | null = null;
+  const flightTurn = createFlightTurn();
+  let hasBackflip = false;
   let pose: Pose = 'idle';
   let bank = 0;
   let lastYaw: number | null = null;
@@ -171,6 +174,8 @@ export function createAvatarRig(): AvatarRig {
         socket = nextSocket;
         mixer = nextMixer;
         actions = nextActions;
+        hasBackflip = character.id === 'flyer';
+        flightTurn.reset();
         body.add(next);
         retime();
         if (pose === 'air' && !actions.air) pose = 'idle';
@@ -218,6 +223,7 @@ export function createAvatarRig(): AvatarRig {
 
   function update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir): void {
     if (!mixer || !actions) return;
+    const flightPhase = hasBackflip ? flightTurn.update(dt, air?.airborne ?? false, air?.vy ?? 0) : null;
     const gait: Gait = !moving ? 'idle' : sprint ? 'run' : 'walk';
     const next: Pose = air?.airborne && actions.air ? 'air' : gait;
     if (next !== pose) {
@@ -235,11 +241,10 @@ export function createAvatarRig(): AvatarRig {
       pose = next;
     }
     if (pose === 'air' && actions.air) {
-      // The jump clip is scrubbed by vertical velocity: launch at full jump speed, the tuck through the apex,
-      // and the tuck held through any longer fall. The clip's own wind-up and landing recovery are left out;
-      // the crossfades cover them.
+      // Most jump clips scrub by vertical velocity. Flying Midget's full turn
+      // needs continuous progress even when a remote's reported speed steps.
       const clip = actions.air.getClip();
-      const phase = MathUtils.clamp((MOVEMENT.jump - (air?.vy ?? 0)) / (2 * MOVEMENT.jump), 0, 1);
+      const phase = flightPhase ?? MathUtils.clamp((MOVEMENT.jump - (air?.vy ?? 0)) / (2 * MOVEMENT.jump), 0, 1);
       actions.air.time = (AIR_WINDOW[0] + phase * (AIR_WINDOW[1] - AIR_WINDOW[0])) * clip.duration;
     }
     mixer.update(dt);

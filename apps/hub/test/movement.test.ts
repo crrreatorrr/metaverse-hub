@@ -6,6 +6,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
+import { createFlightTurn } from '../src/rig/flight-turn';
 import { AVATAR_SCALE, CAMERA_ARM, CAMERA_FOV, SPRINT_SPEED, WALK_SPEED } from '../src/config';
 import { loadGLB } from './support/load-glb';
 
@@ -200,3 +201,21 @@ for (let step = 1; step <= 60; step++) {
 }
 assert.ok(Math.abs(turn + 2 * Math.PI) < 0.08, 'Flying Midget completes one backward turn before the landing blend');
 mixer.stopAllAction();
+
+for (const hz of [30, 60, 120]) {
+  const dt = 1 / hz;
+  const flight = createFlightTurn();
+  let phase = 0;
+  for (let frame = 0; frame < Math.ceil(0.35 * hz); frame++) {
+    // Remote vertical speed can hold and then step at a snapshot boundary.
+    const vy = frame * dt < 0.2 ? 2.5 : -2.5;
+    const next = flight.update(dt, true, vy);
+    assert.ok(next >= phase);
+    phase = next;
+  }
+  assert.equal(phase, 1, `a remote flight completes the turn before landing at ${hz} Hz`);
+  assert.equal(flight.update(dt, false, 0), 0);
+  const takeoff = flight.update(dt, true, MOVEMENT.jump);
+  assert.equal(flight.update(dt, true, 0), takeoff, `early ceiling contact stops the turn at ${hz} Hz`);
+  assert.equal(flight.update(dt, true, -1), takeoff);
+}
