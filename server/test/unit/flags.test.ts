@@ -144,10 +144,19 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   assert.equal(Flags.on(mod.nk, 'relic_unhold', U1, mod.logger, { onReadError: true }), false, 'a missing row stays off');
 }
 
-// Flags are read-only here: nothing in the module writes game.server_flags.
+// Apart from the registered default-off seeds, runtime code never writes game.server_flags.
 {
   const mod = loadModule();
-  assert.ok(!/(INSERT INTO|UPDATE|DELETE FROM) game\.server_flags/.test(mod.source.replace(/0042_server_flags[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')), 'no runtime writes to server_flags');
+  const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
+  const duelSeeds = HubSchema.all().filter((migration) => migration.id === '0049_sproto_duel_wager_flag');
+  assert.equal(duelSeeds.length, 1, 'Duel flag seed is registered once');
+  assert.deepEqual(plain(duelSeeds[0].statements), [
+    "INSERT INTO game.server_flags (key, state) VALUES ('sproto_duel_wager', 'off') ON CONFLICT (key) DO NOTHING",
+  ], 'Duel wagers seed off without overriding an existing flag');
+  const runtimeSource = mod.source
+    .replace(/0042_server_flags[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')
+    .replace(/0049_sproto_duel_wager_flag[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '');
+  assert.ok(!/(INSERT INTO|UPDATE|DELETE FROM) game\.server_flags/.test(runtimeSource), 'no runtime writes to server_flags');
 }
 
 console.log('flags tests ok');
