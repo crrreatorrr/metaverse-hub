@@ -242,3 +242,18 @@ for (const hz of [30, 60, 120]) {
   assert.equal(flight.update({ dt, airborne: true }, -1), 0, 'walking off an edge does not start a backflip');
   assert.equal(flight.launched, false, 'short drops keep the ordinary pose grace period');
 }
+
+const coarseFlight = createFlightTurn();
+coarseFlight.update({ dt: 0.05, airborne: true }, 5);
+const beforeCeiling = coarseFlight.update({ dt: 0.05, airborne: true }, 3.6);
+const afterCeiling = coarseFlight.update({ dt: 0.05, airborne: true }, 0);
+assert.ok(beforeCeiling > 0.4 && afterCeiling < 0.25, 'a delayed ceiling hit unwinds the tuck');
+const settled = coarseFlight.update({ dt: 0.05, airborne: true }, -1.4);
+assert.ok(settled < afterCeiling, 'the tuck settles into anticipation');
+assert.equal(coarseFlight.update({ dt: 0.05, airborne: true }, -2.8), settled);
+coarseFlight.reset();
+coarseFlight.update({ dt: 0.05, airborne: true, remote: true, takeoff: true }, 4);
+const beforeRemoteLanding = coarseFlight.update({ dt: 0.0655, airborne: true, remote: true }, -2);
+assert.ok(beforeRemoteLanding < 0.55 && coarseFlight.needsRecovery, 'an uneven remote frame needs recovery even before mid-turn');
+coarseFlight.update({ dt: 0.05, airborne: false, remote: true }, 0);
+assert.equal(coarseFlight.needsRecovery, false);

@@ -3,6 +3,7 @@ import { MOVEMENT } from '../core/movement';
 // Finish around the jump apex, before even an elevated platform can land.
 const TURN_SECONDS = 0.23;
 const ABORT_SECONDS = 0.12;
+const ANTICIPATION_SECONDS = TURN_SECONDS * 0.18;
 
 export interface FlightTiming {
   airborne: boolean;
@@ -38,12 +39,12 @@ export function createFlightTurn() {
     } else if (previousVy === null) {
       sawLaunch = vy >= MOVEMENT.jump * 0.7;
     } else if (sawLaunch && elapsed < ABORT_SECONDS && previousVy > 0) {
-      // An early head hit stops the ascent faster than gravity. Keep the
-      // anticipation pose and let the landing crossfade settle it.
+      // An early head hit stops the ascent faster than gravity.
       interrupted ||= previousVy + MOVEMENT.gravity * dt - vy > 1;
     }
     previousVy = vy;
-    if (sawLaunch && !interrupted) elapsed += dt;
+    if (interrupted && elapsed > ANTICIPATION_SECONDS) elapsed = Math.max(ANTICIPATION_SECONDS, elapsed - dt);
+    else if (sawLaunch && !interrupted) elapsed += dt;
     return Math.min(1, elapsed / TURN_SECONDS);
   }
 
@@ -51,6 +52,6 @@ export function createFlightTurn() {
     update,
     reset,
     get launched() { return sawLaunch; },
-    get needsRecovery() { return !interrupted && elapsed >= TURN_SECONDS * 0.55 && elapsed < TURN_SECONDS; },
+    get needsRecovery() { return sawLaunch && !interrupted && elapsed < TURN_SECONDS; },
   };
 }
