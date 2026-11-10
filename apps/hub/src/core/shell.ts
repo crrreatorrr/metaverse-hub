@@ -466,8 +466,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
-    const speed = planarSpeed.sample(dt, player.position.x, player.position.z);
     const moving = Math.hypot(input.forward, input.strafe) > 0;
+    const speed = planarSpeed.sample(dt, player.position.x, player.position.z, moving ? player.facingYaw : undefined);
     airTime = player.grounded ? 0 : airTime + dt;
     const air = {
       airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,

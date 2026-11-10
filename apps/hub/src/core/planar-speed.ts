@@ -11,16 +11,23 @@ interface PositionSample {
 export function createPlanarSpeed(x: number, z: number) {
   const samples: PositionSample[] = [{ time: 0, x, z }];
   let time = 0;
+  let previousHeading: number | undefined;
   return {
     reset(x: number, z: number): void {
       time = 0;
+      previousHeading = undefined;
       samples.splice(0, samples.length, { time, x, z });
     },
-    sample(dt: number, x: number, z: number): number | undefined {
+    sample(dt: number, x: number, z: number, heading?: number): number | undefined {
       if (dt <= 0) return undefined;
+      if (heading !== undefined && previousHeading !== undefined && Math.cos(heading - previousHeading) < 0) {
+        // Keep the last sample as the start of the intentional turn.
+        samples.splice(0, samples.length - 1);
+      }
+      previousHeading = heading;
       time += dt;
       samples.push({ time, x, z });
-      const start = Math.max(0, time - SPEED_WINDOW);
+      const start = Math.max(samples[0]!.time, time - SPEED_WINDOW);
       while (samples[1]!.time <= start) samples.shift();
       const a = samples[0]!;
       const b = samples[1]!;

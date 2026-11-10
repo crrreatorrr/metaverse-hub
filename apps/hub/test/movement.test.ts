@@ -72,8 +72,12 @@ const clubFloor = -300 + STAND_Y;
   cadence.reset(2, 5);
   assert.equal(cadence.sample(0, 2, 5), undefined);
   for (let i = 1; i <= 30; i++) {
-    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5)!;
+    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, Math.PI / 2)!;
     assert.ok(Math.abs(speed - 0.025) < 1e-9);
+  }
+  for (let i = 29; i >= 0; i--) {
+    const speed = cadence.sample(1 / 60, 2 + i * 0.025 / 60, 5, -Math.PI / 2)!;
+    assert.ok(Math.abs(speed - 0.025) < 1e-9, `slow reversal cadence: ${speed}`);
   }
 }
 const clubYaw = 3.68;
