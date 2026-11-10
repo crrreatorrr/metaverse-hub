@@ -1,4 +1,4 @@
-import { RELICS, ownsFourLights } from './core/relics';
+import { RELICS } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
 import { CHARACTERS, STAFFS, holdsStaff, type CharacterId, type StaffId } from './config';
 import { cleanName, defaultLook, type AvatarLook } from './look';
@@ -80,20 +80,10 @@ interface PetInfo {
 
 /** Hub pet catalog, mirrored from `server/modules/src/pets.ts` and docs/m6-server-prep.md. */
 const PETS: readonly PetInfo[] = [
+  { id: 'pet_starter', name: 'Spark', from: 'Free starter companion' },
   { id: 'pet_speed_sproto', name: 'Speed Sproto', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
   { id: 'pet_nobu', name: 'Nobu', from: "Relic: Cone's Tip", relic: 'cones_tip' },
-  { id: 'pet_duelist_sproto', name: 'Duelist Sproto', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
-  { id: 'pet_four_lights_sproto', name: 'Four Lights Sproto', from: 'Own all four Relics' },
-  { id: 'pet_baby_sproto', name: 'Baby Sproto', from: 'Your first Ticket exchange' },
-  { id: 'pet_honk_sproto', name: 'Honk Sproto', from: 'HPOS10I: Retro Rush Hills, act 2' },
-  { id: 'pet_spiral_sproto', name: 'Spiral Sproto', from: 'HPOS10I: Wizard Academy, act 2' },
-  { id: 'pet_mecha_sproto', name: 'Mecha Sproto', from: 'NOBU: defeat the Bird' },
-  { id: 'pet_conehead_sproto', name: 'Conehead Sproto', from: 'NOBU: defeat the Cat' },
-  { id: 'pet_presidential_sproto', name: 'Presidential Sproto', from: 'Sproto Duel: defeat Obama' },
-  { id: 'pet_moon_sproto', name: 'Moon Sproto', from: "People's Bitcoin: Moonward quest" },
-  { id: 'pet_sproto_pup', name: 'Sproto Pup', from: "People's Bitcoin: Hatchery quest" },
-  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: 'Store: 400 Verse' },
-  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: 'Store: 600 Verse' },
+
 ];
 
 export interface MenuOptions {
@@ -113,6 +103,8 @@ export interface MenuOptions {
   setMoveStick: (stick: MoveStick) => void;
   /** Catalog ids that have a hub model (`EQUIPPABLE_PET_IDS`), so they can be deployed. */
   deployablePets: readonly string[];
+  otherPetsHidden(): boolean;
+  setOtherPetsHidden(hidden: boolean): void;
   /** The pet following the avatar, or null. */
   activePet: () => string | null;
   /** Deploy a pet (it follows the avatar) or recall it (null). */
@@ -241,7 +233,13 @@ export function createMenu(options: MenuOptions): Menu {
 
   // ---------- Pets
   const petsPage = bodies.get('pets') as HTMLElement;
-  const petNote = el('p', 'menu-note', 'Deploy a pet you own and it follows you around the plaza. Relic pets are yours once the Relic is.');
+  const petNote = el('p', 'menu-note', 'Deploy a pet you own and it follows you through every realm. Relic pets are yours once the Relic is.');
+  const hidePetsLabel = el('label', 'menu-note');
+  const hidePets = document.createElement('input');
+  hidePets.type = 'checkbox';
+  hidePets.checked = options.otherPetsHidden();
+  hidePets.addEventListener('change', () => options.setOtherPetsHidden(hidePets.checked));
+  hidePetsLabel.append(hidePets, ' Hide other players’ pets');
   const following = el('div', 'pet-following');
   const followingText = el('span', 'pet-following-text');
   const recall = el('button', 'pet-deploy', 'Recall');
@@ -252,7 +250,7 @@ export function createMenu(options: MenuOptions): Menu {
   });
   following.append(pixelIcon('paw', 'pet-following-icon'), followingText, recall);
   const petGrid = el('ul', 'menu-grid pets');
-  petsPage.append(el('h3', 'menu-h', 'Pets'), petNote, following, petGrid);
+  petsPage.append(el('h3', 'menu-h', 'Pets'), petNote, hidePetsLabel, following, petGrid);
 
   // ---------- Avatar
   const avatarPage = bodies.get('avatar') as HTMLElement;
@@ -487,11 +485,9 @@ export function createMenu(options: MenuOptions): Menu {
     recall.hidden = !active;
     following.classList.toggle('on', Boolean(active));
     petGrid.replaceChildren();
-    const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
       Boolean(serverPets?.has(pet.id)) ||
-      (pet.relic ? relics.has(pet.relic) : false) ||
-      (pet.id === 'pet_four_lights_sproto' && all && !serverPets);
+      (!serverPets && pet.relic ? relics.has(pet.relic) : false);
     const deployable = (pet: PetInfo) => owned(pet) && options.deployablePets.includes(pet.id);
     const rank = (pet: PetInfo) => (pet.id === active ? 3 : deployable(pet) ? 2 : owned(pet) ? 1 : 0);
     const sorted = [...PETS].sort((a, b) => rank(b) - rank(a));

@@ -9,6 +9,17 @@ function guard(fn: nkruntime.RpcFunction, ctx: nkruntime.Context, logger: nkrunt
   }
 }
 
+// Client storage APIs must never create or delete authoritative pet documents.
+function beforePetStorage(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
+  var entries = (data.objects || data.objectIds || []) as { collection?: string; key?: string }[];
+  for (var i = 0; i < entries.length; i++) {
+    if (entries[i].collection === "pets" || (entries[i].collection === "loadout" && entries[i].key === "hub")) {
+      throw { message: "pet_storage_rpc_only", code: 7 };
+    }
+  }
+  return data;
+}
+
 function rpcHealthcheck(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.health, ctx, logger, nk, payload);
 }
@@ -31,6 +42,10 @@ function rpcSaveGet(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
 
 function rpcSavePut(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.savePut, ctx, logger, nk, payload);
+}
+
+function rpcPetCatalog(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubPets.catalog, ctx, logger, nk, payload);
 }
 
 function rpcLoadoutSetHub(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
@@ -227,7 +242,10 @@ function InitModule(
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
   initializer.registerRpc("account.claim", rpcAccountClaim);
+  initializer.registerRpc("pets.catalog", rpcPetCatalog);
   initializer.registerRpc("loadout.set_hub", rpcLoadoutSetHub);
+  initializer.registerBeforeWriteStorageObjects(beforePetStorage);
+  initializer.registerBeforeDeleteStorageObjects(beforePetStorage);
   initializer.registerRpc("sproto.dev_replay", rpcSprotoDevReplay);
   initializer.registerMatch("sproto_duel", {
     matchInit: sprotoDuelInit,

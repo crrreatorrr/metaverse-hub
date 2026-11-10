@@ -283,6 +283,7 @@ export interface LoadedModule {
   /** Calls a registered RPC: returns the parsed JSON answer (or the raw string when it is not JSON). */
   call<T = Record<string, unknown>>(rpcId: string, ctx: CtxInput, body?: unknown): T;
   /** Runs a registered RT before-hook; returns the (possibly rewritten) envelope or throws. */
+  before(id: string, ctx: CtxInput, body: Record<string, unknown>): Record<string, unknown>;
   rtBefore(id: string, ctx: CtxInput, envelope: Record<string, unknown>): Record<string, unknown>;
   /** Runs the registered matchmaker hook. */
   matchmake(matches: { presence: Presence; properties: Record<string, string | number> }[]): string | undefined;
@@ -627,6 +628,11 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
       } catch {
         return raw as unknown as T;
       }
+    },
+    before(id, ctx, body) {
+      const fn = registered.other.get(id) as (ctx: unknown, logger: unknown, nk: unknown, body: unknown) => Record<string, unknown>;
+      if (!fn) throw new Error(`no before hook ${id}`);
+      return fn(makeCtx(ctx), logger, nk, body);
     },
     rtBefore(id, ctx, envelope) {
       const fn = registered.rtBefore.get(id);
