@@ -314,6 +314,10 @@ namespace SprotoDuel {
               cancel(nk, dispatcher, ctx, tick, state, "wager_guest", guestSeat);
               return { state: state };
             }
+            if (!Flags.on(nk, "sproto_duel_wager", state.players[0], logger) || !Flags.on(nk, "sproto_duel_wager", state.players[1], logger)) {
+              cancel(nk, dispatcher, ctx, tick, state, "stakes_disabled", null);
+              return { state: state };
+            }
             var held = sql(nk, "SELECT game.sproto_wager_hold($1, $2::uuid, $3::uuid, $4, $5, $6)::text AS r",
               [ctx.matchId, state.players[0], state.players[1], STAKE, PAIR_LIMIT, DAILY_WIN_CAP]);
             if (!held || held["error"]) {
@@ -371,6 +375,8 @@ namespace SprotoDuel {
     var a = matches[0], b = matches[1];
     if (a.presence.userId === b.presence.userId) return;
     if (a.properties["wager"] !== b.properties["wager"] || a.properties["sim"] !== b.properties["sim"]) return;
+    if (Maint.on(nk)) return;
+    if (a.properties["wager"] === "1" && (!Flags.on(nk, "sproto_duel_wager", a.presence.userId, logger) || !Flags.on(nk, "sproto_duel_wager", b.presence.userId, logger))) return;
     // Refund anything a crashed match left in escrow.
     expireHeld(nk, WAGER_EXPIRE_AGE);
     var names: { [userId: string]: string } = {};
@@ -387,3 +393,11 @@ namespace SprotoDuel {
 
 // Sproto Fighter runs on the hub session, so hub-scope tickets may matchmake for it.
 HubGames.register({ game: SprotoDuel.GAME_ID, matchmaker: SprotoDuel.onMatched, hubScope: true });
+
+// Default off. Free duels do not read it. A missing row stays off.
+HubSchema.register({
+  id: "0049_sproto_duel_wager_flag",
+  statements: [
+    `INSERT INTO game.server_flags (key, state) VALUES ('sproto_duel_wager', 'off') ON CONFLICT (key) DO NOTHING`,
+  ],
+});

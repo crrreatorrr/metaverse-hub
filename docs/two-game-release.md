@@ -154,6 +154,10 @@ Do this in order. Do not drop tables.
 6. Ship a build whose protocol, sim, fingerprint, and bundle sha match this matrix, or clients get `version_mismatch`.
 7. Do not announce a public lobby and do not set any of the three Shooter flags to `on` in a committed or deployed config.
 
+## Client build env
+
+Shooter and Duel need `VITE_NAKAMA_URL` at build time. If it is unset, those clients open `127.0.0.1:7350`. Coop's deployed page is the tree `deploy-game.sh` publishes; that script does not write a key into the page. The Coop build inlines the Nakama server key before the upload, the same way the hub build inlines `VITE_NAKAMA_SERVER_KEY` as `__NAKAMA_SERVER_KEY__`.
+
 ## Launch risks
 
 A single L02 Sahil verify missed the 15 second wall-clock budget on the CI runner and came back `cpu_budget`, so it was not paid. Twenty concurrent verifies of that clear miss it too. A short clear (Broccoli, about 3k frames) still fits, including twenty at once. A real player on a busy or small node can submit a long clear and not be paid. That needs a capacity or queue fix before go-live. This release does not change the budget.

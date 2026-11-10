@@ -1687,6 +1687,8 @@ namespace CoopMatch {
     if (req["seed"] !== undefined || req["state"] !== undefined || req["stage"] !== undefined || req["god"] !== undefined) return fail("rejected", "The server chooses the run");
     if (req["v"] !== undefined && Number(req["v"]) !== CoopProto.PROTOCOL) return fail("version_mismatch", "Version mismatch");
     if (req["sim"] !== undefined && String(req["sim"]) !== CoopProto.FINGERPRINT) return fail("version_mismatch", "Version mismatch");
+    var closed = Maint.deny(nk);
+    if (closed) return closed;
     if (!CoopMm.rateAllow(nk, ctx.userId || "", "create")) return fail("rate_limited", "Too many rooms");
     if (CoopMm.liveMatch(nk, ctx.userId || "")) return fail("already_in_match", "Already in a match");
     var code = "";

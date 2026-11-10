@@ -109,5 +109,6 @@ jobs:
         run: |
           docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/audit.sql
           docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/shooter_wager_audit.sql
+          docker compose -f server/docker-compose.yml exec -T postgres psql -U postgres -d nakama -v ON_ERROR_STOP=1 -q -f - < server/test/dup/sproto_wager_audit.sql
       - if: failure()
         run: docker compose -f server/docker-compose.yml logs --no-color --tail 200 nakama
