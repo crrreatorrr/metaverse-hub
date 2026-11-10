@@ -251,7 +251,7 @@ export function createAvatarRig(): AvatarRig {
       const stride = authored > 0 ? authored : SPRINT_SPEED / AVATAR_CLIPS.run.timeScale;
       actions.walk.timeScale = MathUtils.clamp(strideSpeed / stride, 0, TIME_SCALE_MAX);
       // Filter tiny collision corrections while allowing slow analogue input.
-      moving = moving && strideSpeed > 0.02;
+      moving = moving && strideSpeed > 0.08;
     }
     const flight = air?.flight ?? { dt, airborne: air?.airborne ?? false };
     const recover = hasBackflip && pose === 'air' && !flight.airborne && flightTurn.needsRecovery;
