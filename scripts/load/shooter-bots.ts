@@ -330,7 +330,7 @@ const report = {
   failures,
   ledger,
   pin: { commit: PIN.commit, fingerprint: PIN.contentFingerprint, loadoutHash: PIN.loadoutHash, protocol: PIN.protocol, sim: PIN.sim, bundleSha256: PIN.sha256 },
-  campaignFingerprint: '9ec1c6ea',
+  campaignFingerprint: 'cea1f88b',
   latencyMs: [100, 200],
   jitterMs: [0, 17, 11, 22],
   forfeit: forfeited,

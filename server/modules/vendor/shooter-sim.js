@@ -29,6 +29,7 @@ var SprotoShooterSim = (() => {
     buildIssuance: () => buildIssuance,
     contentFingerprintOf: () => contentFingerprintOf,
     pureClone: () => pureClone,
+    runKiteProbeJSON: () => runKiteProbeJSON,
     verifyRun: () => verifyRun,
     verifyRunJSON: () => verifyRunJSON
   });
@@ -602,6 +603,12 @@ var SprotoShooterSim = (() => {
       height: 0.8,
       damage: 0,
       flying: true,
+      altMin: 8,
+      altMax: 9,
+      orbitMin: 7,
+      orbitMax: 14,
+      jinkMin: 0.5,
+      jinkMax: 1.2,
       poiseMax: 20,
       staggerTime: 0.3,
       color: 10475263,
@@ -624,10 +631,19 @@ var SprotoShooterSim = (() => {
       name: "Frost Hound",
       hp: 55,
       speed: 5,
+      run: 9.5,
       accel: 24,
       radius: 0.5,
       height: 0.9,
       damage: 16,
+      weights: { seek: 1, sep: 1.2, wall: 2, strafe: 0.25 },
+      range: 9,
+      windup: 0.5,
+      active: 0.2,
+      recover: 0.9,
+      lunge: 20,
+      knockback: 6,
+      patch: { radius: 2.5, seconds: 6, slow: 0.15 },
       poiseMax: 30,
       staggerTime: 0.35,
       color: 14017775,
@@ -1380,9 +1396,9 @@ var SprotoShooterSim = (() => {
     const type = forced.type ?? dType.id;
     const quality = GUN_TYPES_BY_ID[type].legendaryOnly ? "legendary" : forced.quality ?? dQual.id;
     const man = MANUFACTURERS_BY_ID[forced.manufacturer ?? dMan.id];
-    const q = QUALITIES_BY_ID[quality];
+    const q2 = QUALITIES_BY_ID[quality];
     const parts = { barrel: "stock", grip: "stock", mag: "stock", scope: "stock" };
-    for (let i = 0; i < q.partSlots; i++) {
+    for (let i = 0; i < q2.partSlots; i++) {
       const slot = slotOrder[i];
       const opts = PARTS_BY_SLOT[slot];
       parts[slot] = opts[Math.floor(partDraws[SLOTS.indexOf(slot)] * opts.length)].id;
@@ -1400,12 +1416,12 @@ var SprotoShooterSim = (() => {
     applyMods(s, man);
     for (const slot of SLOTS) if (parts[slot] !== "stock") applyMods(s, PARTS_BY_ID[parts[slot]]);
     const lm = levelMult(level);
-    s.damage *= q.damageMult * lm;
-    if (s.splashDamage) s.splashDamage *= q.damageMult * lm;
-    s.magSize = s.magSize * q.magMult;
-    s.reloadTime *= q.reloadMult;
-    s.spread *= q.spreadMult;
-    s.adsSpread *= q.spreadMult;
+    s.damage *= q2.damageMult * lm;
+    if (s.splashDamage) s.splashDamage *= q2.damageMult * lm;
+    s.magSize = s.magSize * q2.magMult;
+    s.reloadTime *= q2.reloadMult;
+    s.spread *= q2.spreadMult;
+    s.adsSpread *= q2.spreadMult;
     STAT_KEYS.forEach((k, i) => {
       if (k in s) s[k] *= 1 + jitter[i];
     });
@@ -1459,12 +1475,12 @@ var SprotoShooterSim = (() => {
     };
   }
   function sellValue(gun) {
-    const q = QUALITIES_BY_ID[gun.quality];
-    return Math.round(SHOP.sellBase * q.sellMult * SHOP.typePremium[gun.type] * (1 + 0.1 * (gun.level - 1)));
+    const q2 = QUALITIES_BY_ID[gun.quality];
+    return Math.round(SHOP.sellBase * q2.sellMult * SHOP.typePremium[gun.type] * (1 + 0.1 * (gun.level - 1)));
   }
   function shopPrice(gun, tier) {
-    const q = QUALITIES_BY_ID[gun.quality];
-    return Math.round(SHOP.basePrice[gun.type] * q.priceMult * (1 + 0.15 * (tier - 1)));
+    const q2 = QUALITIES_BY_ID[gun.quality];
+    return Math.round(SHOP.basePrice[gun.type] * q2.priceMult * (1 + 0.15 * (tier - 1)));
   }
 
   // src/sim/state.js
@@ -1907,10 +1923,10 @@ var SprotoShooterSim = (() => {
   var RES_IDS = RESOURCES.map((r) => r.id);
 
   // src/sim/drops.js
-  function rollQuality(rng, tableId, shift = 0) {
+  function rollQuality(rng, tableId, shift2 = 0) {
     const w = QUALITY_TABLES[tableId];
-    const q = weighted(rng, QUALITIES.map((qq, i) => ({ id: qq.id, idx: i, weight: w[i] })));
-    return QUALITIES[Math.min(4, q.idx + shift)].id;
+    const q2 = weighted(rng, QUALITIES.map((qq, i) => ({ id: qq.id, idx: i, weight: w[i] })));
+    return QUALITIES[Math.min(4, q2.idx + shift2)].id;
   }
   function rollGunType(rng) {
     return weighted(rng, GUN_TYPES).id;
@@ -1955,8 +1971,8 @@ var SprotoShooterSim = (() => {
             break;
           }
           case "gun": {
-            const shift = ctx.elite && float(rng) < 0.5 ? 1 : 0;
-            const quality = rollQuality(rng, entry.table, shift);
+            const shift2 = ctx.elite && float(rng) < 0.5 ? 1 : 0;
+            const quality = rollQuality(rng, entry.table, shift2);
             const type = rollGunType(rng);
             out.push({ kind: "gun", type, quality, seed: next(rng), level: ctx.tier || 1 });
             break;
@@ -2120,9 +2136,9 @@ var SprotoShooterSim = (() => {
     const ox = o.x - c.x, oy = o.y - c.y, oz = o.z - c.z;
     const b = ox * d.x + oy * d.y + oz * d.z;
     const cc = ox * ox + oy * oy + oz * oz - r * r;
-    const disc2 = b * b - cc;
-    if (disc2 < 0) return -1;
-    const s = Math.sqrt(disc2);
+    const disc3 = b * b - cc;
+    if (disc3 < 0) return -1;
+    const s = Math.sqrt(disc3);
     let t = -b - s;
     if (t < 0) t = -b + s;
     return t >= 0 ? t : -1;
@@ -2135,9 +2151,9 @@ var SprotoShooterSim = (() => {
     if (A > 1e-9) {
       const B2 = ox * d.x + oz * d.z;
       const C = ox * ox + oz * oz - r * r;
-      const disc2 = B2 * B2 - A * C;
-      if (disc2 >= 0) {
-        const s = Math.sqrt(disc2);
+      const disc3 = B2 * B2 - A * C;
+      if (disc3 >= 0) {
+        const s = Math.sqrt(disc3);
         for (const t of [(-B2 - s) / A, (-B2 + s) / A]) {
           if (t < 0) continue;
           const y = o.y + d.y * t;
@@ -2390,6 +2406,40 @@ var SprotoShooterSim = (() => {
     }
   }
 
+  // src/sim/campaign/plates.js
+  var PLATES = [
+    { id: "brow", covers: "head", hp: 250 },
+    { id: "chest", covers: "front", hp: 400, bodyMul: 0.1 },
+    { id: "back", covers: "rear", hp: 400, bodyMul: 0.1 }
+  ];
+  function equipAuditorPlates(e, tier = 1) {
+    const tm = tierEnemyMult(tier || 1);
+    e.plates = PLATES.map((p) => {
+      const hp = Math.round(p.hp * tm);
+      return { id: p.id, covers: p.covers, bodyMul: p.bodyMul, hp, maxHp: hp };
+    });
+  }
+  function applyPlates(state, e, hit, dmg) {
+    if (!e.plates || !hit.point || hit.sourceKind === "dot" || hit.sourceKind === "spell") return null;
+    let plate = null;
+    let mul = 1;
+    const head = e.plates.find((p) => p.covers === "head" && p.hp > 0);
+    if (head && hit.zone === "weak" && hit.point.y >= e.pos.y + 5) {
+      plate = head;
+      mul = 0;
+    } else if (hit.zone !== "weak") {
+      const dx = hit.point.x - e.pos.x;
+      const dz = hit.point.z - e.pos.z;
+      const front = dx * -Math.sin(e.yaw) + dz * -Math.cos(e.yaw) >= 0;
+      plate = e.plates.find((p) => p.hp > 0 && p.covers === (front ? "front" : "rear"));
+      if (plate) mul = plate.bodyMul == null ? 1 : plate.bodyMul;
+    }
+    if (!plate) return null;
+    plate.hp = Math.max(0, plate.hp - dmg);
+    if (plate.hp === 0) emit(state, "plateBreak", { targetId: e.id, plate: plate.id });
+    return Math.max(0, Math.round(dmg * mul));
+  }
+
   // src/data/levels/arena.js
   var R = TUNING.arenaRadius;
   var arena_default = {
@@ -2405,32 +2455,45 @@ var SprotoShooterSim = (() => {
   };
 
   // src/data/levels/kit.js
-  function box({ id, at, size, yaw = 0, mat = "stone", tag } = {}) {
-    return { kind: "box", id, at: at.slice(), size: size.slice(), yaw, mat, tag };
+  function box({ id, at: at2, size, yaw = 0, mat = "stone", tag } = {}) {
+    return { kind: "box", id, at: at2.slice(), size: size.slice(), yaw, mat, tag };
   }
-  function ramp({ id, at, size, yaw = 0, mat = "stone", tag } = {}) {
-    return { kind: "ramp", id, at: at.slice(), size: size.slice(), yaw, mat, tag };
+  function ramp({ id, at: at2, size, yaw = 0, mat = "stone", tag } = {}) {
+    return { kind: "ramp", id, at: at2.slice(), size: size.slice(), yaw, mat, tag };
   }
   function stairs(o = {}) {
     const steps = o.steps ?? Math.max(2, Math.round((o.size?.[2] || 1) / 0.3));
     return { ...ramp(o), visual: "stairs", steps };
   }
-  function cylinder({ id, at, r, h, mat = "pillar", tag } = {}) {
-    return { kind: "cylinder", id, at: at.slice(), r, h, mat, tag };
+  function cylinder({ id, at: at2, r, h, mat = "pillar", tag } = {}) {
+    return { kind: "cylinder", id, at: at2.slice(), r, h, mat, tag };
   }
-  function sphere({ id, at, r, mat = "stone", tag } = {}) {
-    return { kind: "sphere", id, at: at.slice(), r, mat, tag };
+  function sphere({ id, at: at2, r, mat = "stone", tag } = {}) {
+    return { kind: "sphere", id, at: at2.slice(), r, mat, tag };
   }
-  function cone({ id, at, r, h, mat = "stone", tag } = {}) {
-    return { kind: "cone", id, at: at.slice(), r, h, mat, tag };
+  function cone({ id, at: at2, r, h, mat = "stone", tag } = {}) {
+    return { kind: "cone", id, at: at2.slice(), r, h, mat, tag };
   }
-  function disc({ id, at, r, mat = "neon", tag } = {}) {
-    return { kind: "disc", id, at: at.slice(), r, mat, tag };
+  function disc({ id, at: at2, r, mat = "neon", tag } = {}) {
+    return { kind: "disc", id, at: at2.slice(), r, mat, tag };
+  }
+  function terrain({ id, origin, size, cell = 2, seed = 1, noise = {}, mat = "rock", flat = [] } = {}) {
+    return {
+      kind: "terrain",
+      id,
+      origin: origin.slice(),
+      size: size.slice(),
+      cell,
+      seed,
+      mat,
+      noise: { amp: noise.amp ?? 0, freq: noise.freq ?? 0.02, octaves: noise.octaves ?? 1 },
+      flat: (flat || []).map((f) => ({ ...f }))
+    };
   }
 
   // src/data/levels/assemble.js
-  function shiftAt(at, dx) {
-    return [at[0] + dx, at[1], at[2]];
+  function shiftAt(at2, dx) {
+    return [at2[0] + dx, at2[1], at2[2]];
   }
   function makeLevel(def) {
     let cursor = 0;
@@ -2524,12 +2587,12 @@ var SprotoShooterSim = (() => {
   }
   function encounterAt(e, sid, x0, width) {
     const x = x0 + e.x;
-    const at = [];
-    const units = [];
+    const at2 = [];
+    const units2 = [];
     let n = 0;
     for (const [type, count] of e.units) {
-      units.push({ type, count });
-      for (let k = 0; k < count; k++) at.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
+      units2.push({ type, count });
+      for (let k = 0; k < count; k++) at2.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
     }
     return {
       id: `${sid}-${e.id}`,
@@ -2539,7 +2602,7 @@ var SprotoShooterSim = (() => {
       objective: { kind: e.objective || "clearAll" },
       maxAlive: e.maxAlive || 12,
       fleeAt: e.fleeAt || 0,
-      squads: [{ delay: 0, units, at }]
+      squads: [{ delay: 0, units: units2, at: at2 }]
     };
   }
   function placeMech(m, s, x0, width) {
@@ -2573,9 +2636,9 @@ var SprotoShooterSim = (() => {
   }
 
   // src/data/levels/v2.js
-  function add(at, origin) {
-    if (!at) return at;
-    return [at[0] + origin[0], (at[1] || 0) + (origin[1] || 0), at[2] + origin[2]];
+  function add(at2, origin) {
+    if (!at2) return at2;
+    return [at2[0] + origin[0], (at2[1] || 0) + (origin[1] || 0), at2[2] + origin[2]];
   }
   function shiftNav(bounds, origin) {
     if (!bounds) return null;
@@ -2584,9 +2647,9 @@ var SprotoShooterSim = (() => {
       max: [bounds.max[0] + origin[0], bounds.max[1] + origin[2]]
     };
   }
-  function shiftBox(box2, origin) {
-    if (!box2 || !box2.min || !box2.max) return box2;
-    return { min: add(box2.min, origin), max: add(box2.max, origin) };
+  function shiftBox(box3, origin) {
+    if (!box3 || !box3.min || !box3.max) return box3;
+    return { min: add(box3.min, origin), max: add(box3.max, origin) };
   }
   function shiftPrim(g, origin) {
     const next2 = { ...g };
@@ -2596,8 +2659,8 @@ var SprotoShooterSim = (() => {
   }
   function shiftScript(script, origin) {
     if (!script) return null;
-    const shiftAt2 = (at) => at ? add(at, origin) : at;
-    const shiftField = (field) => field ? { ...field, at: shiftAt2(field.at) } : field;
+    const shiftAt2 = (at2) => at2 ? add(at2, origin) : at2;
+    const shiftField = (field2) => field2 ? { ...field2, at: shiftAt2(field2.at) } : field2;
     return {
       ...script,
       parts: (script.parts || []).map((part) => ({
@@ -2609,9 +2672,9 @@ var SprotoShooterSim = (() => {
       }))
     };
   }
-  function shiftSquad(squad3, origin) {
-    const at = (squad3.at || []).map((p) => add(p, origin));
-    return { ...squad3, at, trigger: squad3.trigger || { type: "onEnter" }, method: squad3.method || "placed" };
+  function shiftSquad(squad6, origin) {
+    const at2 = (squad6.at || []).map((p) => add(p, origin));
+    return { ...squad6, at: at2, trigger: squad6.trigger || { type: "onEnter" }, method: squad6.method || "placed" };
   }
   function makeV2Level(def) {
     const sections = (def.sections || []).map((sec, i) => {
@@ -2666,6 +2729,9 @@ var SprotoShooterSim = (() => {
         carpets: (sec.carpets || []).map((c) => ({ ...c, from: add(c.from, origin), to: add(c.to, origin) })),
         noGrapple: (sec.noGrapple || []).map((z) => ({ ...z, min: add(z.min, origin), max: add(z.max, origin) })),
         grappleAnchors: (sec.grappleAnchors || []).map((a) => ({ ...a, at: add(a.at, origin) })),
+        ...sec.terrain ? {
+          terrain: sec.terrain.origin ? { ...sec.terrain, origin: add(sec.terrain.origin, origin) } : sec.terrain
+        } : {},
         links: (sec.links || []).map((link) => ({
           ...link,
           at: link.at ? add(link.at, origin) : link.at,
@@ -2714,28 +2780,36 @@ var SprotoShooterSim = (() => {
   function zone(x0, x1, z0 = 4, z1 = 28) {
     return { min: [x0, -2, z0], max: [x1, 8, z1] };
   }
-  function squad(id, trigger, units, at, method = "placed") {
+  function squad(id, trigger, units2, at2, method = "placed") {
     return {
       id,
       trigger,
       method,
-      at,
-      units: units.map(([type, count, partId]) => partId ? { type, count, partId } : { type, count })
+      at: at2,
+      units: units2.map(([type, count, partId]) => partId ? { type, count, partId } : { type, count })
     };
   }
-  function ammo(id, at, ammoType = "bullets", amount = 60) {
-    return { kind: "ammo", id, at, ammoType, amount };
+  function ammo(id, at2, ammoType = "bullets", amount = 60) {
+    return { kind: "ammo", id, at: at2, ammoType, amount };
   }
-  function door(id, at) {
-    return { kind: "door", id, at, size: [1.2, 4, 32] };
+  function door(id, at2) {
+    return { kind: "door", id, at: at2, size: [1.2, 4, 32] };
   }
   var S1 = {
     id: "S1",
     name: "Drop Zone",
     origin: [0, 0, 0],
-    start: [8, 0, 16],
+    start: [8, 0, 10],
     yaw: -Math.PI / 2,
-    intro: card("SPROTO LANDING", ["Los Angeles. Dusk.", "The Bitcoin Tax Empire has shut the city gate.", "You have one machine gun and a bad attitude."]),
+    // North lane (z 10) is the lesson. South of z 12 the road is flat, so a walk
+    // with an empty stamina bar still reaches every fight.
+    intro: card("SPROTO LANDING", [
+      "Los Angeles. Dusk.",
+      "The Bitcoin Tax Empire has shut the city gate.",
+      "You have one machine gun and a bad attitude.",
+      "Sprint the lane. Slide under the truck. Hook the gold ring, then let go."
+    ]),
+    grappleAnchors: [{ id: "S1-hook", at: [30, 5.6, 10], r: 2.2 }],
     navBounds: { min: [0, 2], max: [200, 30] },
     exit: zone(190, 200),
     geometry: [
@@ -2746,7 +2820,29 @@ var SprotoShooterSim = (() => {
       box({ id: "S1-barricade", at: [150, 1.1, 8], size: [1.2, 2.2, 4], mat: "metal" }),
       sphere({ id: "S1-tinubu", at: [40, 14, 48], r: 8, mat: "gold" }),
       cone({ id: "S1-tinubu-hat", at: [40, 22, 48], r: 5, h: 8, mat: "gold" }),
-      box({ id: "S1-sign", at: [20, 6, -6], size: [14, 2, 0.6], mat: "neon" })
+      box({ id: "S1-sign", at: [20, 6, -6], size: [14, 2, 0.6], mat: "neon" }),
+      // Sprint lane. Discs only: the bar on the HUD is the lesson, and walking
+      // the same lane still reaches the truck.
+      disc({ id: "S1-sprint-a", at: [11, 0.06, 10], r: 1.15, mat: "neon" }),
+      disc({ id: "S1-sprint-b", at: [13.5, 0.06, 10], r: 0.7, mat: "neon" }),
+      disc({ id: "S1-sprint-c", at: [16, 0.06, 10], r: 0.7, mat: "neon" }),
+      cylinder({ id: "S1-lane-n", at: [12, 0, 7.2], r: 0.35, h: 1.2, mat: "neon" }),
+      cylinder({ id: "S1-lane-s", at: [12, 0, 12.8], r: 0.35, h: 1.2, mat: "neon" }),
+      // Slide truck. Underside y 1.15 blocks a standing body (1.8) and lets a
+      // slide (height 1.0) through. South of z 11.4 the road is open.
+      box({ id: "S1-slide-body", at: [20, 2.25, 7.2], size: [4.2, 2.2, 8.4], mat: "metal" }),
+      box({ id: "S1-slide-cab", at: [20, 0.55, 3.8], size: [4.2, 1.1, 1.6], mat: "metal" }),
+      disc({ id: "S1-slide-pad", at: [16.2, 0.06, 10], r: 1.15, mat: "neon" }),
+      disc({ id: "S1-walk-pad", at: [20, 0.06, 18], r: 0.85, mat: "neon" }),
+      // First hook. Hold the ring for about a third of a second, then let go.
+      // The pull stays on you and throws you over the wall toward the party.
+      // The south road walks around it, and an empty stamina bar still can.
+      box({ id: "S1-hook-wall", at: [30, 2, 7.8], size: [1.2, 4, 9.6], mat: "concrete" }),
+      cylinder({ id: "S1-hook-post-n", at: [30, 4, 8.4], r: 0.3, h: 2.6, mat: "gold" }),
+      cylinder({ id: "S1-hook-post-s", at: [30, 4, 11.6], r: 0.3, h: 2.6, mat: "gold" }),
+      box({ id: "S1-hook-bar", at: [30, 6.45, 10], size: [0.6, 0.5, 3.8], mat: "gold" }),
+      sphere({ id: "S1-hook-ring", at: [30, 5.6, 10], r: 0.55, mat: "gold" }),
+      disc({ id: "S1-hook-pad", at: [25.2, 0.06, 10], r: 1.15, mat: "neon" })
     ],
     weapons: [],
     checkpoints: [
@@ -2799,12 +2895,21 @@ var SprotoShooterSim = (() => {
     origin: [185, 0, 0],
     navBounds: { min: [0, 2], max: [180, 30] },
     exit: zone(168, 180),
+    // Crown of the north slide. The alley at z 16 stays flat.
+    grappleAnchors: [{ id: "S2-hook", at: [30, 4.6, 8], r: 1.8 }],
     geometry: [
       floor("S2-floor", 180),
       box({ id: "S2-alley-n", at: [40, 2, 4], size: [70, 4, 1], mat: "concrete" }),
       box({ id: "S2-alley-s", at: [40, 2, 28], size: [70, 4, 1], mat: "concrete" }),
       cylinder({ id: "S2-pillar", at: [78, 0, 12], r: 0.5, h: 4, mat: "stone" }),
-      box({ id: "S2-tank", at: [130, 1.2, 16], size: [3, 2.4, 3], mat: "metal" })
+      box({ id: "S2-tank", at: [130, 1.2, 16], size: [3, 2.4, 3], mat: "metal" }),
+      // Walk up, or hook the crown and let go. Slide down the far side.
+      ramp({ id: "S2-slide-up", at: [22, 1.1, 8], size: [3.2, 2.2, 12], yaw: 90, mat: "metal" }),
+      box({ id: "S2-slide-crown", at: [30, 1.95, 8], size: [4, 0.5, 3.2], mat: "metal" }),
+      ramp({ id: "S2-slide-down", at: [38, 1.1, 8], size: [3.2, 2.2, 12], yaw: 270, mat: "metal" }),
+      sphere({ id: "S2-hook-ring", at: [30, 4.6, 8], r: 0.5, mat: "gold" }),
+      disc({ id: "S2-hook-pad", at: [14, 0.06, 8], r: 1, mat: "neon" }),
+      disc({ id: "S2-slide-pad", at: [30, 2.28, 8], r: 0.75, mat: "neon" })
     ],
     weapons: [{ id: "S2-rack-sg", at: [22, 0.5, 16], gun: "shotgun", why: "E3 corridor swarm" }],
     checkpoints: [{ id: "CP3", at: [78, 0, 16] }],
@@ -2863,11 +2968,17 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 2], max: [90, 30] },
     flyerVolume: { min: [0, 0, 2], max: [90, 12, 30] },
     exit: zone(84, 90),
+    // North balcony. One hook during the lockdown, or the ramp. The floor at z 16 is the fight.
+    grappleAnchors: [{ id: "S3-hook", at: [58, 6.2, 5], r: 1.8 }],
     geometry: [
       floor("S3-floor", 90),
       box({ id: "S3-kiosk", at: [40, 1, 8], size: [3, 2, 3], mat: "neon" }),
       cylinder({ id: "S3-pillar-w", at: [28, 0, 10], r: 0.6, h: 6, mat: "stone" }),
-      cylinder({ id: "S3-pillar-e", at: [52, 0, 22], r: 0.6, h: 6, mat: "stone" })
+      cylinder({ id: "S3-pillar-e", at: [52, 0, 22], r: 0.6, h: 6, mat: "stone" }),
+      ramp({ id: "S3-balc-ramp", at: [48, 1.825, 5], size: [3, 3.65, 12], yaw: 90, mat: "metal" }),
+      box({ id: "S3-balc", at: [58, 3.4, 5], size: [8, 0.5, 3], mat: "metal" }),
+      sphere({ id: "S3-hook-ring", at: [58, 6.2, 5], r: 0.5, mat: "gold" }),
+      disc({ id: "S3-hook-pad", at: [40, 0.06, 5], r: 0.9, mat: "neon" })
     ],
     weapons: [],
     checkpoints: [
@@ -2989,7 +3100,15 @@ var SprotoShooterSim = (() => {
       floor("S5-floor", 140),
       box({ id: "S5-toll", at: [52, 1.2, 8], size: [1, 2.4, 4], mat: "metal" }),
       box({ id: "S5-canopy", at: [52, 4.5, 16], size: [8, 0.5, 12], mat: "concrete" }),
-      box({ id: "S5-car", at: [30, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" })
+      box({ id: "S5-rail-n", at: [52, 5.35, 9.7], size: [8.4, 1.2, 0.8], mat: "concrete" }),
+      box({ id: "S5-car", at: [30, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
+      // Stair up to the mana battery, then a catwalk and a downhill slide back
+      // to the road. The deck at z 16 stays a flat walk under the canopy.
+      box({ id: "S5-stair-pad", at: [52, -0.25, 32.5], size: [8, 0.5, 8], mat: "concrete" }),
+      ramp({ id: "S5-stair", at: [52, 2.375, 28.7], size: [4, 4.75, 8.6], yaw: 180, mat: "concrete" }),
+      box({ id: "S5-cat", at: [67.15, 4.5, 23], size: [34.3, 0.5, 2.8], mat: "metal" }),
+      ramp({ id: "S5-slide", at: [92.15, 2.375, 23], size: [2.8, 4.75, 16.3], yaw: 270, mat: "concrete" }),
+      disc({ id: "S5-slide-pad", at: [84, 4.82, 23], r: 0.7, mat: "neon" })
     ],
     weapons: [],
     checkpoints: [],
@@ -3028,7 +3147,10 @@ var SprotoShooterSim = (() => {
       cylinder({ id: "S6-fountain", at: [48, 0, 8], r: 2, h: 2, mat: "stone" }),
       box({ id: "S6-stand", at: [40, 1.2, 8], size: [6, 2.4, 4], mat: "stone" }),
       box({ id: "S6-gate-l", at: [96, 6, 6], size: [2, 12, 2], mat: "gold" }),
-      box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" })
+      box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" }),
+      // Walk-up perch for the flying adds. No hook: a fling here leaves the floor.
+      ramp({ id: "S6-perch-ramp", at: [52, 1.6, 24], size: [3, 3.2, 14], yaw: 90, mat: "metal" }),
+      box({ id: "S6-perch", at: [62, 3.2, 24], size: [6, 0.5, 3], mat: "metal" })
     ],
     weapons: [
       { id: "S6-rack-sg", at: [16, 0.5, 12], gun: "shotgun", why: "finale tower doors" },
@@ -3099,60 +3221,927 @@ var SprotoShooterSim = (() => {
   });
   registerLevel(L01);
 
-  // src/data/levels/L02/index.js
+  // src/data/levels/L02/spec.js
+  var LOOT = {
+    baseTier: "common",
+    odds: { common: 65, uncommon: 30, rare: 5, epic: 0, legendary: 0 },
+    gunLevel: 2,
+    poolAtStart: ["mg", "shotgun"],
+    unlocks: ["sniper", "bazooka"],
+    guaranteed: [
+      { id: "chest-L1", tier: "common", note: "one gun the player does not carry, else shotgun" },
+      { id: "chest-L2", tier: "common", note: "same rule, after loom-0" },
+      { id: "cache-secret", gun: "shotgun", tier: "rare" },
+      { id: "elite-rug-security", tierStep: 1, odds: { uncommon: 65, rare: 30, epic: 5 } },
+      { id: "sahil", guns: 2, tier: "uncommon", bossGun: ["raygun", "bigbullets"], spell: "magicCarpet" }
+    ]
+  };
+  var AMMO = [
+    ["ab01", "bullets", 60, "S1", [98, 0, 142]],
+    ["ab02", "shells", 12, "S1", [106, 0, 96]],
+    ["ab03", "shells", 12, "S1", [92, 0, 48]],
+    ["ab04", "bullets", 60, "S1", [110, 0, 56]],
+    ["ab05", "shells", 12, "S1", [108, 0, 28]],
+    ["ab06", "bullets", 60, "S1", [92, 0, 16]],
+    ["ab07", "shells", 12, "S1", [156, 0, 32]],
+    ["ab08", "bullets", 60, "S1", [188, 0, 12]],
+    ["ab09", "bullets", 60, "S2", [14, 0, 104]],
+    ["ab10", "shells", 12, "S2", [152, 0, 100]],
+    ["ab11", "bullets", 60, "S2", [150, 0, 104]],
+    ["ab12", "shells", 12, "S2", [200, 9, 94]],
+    ["ab13", "shells", 12, "S2", [212, 9, 84]],
+    ["ab14", "bullets", 60, "S2", [242, 9, 114]],
+    ["ab15", "sniper", 8, "S3", [41, 6, 60]],
+    ["ab16", "sniper", 8, "S3", [38, 6, 64]],
+    ["ab17", "bullets", 60, "S3", [82, 0, 66]],
+    ["ab18", "shells", 12, "S3", [86, 0, 98]],
+    ["ab19", "bullets", 60, "S3", [78, 0, 150]],
+    ["ab20", "sniper", 8, "S3", [118, 0, 143]],
+    ["ab21", "shells", 12, "S3", [166, 0, 120]],
+    ["ab22", "shells", 12, "SM", [8, 4, 22]],
+    ["ab23", "bullets", 60, "SM", [54, 4, 36]],
+    ["ab24", "shells", 12, "SM", [67, 7, 46]],
+    ["ab25", "bullets", 60, "SM", [104, 10, 96]],
+    ["ab26", "shells", 12, "SM", [86, 2, 152]],
+    ["ab27", "bullets", 60, "SM", [94, 2, 152]],
+    ["ab28", "shells", 12, "SM", [88, 0, 165]],
+    ["ab29", "rockets", 3, "S4", [47, 0, 11]],
+    ["ab30", "rockets", 3, "S4", [47, 0, 13]],
+    ["ab31", "shells", 12, "S4", [30, 0, 48]],
+    ["ab32", "bullets", 60, "S4", [50, 0, 48]],
+    ["ab33", "bullets", 60, "S4", [20, 0, 62]],
+    ["ab34", "bullets", 60, "S4", [60, 0, 78]],
+    ["ab35", "shells", 12, "S4", [46, 0, 92]],
+    ["ab36", "rockets", 3, "S4", [34, 0, 92]]
+  ];
+  var CRATES = [
+    { id: "ac1", kind: "ammoCrate", uses: 3, section: "S1", at: [184, 0, 24] },
+    { id: "ac2", kind: "ammoCrate", uses: 3, section: "S2", at: [240, 9, 100] },
+    { id: "ac3", kind: "ammoCrate", uses: 3, section: "S4", at: [40, 0, 94] },
+    { id: "ac4", kind: "ammoCrate", uses: 3, section: "S4", at: [28, 0, 57] },
+    { id: "dc1", kind: "depotCrate", uses: null, section: "S2", at: [262, 9, 92] },
+    { id: "dc2", kind: "depotCrate", uses: null, section: "SM", at: [80, 0, 226] },
+    { id: "dc3", kind: "depotCrate", uses: null, section: "S4", at: [35, 0, 12] }
+  ];
+  var BEATS = [
+    { id: "E1", sec: 47.2 },
+    { id: "E2", sec: 77.1 },
+    { id: "shrine", sec: 26.2 },
+    { id: "L1", sec: 152.4 },
+    { id: "E4", sec: 84.2 },
+    { id: "L2", sec: 159 },
+    { id: "depot1", sec: 52.6 },
+    { id: "E6", sec: 87.2 },
+    { id: "E7", sec: 105.8 },
+    { id: "E8", sec: 115 },
+    { id: "E9", sec: 73.9 },
+    { id: "depot2", sec: 50.8 },
+    { id: "L3", sec: 262.5 }
+  ];
+  var BOSS_HP = { part2: 1714, part4: 1909, part5: 1967, loom: 161, pylon: 230, elite: 173 };
+  var BOSS_SCRIPT = {
+    designEncounter: "SB-BOSS",
+    liveEncounter: "S4-E4",
+    parts: [
+      {
+        id: 1,
+        kind: "entry",
+        seconds: 30,
+        designTargets: [{ id: "loom-E", hp: 161, at: [58, 0, 70] }, { id: "loom-W", hp: 161, at: [22, 0, 70] }],
+        // One attack name. A longer list makes Math.floor(rng * length) pick differently in goja.
+        attacks: ["bolt"],
+        adds: [
+          { t: 2, from: ["sh-NW", "sh-NE"], units: [["midget", 3], ["midget", 3]] },
+          { on: "firstLoom", from: ["sh-SE"], units: [["boomMidget", 2]], gap: 1.5 }
+        ]
+      },
+      {
+        id: 2,
+        kind: "phase",
+        seconds: 55,
+        hp: 1714,
+        duelStage: 1,
+        attacks: ["bolt"],
+        adds: [
+          { onBossHp: 65, from: ["sh-SW", "sh-SE"], units: [["midget", 2], ["midget", 2]] },
+          { onBossHp: 30, from: ["sh-NW"], units: [["boomMidget", 2]] }
+        ]
+      },
+      {
+        id: 3,
+        kind: "intermission",
+        seconds: 8,
+        designTargets: [
+          { id: "pylon-N", hp: 230, at: [40, 0, 52] },
+          { id: "pylon-SE", hp: 230, at: [55.6, 0, 79] },
+          { id: "pylon-SW", hp: 230, at: [24.4, 0, 79] }
+        ],
+        pit: { at: [40, 0, 70], r: 7, slow: 0.5, dps: 4 },
+        adds: [
+          { t: 0, from: ["sh-NE"], units: [["riotMidget", 2], ["hexAcolyte", 1]] },
+          { t: 10, from: ["sh-SE", "sh-SW"], units: [["midget", 3], ["midget", 2]] },
+          { on: "secondPylon", from: ["sh-NW"], units: [["midget", 3]] }
+        ]
+      },
+      {
+        id: 4,
+        kind: "phase",
+        seconds: 60,
+        hp: 1909,
+        duelStage: 2,
+        attacks: ["bolt"],
+        ring: 26.8,
+        adds: [
+          { onBossHp: 70, from: ["sh-NE", "sh-SW"], units: [["midget", 2], ["midget", 1]] },
+          { onBossHp: 35, from: ["sh-SE"], units: [["boomMidget", 3]], gap: 1.5 }
+        ]
+      },
+      {
+        id: 5,
+        kind: "phase",
+        seconds: 65,
+        hp: 1967,
+        duelStage: 3,
+        attacks: ["bolt"],
+        ring: 25.5,
+        adds: [
+          { onBossHp: 75, from: ["sh-NW"], units: [["riotMidget", 1, { elite: true, name: "Head of Rug Security", hp: 173 }], ["midget", 3]] },
+          { onBossHp: 40, from: ["sh-NE", "sh-SE"], units: [["midget", 3], ["boomMidget", 2]] }
+        ]
+      }
+    ]
+  };
+  var BOT_ROUTE = [
+    { section: "S1", steps: ["(100,144)", "clear E1", "rack-sg-arch", "clear E2", "shrine", "zap C1", "cross pass.line", "clear L1", "chest-L1", "(196,24)"] },
+    { section: "S2", steps: ["(12,100)", "road to (124,84)", "clear E4", "G5 or shelf.ramp", "cross serai.line", "clear L2", "loom-0", "chest-L2", "depot", "(288,98)"] },
+    { section: "S3", steps: ["(4,80)", "tower rack-sn-tower", "clear E6", "C1", "Needle", "C2", "C3 or ramp", "(214,112)"] },
+    { section: "S4", steps: ["(4,16)", "clear 8a-8c", "zap C2", "L1", "clear 8d", "Z1", "J1", "os-1", "Z2", "looms", "clear E9", "depot", "(90,237)"] },
+    { section: "SB", steps: ["(40,6)", "dc3", "rack-bz-vault", "cross ring.line", "looms", "bars and pylons", "exitRug"] }
+  ];
+  var DIFFICULTY = {
+    easy: {
+      maxAlive: 8,
+      e2Riots: 1,
+      l1Wave1Riots: 2,
+      l1DropBoom: 1,
+      l1AddMidget: 3,
+      bubbleHp: 30,
+      quicksand: 0.65,
+      loomHp: 120,
+      waveSec: 35,
+      bossNoPart2Adds: true,
+      bossNoElite: true,
+      springHeal: 60,
+      ammoMult: 1.5
+    },
+    heroic: {
+      maxAlive: 12,
+      elites: ["L1 wave 3 riot", "L2 wave 4 acolyte", "E6 shooter", "E8 riot"],
+      e9BigObama: true,
+      bubbleHp: 60,
+      waveSec: 20,
+      pylonRegrowSec: 25,
+      springNoRefill: true,
+      crateUses: 2
+    }
+  };
+  var CARDS = {
+    start: { title: "The Grand Bazaar", lines: ["Sahil's bazaar is where the Empire launders its rugs.", "Take his carpet."] },
+    dunes: { title: "Into the Dunes", lines: ["The souk was the easy part.", "Sahil's caravan route crosses the Dune Sea."] },
+    boss: { title: "Sahil, the RugMaster", lines: ["Every rug comes with a lifetime guarantee. The rug pull is free."] }
+  };
+  var DEV_ENTRY = {
+    unlock: "L01 cleared",
+    query: "?mode=campaign&level=L02",
+    grants: ["gooBolt"]
+  };
+
+  // src/data/levels/L02/author.js
+  function box2(id, size, at2, mat = "stone", extra = {}) {
+    return { kind: "box", id, size: size.slice(), at: at2.slice(), yaw: extra.yaw || 0, mat, ...extra };
+  }
+  function cylinder2(id, r, h, at2, mat = "pillar", extra = {}) {
+    return { kind: "cylinder", id, r, h, at: at2.slice(), mat, ...extra };
+  }
+  function sphere2(id, r, at2, mat = "rock", extra = {}) {
+    return { kind: "sphere", id, r, at: at2.slice(), mat, ...extra };
+  }
+  function cone2(id, r, h, at2, mat = "stone", extra = {}) {
+    return { kind: "cone", id, r, h, at: at2.slice(), mat, ...extra };
+  }
+  function disc2(id, r, at2, mat = "neon", extra = {}) {
+    return { kind: "disc", id, r, at: at2.slice(), mat, ...extra };
+  }
+  function ramp2(id, size, at2, yaw, mat = "stone", extra = {}) {
+    return { kind: "ramp", id, size: size.slice(), at: at2.slice(), yaw, mat, keep: true, ...extra };
+  }
+  function floor2(id, x0, x1, z0, z1, mat = "sand") {
+    return box2(id, [x1 - x0, 0.5, z1 - z0], [(x0 + x1) / 2, -0.25, (z0 + z1) / 2], mat);
+  }
+  function wall(id, x0, x1, z0, z1, h = 6, mat = "stone", y0 = 0) {
+    return box2(id, [Math.max(0.6, x1 - x0), h, Math.max(0.6, z1 - z0)], [(x0 + x1) / 2, y0 + h / 2, (z0 + z1) / 2], mat);
+  }
+  function axisBox(g) {
+    if (!g || g.kind !== "box" && g.kind !== "ramp") return g;
+    const yaw = ((g.yaw || 0) % 360 + 360) % 360;
+    if (yaw === 90 || yaw === 270) return { ...g, yaw: 0, size: [g.size[2], g.size[1], g.size[0]] };
+    if (yaw === 180) return { ...g, yaw: 0 };
+    return g;
+  }
+  function aabb(g) {
+    const b = axisBox(g);
+    if (!b) return null;
+    if (b.kind === "box" || b.kind === "ramp") {
+      return {
+        minX: b.at[0] - b.size[0] / 2,
+        maxX: b.at[0] + b.size[0] / 2,
+        minY: b.at[1] - b.size[1] / 2,
+        maxY: b.at[1] + b.size[1] / 2,
+        minZ: b.at[2] - b.size[2] / 2,
+        maxZ: b.at[2] + b.size[2] / 2,
+        box: b
+      };
+    }
+    if (b.kind === "cylinder") {
+      return {
+        minX: b.at[0] - b.r,
+        maxX: b.at[0] + b.r,
+        minY: b.at[1],
+        maxY: b.at[1] + b.h,
+        minZ: b.at[2] - b.r,
+        maxZ: b.at[2] + b.r,
+        box: b
+      };
+    }
+    return null;
+  }
+  function hits(a, r) {
+    return a.maxX > r.x0 && a.minX < r.x1 && a.maxZ > r.z0 && a.minZ < r.z1;
+  }
+  function subtract(g, rect) {
+    const x0 = g.at[0] - g.size[0] / 2;
+    const x1 = g.at[0] + g.size[0] / 2;
+    const z0 = g.at[2] - g.size[2] / 2;
+    const z1 = g.at[2] + g.size[2] / 2;
+    const y = g.at[1];
+    const sy = g.size[1];
+    const ix0 = Math.max(x0, rect.x0);
+    const ix1 = Math.min(x1, rect.x1);
+    const iz0 = Math.max(z0, rect.z0);
+    const iz1 = Math.min(z1, rect.z1);
+    if (ix1 - ix0 <= 0.02 || iz1 - iz0 <= 0.02) return [g];
+    const raw = [];
+    const add3 = (xa, xb, za, zb) => {
+      if (xb - xa < 0.5 || zb - za < 0.5 || sy < 0.5) return;
+      raw.push([xa, xb, za, zb]);
+    };
+    if (ix0 - x0 >= 0.5) add3(x0, ix0, z0, z1);
+    if (x1 - ix1 >= 0.5) add3(ix1, x1, z0, z1);
+    if (iz0 - z0 >= 0.5) add3(ix0, ix1, z0, iz0);
+    if (z1 - iz1 >= 0.5) add3(ix0, ix1, iz1, z1);
+    return raw.map((p, i) => ({
+      ...g,
+      yaw: 0,
+      id: `${g.id}~${i}`,
+      at: [(p[0] + p[1]) / 2, y, (p[2] + p[3]) / 2],
+      size: [p[1] - p[0], sy, p[3] - p[2]]
+    }));
+  }
+  function cutRoute(geometry, rects) {
+    let parts = geometry.filter(Boolean);
+    for (const rect of rects) {
+      const next2 = [];
+      for (const prim of parts) {
+        if (prim.keep || prim.kind === "sphere" || prim.kind === "cone" || prim.kind === "disc" || prim.kind === "terrain") {
+          next2.push(prim);
+          continue;
+        }
+        const box3 = axisBox(prim);
+        const a = aabb(box3);
+        if (!a || a.maxY < 0.5 || a.minY > 1.7 || !hits(a, rect)) {
+          next2.push(prim);
+          continue;
+        }
+        if (box3.kind !== "box") continue;
+        next2.push(...subtract(box3, rect));
+      }
+      parts = next2;
+    }
+    return parts;
+  }
+  function points(n, x, z, along = "x", gap = 1.5) {
+    const out = [];
+    const start2 = -((n - 1) * gap) / 2;
+    for (let i = 0; i < n; i++) {
+      const d = start2 + i * gap;
+      out.push(along === "z" ? [x, 0, z + d] : [x + d, 0, z]);
+    }
+    return out;
+  }
+  function squad2(id, trigger, method, units2, at2, designAt) {
+    const list = units2.map(([type, count]) => ({ type, count }));
+    return { id, trigger, method, units: list, at: at2, designAt: designAt || at2 };
+  }
+  function ammo2(id, at2, ammoType, amount) {
+    return { kind: "ammo", id, at: at2, ammoType, amount };
+  }
+  function door2(id, at2, size) {
+    return { kind: "door", id, at: at2, size };
+  }
+  function zone2(x0, x1, z0, z1, y0 = -2, y1 = 12) {
+    return { min: [x0, y0, z0], max: [x1, y1, z1] };
+  }
+
+  // src/data/levels/L02/sections.js
   var card2 = (title, lines) => ({ title, lines });
-  var L02 = makeLevel({
+  function units(list) {
+    const n = list.reduce((s, u4) => s + u4[1], 0);
+    return { list, n };
+  }
+  function atFor(n, x, z, along) {
+    return points(n, x, z, along, 1.4);
+  }
+  var S1_ROUTE = [
+    { x0: 96, x1: 104, z0: 18, z1: 150 },
+    { x0: 96, x1: 200, z0: 19, z1: 29 }
+  ];
+  function s1() {
+    const geometry = [
+      floor2("s1-ground", -20, 220, -20, 170),
+      wall("s1-berm-w", 58, 60, 100, 148, 6, "sand"),
+      wall("s1-berm-e", 140, 142, 100, 148, 6, "sand"),
+      wall("s1-berm-s", 60, 140, 148, 150, 6, "sand"),
+      box2("s1-tent1", [5, 3, 5], [74, 1.5, 112], "wood"),
+      box2("s1-tent2", [5, 3, 5], [126, 1.5, 110], "wood"),
+      box2("s1-tent3", [5, 3, 5], [84, 1.5, 138], "wood"),
+      cylinder2("s1-fire", 1.2, 0.5, [100, 0, 118], "stone"),
+      box2("s1-cart", [3, 1.4, 1.6], [112, 0.7, 122], "wood"),
+      box2("s1-low-a", [6, 1.2, 1], [88, 0.6, 108], "stone"),
+      box2("s1-low-b", [6, 1.2, 1], [112, 0.6, 108], "stone"),
+      wall("s1-souk-w", 60, 96, 98, 100, 7),
+      wall("s1-souk-e", 104, 140, 98, 100, 7),
+      box2("s1-lintel", [8, 2, 2], [100, 6, 99], "trim"),
+      wall("s1-block-a", 83, 97, 67, 93, 4),
+      wall("s1-block-b", 103, 117, 67, 93, 4),
+      wall("s1-block-w", 60, 80, 44, 98, 8),
+      wall("s1-block-e", 120, 140, 44, 98, 8),
+      cylinder2("s1-well", 1.5, 1.2, [100, 0, 53], "stone"),
+      wall("s1-sq-n-w", 80, 96, 42, 44, 7),
+      wall("s1-sq-n-e", 104, 120, 42, 44, 7),
+      box2("s1-shrine", [2, 2.2, 2], [100, 1.1, 14], "neon"),
+      wall("s1-shrine-n", 88, 112, 12, 14, 7),
+      wall("s1-shrine-s-w", 88, 96, 30, 32, 7),
+      wall("s1-shrine-s-e", 104, 112, 30, 32, 7),
+      wall("s1-pass-n", 114, 149, 17, 19, 7),
+      wall("s1-pass-s", 114, 149, 29, 31, 7),
+      box2("s1-canopy", [35, 0.5, 8], [131.5, 7.25, 22], "wood"),
+      disc2("s1-line", 2, [120, 0.05, 22]),
+      // Dyers' Court, 44 × 44 (x 151–195, z 2–46).
+      wall("s1-dye-w-n", 150, 152, 2, 18, 7),
+      wall("s1-dye-w-s", 150, 152, 30, 46, 7),
+      wall("s1-dye-e-n", 194, 196, 2, 18, 7),
+      wall("s1-dye-e-s", 194, 196, 30, 46, 7),
+      wall("s1-dye-n", 152, 194, 2, 4, 7),
+      wall("s1-dye-s", 152, 194, 44, 46, 7),
+      box2("s1-dye-plat", [6, 2, 10], [181, 1, 24], "wood"),
+      cylinder2("s1-vat-1", 2, 1.2, [162, 0, 12], "stone"),
+      cylinder2("s1-vat-2", 2, 1.2, [173, 0, 12], "stone"),
+      cylinder2("s1-vat-3", 2, 1.2, [184, 0, 12], "stone"),
+      cylinder2("s1-vat-4", 2, 1.2, [162, 0, 36], "stone"),
+      cylinder2("s1-vat-5", 2, 1.2, [173, 0, 36], "stone"),
+      cylinder2("s1-vat-6", 2, 1.2, [184, 0, 36], "stone"),
+      box2("s1-rack-1", [6, 2, 0.6], [158, 1, 30], "wood"),
+      box2("s1-rack-2", [6, 2, 0.6], [188, 1, 16], "wood"),
+      cone2("s1-palm", 1.2, 4, [66, 4, 104], "hedge"),
+      sphere2("s1-bonk-roll", 0.8, [118.5, 6, 80], "gold")
+    ];
+    const e1 = units([["midget", 3], ["obama", 1], ["midget", 1], ["boomMidget", 1], ["midget", 2], ["boomMidget", 1]]);
+    const e2 = units([["riotMidget", 2], ["midget", 3], ["obama", 2], ["midget", 3]]);
+    const e3 = units([["riotMidget", 3], ["obama", 2], ["midget", 7], ["riotMidget", 1], ["boomMidget", 2], ["midget", 3], ["boomMidget", 4], ["midget", 3]]);
+    return {
+      id: "S1",
+      name: "Caravan Camp and Souk Alleys",
+      designId: "S1",
+      origin: [-614.5, 0, -181],
+      start: [100, 0, 144],
+      yaw: 0,
+      intro: card2(CARDS.start.title, CARDS.start.lines),
+      flyerVolume: { min: [151, 0, 2], max: [195, 7, 46] },
+      exit: zone2(190, 202, 18, 30),
+      grappleAnchors: [
+        { id: "s1-arch", at: [100, 5.2, 96], r: 1.6 },
+        { id: "s1-roll", at: [118.5, 6.3, 80], r: 1.8 },
+        { id: "s1-roof", at: [100, 5.2, 74], r: 1.4 }
+      ],
+      rooms: { L1: { x0: 151, x1: 195, z0: 2, z1: 46 } },
+      geometry: cutRoute(geometry, S1_ROUTE),
+      weapons: [
+        { id: "rack-sg-arch", at: [104, 0, 96], gun: "shotgun", why: "E2 Shield Wall and L1 Dyers Court, 4 to 5 m alleys" }
+      ],
+      checkpoints: [
+        { id: "cp1", at: [100, 0, 140], when: null },
+        { id: "cp2", at: [100, 0, 22], when: null },
+        { id: "cp3", at: [186, 0, 24], when: "S1-E3.cleared" }
+      ],
+      mechanisms: [
+        { kind: "shrine", id: "shrine-chainzap", at: [100, 0, 14], spell: "chainZap" },
+        { kind: "switch", id: "C1", at: [100, 0, 24], opens: "dyersGate", needsHold: false, designAt: [111.5, 0, 17] },
+        door2("dyersGate", [113, 3.5, 24], [0.8, 7, 8]),
+        door2("caravanGate", [196, 3.5, 24], [0.8, 7, 10]),
+        { kind: "barrel", id: "pot1", at: [92, 0, 110], element: "fire", hp: 30 },
+        { kind: "barrel", id: "pot4", at: [134, 0, 20], element: "shock", hp: 30 },
+        { kind: "barrel", id: "pot5", at: [142, 0, 28], element: "shock", hp: 30 },
+        { kind: "barrel", id: "pot6", at: [166, 0, 16], element: "fire", hp: 30 },
+        { kind: "secret", id: "secret-confetti", at: [108, 0, 130], modifier: "confetti" },
+        { kind: "secret", id: "af1", at: [84, 0, 130], tickets: 5, text: "Invoice 0001: one (1) city gate, rug included" },
+        { kind: "chest", id: "chest-L1", at: [186, 0, 20], gun: "shotgun", opens: "S1-E3.cleared" },
+        ...placeAmmo("S1"),
+        ...placeCrates("S1")
+      ],
+      encounters: [
+        {
+          id: "S1-E1",
+          name: "Caravan Camp",
+          maxAlive: 8,
+          objective: { kind: "clearAll" },
+          activate: zone2(70, 140, 100, 150),
+          squads: [
+            squad2("1a", { type: "onEnter" }, "placed", [["midget", 3], ["obama", 1]], atFor(4, 100, 120, "x"), [[100, 0, 118], [112, 0, 122]]),
+            squad2("1b", { type: "onKills", n: 2 }, "door", [["midget", 1]], atFor(1, 100, 116), [[76, 0, 112]]),
+            squad2("1c", { type: "onRemain", n: 0 }, "door", [["boomMidget", 1]], atFor(1, 100, 108), [[100, 0, 99]]),
+            squad2("1d", { type: "with", after: "1c", delay: 2 }, "door", [["midget", 2], ["boomMidget", 1]], atFor(3, 100, 104), [[100, 0, 99]])
+          ]
+        },
+        {
+          id: "S1-E2",
+          name: "Shield Wall",
+          maxAlive: 8,
+          objective: { kind: "clearAll" },
+          activate: zone2(90, 112, 40, 98),
+          squads: [
+            squad2("2a", { type: "onEnter" }, "door", [["riotMidget", 2]], atFor(2, 100, 78, "z"), [[100, 0, 60]]),
+            squad2("2b", { type: "time", t: 6 }, "door", [["midget", 3]], atFor(3, 100, 70), [[80, 0, 78]]),
+            squad2("2c", { type: "onKills", n: 3 }, "hidden", [["obama", 2]], atFor(2, 100, 62), [[97, 4, 78], [103, 4, 86]]),
+            squad2("2d", { type: "onRemain", n: 2 }, "door", [["midget", 3]], atFor(3, 100, 54), [[120, 0, 72]])
+          ]
+        },
+        {
+          id: "S1-E3",
+          name: "Dyers Court",
+          maxAlive: 10,
+          objective: { kind: "clearAll" },
+          activate: zone2(96, 110, 18, 32),
+          lockdown: {
+            entry: "dyersGate",
+            exit: "caravanGate",
+            threshold: zone2(116, 124, 19, 29),
+            room: { min: [112, -1, 2], max: [198, 8, 48] },
+            waves: 4,
+            waveSec: 25,
+            stallSec: 12
+          },
+          squads: [
+            squad2("w1", { type: "onEnter" }, "placed", [["riotMidget", 3], ["obama", 2]], atFor(5, 160, 24), [[146, 0, 22], [181, 2, 24]]),
+            squad2("w2", { type: "onRemain", n: 2 }, "door", [["midget", 7]], atFor(7, 170, 24), [[168, 0, 8], [168, 0, 40]]),
+            squad2("w3", { type: "onRemain", n: 2 }, "door", [["riotMidget", 1], ["boomMidget", 2], ["midget", 3]], atFor(6, 180, 24), [[190, 0, 36]]),
+            squad2("w4", { type: "onRemain", n: 2 }, "door", [["boomMidget", 4], ["midget", 3]], atFor(7, 176, 24), [[168, 0, 40], [190, 0, 36]])
+          ]
+        }
+      ],
+      counts: { e1: e1.n, e2: e2.n, e3: e3.n }
+    };
+  }
+  var S2_ROUTE = [{ x0: 6, x1: 292, z0: 94, z1: 102 }];
+  function s2() {
+    const geometry = [
+      floor2("s2-ground", -20, 310, -20, 220),
+      wall("s2-cliff-n", 0, 290, 0, 4, 8, "rock"),
+      wall("s2-cliff-s", 0, 290, 196, 200, 8, "rock"),
+      // Shelf split around the road slot z 94–102. The room itself is at y 0.
+      wall("s2-shelf-n", 198, 290, 64, 93, 6, "rock"),
+      wall("s2-shelf-s", 198, 290, 103, 132, 6, "rock"),
+      disc2("s2-road", 1.2, [16, 0.05, 98], "stone"),
+      disc2("s2-road-b", 1.2, [80, 0.05, 98], "stone"),
+      disc2("s2-road-c", 1.2, [140, 0.05, 98], "stone"),
+      // High Caravanserai 44 × 44, floor x 204–248, z 76–120.
+      wall("s2-serai-w-n", 203, 205, 76, 94, 6),
+      wall("s2-serai-w-s", 203, 205, 102, 120, 6),
+      wall("s2-serai-e-n", 247, 249, 76, 94, 6),
+      wall("s2-serai-e-s", 247, 249, 102, 120, 6),
+      wall("s2-serai-n", 205, 247, 76, 78, 6),
+      wall("s2-serai-s", 205, 247, 118, 120, 6),
+      box2("s2-gallery", [30, 3, 5], [226, 1.5, 82], "stone"),
+      cylinder2("s2-well", 1.5, 1.2, [226, 0, 110], "stone"),
+      cylinder2("s2-stub-1", 0.6, 1.2, [214, 0, 90], "pillar"),
+      cylinder2("s2-stub-2", 0.6, 1.2, [238, 0, 90], "pillar"),
+      disc2("s2-line", 4, [210, 0.05, 98]),
+      // Optional downhill slide south of the firm road. The road at z 98 stays flat.
+      ramp2("s2-slide", [8, 4, 70], [90, 2, 112], 270, "sand"),
+      box2("s2-teeth-1", [10, 2, 1], [130, 1, 90], "stone"),
+      box2("s2-teeth-2", [8, 1.2, 1], [142, 0.6, 108], "stone"),
+      cone2("s2-rib", 0.4, 2.5, [180, 0, 108], "stone"),
+      sphere2("s2-cache-mark", 0.8, [136, 0.8, 172], "hedge")
+    ];
+    return {
+      id: "S2",
+      name: "Dune Sea",
+      designId: "S2",
+      origin: [-430.5, 0, -257],
+      start: [12, 0, 98],
+      yaw: 0,
+      intro: card2(CARDS.dunes.title, CARDS.dunes.lines),
+      flyerVolume: { min: [204, 0, 76], max: [248, 8, 120] },
+      exit: zone2(280, 292, 92, 104),
+      grappleAnchors: [
+        { id: "s2-arch", at: [143, 7.5, 92], r: 2 },
+        { id: "s2-shelf", at: [201, 8, 98], r: 2.2 }
+      ],
+      rooms: { L2: { x0: 204, x1: 248, z0: 76, z1: 120 } },
+      hazards: [
+        { id: "Q1", kind: "slow", min: [60, -1, 86], max: [90, 3, 116], speed: 0.5, dps: 0, navCost: 4 },
+        { id: "Q2", kind: "slow", min: [108, -1, 86], max: [122, 3, 112], speed: 0.5, dps: 0, navCost: 4 }
+      ],
+      geysers: [
+        { id: "G0", at: [143, 0, 96], period: 6, damage: 0, to: [143, 7.5, 92] },
+        { id: "G1", at: [170, 0, 90], period: 5, offset: 0, damage: 15 },
+        { id: "G2", at: [176, 0, 108], period: 5, offset: 1.5, damage: 15 },
+        { id: "G3", at: [184, 0, 94], period: 5, offset: 3, damage: 15 },
+        { id: "G4", at: [190, 0, 106], period: 5, offset: 0.5, damage: 15 },
+        { id: "G5", at: [195, 0, 98], period: 4, damage: 0, to: [201, 9, 98] }
+      ],
+      geometry: cutRoute(geometry, S2_ROUTE),
+      weapons: [
+        { id: "standee-sg-2", at: [254, 0, 104], gun: "shotgun", why: "second shotgun past L2" }
+      ],
+      checkpoints: [
+        { id: "cp4", at: [200, 0, 98] },
+        { id: "cp5", at: [252, 0, 98], when: "S2-E5.cleared" }
+      ],
+      mechanisms: [
+        door2("seraiGateW", [204, 3, 98], [0.8, 6, 8]),
+        door2("seraiGateE", [248, 3, 98], [0.8, 6, 8]),
+        { kind: "chest", id: "chest-L2", at: [242, 0, 98], gun: "shotgun", opens: "S2-E5.cleared" },
+        { kind: "chest", id: "cache-secret", at: [136, 0, 172], gun: "shotgun", tier: "rare", opens: null },
+        { kind: "secret", id: "af2", at: [143, 0, 92], tickets: 5, text: "Shipping manifest: 400 rugs, 0 rugs delivered" },
+        { kind: "depot", id: "depot-1", at: [262, 0, 92] },
+        ...placeAmmo("S2"),
+        ...placeCrates("S2")
+      ],
+      encounters: [
+        {
+          id: "S2-E4",
+          name: "Boom Dunes",
+          maxAlive: 10,
+          objective: { kind: "clearAll" },
+          activate: zone2(16, 170, 88, 108),
+          squads: [
+            squad2("4a", { type: "onEnter" }, "hidden", [["boomMidget", 3]], atFor(3, 40, 98), [[50, 0, 100]]),
+            squad2("4b", { type: "onKills", n: 2 }, "hidden", [["boomMidget", 1], ["midget", 2]], atFor(3, 70, 98), [[88, 0, 62]]),
+            squad2("4c", { type: "onKills", n: 5 }, "placed", [["obama", 2]], atFor(2, 110, 98), [[150, 0, 86]]),
+            squad2("4d", { type: "onKills", n: 6 }, "hidden", [["boomMidget", 2], ["midget", 2]], atFor(4, 140, 98), [[120, 0, 140]])
+          ]
+        },
+        {
+          id: "S2-E5",
+          name: "High Caravanserai",
+          maxAlive: 10,
+          objective: { kind: "clearAll" },
+          activate: zone2(200, 250, 80, 116),
+          lockdown: {
+            entry: "seraiGateW",
+            exit: "seraiGateE",
+            threshold: zone2(206, 214, 94, 102),
+            room: { min: [204, -1, 76], max: [248, 8, 120] },
+            waves: 4,
+            waveSec: 25,
+            stallSec: 12
+          },
+          squads: [
+            squad2("w1", { type: "onEnter" }, "placed", [["hexAcolyte", 1], ["obama", 2]], atFor(3, 226, 98), [[226, 0, 98], [236, 0, 92]]),
+            squad2("w2", { type: "onRemain", n: 2 }, "door", [["midget", 7]], atFor(7, 220, 98), [[226, 0, 119]]),
+            squad2("w3", { type: "onRemain", n: 2 }, "air", [["flyingMidget", 3], ["midget", 4]], atFor(7, 230, 98), [[204, 2, 86]]),
+            squad2("w4", { type: "onRemain", n: 2 }, "door", [["hexAcolyte", 1], ["boomMidget", 4], ["midget", 3]], atFor(8, 224, 98), [[226, 0, 77]])
+          ]
+        }
+      ]
+    };
+  }
+  var S3_ROUTE = [{ x0: 0, x1: 220, z0: 74, z1: 86 }];
+  function s3() {
+    const geometry = [
+      floor2("s3-ground", -40, 250, -30, 180),
+      wall("s3-mass-n", 10, 90, 0, 40, 8, "rock"),
+      wall("s3-mass-s", 10, 86, 110, 160, 8, "rock"),
+      box2("s3-tower", [8, 6, 8], [40, 3, 40], "stone"),
+      ramp2("s3-tower-ramp", [8, 6, 12], [40, 3, 52], 180, "stone"),
+      box2("s3-ledge-a", [10, 1, 18], [115, 3, 45], "stone"),
+      box2("s3-ledge-b", [8, 1, 18], [116, 1, 110], "stone"),
+      cylinder2("s3-needle", 6, 1, [120, 0, 140], "rock"),
+      box2("s3-dock-e", [16, 1, 10], [170, 0.5, 120], "wood"),
+      cone2("s3-spire", 3, 8, [100, 0, 20], "rock"),
+      // Walkable span where the canyon would be a hole. The kill plane is data
+      // until void rescue copies onto the sim.
+      box2("s3-canyon-span", [70, 0.5, 20], [120, -0.25, 80], "sand", { keep: true })
+    ];
+    return {
+      id: "S3",
+      name: "Canyon Rim",
+      designId: "S3",
+      origin: [-146.5, 0, -239],
+      start: [4, 0, 80],
+      yaw: 0,
+      exit: zone2(206, 220, 74, 86),
+      grappleAnchors: [
+        { id: "s3-tower", at: [40, 7, 40], r: 2 },
+        { id: "s3-ledge", at: [115, 4.5, 45], r: 2 },
+        { id: "s3-needle", at: [120, 6, 140], r: 2.4 }
+      ],
+      voidRescue: { y: -20, penalty: 0.25, design: true },
+      carpets: [
+        { id: "carpetC1", from: [98, 0, 150], to: [112, 0, 141], speed: 3, mode: "pingpong", pause: 2.5 },
+        { id: "carpetC2", from: [128, 0, 139], to: [142, 0, 127], speed: 3.5, mode: "pingpong", pause: 2.5 },
+        { id: "carpetC3", from: [162, 0, 114], to: [196, 4, 112], speed: 5, mode: "onTrigger" }
+      ],
+      geometry: cutRoute(geometry, S3_ROUTE),
+      weapons: [
+        { id: "rack-sn-tower", at: [40, 0, 70], gun: "sniper", why: "E6 far ledges, 77 to 83 m" }
+      ],
+      checkpoints: [{ id: "cp6", at: [88, 0, 80], when: "S3-E6.cleared" }],
+      mechanisms: [
+        door2("rimGate", [88, 2.5, 80], [1, 5, 4]),
+        { kind: "barrel", id: "pot8", at: [70, 0, 90], element: "fire", hp: 30 },
+        ...placeAmmo("S3")
+      ],
+      encounters: [
+        {
+          id: "S3-E6",
+          name: "Far Ledge",
+          maxAlive: 7,
+          objective: { kind: "clearAll" },
+          activate: zone2(8, 100, 70, 90),
+          squads: [
+            squad2("6a", { type: "onEnter" }, "placed", [["obama", 2]], atFor(2, 55, 80), [[112, 3, 45]]),
+            squad2("6b", { type: "onKills", n: 1 }, "door", [["obama", 1], ["hexAcolyte", 1]], atFor(2, 62, 80), [[119, 3, 45]]),
+            squad2("6c", { type: "onKills", n: 3 }, "door", [["robotLaser", 2]], atFor(2, 70, 80), [[119, 0, 95]]),
+            squad2("6d", { type: "onRemain", n: 1 }, "door", [["robotShooter", 1]], atFor(1, 78, 80), [[119, 0, 95]])
+          ]
+        },
+        {
+          id: "S3-E7",
+          name: "Narrows and Carpets",
+          maxAlive: 8,
+          objective: { kind: "clearAll" },
+          activate: zone2(100, 210, 70, 90),
+          squads: [
+            squad2("7a", { type: "onEnter" }, "door", [["midget", 2], ["boomMidget", 2]], atFor(4, 130, 80), [[88, 0, 118]]),
+            squad2("7b", { type: "onKills", n: 2 }, "air", [["flyingMidget", 2]], atFor(2, 145, 80), [[100, 3, 150]]),
+            squad2("7c", { type: "onKills", n: 4 }, "burrow", [["midget", 2]], atFor(2, 160, 80), [[120, 0, 140]]),
+            squad2("7d", { type: "onKills", n: 6 }, "placed", [["obama", 2]], atFor(2, 175, 80), [[156, 0, 126]])
+          ]
+        }
+      ]
+    };
+  }
+  var SM_ROUTE = [
+    { x0: 2, x1: 100, z0: 54, z1: 66 },
+    { x0: 84, x1: 96, z0: 54, z1: 236 }
+  ];
+  function sm() {
+    const geometry = [
+      floor2("sm-ground", -40, 160, -20, 260),
+      box2("sm-r1", [24, 0.5, 20], [14, 4.2, 16], "stone"),
+      box2("sm-r2", [26, 0.5, 22], [47, 4.2, 15], "stone"),
+      box2("sm-r3", [22, 0.5, 24], [47, 4.2, 44], "stone"),
+      box2("sm-m1", [28, 0.5, 26], [78, 7.2, 43], "stone"),
+      box2("sm-m2", [28, 0.5, 24], [80, 7.2, 88], "stone"),
+      box2("sm-h1", [24, 0.5, 26], [112, 10.2, 87], "stone"),
+      cylinder2("sm-minaret", 3, 12, [118, 10, 80], "stone"),
+      cone2("sm-minaret-cap", 3.5, 5, [118, 22, 80], "gold"),
+      wall("sm-sq-w", 58, 60, 162, 212, 8),
+      wall("sm-sq-e", 120, 122, 162, 212, 8),
+      wall("sm-sq-n-w", 60, 86, 160, 162, 8),
+      wall("sm-sq-n-e", 94, 120, 160, 162, 8),
+      wall("sm-gate-w", 60, 86, 212, 216, 8),
+      wall("sm-gate-e", 94, 120, 212, 216, 8),
+      cylinder2("sm-fountain", 3, 1.2, [90, 0, 200], "stone"),
+      box2("sm-guard-w", [10, 5, 14], [66, 2.5, 187], "stone"),
+      box2("sm-guard-e", [10, 5, 14], [114, 2.5, 187], "stone"),
+      cylinder2("sm-tank", 1.5, 2, [14, 5, 50], "metal"),
+      box2("sm-f1", [26, 0.5, 24], [17, 5.2, 46], "stone"),
+      // Slide beside the street, high at the north, low at the gate. The street itself stays flat.
+      ramp2("sm-slide", [6, 8, 80], [108, 4, 140], 180, "wood")
+    ];
+    return {
+      id: "SM",
+      name: "Rooftop Market and Bazaar Gate",
+      designId: "S4",
+      origin: [59.5, 0, -219],
+      start: [8, 0, 60],
+      yaw: 0,
+      exit: zone2(84, 96, 222, 236),
+      grappleAnchors: [
+        { id: "sm-minaret", at: [118, 18, 80], r: 2.2 },
+        { id: "sm-crane", at: [80, 13, 88], r: 1.8 },
+        { id: "sm-gate", at: [90, 11, 214], r: 2 }
+      ],
+      links: [
+        { id: "C2", kind: "conduit", at: [57, 4, 44], powers: "L1" },
+        { id: "L1", kind: "mover", from: [61, 4, 44], to: [61, 7, 44], speed: 2, mode: "onTrigger" },
+        { id: "Z1", kind: "zipline", from: [78, 9.5, 55], to: [80, 8.5, 77], speed: 16 },
+        { id: "Z2", kind: "zipline", from: [112, 12.5, 99], to: [92, 4.5, 146], speed: 16 },
+        { id: "J1", kind: "jumpPad", at: [91, 7, 90], to: [104, 10, 86], apex: 13 },
+        { id: "J2", kind: "jumpPad", at: [110, 10, 94], to: [116, 16.5, 83], apex: 19 }
+      ],
+      geometry: cutRoute(geometry, SM_ROUTE),
+      weapons: [],
+      checkpoints: [
+        { id: "cp7", at: [8, 0, 60] },
+        { id: "cp8", at: [90, 0, 150] },
+        { id: "cp9", at: [90, 0, 220], when: "SM-E9.cleared" }
+      ],
+      mechanisms: [
+        { kind: "secret", id: "mana-battery", at: [12, 5, 50], mana: 10, manaRegen: 0.5 },
+        { kind: "secret", id: "af3", at: [118, 0, 80], tickets: 5, text: "Warranty terms: void where prohibited, and over the void" },
+        { kind: "power", id: "os-1", at: [108, 0, 80], modifier: "overshield" },
+        { kind: "switch", id: "C2", at: [70, 0, 60], needsHold: false },
+        { kind: "barrel", id: "pot9", at: [40, 0, 70], element: "goo", hp: 30 },
+        { kind: "barrel", id: "pot15", at: [80, 0, 190], element: "fire", hp: 30 },
+        { kind: "depot", id: "depot-2", at: [80, 0, 226] },
+        door2("bazaarGate", [90, 3.5, 214], [8, 7, 1.2]),
+        door2("vaultDoor", [90, 3, 234], [8, 6, 1.2]),
+        ...placeAmmo("SM"),
+        ...placeCrates("SM")
+      ],
+      encounters: [
+        {
+          id: "SM-E8",
+          name: "Rooftop Market",
+          maxAlive: 10,
+          objective: { kind: "clearAll" },
+          activate: zone2(10, 100, 50, 70),
+          squads: [
+            squad2("8a", { type: "onEnter" }, "door", [["midget", 5]], atFor(5, 40, 60), [[47, 4, 15], [47, 4, 44]]),
+            squad2("8b", { type: "time", t: 8 }, "hidden", [["boomMidget", 2]], atFor(2, 55, 60), [[44, 4, 16]]),
+            squad2("8c", { type: "onKills", n: 5 }, "hidden", [["obama", 2]], atFor(2, 70, 60), [[64, 7, 43]]),
+            squad2("8d", { type: "onKills", n: 7 }, "door", [["riotMidget", 2], ["hexAcolyte", 1]], atFor(3, 85, 60), [[89, 7, 33]])
+          ]
+        },
+        {
+          id: "SM-E9",
+          name: "Bazaar Gate",
+          maxAlive: 10,
+          objective: { kind: "clearAll" },
+          destroy: ["loom-1", "loom-2"],
+          activate: zone2(70, 110, 165, 210),
+          squads: [
+            squad2("9a", { type: "onEnter" }, "drop", [["midget", 4]], atFor(4, 90, 180), [[78, 0, 212], [102, 0, 212]]),
+            squad2("9b", { type: "onRemain", n: 1 }, "door", [["riotMidget", 2]], atFor(2, 90, 190), [[66, 0, 187]]),
+            squad2("9c", { type: "onKills", n: 5 }, "drop", [["boomMidget", 3]], atFor(3, 90, 196), [[78, 0, 212]]),
+            squad2("9d", { type: "onKills", n: 8 }, "door", [["midget", 2]], atFor(2, 90, 204), [[114, 0, 187]])
+          ]
+        }
+      ]
+    };
+  }
+  function s4() {
+    const geometry = [
+      floor2("s4-ground", -220, 260, -220, 260),
+      // Low vault marks. Full-height walls were trapping the straight-line bot in corners.
+      box2("s4-vault-n", [20, 1.2, 0.8], [40, 0.6, 3], "stone"),
+      box2("s4-vault-w", [0.8, 1.2, 16], [29, 0.6, 14], "stone"),
+      box2("s4-vault-e", [0.8, 1.2, 16], [51, 0.6, 14], "stone"),
+      cone2("s4-fac-nw", 2, 6, [22, 0, 40], "stone"),
+      cone2("s4-fac-ne", 2, 6, [58, 0, 40], "stone"),
+      cone2("s4-fac-s", 2, 6, [40, 0, 112], "stone"),
+      disc2("s4-rug", 7, [40, 0.05, 70], "gold"),
+      disc2("s4-line", 3, [40, 0.05, 48]),
+      cylinder2("s4-pil-1", 0.7, 2, [28, 0, 66], "pillar"),
+      cylinder2("s4-pil-2", 0.7, 2, [52, 0, 66], "pillar"),
+      cylinder2("s4-pil-3", 0.7, 2, [34, 0, 88], "pillar"),
+      cylinder2("s4-pil-4", 0.7, 2, [46, 0, 88], "pillar"),
+      box2("s4-pile-1", [3, 1.2, 1.5], [32, 0.6, 58], "trim"),
+      box2("s4-pile-2", [3, 1.2, 1.5], [48, 0.6, 58], "trim"),
+      cylinder2("s4-balcony", 4, 9, [40, 0, 105], "stone"),
+      cone2("s4-balcony-roof", 4.5, 4, [40, 13, 105], "gold")
+    ];
+    const route = [
+      { x0: 36, x1: 44, z0: 2, z1: 120 }
+    ];
+    return {
+      id: "S4",
+      name: "Sahil's Showroom",
+      designId: "SB",
+      origin: [109.5, 0, 5],
+      start: [40, 0, 6],
+      yaw: 0,
+      intro: card2(CARDS.boss.title, CARDS.boss.lines),
+      flyerVolume: { min: [8, 0, 38], max: [72, 14, 102] },
+      grappleAnchors: [
+        { id: "sb-balcony", at: [40, 14, 105], r: 2.4 },
+        { id: "sb-facade", at: [40, 8, 39], r: 1.8 }
+      ],
+      exit: null,
+      rooms: { L3: { d: 56, center: [40, 0, 70], ring: [27.8, 26.8, 25.5] } },
+      bossScript: BOSS_SCRIPT,
+      geometry: cutRoute(geometry, route),
+      weapons: [
+        { id: "rack-bz-vault", at: [45, 0, 12], gun: "bazooka", why: "SB-BOSS looms, pylons and add clumps" }
+      ],
+      checkpoints: [{ id: "cp10", at: [40, 0, 6] }],
+      mechanisms: [
+        door2("ringGate", [40, 3, 41], [6, 6, 0.8]),
+        door2("vaultGate", [40, 2.5, 25], [4, 5, 0.8]),
+        { kind: "barrel", id: "pot19", at: [56, 0, 66], element: "shock", hp: 30 },
+        { kind: "barrel", id: "pot20", at: [24, 0, 74], element: "shock", hp: 30 },
+        { kind: "barrel", id: "pot21", at: [55, 0, 84], element: "fire", hp: 30 },
+        { kind: "barrel", id: "pot22", at: [25, 0, 84], element: "fire", hp: 30 },
+        ...placeAmmo("S4"),
+        ...placeCrates("S4")
+      ],
+      encounters: [
+        {
+          id: "S4-E4",
+          name: "SB-BOSS",
+          designId: "SB-BOSS",
+          maxAlive: 10,
+          objective: { kind: "boss" },
+          // Includes the vault start so Sahil exists before the walker picks a direction.
+          activate: zone2(10, 70, 0, 108),
+          lockdown: {
+            entry: "ringGate",
+            exit: null,
+            threshold: zone2(34, 46, 78, 88),
+            room: { min: [8, -1, 0], max: [72, 16, 110] },
+            waves: 5,
+            waveSec: 25,
+            stallSec: 12,
+            noExit: true
+          },
+          // Live part is the entry bar. The other four bars are on the section
+          // bossScript until a multi-bar kite replays the same in goja.
+          script: { parts: [BOSS_SCRIPT.parts[0]] },
+          hp: BOSS_HP,
+          squads: [
+            squad2("sahil", { type: "onEnter" }, "placed", [["sahil", 1]], [[40, 0, 70]], [[40, 0, 70]])
+          ]
+        }
+      ]
+    };
+  }
+  function placeAmmo(section) {
+    return AMMO.filter((row) => row[3] === section).map(([id, ammoType, amount, , at2]) => ammo2(id, nudge(section, at2), ammoType, amount));
+  }
+  function placeCrates(section) {
+    return CRATES.filter((c) => c.section === section).map((c) => ({
+      kind: "ammo",
+      id: c.id,
+      at: nudge(section, c.at),
+      ammoType: "bullets",
+      amount: c.kind === "depotCrate" ? 480 : 240,
+      crate: c.kind,
+      uses: c.uses,
+      designAt: c.at
+    }));
+  }
+  function nudge(section, at2) {
+    const on = {
+      S1: [100, 0, 24],
+      S2: [220, 0, 98],
+      S3: [40, 0, 80],
+      SM: [90, 0, 60],
+      S4: [40, 0, 20]
+    };
+    const spot = on[section] || [at2[0], 0, at2[2]];
+    const k = (at2[0] + at2[2]) % 7;
+    return [spot[0] + (k - 3) * 0.4, 0, spot[2] + (at2[0] % 5 - 2) * 0.3];
+  }
+  function buildSections() {
+    return [s1(), s2(), s3(), sm(), s4()];
+  }
+
+  // src/data/levels/L02/index.js
+  var beats = BEATS.reduce((sum, row) => sum + row.sec, 0);
+  var L02 = makeV2Level({
     id: "L02",
     name: "The Grand Bazaar",
     stage: "desert",
     tier: 2,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Souk Alleys",
-        length: 50,
-        floor: "sand",
-        encounters: [{ id: "E1", x: 16, space: "corridor", units: [["riotMidget", 3], ["obama", 2]] }],
-        weapons: [{ id: "sg-souk", x: 28, gun: "shotgun", why: "phalanx in the alleys" }],
-        mechanisms: [
-          { kind: "hazard", id: "quicksand", x: 24, slow: 0.45, dps: 0 },
-          { kind: "barrel", id: "spice-barrel", x: 20 }
-        ],
-        secret: { x: 8, modifier: "confetti" }
-      },
-      {
-        id: "S2",
-        name: "Dune Sea",
-        length: 52,
-        floor: "sand",
-        intro: card2("Into the Dunes", ["The souk was the easy part.", "Sahil's caravan route crosses the Dune Sea."]),
-        encounters: [{ id: "E2", x: 18, space: "field", units: [["boomMidget", 4]] }],
-        mechanisms: [
-          { kind: "jumpPad", id: "sand-geyser", x: 12, power: 12 },
-          { kind: "carpet", id: "carpet-1", x: 30 },
-          { kind: "power", id: "overshield", x: 36, modifier: "overshield" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "Canyon Rim",
-        length: 50,
-        floor: "sand",
-        encounters: [{ id: "E3", x: 16, space: "ledge", units: [["hexAcolyte", 3]] }],
-        weapons: [{ id: "sn-rim", x: 30, gun: "sniper", why: "acolytes across the rim" }],
-        mechanisms: [{ kind: "zipline", id: "clothesline", x: 22 }]
-      },
-      {
-        id: "S4",
-        name: "Bazaar Gate",
-        length: 48,
-        intro: card2("The Grand Bazaar", ["Sahil the RugMaster.", "He sells the floor out from under you."]),
-        encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["sahil", 1]] }],
-        weapons: [{ id: "bz-sahil", x: 10, gun: "bazooka", why: "Sahil at the gate" }]
-      }
-    ]
+    parTime: 20 * 60,
+    jetpack: false,
+    maxAlive: 10,
+    useNav: false,
+    lighting: { preset: "desert", sun: "late-afternoon", boss: "dusk-fire-ring" },
+    sections: buildSections()
   });
+  L02.design = {
+    loot: LOOT,
+    beats: BEATS,
+    estimateSec: Math.round(beats),
+    botRoute: BOT_ROUTE,
+    devEntry: DEV_ENTRY,
+    difficulty: DIFFICULTY,
+    parTime: 20 * 60
+  };
   registerLevel(L02);
 
   // src/data/levels/L03/prim.js
@@ -3162,13 +4151,13 @@ var SprotoShooterSim = (() => {
     const s = Math.sin(t);
     return [x * c + z * s, -x * s + z * c];
   }
-  function place(parts, { at = [0, 0, 0], yaw = 0, id }) {
+  function place(parts, { at: at2 = [0, 0, 0], yaw = 0, id }) {
     return parts.map((part, i) => {
       const [x, z] = rotY(part.at[0], part.at[2], yaw);
       return {
         ...part,
         id: `${id}-${part.id || i}`,
-        at: [at[0] + x, (at[1] || 0) + part.at[1], at[2] + z],
+        at: [at2[0] + x, (at2[1] || 0) + part.at[1], at2[2] + z],
         yaw: ((part.yaw || 0) + (yaw || 0)) % 360
       };
     });
@@ -3222,7 +4211,7 @@ var SprotoShooterSim = (() => {
   function splitWall(out, _id, gap, from, to, make) {
     if (!(to - from >= 0.5)) return;
     const gaps = !gap ? [] : Array.isArray(gap) ? gap : [gap];
-    const cuts = gaps.map((g) => ({ a: g.at - (g.width || 4) / 2, b: g.at + (g.width || 4) / 2 })).sort((p, q) => p.a - q.a);
+    const cuts = gaps.map((g) => ({ a: g.at - (g.width || 4) / 2, b: g.at + (g.width || 4) / 2 })).sort((p, q2) => p.a - q2.a);
     let cursor = from;
     let n = 0;
     for (const cut of cuts) {
@@ -3231,8 +4220,8 @@ var SprotoShooterSim = (() => {
     }
     if (to - cursor >= 0.5) out.push(make(span(cursor, to), gaps.length ? String(n) : ""));
   }
-  function door2(id, at, size, extra = {}) {
-    return { kind: "door", id, at, size, ...extra };
+  function door3(id, at2, size, extra = {}) {
+    return { kind: "door", id, at: at2, size, ...extra };
   }
 
   // src/data/levels/L03/prefabs.js
@@ -3371,8 +4360,8 @@ var SprotoShooterSim = (() => {
   }
 
   // src/data/levels/L03/encounters.js
-  function squad2(id, trigger, units, at, method = "placed", design = null) {
-    return { id, trigger, method, at, units, design };
+  function squad3(id, trigger, units2, at2, method = "placed", design = null) {
+    return { id, trigger, method, at: at2, units: units2, design };
   }
   function u(type, count, extra) {
     return extra ? { type, count, ...extra } : { type, count };
@@ -3394,10 +4383,10 @@ var SprotoShooterSim = (() => {
     objective: { kind: "clearAll" },
     activate: { min: [20, -2, -110], max: [150, 8, -50] },
     squads: [
-      squad2("E1-a", { type: "onEnter" }, [u("floretSprout", 2)], [[90, 0, -80], [94, 0, -80]], "placed", "onEnter x>66, behind CB3 (99,-84) and CB4 (107,-116)"),
-      squad2("E1-b", { type: "time", t: 6 }, [u("midget", 4)], line([110, 0, -80], 4, 1.4, 0), "door", "onAlert or t+6, shed SD1, 0.4s apart"),
-      squad2("E1-c", { type: "onKills", n: 4 }, [u("obama", 2)], [[120, 0, -80], [124, 0, -80]], "hidden", "parapets of T1 and T2"),
-      squad2("E1-d", { type: "onRemain", n: 2 }, [u("midget", 3), u("floretSprout", 1)], line([130, 0, -80], 4, 1.4, 0), "door", "SD2, sprout 2s late toward CB7")
+      squad3("E1-a", { type: "onEnter" }, [u("floretSprout", 2)], [[90, 0, -80], [94, 0, -80]], "placed", "onEnter x>66, behind CB3 (99,-84) and CB4 (107,-116)"),
+      squad3("E1-b", { type: "time", t: 6 }, [u("midget", 4)], line([110, 0, -80], 4, 1.4, 0), "door", "onAlert or t+6, shed SD1, 0.4s apart"),
+      squad3("E1-c", { type: "onKills", n: 4 }, [u("obama", 2)], [[120, 0, -80], [124, 0, -80]], "hidden", "parapets of T1 and T2"),
+      squad3("E1-d", { type: "onRemain", n: 2 }, [u("midget", 3), u("floretSprout", 1)], line([130, 0, -80], 4, 1.4, 0), "door", "SD2, sprout 2s late toward CB7")
     ]
   };
   var E2 = {
@@ -3408,10 +4397,10 @@ var SprotoShooterSim = (() => {
     objective: { kind: "clearAll" },
     activate: { min: [168, -2, -90], max: [255, 8, -70] },
     squads: [
-      squad2("E2-a", { type: "onEnter" }, [u("hexWisp", 2)], [[190, 1.2, -80], [194, 1.2, -80]], "hidden", "rise out of PK2 and PK5"),
-      squad2("E2-b", { type: "onKills", n: 2 }, [u("flyingMidget", 3)], line([200, 4, -80], 3, 2, 0), "air", "over the barn roof from the south"),
-      squad2("E2-c", { type: "onKills", n: 4 }, [u("riotMidget", 1), u("midget", 5)], line([210, 0, -80], 6, 1.4, 0), "door", "barn doorway, riot first"),
-      squad2("E2-d", { type: "onRemain", n: 3 }, [u("hexWisp", 3)], line([220, 1.2, -80], 3, 1.6, 0), "hidden", "through the silo wall and the hay")
+      squad3("E2-a", { type: "onEnter" }, [u("hexWisp", 2)], [[190, 1.2, -80], [194, 1.2, -80]], "hidden", "rise out of PK2 and PK5"),
+      squad3("E2-b", { type: "onKills", n: 2 }, [u("flyingMidget", 3)], line([200, 4, -80], 3, 2, 0), "air", "over the barn roof from the south"),
+      squad3("E2-c", { type: "onKills", n: 4 }, [u("riotMidget", 1), u("midget", 5)], line([210, 0, -80], 6, 1.4, 0), "door", "barn doorway, riot first"),
+      squad3("E2-d", { type: "onRemain", n: 3 }, [u("hexWisp", 3)], line([220, 1.2, -80], 3, 1.6, 0), "hidden", "through the silo wall and the hay")
     ]
   };
   var E3 = {
@@ -3422,11 +4411,11 @@ var SprotoShooterSim = (() => {
     objective: { kind: "clearAll" },
     activate: { min: [2, -2, -80], max: [36, 6, -40] },
     squads: [
-      squad2("E3-a", { type: "onEnter" }, [u("sewerMidget", 3)], line([12, 0, -60], 3, 1.4, 0), "burrow", "BM1 and BM2"),
-      squad2("E3-b", { type: "onKills", n: 2 }, [u("sewerMidget", 2)], line([16, 0, -60], 2, 1.4, 0), "burrow", "BM3 behind the player, BM4"),
-      squad2("E3-c", { type: "onKills", n: 5 }, [u("boomMidget", 3)], line([20, 0, -60], 3, 1.4, 0), "door", "onEnter corridor B, HD1, 0.6s apart"),
-      squad2("E3-d", { type: "onKills", n: 8 }, [u("sewerMidget", 3)], line([24, 0, -60], 3, 1.4, 0), "burrow", "onEnter corridor C, BM5 and BM6"),
-      squad2("E3-e", { type: "with", after: "E3-d", delay: 0 }, [u("midget", 3), u("hexAcolyte", 1)], line([28, 0, -60], 4, 1.4, 0), "door", "HD2, acolyte 3s late")
+      squad3("E3-a", { type: "onEnter" }, [u("sewerMidget", 3)], line([12, 0, -60], 3, 1.4, 0), "burrow", "BM1 and BM2"),
+      squad3("E3-b", { type: "onKills", n: 2 }, [u("sewerMidget", 2)], line([16, 0, -60], 2, 1.4, 0), "burrow", "BM3 behind the player, BM4"),
+      squad3("E3-c", { type: "onKills", n: 5 }, [u("boomMidget", 3)], line([20, 0, -60], 3, 1.4, 0), "door", "onEnter corridor B, HD1, 0.6s apart"),
+      squad3("E3-d", { type: "onKills", n: 8 }, [u("sewerMidget", 3)], line([24, 0, -60], 3, 1.4, 0), "burrow", "onEnter corridor C, BM5 and BM6"),
+      squad3("E3-e", { type: "with", after: "E3-d", delay: 0 }, [u("midget", 3), u("hexAcolyte", 1)], line([28, 0, -60], 4, 1.4, 0), "door", "HD2, acolyte 3s late")
     ]
   };
   var E4 = {
@@ -3445,14 +4434,14 @@ var SprotoShooterSim = (() => {
       fallbackSec: 25
     },
     squads: [
-      squad2("E4-w1a", { type: "onEnter" }, [u("manaLeech", 1)], [[55, 0, -60]], "placed", "GZ-ROOF, alone for 4s"),
-      squad2("E4-w1b", { type: "with", after: "E4-w1a", delay: 4 }, [u("midget", 4)], line([58, 0, -60], 4, 1.3, 0), "door", "GZ-N"),
-      squad2("E4-w2a", { type: "onRemain", n: 2 }, [u("sewerMidget", 5)], line([62, 0, -60], 5, 1.3, 0), "burrow", "GZ-M1 M2 M4"),
-      squad2("E4-w2b", { type: "with", after: "E4-w2a", delay: 0 }, [u("manaLeech", 1)], [[68, 0, -60]], "door", "GZ-S"),
-      squad2("E4-w3a", { type: "onRemain", n: 2 }, [u("midget", 5), u("manaLeech", 1)], line([50, 0, -60], 6, 1.3, 0), "door", "GZ-N and GZ-S"),
-      squad2("E4-w3b", { type: "with", after: "E4-w3a", delay: 0 }, [u("sewerMidget", 3)], line([70, 0, -60], 3, 1.3, 0), "burrow", "GZ-M3 and GZ-M1"),
-      squad2("E4-w4a", { type: "onRemain", n: 2 }, [u("hexWisp", 3)], line([52, 1.2, -60], 3, 1.4, 0), "hidden", "GZ-E"),
-      squad2("E4-w4b", { type: "with", after: "E4-w4a", delay: 0 }, [u("midget", 3)], line([72, 0, -60], 3, 1.3, 0), "door", "GZ-S")
+      squad3("E4-w1a", { type: "onEnter" }, [u("manaLeech", 1)], [[55, 0, -60]], "placed", "GZ-ROOF, alone for 4s"),
+      squad3("E4-w1b", { type: "with", after: "E4-w1a", delay: 4 }, [u("midget", 4)], line([58, 0, -60], 4, 1.3, 0), "door", "GZ-N"),
+      squad3("E4-w2a", { type: "onRemain", n: 2 }, [u("sewerMidget", 5)], line([62, 0, -60], 5, 1.3, 0), "burrow", "GZ-M1 M2 M4"),
+      squad3("E4-w2b", { type: "with", after: "E4-w2a", delay: 0 }, [u("manaLeech", 1)], [[68, 0, -60]], "door", "GZ-S"),
+      squad3("E4-w3a", { type: "onRemain", n: 2 }, [u("midget", 5), u("manaLeech", 1)], line([50, 0, -60], 6, 1.3, 0), "door", "GZ-N and GZ-S"),
+      squad3("E4-w3b", { type: "with", after: "E4-w3a", delay: 0 }, [u("sewerMidget", 3)], line([70, 0, -60], 3, 1.3, 0), "burrow", "GZ-M3 and GZ-M1"),
+      squad3("E4-w4a", { type: "onRemain", n: 2 }, [u("hexWisp", 3)], line([52, 1.2, -60], 3, 1.4, 0), "hidden", "GZ-E"),
+      squad3("E4-w4b", { type: "with", after: "E4-w4a", delay: 0 }, [u("midget", 3)], line([72, 0, -60], 3, 1.3, 0), "door", "GZ-S")
     ]
   };
   var E5 = {
@@ -3463,9 +4452,9 @@ var SprotoShooterSim = (() => {
     objective: { kind: "clearAll" },
     activate: { min: [8, -2, -100], max: [100, 6, -20] },
     squads: [
-      squad2("E5-a", { type: "onEnter" }, [u("barkBrute", 1)], [[43, 0, -60]], "placed", "middle of Bridge 1, in the runoff that strips bark"),
-      squad2("E5-b", { type: "onKills", n: 1 }, [u("boomMidget", 4)], line([70, 0, -60], 4, 1.4, 0), "door", "pump shack PS1, 0.6s apart"),
-      squad2("E5-c", { type: "onRemain", n: 1 }, [u("barkBrute", 1), u("midget", 4)], [[74, 0, -40], ...line([78, 0, -60], 4, 1.4, 0)], "door", "PS1, midgets 2s late, brute in RP1")
+      squad3("E5-a", { type: "onEnter" }, [u("barkBrute", 1)], [[43, 0, -60]], "placed", "middle of Bridge 1, in the runoff that strips bark"),
+      squad3("E5-b", { type: "onKills", n: 1 }, [u("boomMidget", 4)], line([70, 0, -60], 4, 1.4, 0), "door", "pump shack PS1, 0.6s apart"),
+      squad3("E5-c", { type: "onRemain", n: 1 }, [u("barkBrute", 1), u("midget", 4)], [[74, 0, -40], ...line([78, 0, -60], 4, 1.4, 0)], "door", "PS1, midgets 2s late, brute in RP1")
     ]
   };
   var E6 = {
@@ -3478,10 +4467,10 @@ var SprotoShooterSim = (() => {
     plates: ["S3-PP1", "S3-PP2"],
     designObjective: "switch: PP1 and PP2 held together for 1s, then clearAll",
     squads: [
-      squad2("E6-a", { type: "onEnter" }, [u("gooGlob", 1)], [[150, 0, -60]], "placed", "in pool RP3"),
-      squad2("E6-b", { type: "onRemain", n: 0 }, [u("robotLaser", 2)], [[200, 0, -60], [204, 0, -60]], "hidden", "far-bank crates FC1 FC2"),
-      squad2("E6-c", { type: "with", after: "E6-b", delay: 0 }, [u("sewerMidget", 4)], line([155, 0, -60], 4, 1.4, 0), "burrow", "onSwitch of the first plate, S3-BM1..4"),
-      squad2("E6-d", { type: "onKills", n: 7 }, [u("gooGlob", 1), u("midget", 3)], line([210, 0, -60], 4, 1.4, 0), "door", "Bridge 3 grown, PS2, midgets 3s late")
+      squad3("E6-a", { type: "onEnter" }, [u("gooGlob", 1)], [[150, 0, -60]], "placed", "in pool RP3"),
+      squad3("E6-b", { type: "onRemain", n: 0 }, [u("robotLaser", 2)], [[200, 0, -60], [204, 0, -60]], "hidden", "far-bank crates FC1 FC2"),
+      squad3("E6-c", { type: "with", after: "E6-b", delay: 0 }, [u("sewerMidget", 4)], line([155, 0, -60], 4, 1.4, 0), "burrow", "onSwitch of the first plate, S3-BM1..4"),
+      squad3("E6-d", { type: "onKills", n: 7 }, [u("gooGlob", 1), u("midget", 3)], line([210, 0, -60], 4, 1.4, 0), "door", "Bridge 3 grown, PS2, midgets 3s late")
     ]
   };
   var E7 = {
@@ -3500,14 +4489,14 @@ var SprotoShooterSim = (() => {
       fallbackSec: 25
     },
     squads: [
-      squad2("E7-w1a", { type: "onEnter" }, [u("daycare", 1, { spawnBudget: 5 })], [[50, 0, -45]], "placed", "nest A, core opens 1.5s at each spawn"),
-      squad2("E7-w1b", { type: "with", after: "E7-w1a", delay: 0 }, [u("midget", 5)], line([54, 0, -45], 5, 1.3, 0), "summon", "budget 5, two every 6s once the nest ticker exists"),
-      squad2("E7-w2a", { type: "onRemain", n: 2 }, [u("floretSprout", 2)], [[60, 0, -45], [63, 0, -45]], "door", "HH-CE"),
-      squad2("E7-w2b", { type: "with", after: "E7-w2a", delay: 0 }, [u("sewerMidget", 4)], line([66, 0, -45], 4, 1.3, 0), "burrow", "HH-M1 and HH-M3"),
-      squad2("E7-w3a", { type: "onRemain", n: 2 }, [u("daycare", 1, { spawnBudget: 5 }), u("midget", 5)], [[74, 0, -45], ...line([78, 0, -45], 5, 1.2, 0)], "drop", "HH-ROOF nest B"),
-      squad2("E7-w3b", { type: "with", after: "E7-w3a", delay: 0 }, [u("manaLeech", 1)], [[84, 0, -45]], "door", "HH-S"),
-      squad2("E7-w3c", { type: "with", after: "E7-w3a", delay: 0 }, [u("hexWisp", 2)], [[86, 1.2, -45], [88, 1.2, -45]], "hidden", "HH-N through the glass"),
-      squad2("E7-w4", { type: "onRemain", n: 2 }, [u("barkBrute", 1), u("midget", 4)], [[66, 0, -66], ...line([70, 0, -45], 4, 1.3, 0)], "door", "HH-N brute in the north runoff, midgets on the lane")
+      squad3("E7-w1a", { type: "onEnter" }, [u("daycare", 1, { spawnBudget: 5 })], [[50, 0, -45]], "placed", "nest A, core opens 1.5s at each spawn"),
+      squad3("E7-w1b", { type: "with", after: "E7-w1a", delay: 0 }, [u("midget", 5)], line([54, 0, -45], 5, 1.3, 0), "summon", "budget 5, two every 6s once the nest ticker exists"),
+      squad3("E7-w2a", { type: "onRemain", n: 2 }, [u("floretSprout", 2)], [[60, 0, -45], [63, 0, -45]], "door", "HH-CE"),
+      squad3("E7-w2b", { type: "with", after: "E7-w2a", delay: 0 }, [u("sewerMidget", 4)], line([66, 0, -45], 4, 1.3, 0), "burrow", "HH-M1 and HH-M3"),
+      squad3("E7-w3a", { type: "onRemain", n: 2 }, [u("daycare", 1, { spawnBudget: 5 }), u("midget", 5)], [[74, 0, -45], ...line([78, 0, -45], 5, 1.2, 0)], "drop", "HH-ROOF nest B"),
+      squad3("E7-w3b", { type: "with", after: "E7-w3a", delay: 0 }, [u("manaLeech", 1)], [[84, 0, -45]], "door", "HH-S"),
+      squad3("E7-w3c", { type: "with", after: "E7-w3a", delay: 0 }, [u("hexWisp", 2)], [[86, 1.2, -45], [88, 1.2, -45]], "hidden", "HH-N through the glass"),
+      squad3("E7-w4", { type: "onRemain", n: 2 }, [u("barkBrute", 1), u("midget", 4)], [[66, 0, -66], ...line([70, 0, -45], 4, 1.3, 0)], "door", "HH-N brute in the north runoff, midgets on the lane")
     ]
   };
   var E8 = {
@@ -3518,9 +4507,9 @@ var SprotoShooterSim = (() => {
     objective: { kind: "clearAll" },
     activate: { min: [106, -2, -80], max: [168, 6, -20] },
     squads: [
-      squad2("E8-a", { type: "onEnter" }, [u("gooGlob", 1)], [[134, 0, -45]], "placed", "in pool RP5"),
-      squad2("E8-b", { type: "time", t: 2 }, [u("boomMidget", 3)], line([140, 0, -45], 3, 1.4, 0), "door", "onAlert, shed S4-CSH, 0.6s apart"),
-      squad2("E8-c", { type: "onRemain", n: 2 }, [u("hexWisp", 2), u("midget", 2)], line([148, 0, -45], 4, 1.4, 0), "hidden", "bins CB3 CB5 and behind CB4")
+      squad3("E8-a", { type: "onEnter" }, [u("gooGlob", 1)], [[134, 0, -45]], "placed", "in pool RP5"),
+      squad3("E8-b", { type: "time", t: 2 }, [u("boomMidget", 3)], line([140, 0, -45], 3, 1.4, 0), "door", "onAlert, shed S4-CSH, 0.6s apart"),
+      squad3("E8-c", { type: "onRemain", n: 2 }, [u("hexWisp", 2), u("midget", 2)], line([148, 0, -45], 4, 1.4, 0), "hidden", "bins CB3 CB5 and behind CB4")
     ]
   };
   var F1 = {
@@ -3546,16 +4535,16 @@ var SprotoShooterSim = (() => {
       { id: "liquidation", kind: "phase", hpFrom: 1800, hpTo: 0, ends: "0 HP", seconds: 80, floodAt: 0.25 }
     ],
     squads: [
-      squad2("F1-boss", { type: "onEnter" }, [u("hexAuditor", 1)], [[45, 1.6, -80]], "placed", "arena centre C"),
-      squad2("F1-p1a", { type: "onBossHp", p: 85 }, [u("midget", 5)], line([45, 0, -90], 5, 1.4, 0), "burrow", "RM2 and RM5"),
-      squad2("F1-p1b", { type: "onBossHp", p: 70 }, [u("hexWisp", 2)], [[48, 1.2, -80], [42, 1.2, -80]], "summon", "HEAP"),
-      squad2("F1-p2a", { type: "onBossHp", p: 60 }, [u("sewerMidget", 3)], [[45, 0, -100], [47, 0, -100], [43, 0, -100]], "burrow", "TOT-N, shots break the post on the way"),
-      squad2("F1-p2b", { type: "onBossHp", p: 60 }, [u("manaLeech", 1), u("midget", 3)], line([55, 0, -80], 4, 1.4, 0), "summon", "TOT-SE"),
-      squad2("F1-p2c", { type: "onBossHp", p: 60 }, [u("barkBrute", 1, { elite: true })], [[26, 0, -69]], "burrow", "TOT-SW elite, runoff strips bark"),
-      squad2("F1-p2d", { type: "onBossHp", p: 60 }, [u("midget", 3)], line([45, 0, -96], 3, 1.4, 0), "burrow", "onPartDestroyed TOT-N, RM1 and RM6"),
-      squad2("F1-p3a", { type: "onBossHp", p: 45 }, [u("boomMidget", 3)], line([40, 0, -80], 3, 1.4, 0), "burrow", "RM3 and RM4"),
-      squad2("F1-p3b", { type: "onBossHp", p: 25 }, [u("hexWisp", 2)], [[50, 1.2, -80], [40, 1.2, -80]], "summon", "HEAP, flood starts"),
-      squad2("F1-p3c", { type: "onBossHp", p: 12 }, [u("sewerMidget", 3)], line([45, 0, -86], 3, 1.4, 0), "burrow", "RM1 RM3 RM5")
+      squad3("F1-boss", { type: "onEnter" }, [u("hexAuditor", 1)], [[45, 1.6, -80]], "placed", "arena centre C"),
+      squad3("F1-p1a", { type: "onBossHp", p: 85 }, [u("midget", 5)], line([45, 0, -90], 5, 1.4, 0), "burrow", "RM2 and RM5"),
+      squad3("F1-p1b", { type: "onBossHp", p: 70 }, [u("hexWisp", 2)], [[48, 1.2, -80], [42, 1.2, -80]], "summon", "HEAP"),
+      squad3("F1-p2a", { type: "onBossHp", p: 60 }, [u("sewerMidget", 3)], [[45, 0, -100], [47, 0, -100], [43, 0, -100]], "burrow", "TOT-N, shots break the post on the way"),
+      squad3("F1-p2b", { type: "onBossHp", p: 60 }, [u("manaLeech", 1), u("midget", 3)], line([55, 0, -80], 4, 1.4, 0), "summon", "TOT-SE"),
+      squad3("F1-p2c", { type: "onBossHp", p: 60 }, [u("barkBrute", 1, { elite: true })], [[26, 0, -69]], "burrow", "TOT-SW elite, runoff strips bark"),
+      squad3("F1-p2d", { type: "onBossHp", p: 60 }, [u("midget", 3)], line([45, 0, -96], 3, 1.4, 0), "burrow", "onPartDestroyed TOT-N, RM1 and RM6"),
+      squad3("F1-p3a", { type: "onBossHp", p: 45 }, [u("boomMidget", 3)], line([40, 0, -80], 3, 1.4, 0), "burrow", "RM3 and RM4"),
+      squad3("F1-p3b", { type: "onBossHp", p: 25 }, [u("hexWisp", 2)], [[50, 1.2, -80], [40, 1.2, -80]], "summon", "HEAP, flood starts"),
+      squad3("F1-p3c", { type: "onBossHp", p: 12 }, [u("sewerMidget", 3)], line([45, 0, -86], 3, 1.4, 0), "burrow", "RM1 RM3 RM5")
     ]
   };
   var F2 = {
@@ -3569,10 +4558,10 @@ var SprotoShooterSim = (() => {
     fleeTo: "S6-LG",
     activate: { min: [12, -2, -65], max: [58, 6, -16] },
     squads: [
-      squad2("F2-boss", { type: "onEnter" }, [u("broccoli", 1)], [[36, 0.6, -40]], "placed", "on the vape tank, stage 1 only"),
-      squad2("F2-a", { type: "time", t: 8 }, [u("midget", 3)], line([36, 0, -48], 3, 1.4, 0), "door", "PT-N"),
-      squad2("F2-b", { type: "onBossHp", p: 80 }, [u("midget", 3)], line([30, 0, -40], 3, 1.4, 0), "door", "PT-W"),
-      squad2("F2-c", { type: "onBossHp", p: 65 }, [u("floretSprout", 2)], [[42, 0, -40], [46, 0, -40]], "hidden", "behind GV1 and GV2")
+      squad3("F2-boss", { type: "onEnter" }, [u("broccoli", 1)], [[36, 0.6, -40]], "placed", "on the vape tank, stage 1 only"),
+      squad3("F2-a", { type: "time", t: 8 }, [u("midget", 3)], line([36, 0, -48], 3, 1.4, 0), "door", "PT-N"),
+      squad3("F2-b", { type: "onBossHp", p: 80 }, [u("midget", 3)], line([30, 0, -40], 3, 1.4, 0), "door", "PT-W"),
+      squad3("F2-c", { type: "onBossHp", p: 65 }, [u("floretSprout", 2)], [[42, 0, -40], [46, 0, -40]], "hidden", "behind GV1 and GV2")
     ]
   };
   var F3 = {
@@ -3584,10 +4573,10 @@ var SprotoShooterSim = (() => {
     zone: { min: [126, -2, -52], max: [144, 14, -36] },
     activate: { min: [126, -2, -52], max: [144, 14, -36] },
     squads: [
-      squad2("F3-a", { type: "onEnter" }, [u("sewerMidget", 2)], [[134, 9, -44], [136, 9, -46]], "burrow", "terrace 1, EM1 EM2"),
-      squad2("F3-b", { type: "onEnter" }, [u("floretSprout", 2)], [[132, 9, -42], [138, 9, -44]], "placed", "terrace 2"),
-      squad2("F3-c", { type: "time", t: 8 }, [u("sewerMidget", 2)], [[134, 9, -40], [136, 9, -48]], "burrow", "onEnter terrace 2, EM3 EM4"),
-      squad2("F3-d", { type: "time", t: 12 }, [u("floretSprout", 2)], [[130, 9, -44], [140, 9, -44]], "placed", "levee, can be outrun")
+      squad3("F3-a", { type: "onEnter" }, [u("sewerMidget", 2)], [[134, 9, -44], [136, 9, -46]], "burrow", "terrace 1, EM1 EM2"),
+      squad3("F3-b", { type: "onEnter" }, [u("floretSprout", 2)], [[132, 9, -42], [138, 9, -44]], "placed", "terrace 2"),
+      squad3("F3-c", { type: "time", t: 8 }, [u("sewerMidget", 2)], [[134, 9, -40], [136, 9, -48]], "burrow", "onEnter terrace 2, EM3 EM4"),
+      squad3("F3-d", { type: "time", t: 12 }, [u("floretSprout", 2)], [[130, 9, -44], [140, 9, -44]], "placed", "levee, can be outrun")
     ]
   };
   var ENCOUNTERS = { E1, E2, E3, E4, E5, E6, E7, E8, F1, F2, F3 };
@@ -3696,6 +4685,9 @@ var SprotoShooterSim = (() => {
       disc({ id: "S1-MP1-pad", at: [95, 0.05, -54], r: 1.2, mat: "neon" }),
       disc({ id: "S1-MP2-pad", at: [123, 0.05, -108], r: 1.2, mat: "neon" }),
       disc({ id: "S1-MP3-pad", at: [149, 0.05, -80], r: 1.2, mat: "neon" }),
+      sphere({ id: "S1-GA-GATE-mark", at: [232, 6, -80], r: 0.45, mat: "neon" }),
+      sphere({ id: "S1-GA-LEAF-mark", at: [240.5, 6.2, -142], r: 0.45, mat: "neon" }),
+      sphere({ id: "S1-GA-CROWN-mark", at: [240, 22, -145], r: 0.45, mat: "neon" }),
       disc({ id: "S1-MP4-pad", at: [165, 0.05, -84], r: 1.2, mat: "neon" }),
       ...trees
     ],
@@ -3736,6 +4728,12 @@ var SprotoShooterSim = (() => {
       { kind: "secret", id: "S1-AF1", at: [100, 6.2, -50], tickets: 15, story: "Invoice: 400 scarecrows. None of them scare." }
     ],
     encounters: [ENCOUNTERS.E1, ENCOUNTERS.E2],
+    // Optional swings. The lane and the beanstalk pads still work at a walk.
+    grappleAnchors: [
+      { id: "S1-GA-GATE", at: [232, 6, -80], r: 2.2 },
+      { id: "S1-GA-LEAF", at: [240.5, 6.2, -142], r: 1.8 },
+      { id: "S1-GA-CROWN", at: [240, 22, -145], r: 2 }
+    ],
     navLinks: [
       { from: { x: 95, z: -54 }, to: { x: 100, z: -50 }, kind: "pad" },
       { from: { x: 123, z: -108 }, to: { x: 128, z: -112 }, kind: "pad" },
@@ -3791,7 +4789,8 @@ var SprotoShooterSim = (() => {
       ...place(manaBloom(), { at: [41, 0, -48], id: "MB6b" }),
       ...place(manaBloom(), { at: [96, 0, -60], id: "MB7" }),
       disc({ id: "S2-THR", at: [44, 0.05, -60], r: 2, mat: "neon" }),
-      disc({ id: "S2-GZP-pad", at: [66.5, 0.05, -60], r: 1.2, mat: "neon" })
+      disc({ id: "S2-GZP-pad", at: [66.5, 0.05, -60], r: 1.2, mat: "neon" }),
+      sphere({ id: "S2-GA-GZ-mark", at: [48, 7, -60], r: 0.45, mat: "neon" })
     ],
     weapons: [
       { id: "W2", at: [3, 0.9, -57], gun: "shotgun", why: "E3: burrowers at arm's length in 4 m corridors" },
@@ -3803,11 +4802,11 @@ var SprotoShooterSim = (() => {
       { id: "CP5", at: [86, 0, -60], when: "S2-E4.cleared" }
     ],
     mechanisms: [
-      door2("LD1-IN", [37.7, 4.5, -60], [0.6, 9, 4]),
-      door2("LD1-OUT", [82.3, 4.5, -60], [0.6, 9, 4]),
-      door2("S2-XD", [110, 1.75, -60], [1, 3.5, 5], { opens: "S2-CD2" }),
-      door2("HD1", [12, 1.75, -98], [4, 3.5, 1]),
-      door2("HD2", [26, 1.75, -36], [4, 3.5, 1]),
+      door3("LD1-IN", [37.7, 4.5, -60], [0.6, 9, 4]),
+      door3("LD1-OUT", [82.3, 4.5, -60], [0.6, 9, 4]),
+      door3("S2-XD", [110, 1.75, -60], [1, 3.5, 5], { opens: "S2-CD2" }),
+      door3("HD1", [12, 1.75, -98], [4, 3.5, 1]),
+      door3("HD2", [26, 1.75, -36], [4, 3.5, 1]),
       { kind: "mover", id: "S2-TG-N", at: [29.5, 1.2, -65], from: [29.5, 1.2, -65], to: [29.5, 1.2, -66], size: [0.5, 2.4, 2], crush: 40, closed: 0.8, open: 0.4 },
       { kind: "mover", id: "S2-TG-S", at: [29.5, 1.2, -67], from: [29.5, 1.2, -67], to: [29.5, 1.2, -66], size: [0.5, 2.4, 2], crush: 40, closed: 0.8, open: 0.4 },
       { kind: "gooGear", id: "S2-GG1", at: [29.5, 1.5, -63.6], radius: 0.5, holds: "S2-TG-N", seconds: 4 },
@@ -3829,7 +4828,11 @@ var SprotoShooterSim = (() => {
       { kind: "secret", id: "S2-BAT", at: [108, 0.5, -104], mana: 10, regen: 0.5 },
       { kind: "secret", id: "S2-AF2", at: [101, 0.4, -54], tickets: 15, story: "The maze is a tax shelter. Nothing in the middle is declared." }
     ],
-    encounters: [ENCOUNTERS.E3, ENCOUNTERS.E4]
+    encounters: [ENCOUNTERS.E3, ENCOUNTERS.E4],
+    // West of the gazebo roof, in the z = -60 gap, so a hook from the lane clears the hedge.
+    grappleAnchors: [
+      { id: "S2-GA-GZ", at: [48, 7, -60], r: 2.2 }
+    ]
   };
 
   // src/data/levels/L03/S3.js
@@ -4007,7 +5010,8 @@ var SprotoShooterSim = (() => {
       ...place(manaBloom(), { at: [37, 0, -56], id: "MB12" }),
       ...place(manaBloom(), { at: [94, 3.5, -65], id: "MB13" }),
       ...place(manaBloom(), { at: [74, 0, -45], id: "MB14" }),
-      ...place(manaBloom(), { at: [112, 0, -60], id: "MB15" })
+      ...place(manaBloom(), { at: [112, 0, -60], id: "MB15" }),
+      sphere({ id: "S4-GA-CAT-mark", at: [70, 6.2, -62], r: 0.45, mat: "neon" })
     ],
     weapons: [
       { id: "W4", at: [40, 0.9, -38], gun: "bazooka", why: "E7: two nests" }
@@ -4045,22 +5049,32 @@ var SprotoShooterSim = (() => {
       { kind: "chest", id: "L2-CHEST", at: [95, 0.5, -41], opens: "S4-E7.cleared", tier: "uncommon" },
       { kind: "secret", id: "S4-AF3", at: [12, 3.6, -22], tickets: 15, story: "Shipment 6: to Los Angeles, by cloud." }
     ],
-    encounters: [ENCOUNTERS.E7, ENCOUNTERS.E8]
+    encounters: [ENCOUNTERS.E7, ENCOUNTERS.E8],
+    // Under the glass roof, above the north catwalk. The floor lane does not need it.
+    grappleAnchors: [
+      { id: "S4-GA-CAT", at: [70, 6.2, -62], r: 2 }
+    ]
   };
 
   // src/data/levels/L03/S5.js
+  var HEX_ANCHORS = [
+    { id: "S5-GA-N", at: [45, 9, -108], r: 2.4 },
+    { id: "S5-GA-E", at: [73, 9, -80], r: 2.4 },
+    { id: "S5-GA-S", at: [45, 9, -52], r: 2.4 },
+    { id: "S5-GA-W", at: [17, 9, -80], r: 2.4 }
+  ];
   function arenaWalls() {
     const parts = [];
     for (let i = 0; i < 16; i++) {
       const bearing = i * 22.5;
-      const at = polar(45, -80, 35, bearing, 6);
+      const at2 = polar(45, -80, 35, bearing, 6);
       const tag = String(i).padStart(2, "0");
       if (i === 0 || i === 8) {
         for (const side of [-1, 1]) {
           const [dx, dz] = rotY(side * 4.5, 0, bearing);
           parts.push(box({
             id: `S5-W${tag}${side < 0 ? "a" : "b"}`,
-            at: [at[0] + dx, 6, at[2] + dz],
+            at: [at2[0] + dx, 6, at2[2] + dz],
             size: [5, 12, 2],
             yaw: bearing,
             mat: "rock"
@@ -4069,7 +5083,7 @@ var SprotoShooterSim = (() => {
       } else {
         parts.push(box({
           id: `S5-W${tag}`,
-          at,
+          at: at2,
           size: [14.2, 12, 2],
           yaw: bearing,
           mat: "rock"
@@ -4082,11 +5096,11 @@ var SprotoShooterSim = (() => {
     const zones = [];
     for (let i = 0; i < 16; i++) {
       const bearing = i * 22.5;
-      const at = polar(45, -80, 31, bearing, 0.5);
+      const at2 = polar(45, -80, 31, bearing, 0.5);
       zones.push({
         kind: "hazardSet",
         id: `S5-FLD${String(i).padStart(2, "0")}`,
-        at,
+        at: at2,
         size: [13, 1, 6],
         yaw: bearing,
         enabled: false,
@@ -4134,8 +5148,8 @@ var SprotoShooterSim = (() => {
       cylinder({ id: "TOT-SW", at: [25.9, 0, -69], r: 0.8, h: 4, mat: "wood" }),
       sphere({ id: "TOT-SW-eye", at: [25.9, 4.4, -69], r: 0.7, mat: "neon" }),
       ...boulderBearings.map((b, i) => {
-        const at = polar(45, -80, 14, b, 1.4);
-        return { kind: "sphere", id: `S5-B${i}`, at, r: 2, mat: "rock" };
+        const at2 = polar(45, -80, 14, b, 1.4);
+        return { kind: "sphere", id: `S5-B${i}`, at: at2, r: 2, mat: "rock" };
       }),
       box({ id: "S5-L1", at: polar(45, -80, 27, 90, 0.6), size: [1.5, 1.2, 8], yaw: 90, mat: "wood" }),
       box({ id: "S5-L2", at: polar(45, -80, 27, 210, 0.6), size: [1.5, 1.2, 8], yaw: 210, mat: "wood" }),
@@ -4144,7 +5158,8 @@ var SprotoShooterSim = (() => {
       ...moundBearings.flatMap((b, i) => place(mound(), { at: polar(45, -80, 26, b, 0), id: `S5-RM${i + 1}` })),
       ...place(manaBloom(), { at: [45, 0, -30], id: "MB16" }),
       ...bloomBearings.flatMap((b, i) => place(manaBloom(), { at: polar(45, -80, 24, b, 0), id: `MB${17 + i}` })),
-      disc({ id: "S5-THR", at: [45, 0.05, -52], r: 2, mat: "neon" })
+      disc({ id: "S5-THR", at: [45, 0.05, -52], r: 2, mat: "neon" }),
+      ...HEX_ANCHORS.map((a) => sphere({ id: `${a.id}-mark`, at: a.at, r: 0.45, mat: "neon" }))
     ],
     weapons: [
       { id: "W5", at: [41, 0.9, -52], gun: "mg", why: "F1: the finale section holds its own gun" }
@@ -4186,10 +5201,16 @@ var SprotoShooterSim = (() => {
       { kind: "ammoCrate", id: "RC3", at: [45, 0.4, -84], uses: 3, fraction: 0.5 },
       { kind: "chest", id: "L3-CHEST", at: [45, 0.6, -80], opens: "S5-F1.cleared", guns: 2, tier: "rare" }
     ],
-    encounters: [ENCOUNTERS.F1]
+    encounters: [ENCOUNTERS.F1],
+    grappleAnchors: HEX_ANCHORS
   };
 
   // src/data/levels/L03/S6.js
+  var CHASE_ANCHORS = [
+    { id: "S6-GA-T1", at: [64, 5.5, -40], r: 2.2 },
+    { id: "S6-GA-T2", at: [96, 8.5, -40], r: 2.2 },
+    { id: "S6-GA-TRK", at: [134, 13, -44], r: 2.4 }
+  ];
   var planterBearings = [0, 60, 120, 180, 240, 300];
   var S62 = {
     id: "S6",
@@ -4233,6 +5254,8 @@ var SprotoShooterSim = (() => {
       ramp({ id: "S6-R1", at: [55, 1.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
       ramp({ id: "S6-R2", at: [85, 4.5, -24], size: [10, 3, 5], yaw: 90, mat: "wood" }),
       ramp({ id: "S6-R3", at: [115, 7.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
+      // Yaw 90 rises toward +x, so this chute drops from terrace 2's south edge to the ground.
+      ramp({ id: "S6-SLIDE", at: [84, 3, -18], size: [24, 6, 8], yaw: 90, mat: "wood" }),
       box({ id: "S6-HCB", at: [79, 4, -24], size: [1, 2, 5], mat: "sand", tag: "target" }),
       ...place(podStump(), { at: [64, 3, -48], id: "S6-POD1" }),
       ...place(podStump(), { at: [68, 3, -30], id: "S6-POD2" }),
@@ -4248,7 +5271,8 @@ var SprotoShooterSim = (() => {
       sphere({ id: "S6-WT-f3", at: [140, 28, -84], r: 3, mat: "hedge" }),
       ...place(manaBloom(), { at: [16, 0, -40], id: "MB20" }),
       disc({ id: "S6-MP1-pad", at: [86, 3.05, -54], r: 1.2, mat: "neon" }),
-      disc({ id: "S6-MP2-pad", at: [116, 6.05, -26], r: 1.2, mat: "neon" })
+      disc({ id: "S6-MP2-pad", at: [116, 6.05, -26], r: 1.2, mat: "neon" }),
+      ...CHASE_ANCHORS.map((a) => sphere({ id: `${a.id}-mark`, at: a.at, r: 0.45, mat: "neon" }))
     ],
     weapons: [],
     checkpoints: [],
@@ -4267,6 +5291,7 @@ var SprotoShooterSim = (() => {
       { kind: "ammo", id: "AB22", at: [36, 0.4, -8], ammoType: "bullets", amount: 60 }
     ],
     encounters: [ENCOUNTERS.F2, ENCOUNTERS.F3],
+    grappleAnchors: CHASE_ANCHORS,
     navLinks: [
       { from: { x: 86, z: -54 }, to: { x: 93, z: -54 }, kind: "pad" },
       { from: { x: 116, z: -26 }, to: { x: 123, z: -28 }, kind: "pad" }
@@ -4404,12 +5429,12 @@ var SprotoShooterSim = (() => {
     ["F3", 41]
   ];
   var L03_BOT = [
-    { section: "S1", steps: ["truck", "SH-YEET", "pod 2 twice at the barricade", "clear E1", "MP3", "clear E2", "S1-GATE"] },
+    { section: "S1", steps: ["truck", "SH-YEET", "pod 2 twice at the barricade", "clear E1", "MP3", "clear E2", "S1-GATE", "optional hook S1-GA-LEAF then S1-GA-CROWN"] },
     { section: "S2", steps: ["W2 W3", "main ring route", "clear E3", "goo S2-GG1", "threshold", "four waves", "zap S2-CD1 when 3 are near the gazebo", "goo then zap S2-CD2"] },
     { section: "S3", steps: ["Yeet the brute off Bridge 1", "clear E5", "DP1", "SH-SWARM", "buddy on S3-PP0", "sprint Bridge 2", "PP1 and swarm on PP2", "Bridge 3"] },
     { section: "S4", steps: ["threshold", "four waves", "bazooka the nest cores", "clear E8", "S4-DE"] },
-    { section: "S5", steps: ["DP2", "threshold", "Yeet orbs in part 1", "goo then zap totems from TOT-SE", "stay inside radius 24 after the flood"] },
-    { section: "S6", steps: ["F2 until the flee", "R1", "S6-MP1", "R3", "truck"] }
+    { section: "S5", steps: ["DP2", "threshold", "swing S5-GA-N E S W inside the room", "Yeet orbs in part 1", "goo then zap totems from TOT-SE", "stay inside radius 24 after the flood"] },
+    { section: "S6", steps: ["F2 until the flee", "hook S6-GA-T1 T2 TRK or walk R1 R3", "S6-SLIDE back down", "truck"] }
   ];
   var BUILT = makeV2Level({
     id: "L03",
@@ -4458,95 +5483,2830 @@ var SprotoShooterSim = (() => {
   var L03 = BUILT;
   registerLevel(L03);
 
-  // src/data/levels/campaign.js
-  var card3 = (title, lines) => ({ title, lines });
-  var L04 = makeLevel({
+  // src/data/levels/L04/prim.js
+  function stair(id, from, to, width = 6) {
+    const rise = to[1] - from[1];
+    const run = to[0] - from[0];
+    const steps = Math.max(1, Math.ceil(Math.abs(rise) / 0.35));
+    const parts = [];
+    const z = (from[2] + to[2]) / 2;
+    for (let i = 0; i < steps; i++) {
+      const t1 = (i + 1) / steps;
+      const x0 = from[0] + run * (i / steps);
+      const x1 = from[0] + run * t1;
+      parts.push(deckBox(`${id}-${i}`, Math.min(x0, x1), Math.max(x0, x1) + 0.15, from[1] + rise * t1, z, width));
+    }
+    return parts;
+  }
+  function deckBox(id, x0, x1, top, z, width = 4) {
+    return box({
+      id,
+      at: [(x0 + x1) / 2, top - 0.25, z],
+      size: [Math.max(0.5, x1 - x0), 0.5, width],
+      mat: "metal",
+      tag: "slide"
+    });
+  }
+  function ammo3(id, at2, ammoType, amount) {
+    return { kind: "ammo", id, at: at2, ammoType, amount };
+  }
+  function door4(id, at2, size, extra = {}) {
+    return { kind: "door", id, at: at2, size, ...extra };
+  }
+  function deck(id, from, to, width, top = 0) {
+    const dx = to[0] - from[0];
+    const dz = to[2] - from[2];
+    const len = Math.hypot(dx, dz) || 1;
+    const step = Math.max(width * 0.65, 2);
+    const n = Math.max(1, Math.ceil(len / step));
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      parts.push(box({
+        id: `${id}-${i + 1}`,
+        at: [from[0] + dx * t, top - 0.25, from[2] + dz * t],
+        size: [width, 0.5, width],
+        mat: "neon",
+        tag: "energyBridge"
+      }));
+    }
+    return parts;
+  }
+
+  // src/data/levels/L04/prefabs.js
+  function candle(id, size, at2, dir = "up") {
+    const [w, h, d] = size;
+    const mat = dir === "down" ? "candleDown" : "candleUp";
+    const wickH = Math.max(0.5, Math.min(h / 4, 6));
+    const top = at2[1] + h / 2;
+    const bot = at2[1] - h / 2;
+    return [
+      box({ id: `${id}-body`, at: at2, size: [w, h, d], mat }),
+      box({ id: `${id}-wick-t`, at: [at2[0], top, at2[2]], size: [0.6, wickH, 0.6], mat: "trim" }),
+      box({ id: `${id}-wick-b`, at: [at2[0], bot, at2[2]], size: [0.6, wickH, 0.6], mat: "trim" })
+    ];
+  }
+  function hollowCandle(id, size, at2, mat = "candleDown") {
+    const [w, h, d] = size;
+    const bot = at2[1] - h / 2;
+    const wallH = h - 1;
+    const wallY = bot + 1 + wallH / 2;
+    const x0 = at2[0] - w / 2;
+    const z0 = at2[2] - d / 2;
+    return [
+      box({ id: `${id}-floor`, at: [at2[0], bot + 0.5, at2[2]], size: [w, 1, d], mat }),
+      box({ id: `${id}-n`, at: [at2[0], wallY, z0 + 0.5], size: [w, wallH, 1], mat }),
+      box({ id: `${id}-s`, at: [at2[0], wallY, z0 + d - 0.5], size: [w, wallH, 1], mat }),
+      box({ id: `${id}-w`, at: [x0 + 0.5, wallY, at2[2]], size: [1, wallH, d - 2], mat }),
+      box({ id: `${id}-e`, at: [x0 + w - 0.5, wallY, at2[2]], size: [1, wallH, d - 2], mat })
+    ];
+  }
+  function island(id, r, h, at2, mat = "stone") {
+    return [
+      cylinder({ id, at: at2, r, h, mat }),
+      disc({ id: `${id}-rim`, at: [at2[0], at2[1] + h + 0.04, at2[2]], r, mat: "neon" })
+    ];
+  }
+  function podIsle(id, at2) {
+    return island(id, 4, 3, at2);
+  }
+  function chain(id, from, to) {
+    const dx = to[0] - from[0];
+    const dy = to[1] - from[1];
+    const dz = to[2] - from[2];
+    const len = Math.hypot(dx, dy, dz);
+    const n = Math.max(1, Math.round(len / 2));
+    const alongX = Math.abs(dx) >= Math.abs(dz);
+    const size = alongX ? [2.4, 0.6, 1.6] : [1.6, 0.6, 2.4];
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const t = (i + 0.5) / n;
+      parts.push(box({
+        id: `${id}-${i + 1}`,
+        at: [from[0] + dx * t, from[1] + dy * t, from[2] + dz * t],
+        size,
+        mat: "trim"
+      }));
+    }
+    return parts;
+  }
+  function crate(id, at2) {
+    return box({ id, at: at2, size: [1.6, 1.2, 1.6], mat: "crate" });
+  }
+  function server(id, at2) {
+    return [
+      box({ id, at: at2, size: [1.2, 2, 2.4], mat: "metal" }),
+      box({ id: `${id}-strip`, at: [at2[0], at2[1] + 1.25, at2[2]], size: [0.5, 0.5, 2.4], mat: "neon" })
+    ];
+  }
+  function ticker(id, at2, length) {
+    return box({ id, at: at2, size: [0.6, 2, length], mat: "neon" });
+  }
+  function hut(id, size, at2) {
+    return [box({ id, at: at2, size, mat: "concrete" })];
+  }
+  function sign(id, at2, text) {
+    const boardY = at2[1];
+    return [
+      cylinder({ id: `${id}-pole`, at: [at2[0], boardY - 3, at2[2]], r: 0.25, h: 2, mat: "metal" }),
+      { ...box({ id, at: at2, size: [4, 2, 0.5], mat: "neon" }), text }
+    ];
+  }
+  function vent(id, at2) {
+    return [
+      cylinder({ id, at: at2, r: 3, h: 0.5, mat: "metal" }),
+      disc({ id: `${id}-rim`, at: [at2[0], at2[1] + 0.52, at2[2]], r: 3, mat: "neon" })
+    ];
+  }
+  function tunnel(id, { length, floorAt, innerH = 4 }) {
+    const [x, y, z] = floorAt;
+    const wallH = innerH + 2;
+    const wallY = y - 0.5 + wallH / 2;
+    return [
+      box({ id: `${id}-floor`, at: [x, y, z], size: [length, 1, 8], mat: "metal" }),
+      box({ id: `${id}-roof`, at: [x, y + innerH + 1, z], size: [length, 1, 8], mat: "metal" }),
+      box({ id: `${id}-n`, at: [x, wallY, z - 3.5], size: [length, wallH, 1], mat: "metal" }),
+      box({ id: `${id}-s`, at: [x, wallY, z + 3.5], size: [length, wallH, 1], mat: "metal" })
+    ];
+  }
+  function pylon(id, at2, mat = "metal") {
+    const top = at2[1] + 5;
+    return [
+      cylinder({ id, at: at2, r: 0.8, h: 5, mat }),
+      sphere({ id: `${id}-core`, at: [at2[0], top + 1.2, at2[2]], r: 1.2, mat: "neon" }),
+      box({ id: `${id}-bar1`, at: [at2[0] - 0.8, at2[1] + 0.5, at2[2] + 1.2], size: [0.5, 1, 0.5], mat: "trim" }),
+      box({ id: `${id}-bar2`, at: [at2[0], at2[1] + 1, at2[2] + 1.2], size: [0.5, 2, 0.5], mat: "trim" }),
+      box({ id: `${id}-bar3`, at: [at2[0] + 0.8, at2[1] + 1.5, at2[2] + 1.2], size: [0.5, 3, 0.5], mat: "trim" })
+    ];
+  }
+  function validatorNode(id, at2) {
+    return [
+      box({ id, at: [at2[0], at2[1] + 1.5, at2[2]], size: [2, 3, 2], mat: "metal" }),
+      sphere({ id: `${id}-core`, at: [at2[0], at2[1] + 3.9, at2[2]], r: 0.9, mat: "gold" })
+    ];
+  }
+  function spans(from, to, gaps) {
+    const cuts = (gaps || []).slice().sort((a, b) => a.at - b.at);
+    const out = [];
+    let cursor = from;
+    for (const g of cuts) {
+      const a = g.at - g.width / 2;
+      const b = g.at + g.width / 2;
+      if (a - cursor >= 0.5) out.push([cursor, a]);
+      cursor = Math.max(cursor, b);
+    }
+    if (to - cursor >= 0.5) out.push([cursor, to]);
+    return out;
+  }
+  function lockRoom(id, { min, max, gaps = [] }) {
+    const thick = 0.6;
+    const [x0, y0, z0] = min;
+    const [x1, y1, z1] = max;
+    const parts = [];
+    const ySize = y1 - y0;
+    const yMid = y0 + ySize / 2;
+    function add3(partId, at2, size) {
+      if (size.some((n) => n < 0.5)) return;
+      parts.push(box({ id: `${id}-${partId}`, at: at2, size, mat: "forceField", tag: "lockWall" }));
+    }
+    const on = (side) => gaps.filter((g) => g.side === side).map((g) => ({ at: g.at, width: g.width }));
+    for (const [a, b] of spans(z0, z1, on("w"))) {
+      add3(`w-${Math.round(a)}`, [x0, yMid, (a + b) / 2], [thick, ySize, b - a]);
+    }
+    for (const [a, b] of spans(z0, z1, on("e"))) {
+      add3(`e-${Math.round(a)}`, [x1, yMid, (a + b) / 2], [thick, ySize, b - a]);
+    }
+    for (const [a, b] of spans(x0, x1, on("n"))) {
+      add3(`n-${Math.round(a)}`, [(a + b) / 2, yMid, z0], [b - a, ySize, thick]);
+    }
+    for (const [a, b] of spans(x0, x1, on("s"))) {
+      add3(`s-${Math.round(a)}`, [(a + b) / 2, yMid, z1], [b - a, ySize, thick]);
+    }
+    for (const g of gaps) {
+      const lintel = y1 - (y0 + g.height);
+      if (lintel < 0.5) continue;
+      const y = y0 + g.height + lintel / 2;
+      if (g.side === "w") add3(`w-top-${g.at}`, [x0, y, g.at], [thick, lintel, g.width]);
+      if (g.side === "e") add3(`e-top-${g.at}`, [x1, y, g.at], [thick, lintel, g.width]);
+      if (g.side === "n") add3(`n-top-${g.at}`, [g.at, y, z0], [g.width, lintel, thick]);
+      if (g.side === "s") add3(`s-top-${g.at}`, [g.at, y, z1], [g.width, lintel, thick]);
+    }
+    add3("lid", [(x0 + x1) / 2, y1 + thick / 2, (z0 + z1) / 2], [x1 - x0 + thick, thick, z1 - z0 + thick]);
+    return parts;
+  }
+  function fireRing(id, { at: at2, r, h = 4 }) {
+    const n = 48;
+    const parts = [];
+    for (let i = 0; i < n; i++) {
+      const a = i / n * Math.PI * 2;
+      let d = Math.abs(a - Math.PI);
+      if (d > Math.PI) d = Math.PI * 2 - d;
+      if (d < 0.55) continue;
+      parts.push(box({
+        id: `${id}-${i}`,
+        at: [at2[0] + Math.cos(a) * r, h / 2, at2[2] + Math.sin(a) * r],
+        size: [3.2, h, 3.2],
+        mat: "lava",
+        tag: "fireRing"
+      }));
+    }
+    return parts;
+  }
+
+  // src/data/levels/L04/encounters.js
+  function squad4(id, trigger, units2, at2, method = "placed", design = null, extra = null) {
+    const row = { id, trigger, method, at: at2, units: units2 };
+    if (design) row.design = design;
+    if (extra) Object.assign(row, extra);
+    return row;
+  }
+  function u2(type, count, extra) {
+    return extra ? { type, count, ...extra } : { type, count };
+  }
+  var E12 = {
+    id: "S1-E1",
+    name: "Welcome Desk",
+    maxAlive: 8,
+    intensity: 0.3,
+    objective: { kind: "clearAll" },
+    activate: { min: [44, -2, 42], max: [80, 6, 78] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("midget", 4)], [[58, 0, 56], [66, 0, 56], [58, 0, 64], [66, 0, 64]], "placed", "placed, wakes on sight, ring round (62, 0, 60)"),
+      squad4("B", { type: "time", t: 1 }, [u2("obama", 2)], [[58, 0, 50], [66, 0, 50]], "door", "onAlert, hutN, delay 1s"),
+      squad4("C", { type: "onKills", n: 4 }, [u2("midget", 4)], [[54, 0, 70], [60, 0, 70], [66, 0, 70], [72, 0, 70]], "door", "onKills(4), hutS"),
+      squad4("C2", { type: "with", after: "C", delay: 3 }, [u2("boomMidget", 2)], [[58, 0, 68], [68, 0, 68]], "door", "booms 3s after the midgets")
+    ]
+  };
+  var E22 = {
+    id: "S1-E2",
+    name: "First Flight",
+    maxAlive: 8,
+    intensity: 0.4,
+    objective: { kind: "clearAll" },
+    activate: { min: [96, -4, 56], max: [230, 16, 64] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("flyingMidget", 2)], [[110, 2, 60], [118, 2, 60]], "air", "onEnter h2, y 7 to 10", { alt: [7, 10] }),
+      squad4("B", { type: "time", t: 6 }, [u2("flyingMidget", 3)], [[140, 2, 60], [148, 2, 60], [156, 2, 60]], "air", "onEnter h3, y 11 to 15", { alt: [11, 15] }),
+      squad4("C", { type: "time", t: 12 }, [u2("obama", 2)], [[198, 0, 60], [206, 0, 60]], "placed", "onEnter Mempool x>182, perched on the stubs"),
+      squad4("D", { type: "onKills", n: 5 }, [u2("midget", 3)], [[214, 0, 60], [218, 0, 60], [222, 0, 60]], "door", "onKills(5), memHut")
+    ]
+  };
+  var E32 = {
+    id: "S2-E3",
+    name: "Trading Pit",
+    maxAlive: 12,
+    flockUnit: 6,
+    intensity: 0.75,
+    objective: { kind: "clearAll" },
+    activate: { min: [40, -2, 74], max: [92, 24, 126] },
+    lockdown: {
+      id: "L1",
+      entry: "s2.pitIn",
+      exit: "s2.pitOut",
+      threshold: { min: [46.5, -1, 96], max: [48.5, 6, 104] },
+      room: { min: [41, 0, 75], max: [91, 24, 125] },
+      waves: 4,
+      fallbackSec: 25
+    },
+    squads: [
+      squad4("W1", { type: "onEnter" }, [u2("bitbug", 6)], [[66, 1, 100]], "air", "door drops, PIT-N, y 8 to 18", { alt: [1, 4], spawn: "PIT-N" }),
+      squad4("W2a", { type: "onRemain", n: 2 }, [u2("bitbug", 6)], [[70, 1, 100]], "air", "onRemain(2) or 25s, PIT-S", { alt: [1, 4], spawn: "PIT-S", fallbackSec: 25 }),
+      squad4("W2b", { type: "with", after: "W2a", delay: 0 }, [u2("flyingMidget", 3)], [[62, 1, 100]], "air", "PIT-LID, y 14 to 22", { alt: [1, 4], spawn: "PIT-LID" }),
+      squad4("W3a", { type: "onRemain", n: 2 }, [u2("boomMidget", 3)], [[74, 0, 100]], "door", "PIT-E", { spawn: "PIT-E", fallbackSec: 25 }),
+      squad4("W3b", { type: "with", after: "W3a", delay: 0 }, [u2("bitbug", 6)], [[58, 1, 100]], "air", "PIT-N again", { alt: [1, 4], spawn: "PIT-N" }),
+      squad4("W4a", { type: "onRemain", n: 2 }, [u2("bitbug", 3)], [[66, 1, 98]], "air", "half-flock PIT-N", { alt: [1, 4], spawn: "PIT-N", fallbackSec: 25 }),
+      squad4("W4b", { type: "with", after: "W4a", delay: 0 }, [u2("bitbug", 3)], [[66, 1, 102]], "air", "half-flock PIT-S", { alt: [1, 4], spawn: "PIT-S" })
+    ]
+  };
+  var E42 = {
+    id: "S2-E4",
+    name: "Bull Run",
+    maxAlive: 6,
+    intensity: 0.6,
+    objective: { kind: "clearAll" },
+    activate: { min: [100, -14, 60], max: [262, 60, 140] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("jetObama", 1)], [[130, 16, 100]], "air", "onEnter slider 1, matches the player, y 4 to 28", { alt: [4, 28] }),
+      squad4("B", { type: "onKills", n: 1 }, [u2("robotLaser", 1)], [[160, 32, 100]], "placed", "onEnter K8, perched on K10"),
+      squad4("C", { type: "onKills", n: 2 }, [u2("jetObama", 1)], [[190, 48, 100]], "air", "onEnter K11, north", { alt: [38, 56] }),
+      squad4("C2", { type: "with", after: "C", delay: 4 }, [u2("jetObama", 1)], [[210, 56, 100]], "air", "second jet 4s later, south", { alt: [38, 56] }),
+      squad4("D", { type: "onKills", n: 4 }, [u2("obama", 1, { elite: true, name: "Head Trader" })], [[240, 72, 100]], "placed", "wakes on landing on K12, K13 or K14")
+    ]
+  };
+  var E52 = {
+    id: "S3-E5",
+    name: "Gas Fees",
+    maxAlive: 5,
+    flockUnit: 6,
+    intensity: 0.7,
+    objective: { kind: "clearAll", design: "destroy s3.gatePylon and reach the mouth" },
+    activate: { min: [50, -12, 40], max: [250, 30, 80] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("flakPod", 1)], [[63, 0, 60]], "placed", "FP1, static y 0"),
+      squad4("B", { type: "time", t: 4 }, [u2("flakPod", 1)], [[122, 1, 60]], "placed", "onEnter x>80, FP2"),
+      squad4("B2", { type: "with", after: "B", delay: 2 }, [u2("bitbug", 6)], [[110, 2, 60]], "air", "flock 4s later, riding the wind, y 8 to 16", { alt: [8, 16] }),
+      squad4("C", { type: "time", t: 10 }, [u2("flakPod", 1)], [[164, 1, 60]], "placed", "onEnter R2, FP3 below the lane"),
+      squad4("D", { type: "time", t: 16 }, [u2("flakPod", 1, { elite: true, name: "Priority Fee" })], [[208, 1, 60]], "placed", "onEnter R3, FP4")
+    ]
+  };
+  var E62 = {
+    id: "S4-E6",
+    name: "Dust Sweep",
+    maxAlive: 9,
+    intensity: 0.45,
+    objective: { kind: "clearAll" },
+    activate: { min: [4, -8, 60], max: [140, 20, 140] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("balloonMidget", 3)], [[52, 6, 100], [58, 9, 94], [58, 5, 106]], "placed", "cluster 30 to 36m from the entry wall, y 5 to 9", { alt: [5, 9] }),
+      squad4("B", { type: "onKills", n: 2 }, [u2("balloonMidget", 3)], [[76, 12, 94], [84, 14, 100], [90, 10, 90]], "placed", "onKills(2), round b3 and b6, y 10 to 14", { alt: [10, 14] }),
+      squad4("C", { type: "onKills", n: 5 }, [u2("balloonMidget", 1)], [[100, 14, 62]], "air", "onKills(5), crosswind, 2s apart", { alt: [12, 16] }),
+      squad4("C2", { type: "with", after: "C", delay: 2 }, [u2("balloonMidget", 1)], [[108, 16, 62]], "air", "second mine", { alt: [12, 16] }),
+      squad4("C3", { type: "with", after: "C2", delay: 2 }, [u2("balloonMidget", 1)], [[116, 12, 62]], "air", "third mine", { alt: [12, 16] })
+    ]
+  };
+  var E72 = {
+    id: "S4-E7",
+    name: "Clearing House",
+    maxAlive: 10,
+    flockUnit: 6,
+    intensity: 0.9,
+    objective: { kind: "clearAll" },
+    activate: { min: [146, -12, 70], max: [208, 30, 130] },
+    lockdown: {
+      id: "L2",
+      entry: "s4.chIn",
+      exit: "s4.chOut",
+      threshold: { min: [152, -1, 96], max: [154, 6, 104] },
+      room: { min: [147, 0, 70], max: [207, 30, 130] },
+      waves: 4,
+      fallbackSec: 25
+    },
+    squads: [
+      squad4("W1", { type: "onEnter" }, [u2("bitbug", 8)], [[177, 16, 70.5]], "air", "door drops, CH-N, y 6 to 20", { alt: [6, 20], spawn: "CH-N" }),
+      squad4("W1b", { type: "with", after: "W1", delay: 4 }, [u2("jetObama", 1)], [[195, 29, 100]], "air", "CH-LID 4s later, matches the player", { alt: [4, 26], spawn: "CH-LID" }),
+      squad4("W2a", { type: "onRemain", n: 2 }, [u2("jetObama", 2)], [[177, 16, 129.5]], "air", "onRemain(2) or 25s, CH-S", { alt: [4, 26], spawn: "CH-S", fallbackSec: 25 }),
+      squad4("W2b", { type: "with", after: "W2a", delay: 0 }, [u2("balloonMidget", 4)], [[195, 29, 100]], "air", "CH-LID, y 26 falling to 8", { alt: [8, 26], spawn: "CH-LID" }),
+      squad4("W3a", { type: "onRemain", n: 2 }, [u2("flakPod", 1)], [[202, 0, 126]], "burrow", "CH-HATCH", { spawn: "CH-HATCH", fallbackSec: 25 }),
+      squad4("W3b", { type: "with", after: "W3a", delay: 0 }, [u2("bitbug", 8)], [[177, -10, 100]], "air", "CH-WELL, y 0 to 16", { alt: [0, 16], spawn: "CH-WELL" }),
+      squad4("W4", { type: "onRemain", n: 2 }, [u2("jetObama", 1, { elite: true, name: "Whale" })], [[195, 29, 100]], "air", "CH-LID, y 6 to 26", { alt: [6, 26], spawn: "CH-LID", fallbackSec: 25 })
+    ]
+  };
+  var E82 = {
+    id: "S5-E8",
+    name: "Proof of Stake",
+    maxAlive: 10,
+    intensity: 0.7,
+    objective: {
+      kind: "clearAll",
+      alsoDestroy: ["n1", "n2", "n3"],
+      design: "destroy n1, n2, n3 and clearAll"
+    },
+    activate: { min: [18, -8, 38], max: [102, 20, 122] },
+    squads: [
+      squad4("A", { type: "onEnter" }, [u2("riotMidget", 2), u2("obama", 2)], [[40, 0, 76], [40, 0, 84], [46, 0, 64], [46, 0, 96]], "placed", "west plaza"),
+      squad4("B", { type: "onKills", n: 4 }, [u2("hexAcolyte", 1), u2("midget", 4)], [[60, 0, 47.3], [58, 0, 47.3], [62, 0, 47.3], [56, 0, 47.3], [64, 0, 47.3]], "door", "onPartDestroyed of the first node (n1, n2 or n3), hutN"),
+      squad4("C", { type: "onKills", n: 7 }, [u2("robotShooter", 1, { elite: true, name: "Shooter Bot" })], [[36, 0, 80]], "drop", "onKills(7), drop pod on the Ledger roof"),
+      squad4("C2", { type: "with", after: "C", delay: 1 }, [u2("manaLeech", 1)], [[40, 0, 84]], "door", "leech 3s later, hutS")
+    ]
+  };
+  var BOSS = {
+    id: "SB-BOSS",
+    name: "Bitcoin Obama & The Midget",
+    maxAlive: 12,
+    flockUnit: 6,
+    intensity: 1,
+    objective: { kind: "boss", design: "The Midget is knocked out in stage 3, after Bitcoin Obama is out" },
+    activate: { min: [40, -4, 30], max: [100, 16, 90] },
+    lockdown: {
+      id: "L3",
+      entry: "sb.gate",
+      exit: null,
+      threshold: { min: [45.5, -1, 54], max: [47.5, 6, 66] },
+      room: { min: [42, -8, 32], max: [98, 16, 88] },
+      waves: 5,
+      fallbackSec: null
+    },
+    // t is seconds from the part start. Today's director ignores `part` and fires
+    // on encounter time. ENGINE-NEEDS says to gate these on the active part.
+    parts: [
+      { id: 1, name: "Opening Bell", kind: "entry", seconds: 30, ends: "pylons destroyed" },
+      { id: 2, name: "Pump", kind: "double", seconds: 60, ends: "either stage-2 bar empty" },
+      { id: 3, name: "Flash Crash", kind: "intermission", seconds: 40, ends: "both breakers destroyed" },
+      { id: 4, name: "Dump", kind: "double", seconds: 75, ends: "Obama out and the Midget in stage 3" },
+      { id: 5, name: "Short Squeeze", kind: "chase", seconds: 45, ends: "the Midget is knocked out" }
+    ],
+    squads: [
+      squad4("P1a", { type: "onEnter" }, [
+        u2("bitbug", 1, { partId: "sb.py3" }),
+        u2("bitbug", 1, { partId: "sb.cb1" }),
+        u2("bitbug", 1, { partId: "sb.py1" }),
+        u2("bitbug", 1, { partId: "sb.py2" }),
+        u2("bitbug", 1, { partId: "sb.cb2" }),
+        u2("bitbug", 1)
+      ], [[48, 1, 60], [52, 1, 60], [56, 1, 60], [60, 1, 60], [64, 1, 60], [68, 1, 60]], "placed", "part 1 t+3, SB-N", { spawn: "SB-N", alt: [1, 2] }),
+      squad4("bosses", { type: "onEnter" }, [u2("obamaDuo", 1), u2("midgetDuo", 1)], [[80, 1, 60], [84, 1, 60]], "placed", "both on the podium under the Price Shield"),
+      squad4("P1b", { type: "time", t: 15, part: 1 }, [u2("bitbug", 6)], [[80, 1, 60]], "air", "part 1 t+15, SB-S", { spawn: "SB-S", alt: [1, 3], optional: true }),
+      squad4("P2a", { type: "time", t: 20, part: 2 }, [u2("midget", 4)], [[80, 0, 60]], "drop", "part 2 t+20, SB-W", { spawn: "SB-W", optional: true }),
+      squad4("P2b", { type: "time", t: 40, part: 2 }, [u2("midget", 3), u2("boomMidget", 2)], [[84, 0, 60]], "drop", "part 2 t+40, SB-E", { spawn: "SB-E", optional: true }),
+      squad4("P3a", { type: "time", t: 0, part: 3 }, [u2("bitbug", 6)], [[80, 1, 60]], "air", "part 3 t+2, SB-N", { spawn: "SB-N", optional: true }),
+      squad4("P3b", { type: "time", t: 10, part: 3 }, [u2("balloonMidget", 4)], [[84, 1, 60]], "air", "part 3 t+10, SB-LID", { spawn: "SB-LID", optional: true }),
+      squad4("P3c", { type: "time", t: 20, part: 3 }, [u2("bitbug", 6)], [[82, 1, 60]], "air", "part 3 t+20, SB-S", { spawn: "SB-S", optional: true }),
+      squad4("P4", { type: "time", t: 15, part: 4 }, [u2("boomMidget", 3)], [[80, 0, 60]], "drop", "part 4 t+15, SB-C", { spawn: "SB-C", optional: true })
+    ]
+  };
+  var ENCOUNTERS2 = { E1: E12, E2: E22, E3: E32, E4: E42, E5: E52, E6: E62, E7: E72, E8: E82, BOSS };
+  var EXPECTED_COUNTS2 = {
+    midget: 22,
+    boomMidget: 10,
+    obama: 7,
+    robotLaser: 1,
+    flyingMidget: 8,
+    bitbug: 70,
+    jetObama: 7,
+    balloonMidget: 17,
+    flakPod: 5,
+    riotMidget: 2,
+    hexAcolyte: 1,
+    manaLeech: 1,
+    robotShooter: 1
+  };
+
+  // src/data/levels/L04/S1.js
+  var vistaX = [20, 60, 100, 140, 180, 220];
+  var vistaH = [40, 50, 60, 70, 80, 55];
+  var vista = [];
+  vistaX.forEach((x, i) => {
+    const h = vistaH[i];
+    vista.push(...candle(`s1.vista${i + 1}`, [10, h, 10], [x, h / 2, 8], i % 2 ? "down" : "up"));
+  });
+  [80, 160].forEach((x, i) => {
+    const h = i ? 75 : 65;
+    vista.push(...candle(`s1.vista${i + 7}`, [10, h, 10], [x, h / 2, 112], i ? "down" : "up"));
+  });
+  var S13 = {
+    id: "S1",
+    name: "Genesis Block",
+    origin: [0, 0, 0],
+    start: [4, 0, 60],
+    yaw: -Math.PI / 2,
+    footprint: [240, 120],
+    routeM: 240,
+    navBounds: { min: [0, 0], max: [240, 120] },
+    flyerVolume: { min: [0, -40, 0], max: [240, 70, 120] },
+    voids: [{ id: "s1.void", min: [-20, -200, -20], max: [260, -40, 140], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [4, 0, 60] }],
+    exit: { min: [232, -2, 56], max: [242, 14, 64] },
+    intro: {
+      title: "The Blockchain Void",
+      lines: ["The money leaves the Grove and goes up.", "There is no floor on this exchange. Mind the gap."]
+    },
+    navLinks: [
+      { from: { x: 30, z: 60 }, to: { x: 44, z: 60 }, kind: "bridge" },
+      { from: { x: 218, z: 60 }, to: { x: 224, z: 60 }, kind: "chain" }
+    ],
+    grappleAnchors: [
+      { id: "s1.hook.h1", at: [108, 8, 48], r: 3 },
+      { id: "s1.hook.h2", at: [136, 12, 46], r: 3 },
+      { id: "s1.hook.h3", at: [168, 16, 74], r: 3 },
+      { id: "s1.hook.mem", at: [200, 16, 60], r: 3 }
+    ],
+    geometry: [
+      box({ id: "s1.gen", at: [15, -2, 60], size: [30, 4, 40], mat: "metal" }),
+      box({ id: "s1.mono", at: [4, 6, 46], size: [4, 12, 4], mat: "gold" }),
+      crate("s1.genCr1", [12, 0.6, 52]),
+      crate("s1.genCr2", [12, 0.6, 68]),
+      crate("s1.genCr3", [22, 0.6, 64]),
+      ...sign("s1.signZap", [27, 3, 54], "ZAP THE CONDUIT"),
+      box({ id: "s1.c1post", at: [37, -0.5, 50], size: [3, 3, 3], mat: "metal" }),
+      ...deck("eb1", [30, 0, 60], [44, 0, 60], 4, 0),
+      box({ id: "s1.blk1", at: [62, -2, 60], size: [36, 4, 40], mat: "metal" }),
+      ...hut("s1.hutN", [6, 3, 5], [62, 1.5, 42.5]),
+      ...hut("s1.hutS", [6, 3, 5], [62, 1.5, 77.5]),
+      ticker("s1.tickA", [52, 1, 52], 6),
+      ticker("s1.tickB", [52, 1, 68], 6),
+      ...server("s1.srvA", [68, 1, 54]),
+      ...server("s1.srvB", [68, 1, 66]),
+      crate("s1.blkCr1", [48, 0.6, 64]),
+      crate("s1.blkCr2", [58, 0.6, 48]),
+      crate("s1.blkCr3", [58, 0.6, 72]),
+      crate("s1.blkCr4", [74, 0.6, 64]),
+      box({ id: "s1.wallN", at: [79.7, 2, 48], size: [0.6, 4, 16], mat: "metal" }),
+      box({ id: "s1.wallS", at: [79.7, 2, 72], size: [0.6, 4, 16], mat: "metal" }),
+      box({ id: "s1.launch", at: [85, -2, 60], size: [10, 4, 16], mat: "metal" }),
+      cylinder({ id: "s1.dais", at: [85, 0, 54], r: 2, h: 0.5, mat: "gold" }),
+      ...sign("s1.signHold", [88, 3, 54], "HOLD SPACE TO FLY"),
+      ...island("s1.h1", 6, 3, [108, -3, 48]),
+      ...island("s1.h2", 6, 3, [136, 0, 46]),
+      ...sign("s1.signHover", [136, 6, 40], "HOLD TO HOVER"),
+      ...island("s1.h3", 6, 3, [168, 4, 74]),
+      ...sign("s1.signDrop", [168, 10, 80], "C TO DROP"),
+      box({ id: "s1.file1", at: [136, -6.25, 46], size: [4, 0.5, 4], mat: "metal" }),
+      box({ id: "s1.mem", at: [200, 6, 60], size: [36, 4, 44], mat: "metal" }),
+      ...candle("s1.stubN", [6, 8, 6], [198, 12, 46], "up"),
+      ...candle("s1.stubS", [6, 6, 6], [198, 11, 74], "down"),
+      ...hut("s1.memHut", [5, 3, 5], [212, 9.5, 42.5]),
+      crate("s1.memCr1", [188, 8.6, 64]),
+      crate("s1.memCr2", [204, 8.6, 54]),
+      crate("s1.memCr3", [204, 8.6, 66]),
+      ticker("s1.memWall", [210, 9, 66], 6),
+      ...chain("s1.chainX", [218, 8, 60], [224, 8, 60]),
+      ...tunnel("s1.tun", { length: 16, floorAt: [232, 7.5, 60] }),
+      deckBox("s1.slide.h1", 78, 242, 0, 60, 8),
+      disc({ id: "s1.slide-pad", at: [100, 0.08, 60], r: 1.1, mat: "neon" }),
+      ...vista,
+      disc({ id: "crit-CP1", at: [4, 0.08, 60], r: 1.2, mat: "neon" }),
+      disc({ id: "crit-CP2", at: [85, 0.08, 60], r: 1.2, mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP1", at: [4, 0, 60] },
+      { id: "CP2", at: [85, 0, 60], when: "S1-E1.cleared" }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "s1.kill", y: -40 },
+      { kind: "conduit", id: "c1", at: [37, 2, 50], spell: "chainZap", powers: "eb1" },
+      { kind: "energyBridge", id: "eb1", from: [30, 0, 60], to: [44, 0, 60], width: 4, when: "c1" },
+      door4("gate1", [79.7, 2, 60], [0.6, 4, 8], { opens: "S1-E1.cleared" }),
+      { kind: "jetpack", id: "s1.jet", at: [88, 0.4, 60] },
+      { kind: "jetpack", id: "s1.jet-n", at: [88, 0.4, 58] },
+      { kind: "jetpack", id: "s1.jet-s", at: [88, 0.4, 62] },
+      { kind: "fuelPad", id: "s1.pad.h1", at: [108, 0.2, 48], safe: true },
+      { kind: "fuelPad", id: "s1.pad.h2", at: [136, 3.2, 46], safe: true },
+      { kind: "fuelPad", id: "s1.pad.h3", at: [168, 7.2, 74], safe: true },
+      { kind: "secret", id: "s1.file", at: [136, -6, 46], tickets: 5, story: "Block #0 was mined by a midget on a dare." },
+      ammo3("ammo-s1-1", [8, 0, 56], "bullets", 60),
+      ammo3("ammo-s1-2", [26, 0, 64], "bullets", 60),
+      ammo3("ammo-s1-3", [83, 0, 56], "bullets", 60),
+      ammo3("ammo-s1-4", [132, 3, 54], "bullets", 60),
+      ammo3("ammo-s1-5", [190, 8, 66], "shells", 12)
+    ],
+    encounters: [ENCOUNTERS2.E1, ENCOUNTERS2.E2]
+  };
+
+  // src/data/levels/L04/S2.js
+  var vista2 = [];
+  var heights = [60, 80, 100, 70, 120, 90, 110, 65, 85, 75];
+  [30, 170].forEach((z, row) => {
+    [20, 70, 120, 170, 220].forEach((x, i) => {
+      const h = heights[row * 5 + i];
+      vista2.push(...candle(`s2.vista${row * 5 + i + 1}`, [10, h, 10], [x, h / 2, z], (row + i) % 2 ? "down" : "up"));
+    });
+  });
+  function updraft(id, min, max) {
+    return { kind: "hazardZone", id, hazard: "updraft", accel: 30, min, max };
+  }
+  var S23 = {
+    id: "S2",
+    name: "Candle Forest",
+    origin: [240, 0, -40],
+    start: [6, 0, 100],
+    yaw: -Math.PI / 2,
+    footprint: [270, 200],
+    routeM: 260,
+    navBounds: { min: [0, 0], max: [270, 200] },
+    flyerVolume: { min: [0, -40, 0], max: [270, 100, 200] },
+    voids: [{ id: "s2.void", min: [-20, -200, -20], max: [290, -40, 220], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [6, 0, 100] }],
+    exit: { min: [250, 40, 94], max: [266, 90, 106] },
+    grappleAnchors: [
+      { id: "s2.hook.pit", at: [66, 20, 100], r: 2.4 },
+      { id: "s2.hook.k8", at: [154, 24, 100], r: 2.6 },
+      { id: "s2.hook.k11", at: [200, 48, 100], r: 2.6 },
+      { id: "s2.hook.k14", at: [252, 60, 100], r: 3 }
+    ],
+    navLinks: [
+      { from: { x: 20, z: 100 }, to: { x: 32, z: 100 }, kind: "chain" },
+      { from: { x: 100, z: 100 }, to: { x: 112, z: 100 }, kind: "slider" },
+      { from: { x: 112, z: 100 }, to: { x: 132, z: 100 }, kind: "slider" },
+      { from: { x: 132, z: 100 }, to: { x: 154, z: 100 }, kind: "slider" }
+    ],
+    geometry: [
+      box({ id: "s2.ent", at: [10, -2, 100], size: [20, 4, 20], mat: "metal" }),
+      deckBox("s2.slide.lip", -12, 24, 0, 100, 12),
+      ...stair("s2.slide.climb", [100, 0, 100], [262, 76, 100], 10),
+      disc({ id: "s2.slide-pad", at: [108, 4, 100], r: 1.1, mat: "neon" }),
+      ...chain("s2.chainIn", [20, 0, 100], [32, 0, 100]),
+      box({ id: "s2.porchW", at: [36, -2, 100], size: [8, 4, 12], mat: "metal" }),
+      box({ id: "s2.pit", at: [60, -2, 100], size: [80, 4, 160], mat: "metal" }),
+      disc({ id: "s2.thresh", at: [47, 0.06, 100], r: 2, mat: "neon" }),
+      ...candle("s2.pk1", [8, 6, 8], [54, 3, 40], "up"),
+      ...candle("s2.pk2", [8, 10, 8], [78, 5, 40], "down"),
+      ...candle("s2.pk3", [8, 8, 8], [54, 4, 160], "down"),
+      ...candle("s2.pk4", [8, 12, 8], [78, 6, 160], "up"),
+      ...candle("s2.pk5", [6, 16, 6], [66, 8, 170], "up"),
+      crate("s2.pitCr1", [48, 0.6, 108]),
+      crate("s2.pitCr2", [60, 0.6, 78]),
+      crate("s2.pitCr3", [72, 0.6, 122]),
+      crate("s2.pitCr4", [86, 0.6, 108]),
+      ticker("s2.pitT1", [60, 1, 88], 6),
+      ticker("s2.pitT2", [84, 1, 92], 6),
+      ...hut("s2.pitHut", [5, 3, 5], [88, 1.5, 78]),
+      ...vent("s2.pv1", [46, 0, 80]),
+      ...vent("s2.pv2", [86, 0, 120]),
+      box({ id: "s2.porchE", at: [96, -2, 100], size: [8, 4, 12], mat: "metal" }),
+      box({ id: "s2.book", at: [135, -13, 100], size: [60, 2, 70], mat: "glass" }),
+      ...vent("s2.v1", [122, -12, 100]),
+      ...vent("s2.v2", [144, -12, 112]),
+      box({ id: "s2.rail1", at: [112, 3.7, 100], size: [0.6, 0.6, 60], mat: "trim" }),
+      box({ id: "s2.sl1-deck", at: [112, 5, 74], size: [8, 2, 8], mat: "metal", tag: "mover" }),
+      box({ id: "s2.sl1-wall", at: [116.3, 6.6, 74], size: [0.6, 1.2, 8], mat: "trim" }),
+      box({ id: "s2.rail2", at: [132, 9.7, 100], size: [0.6, 0.6, 60], mat: "trim" }),
+      box({ id: "s2.sl2-deck", at: [132, 11, 126], size: [8, 2, 8], mat: "metal", tag: "mover" }),
+      box({ id: "s2.sl2-wall", at: [136.3, 12.6, 126], size: [0.6, 1.2, 8], mat: "trim" }),
+      ...candle("s2.k8", [12, 20, 12], [154, 10, 100], "up"),
+      ...vent("s2.v3", [154, 20, 100]),
+      ...candle("s2.k9", [8, 18, 8], [176, 21, 80], "down"),
+      ...candle("s2.k10", [8, 22, 8], [176, 23, 120], "up"),
+      ...candle("s2.k11", [12, 24, 12], [200, 30, 100], "up"),
+      ...vent("s2.v4", [200, 42, 100]),
+      ...hollowCandle("s2.k12", [10, 20, 10], [222, 38, 80]),
+      ...candle("s2.k13", [8, 24, 8], [222, 40, 120], "up"),
+      ...candle("s2.k14", [20, 30, 20], [252, 39, 100], "up"),
+      ticker("s2.athT1", [246, 55, 94], 6),
+      ticker("s2.athT2", [246, 55, 106], 6),
+      ...server("s2.athSrv", [254, 55, 100]),
+      disc({ id: "s2.ring", at: [259, 54.1, 100], r: 3, mat: "neon" }),
+      ...vista2,
+      disc({ id: "crit-CP3", at: [36, 0.08, 100], r: 1.2, mat: "neon" }),
+      disc({ id: "crit-CP4", at: [96, 0.08, 100], r: 1.2, mat: "neon" })
+    ],
+    weapons: [
+      { id: "mg-pit", at: [50, 0, 94], gun: "mg", quality: "uncommon", why: "bitbug flocks in S2-E3" }
+    ],
+    checkpoints: [
+      { id: "CP3", at: [36, 0, 100] },
+      { id: "CP4", at: [96, 0, 100], when: "S2-E3.cleared" }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "s2.kill", y: -40 },
+      door4("s2.pitIn", [40.3, 3, 100], [0.6, 6, 8]),
+      door4("s2.pitOut", [91.7, 3, 100], [0.6, 6, 8]),
+      updraft("s2.pv1-up", [43, 0, 77], [49, 18, 83]),
+      updraft("s2.pv2-up", [83, 0, 117], [89, 18, 123]),
+      updraft("s2.v1-up", [119, -12, 97], [125, 14, 103]),
+      updraft("s2.v2-up", [141, -12, 109], [147, 14, 115]),
+      updraft("s2.v3-up", [151, 20, 97], [157, 38, 103]),
+      updraft("s2.v4-up", [197, 42, 97], [203, 56, 103]),
+      { kind: "mover", id: "s2.sl1", mode: "pingpong", speed: 4, from: [112, 5, 74], to: [112, 5, 126], size: [8, 2, 8] },
+      { kind: "mover", id: "s2.sl2", mode: "pingpong", speed: 4, from: [132, 11, 126], to: [132, 11, 74], size: [8, 2, 8] },
+      { kind: "fuelPad", id: "s2.pad.pk5", at: [66, 16.2, 112], safe: true },
+      { kind: "fuelPad", id: "s2.pad.k8", at: [154, 20.2, 100], safe: true },
+      { kind: "fuelPad", id: "s2.pad.k11", at: [200, 42.2, 100], safe: true },
+      { kind: "fuelPad", id: "s2.pad.k14", at: [252, 54.2, 100], safe: true },
+      { kind: "secret", id: "s2.bonk", at: [222, 29, 80], modifier: "moonBoots" },
+      ammo3("ammo-s2-1", [36, 0, 96], "bullets", 60),
+      ammo3("ammo-s2-2", [50, 0, 106], "bullets", 60),
+      ammo3("ammo-s2-3", [80, 0, 104], "bullets", 60),
+      ammo3("ammo-s2-4", [96, 0, 104], "bullets", 60),
+      ammo3("ammo-s2-5", [200, 42, 104], "bullets", 60),
+      { kind: "ammoCrate", id: "crate-l1", at: [66, 0, 108], uses: 3, refill: 0.5, opens: "S2-E3.cleared" },
+      { kind: "manaBloom", id: "bloom-l1", at: [66, 0, 110], amount: 50, regrow: 20, opens: "S2-E3.cleared" },
+      { kind: "chest", id: "chest-l1", at: [66, 0, 104], opens: "S2-E3.cleared", roll: { minTier: "uncommon", avoidCarried: true } }
+    ],
+    encounters: [ENCOUNTERS2.E3, ENCOUNTERS2.E4]
+  };
+
+  // src/data/levels/L04/S3.js
+  var wallX = [95, 120, 145, 170, 195, 220, 245];
+  var walls = [];
+  wallX.forEach((x, i) => {
+    walls.push(...candle(`s3.wallN${i + 1}`, [10, 60, 10], [x, 10, 30], "down"));
+    walls.push(...candle(`s3.wallS${i + 1}`, [10, 60, 10], [x, 10, 90], "down"));
+  });
+  var S33 = {
+    id: "S3",
+    name: "Liquidity Stream",
+    origin: [490, 0, 0],
+    start: [14, 0, 60],
+    yaw: -Math.PI / 2,
+    footprint: [270, 120],
+    routeM: 278,
+    navBounds: { min: [0, 20], max: [270, 110] },
+    flyerVolume: { min: [0, -40, 20], max: [270, 80, 110] },
+    voids: [{ id: "s3.void", min: [-20, -200, 0], max: [290, -40, 130], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [14, 0, 60] }],
+    exit: { min: [262, -6, 54], max: [270, 6, 66] },
+    intro: {
+      title: "Liquidity",
+      lines: ["Bitcoin Obama pumps the price. The Midget dumps it.", "You ride the chart."]
+    },
+    grappleAnchors: [
+      { id: "s3.hook.r1", at: [100, 10, 70], r: 2.4 },
+      { id: "s3.hook.r2", at: [142, 10, 52], r: 2.4 },
+      { id: "s3.hook.r3", at: [186, 8, 66], r: 2.4 },
+      { id: "s3.hook.r4", at: [230, 8, 58], r: 2.4 }
+    ],
+    navLinks: [
+      { from: { x: 34, z: 60 }, to: { x: 54, z: 60 }, kind: "chain" },
+      { from: { x: 106, z: 68 }, to: { x: 136, z: 54 }, kind: "bridge" },
+      { from: { x: 192, z: 65 }, to: { x: 224, z: 59 }, kind: "bridge" }
+    ],
+    geometry: [
+      ...island("s3.head", 16, 4, [18, -4, 60]),
+      box({ id: "s3.depotWall", at: [4, 1.5, 60], size: [0.6, 3, 8], mat: "metal" }),
+      cylinder({ id: "s3.shrine", at: [22, 0, 50], r: 2.5, h: 0.5, mat: "gold" }),
+      disc({ id: "s3.bloom", at: [22, 0.08, 70], r: 1.5, mat: "neon" }),
+      ...sign("s3.sign", [30, 3, 56], "FLAK HITS FLYERS. WALK, SHIELD OR SNIPE."),
+      ...chain("s3.chainA", [34, 0, 60], [54, 0, 60]),
+      ...island("s3.isl1", 7, 3, [61, -3, 60]),
+      box({ id: "s3.slide.lane", at: [140, -0.25, 60], size: [280, 0.5, 36], mat: "metal", tag: "slide" }),
+      crate("s3.isl1Cr1", [56, 0.6, 57.5]),
+      crate("s3.isl1Cr2", [56, 0.6, 62.5]),
+      ...walls,
+      ...island("s3.r1", 6, 3, [100, -1, 70]),
+      box({ id: "s3.r1Wall", at: [104, 2.6, 70], size: [0.6, 1.2, 5], mat: "metal" }),
+      cylinder({ id: "s3.c2post", at: [98, 2, 74], r: 0.5, h: 2, mat: "metal" }),
+      ...podIsle("s3.p2", [122, 1, 46]),
+      box({ id: "s3.railA", at: [120, 7.7, 53], size: [70, 0.6, 0.6], mat: "trim" }),
+      box({ id: "s3.slA-deck", at: [90, 12, 53], size: [10, 8, 1.5], mat: "metal", tag: "mover" }),
+      ...island("s3.r2", 6, 3, [142, -1, 52]),
+      box({ id: "s3.r2Wall", at: [146, 2.6, 52], size: [0.6, 1.2, 5], mat: "metal" }),
+      ...podIsle("s3.p3", [164, -9, 74]),
+      box({ id: "s3.railB", at: [182, 1.7, 68], size: [70, 0.6, 0.6], mat: "trim" }),
+      box({ id: "s3.slB-deck", at: [150, 6, 68], size: [10, 8, 1.5], mat: "metal", tag: "mover" }),
+      ...island("s3.r3", 6, 3, [186, -5, 66]),
+      box({ id: "s3.r3Wall", at: [190, -1, 66], size: [0.6, 2, 5], mat: "metal" }),
+      cylinder({ id: "s3.c3post", at: [184, -2, 70], r: 0.5, h: 2, mat: "metal" }),
+      ...podIsle("s3.p4", [208, 7, 48]),
+      ...island("s3.r4", 6, 3, [230, -5, 58]),
+      box({ id: "s3.mouth", at: [258, -4, 60], size: [24, 4, 28], mat: "metal" }),
+      ticker("s3.mouthWall", [250, -1, 60], 6),
+      ...pylon("s3.pylon", [252, -2, 52]),
+      ...deck("eb2", [106, 8, 68], [136, 8, 54], 4, 8),
+      ...deck("eb3", [192, 8, 65], [224, 8, 59], 4, 8),
+      box({ id: "s3.tun-roof", at: [264, 2.5, 60], size: [12, 1, 8], mat: "metal" }),
+      box({ id: "s3.tun-n", at: [264, 1, 56.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s3.tun-s", at: [264, 1, 63.5], size: [12, 6, 1], mat: "metal" }),
+      ...island("s3.fileIsl", 3, 2, [158, -3, 104]),
+      disc({ id: "crit-CP5", at: [14, 0.08, 60], r: 1.2, mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP5", at: [14, 0, 60] }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "s3.kill", y: -40 },
+      { kind: "depot", id: "depot-a", at: [8, 0, 60], yaw: 90, services: ["crate", "health", "bench", "shop", "checkpoint"] },
+      { kind: "depotCrate", id: "depot-crate-a", at: [8, 0, 60] },
+      { kind: "shrine", id: "s3.shrine-use", at: [22, 0.5, 50], spell: "manaShield" },
+      { kind: "manaBloom", id: "s3.bloom-use", at: [22, 0, 70], amount: 50, regrow: 20 },
+      { kind: "hazardZone", id: "s3.wind", hazard: "wind", min: [80, -8, 44], max: [250, 34, 76], force: [6, 0, 0] },
+      { kind: "mover", id: "s3.slA", mode: "pingpong", speed: 8, pause: 1, from: [90, 12, 53], to: [150, 12, 53], size: [10, 8, 1.5] },
+      { kind: "mover", id: "s3.slB", mode: "pingpong", speed: 8, pause: 1, from: [150, 6, 68], to: [214, 6, 68], size: [10, 8, 1.5] },
+      { kind: "conduit", id: "c2", at: [98, 4.5, 74], spell: "chainZap", powers: "eb2" },
+      { kind: "energyBridge", id: "eb2", from: [106, 2, 68], to: [136, 2, 54], width: 4, when: "c2" },
+      { kind: "conduit", id: "c3", at: [184, 0.5, 70], spell: "chainZap", powers: "eb3" },
+      { kind: "energyBridge", id: "eb3", from: [192, -2, 65], to: [224, -2, 59], width: 4, when: "c3" },
+      { kind: "target", id: "s3.gatePylon", at: [252, -2, 52], hp: 228, def: "pylon", weak: 2 },
+      door4("s3.mouthGate", [258.3, 0, 60], [0.6, 4, 6], { opens: "s3.gatePylon.destroyed" }),
+      { kind: "fuelPad", id: "s3.pad.r1", at: [100, 2.2, 70], safe: true },
+      { kind: "fuelPad", id: "s3.pad.r2", at: [142, 2.2, 52], safe: true },
+      { kind: "fuelPad", id: "s3.pad.r3", at: [186, -1.8, 66], safe: true },
+      { kind: "fuelPad", id: "s3.pad.r4", at: [230, -1.8, 58], safe: true },
+      { kind: "secret", id: "s3.file", at: [158, -1, 104], tickets: 5, story: "The spread is the fee. The fee is the point." },
+      ammo3("ammo-s3-1", [40, 0, 60], "bullets", 60),
+      ammo3("ammo-s3-2", [100, 2, 66], "bullets", 60),
+      ammo3("ammo-s3-3", [142, 2, 48], "sniper", 8),
+      ammo3("ammo-s3-4", [186, -2, 62], "bullets", 60),
+      ammo3("ammo-s3-5", [252, -2, 66], "bullets", 60)
+    ],
+    encounters: [ENCOUNTERS2.E5]
+  };
+
+  // src/data/levels/L04/S4.js
+  var S43 = {
+    id: "S4",
+    name: "Mine Field",
+    origin: [750, 0, -40],
+    start: [6, 0, 100],
+    yaw: -Math.PI / 2,
+    footprint: [250, 200],
+    routeM: 220,
+    navBounds: { min: [0, 40], max: [250, 160] },
+    flyerVolume: { min: [0, -60, 40], max: [250, 90, 160] },
+    voids: [{ id: "s4.void", min: [-20, -200, 20], max: [270, -60, 180], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [6, 0, 100] }],
+    exit: { min: [222, -2, 94], max: [230, 6, 106] },
+    grappleAnchors: [
+      { id: "s4.hook.b3", at: [68, 14, 98], r: 2.4 },
+      { id: "s4.hook.b7", at: [110, 18, 72], r: 2.4 },
+      { id: "s4.hook.b9", at: [132, 12, 100], r: 2.4 },
+      { id: "s4.hook.hb5", at: [177, 26, 100], r: 2.2 }
+    ],
+    navLinks: [
+      { from: { x: 169, z: 100 }, to: { x: 185, z: 100 }, kind: "bridge" }
+    ],
+    geometry: [
+      box({ id: "s4.ent", at: [12, -2, 100], size: [24, 4, 24], mat: "metal" }),
+      deckBox("s4.slide.lip", -16, 8, 0, 100, 8),
+      ...stair("s4.slide.up", [20, 0, 100], [36, 10, 100], 10),
+      deckBox("s4.slide.field", 36, 140, 10, 100, 10),
+      ...stair("s4.slide.down", [140, 10, 100], [156, 0, 100], 10),
+      box({ id: "s4.entWall", at: [22, 0.6, 100], size: [0.6, 1.2, 8], mat: "metal" }),
+      ...sign("s4.sign", [22, 3, 92], "POP THEM FROM HERE"),
+      box({ id: "s4.b1", at: [44, -1, 84], size: [10, 6, 10], mat: "metal" }),
+      box({ id: "s4.b2", at: [50, 2, 116], size: [8, 8, 8], mat: "metal" }),
+      box({ id: "s4.b3", at: [68, 6, 98], size: [14, 4, 8], mat: "metal" }),
+      box({ id: "s4.b4", at: [74, -7, 74], size: [6, 6, 6], mat: "metal" }),
+      box({ id: "s4.b5", at: [88, 7, 124], size: [10, 10, 10], mat: "metal" }),
+      box({ id: "s4.b6", at: [96, 0, 92], size: [8, 4, 14], mat: "metal" }),
+      box({ id: "s4.b7", at: [110, 9, 72], size: [12, 6, 12], mat: "metal" }),
+      box({ id: "s4.b8", at: [116, 0, 112], size: [6, 12, 6], mat: "metal" }),
+      box({ id: "s4.b9", at: [132, 4, 100], size: [12, 4, 12], mat: "metal" }),
+      box({ id: "s4.b9Wall", at: [128, 6.6, 100], size: [0.6, 1.2, 6], mat: "metal" }),
+      box({ id: "s4.porchW", at: [142, -2, 100], size: [8, 4, 12], mat: "metal" }),
+      box({ id: "s4.chFloorN", at: [177, -2, 80.5], size: [62, 4, 23], mat: "metal" }),
+      box({ id: "s4.chFloorS", at: [177, -2, 119.5], size: [62, 4, 23], mat: "metal" }),
+      box({ id: "s4.chFloorW", at: [157.5, -2, 100], size: [23, 4, 16], mat: "metal" }),
+      box({ id: "s4.chFloorE", at: [196.5, -2, 100], size: [23, 4, 16], mat: "metal" }),
+      ...lockRoom("s4.chRoom", {
+        min: [147, 0, 70],
+        max: [207, 30, 130],
+        gaps: [{ side: "w", at: 100, width: 4, height: 6 }, { side: "e", at: 100, width: 4, height: 6 }]
+      }),
+      disc({ id: "s4.thresh", at: [153, 0.06, 100], r: 2, mat: "neon" }),
+      box({ id: "s4.hb1", at: [159, 8.5, 82], size: [8, 3, 8], mat: "metal" }),
+      box({ id: "s4.hb2", at: [195, 10.5, 82], size: [8, 3, 8], mat: "metal" }),
+      box({ id: "s4.hb3", at: [159, 12.5, 118], size: [8, 3, 8], mat: "metal" }),
+      box({ id: "s4.hb4", at: [195, 6.5, 118], size: [8, 3, 8], mat: "metal" }),
+      box({ id: "s4.hb5", at: [177, 18.5, 100], size: [6, 3, 6], mat: "metal" }),
+      box({ id: "s4.chSrv1", at: [154, 1, 92], size: [1.2, 2, 2.4], mat: "metal" }),
+      box({ id: "s4.chSrv2", at: [154, 1, 108], size: [1.2, 2, 2.4], mat: "metal" }),
+      box({ id: "s4.chSrv3", at: [200, 1, 92], size: [1.2, 2, 2.4], mat: "metal" }),
+      box({ id: "s4.chSrv4", at: [200, 1, 108], size: [1.2, 2, 2.4], mat: "metal" }),
+      box({ id: "s4.chCr1", at: [165, 0.6, 76], size: [1.6, 1.2, 1.6], mat: "crate" }),
+      box({ id: "s4.chCr2", at: [189, 0.6, 76], size: [1.6, 1.2, 1.6], mat: "crate" }),
+      box({ id: "s4.chCr3", at: [165, 0.6, 124], size: [1.6, 1.2, 1.6], mat: "crate" }),
+      box({ id: "s4.chCr4", at: [189, 0.6, 124], size: [1.6, 1.2, 1.6], mat: "crate" }),
+      box({ id: "s4.chT1", at: [166, 1, 78], size: [0.6, 2, 6], mat: "neon" }),
+      box({ id: "s4.chT2", at: [188, 1, 122], size: [0.6, 2, 6], mat: "neon" }),
+      cylinder({ id: "s4.c4post", at: [152, 0, 76], r: 0.5, h: 2, mat: "metal" }),
+      sphere({ id: "s4.wellVis", at: [177, -8, 100], r: 3, mat: "metal" }),
+      disc({ id: "s4.well1", at: [177, -5, 100], r: 6, mat: "neon" }),
+      disc({ id: "s4.well2", at: [177, -5.1, 100], r: 9, mat: "neon" }),
+      disc({ id: "s4.well3", at: [177, -5.2, 100], r: 12, mat: "neon" }),
+      ...deck("eb4", [169, 0, 100], [185, 0, 100], 4, 0),
+      box({ id: "s4.exit", at: [219, -2, 100], size: [22, 4, 20], mat: "metal" }),
+      box({ id: "s4.duckCache", at: [177, 30.6, 100], size: [1.2, 0.8, 0.8], mat: "gold" }),
+      box({ id: "s4.tun-roof", at: [224, 4.5, 100], size: [12, 1, 8], mat: "metal" }),
+      box({ id: "s4.tun-n", at: [224, 3, 96.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s4.tun-s", at: [224, 3, 103.5], size: [12, 6, 1], mat: "metal" }),
+      disc({ id: "crit-CP6", at: [8, 0.08, 100], r: 1.2, mat: "neon" }),
+      disc({ id: "crit-CP7", at: [142, 0.08, 100], r: 1.2, mat: "neon" }),
+      disc({ id: "crit-CP8", at: [219, 0.08, 100], r: 1.2, mat: "neon" })
+    ],
+    weapons: [
+      { id: "sn-mines", at: [16, 0, 94], gun: "sniper", quality: "uncommon", why: "Balloon Midgets in S4-E6 and Jet Obamas in S4-E7" }
+    ],
+    checkpoints: [
+      { id: "CP6", at: [8, 0, 100] },
+      { id: "CP7", at: [142, 0, 100], when: "S4-E6.cleared" },
+      { id: "CP8", at: [219, 0, 100], when: "S4-E7.cleared" }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "s4.kill", y: -60 },
+      { kind: "hazardZone", id: "s4.wind", hazard: "wind", min: [36, -10, 60], max: [126, 30, 140], force: [0, 0, 3] },
+      door4("s4.chIn", [146.3, 3, 100], [0.6, 6, 4]),
+      door4("s4.chOut", [207.7, 3, 100], [0.6, 6, 4]),
+      { kind: "gravityWell", id: "s4.well", at: [177, -8, 100], r: 26, strength: 5, killR: 4 },
+      { kind: "conduit", id: "c4", at: [152, 2.5, 76], spell: "chainZap", powers: "eb4" },
+      { kind: "energyBridge", id: "eb4", from: [169, 0, 100], to: [185, 0, 100], width: 4, when: "c4" },
+      { kind: "fuelPad", id: "s4.pad.b3", at: [68, 8.2, 98], safe: true },
+      { kind: "fuelPad", id: "s4.pad.b9", at: [132, 6.2, 100], safe: true },
+      { kind: "fuelPad", id: "s4.pad.w", at: [150, 0.2, 94], safe: true },
+      { kind: "fuelPad", id: "s4.pad.e", at: [204, 0.2, 94], safe: true },
+      { kind: "power", id: "s4.overshield", at: [177, 20, 100], modifier: "overshield" },
+      { kind: "cache", id: "s4.cache", at: [177, 30.6, 100], gun: "duck", quality: "legendary" },
+      { kind: "secret", id: "s4.file", at: [74, -4, 74], tickets: 5, story: "Dust: balances too small to move, so they float." },
+      ammo3("ammo-s4-1", [8, 0, 104], "bullets", 60),
+      ammo3("ammo-s4-2", [16, 0, 106], "sniper", 8),
+      ammo3("ammo-s4-3", [96, 2, 96], "sniper", 8),
+      ammo3("ammo-s4-4", [130, 6, 104], "sniper", 8),
+      ammo3("ammo-s4-5", [142, 0, 96], "bullets", 60),
+      ammo3("ammo-s4-6", [150, 0, 106], "bullets", 60),
+      ammo3("ammo-s4-7", [204, 0, 106], "bullets", 60),
+      ammo3("ammo-s4-8", [159, 10, 82], "sniper", 8),
+      ammo3("ammo-s4-9", [219, 0, 94], "bullets", 60),
+      ammo3("ammo-s4-10", [176, 30.6, 101], "rubber", 16),
+      ammo3("ammo-s4-11", [178, 30.6, 101], "rubber", 16),
+      { kind: "ammoCrate", id: "crate-l2", at: [204, 0, 100], uses: 3, refill: 0.5, opens: "S4-E7.cleared" },
+      { kind: "health", id: "s4.l2-health", at: [204, 0, 102], opens: "S4-E7.cleared" },
+      { kind: "chest", id: "chest-l2", at: [204, 0, 96], opens: "S4-E7.cleared", roll: { minTier: "uncommon", avoidCarried: true } }
+    ],
+    encounters: [ENCOUNTERS2.E6, ENCOUNTERS2.E7]
+  };
+
+  // src/data/levels/L04/S5.js
+  var S53 = {
+    id: "S5",
+    name: "Ledger Hub",
+    origin: [960, 0, -20],
+    start: [4, 0, 80],
+    yaw: -Math.PI / 2,
+    footprint: [140, 160],
+    routeM: 205,
+    navBounds: { min: [0, 20], max: [140, 140] },
+    flyerVolume: { min: [0, -40, 20], max: [140, 80, 140] },
+    voids: [{ id: "s5.void", min: [-20, -200, 0], max: [160, -40, 170], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [4, 0, 80] }],
+    exit: { min: [130, -1, 74], max: [138, 6, 86] },
+    grappleAnchors: [
+      { id: "s5.hook.n2", at: [31, 20, 97], r: 2.2 },
+      { id: "s5.hook.n1", at: [60, 16, 46], r: 2.2 },
+      { id: "s5.hook.n3", at: [89, 24, 97], r: 2.2 },
+      { id: "s5.hook.roof", at: [60, 22, 100], r: 2.4 }
+    ],
+    navLinks: [
+      { from: { x: 102, z: 80 }, to: { x: 112, z: 80 }, kind: "bridge" }
+    ],
+    geometry: [
+      box({ id: "s5.ent", at: [9, -2, 80], size: [18, 4, 10], mat: "metal" }),
+      ...island("s5.isl", 42, 6, [60, -6, 80]),
+      cylinder({ id: "s5.tower", at: [60, 0, 100], r: 8, h: 16, mat: "metal" }),
+      box({ id: "s5.roofP1", at: [60, 16.6, 73], size: [0.6, 1.2, 4], mat: "metal" }),
+      box({ id: "s5.roofP2", at: [60, 16.6, 87], size: [0.6, 1.2, 4], mat: "metal" }),
+      box({ id: "s5.stepA", at: [48, 2, 76], size: [4, 4, 4], mat: "metal" }),
+      box({ id: "s5.stepB", at: [49, 4, 84], size: [4, 8, 4], mat: "metal" }),
+      box({ id: "s5.stepC", at: [54, 6, 90], size: [4, 12, 4], mat: "metal" }),
+      ticker("s5.tickW1", [38, 1, 72], 6),
+      ticker("s5.tickW2", [38, 1, 88], 6),
+      ...server("s5.srvW1", [30, 1, 68]),
+      ...server("s5.srvW2", [46, 1, 64]),
+      ...server("s5.srvW3", [46, 1, 96]),
+      crate("s5.crW1", [26, 0.6, 74]),
+      crate("s5.crW2", [26, 0.6, 86]),
+      crate("s5.crW3", [44, 0.6, 80]),
+      ...hut("s5.hutN", [8, 3, 6], [60, 1.5, 44]),
+      ...hut("s5.hutS", [8, 3, 6], [60, 1.5, 116]),
+      cylinder({ id: "s5.n1plat", at: [60, 8, 46], r: 5, h: 2, mat: "stone" }),
+      cylinder({ id: "s5.n2plat", at: [31, 12, 97], r: 5, h: 2, mat: "stone" }),
+      cylinder({ id: "s5.n3plat", at: [89, 16, 97], r: 5, h: 2, mat: "stone" }),
+      ...validatorNode("n1-body", [60, 10, 46]),
+      ...validatorNode("n2-body", [31, 14, 97]),
+      ...validatorNode("n3-body", [89, 18, 97]),
+      ...server("s5.srvE1", [84, 1, 72]),
+      ...server("s5.srvE2", [84, 1, 88]),
+      crate("s5.crE", [96, 0.6, 76]),
+      box({ id: "s5.vaultFloor", at: [123, -2, 80], size: [22, 4, 24], mat: "metal" }),
+      box({ id: "s5.vaultN", at: [123, 2.5, 68.5], size: [22, 5, 1], mat: "metal" }),
+      box({ id: "s5.vaultS", at: [123, 2.5, 91.5], size: [22, 5, 1], mat: "metal" }),
+      box({ id: "s5.vaultW1", at: [112.5, 2.5, 72.5], size: [1, 5, 9], mat: "metal" }),
+      box({ id: "s5.vaultW2", at: [112.5, 2.5, 87.5], size: [1, 5, 9], mat: "metal" }),
+      box({ id: "s5.vaultE1", at: [133.5, 2.5, 72.5], size: [1, 5, 9], mat: "metal" }),
+      box({ id: "s5.vaultE2", at: [133.5, 2.5, 87.5], size: [1, 5, 9], mat: "metal" }),
+      box({ id: "s5.vaultRoof", at: [123, 5.5, 80], size: [22, 1, 24], mat: "metal" }),
+      box({ id: "s5.batLedge", at: [60, -9.25, 114], size: [4, 0.5, 4], mat: "metal" }),
+      ...deck("eb5", [102, 0, 80], [112, 0, 80], 5, 0),
+      disc({ id: "crit-CP9", at: [123, 0.08, 80], r: 1.2, mat: "neon" })
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP9", at: [123, 0, 80], when: "S5-E8.cleared" }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "s5.kill", y: -40 },
+      { kind: "target", id: "n1", at: [60, 10, 46], hp: 228, def: "validatorNode", weak: 2 },
+      { kind: "target", id: "n2", at: [31, 14, 97], hp: 228, def: "validatorNode", weak: 2 },
+      { kind: "target", id: "n3", at: [89, 18, 97], hp: 228, def: "validatorNode", weak: 2 },
+      { kind: "energyBridge", id: "eb5", from: [102, 0, 80], to: [112, 0, 80], width: 5, when: "nodes" },
+      door4("s5.vaultDoor", [112.5, 2, 80], [0.6, 4, 6], { opens: "S5-E8.cleared" }),
+      door4("s5.exitDoor", [133.5, 2, 80], [0.6, 4, 6]),
+      { kind: "depot", id: "depot-b", at: [123, 0, 74], yaw: 180, services: ["crate", "health", "bench", "shop", "checkpoint"] },
+      { kind: "depotCrate", id: "depot-crate-b", at: [123, 0, 74] },
+      { kind: "power", id: "s5.fuel", at: [60, 17, 100], modifier: "fuel" },
+      { kind: "fuelPad", id: "s5.pad.w", at: [24, 0.2, 80], safe: true },
+      { kind: "fuelPad", id: "s5.pad.e", at: [92, 0.2, 80], safe: true },
+      { kind: "secret", id: "s5.battery", at: [60, -9, 114], mana: 10, manaRegen: 0.5 },
+      ammo3("ammo-s5-1", [9, 0, 77], "bullets", 60),
+      ammo3("ammo-s5-2", [34, 0, 92], "sniper", 8),
+      ammo3("ammo-s5-3", [60, 16, 76], "bullets", 60),
+      ammo3("ammo-s5-4", [92, 0, 84], "bullets", 60),
+      ammo3("ammo-s5-5", [118, 0, 84], "bullets", 60)
+    ],
+    encounters: [ENCOUNTERS2.E8]
+  };
+
+  // src/data/levels/L04/SB.js
+  var tiles = [];
+  for (let j = 0; j < 5; j++) {
+    for (let i = 0; i < 5; i++) {
+      if ((i === 0 || i === 4) && (j === 0 || j === 4)) continue;
+      const drop = (i + j) % 2 === 1;
+      const rise = i === 2 && j === 0 ? 6 : i === 2 && j === 4 ? 3 : 0;
+      tiles.push({
+        ...box({
+          id: `sb.t${i}${j}`,
+          at: [46 + 12 * i, -2, 36 + 12 * j],
+          size: [12, 4, 12],
+          mat: "metal"
+        }),
+        tag: drop ? "drop" : "keep",
+        rise
+      });
+    }
+  }
+  var rivets = [
+    [64, 54],
+    [76, 54],
+    [64, 66],
+    [76, 66],
+    [52, 54],
+    [52, 66],
+    [88, 54],
+    [88, 66]
+  ].map(([x, z], n) => cylinder({ id: `sb.rivet${n + 1}`, at: [x, -4, z], r: 1.5, h: 4, mat: "trim" }));
+  var vista3 = [];
+  for (let i = 0; i < 8; i++) {
+    const a = i / 8 * Math.PI * 2;
+    const h = 60;
+    const y = 20 + h / 2;
+    vista3.push(...candle(`sb.vista${i + 1}`, [10, h, 10], [70 + Math.cos(a) * 45, y, 60 + Math.sin(a) * 45], i % 2 ? "down" : "up"));
+  }
+  var SB = {
+    id: "SB",
+    name: "The Exchange",
+    origin: [1088, 0, 0],
+    start: [4, 0, 60],
+    yaw: -Math.PI / 2,
+    footprint: [110, 120],
+    routeM: 110,
+    navBounds: { min: [0, 20], max: [110, 100] },
+    flyerVolume: { min: [0, -40, 20], max: [110, 16, 100] },
+    voids: [{
+      id: "sb.void",
+      min: [-20, -200, 0],
+      max: [130, -40, 130],
+      penalty: 0.25,
+      invuln: 1,
+      mode: "fixed",
+      when: "flashCrash",
+      to: [70, 0, 60]
+    }],
+    exit: null,
+    intro: {
+      title: "The Pump & Dump Duo",
+      lines: ["Shiller shills.", "One counts. One flies."]
+    },
+    grappleAnchors: [
+      { id: "sb.hook.moon", at: [70, 12, 36], r: 2.6 },
+      { id: "sb.hook.py2", at: [92, 16, 74], r: 2.2 },
+      { id: "sb.hook.py3", at: [48, 18, 74], r: 2.2 },
+      { id: "sb.hook.lid", at: [70, 14, 60], r: 2.4 }
+    ],
+    navLinks: [
+      { from: { x: 52, z: 51 }, to: { x: 88, z: 51 }, kind: "slider" },
+      { from: { x: 88, z: 69 }, to: { x: 52, z: 69 }, kind: "slider" }
+    ],
+    geometry: [
+      box({ id: "sb.vest", at: [11, -2, 60], size: [22, 4, 16], mat: "metal" }),
+      cylinder({ id: "sb.jetDais", at: [6, 0, 54], r: 1.5, h: 0.5, mat: "gold" }),
+      box({ id: "sb.cause", at: [31, -0.5, 60], size: [18, 1, 6], mat: "metal" }),
+      box({ id: "sb.gateP1", at: [39.7, 2.5, 56.5], size: [1, 5, 1], mat: "metal" }),
+      box({ id: "sb.gateP2", at: [39.7, 2.5, 63.5], size: [1, 5, 1], mat: "metal" }),
+      ...tiles,
+      ...rivets,
+      cylinder({ id: "sb.podium", at: [70, 0, 60], r: 3, h: 1, mat: "gold" }),
+      ...candle("sb.bar1", [3, 3, 3], [58, 1.5, 46], "up"),
+      ...candle("sb.bar2", [3, 4, 3], [82, 2, 46], "down"),
+      ...candle("sb.bar3", [3, 4, 3], [58, 2, 74], "up"),
+      ...candle("sb.bar4", [3, 3, 3], [82, 1.5, 74], "down"),
+      crate("sb.chainW1", [46, 0.6, 48]),
+      crate("sb.chainW2", [46, 0.6, 72]),
+      ...chain("sb.chainW", [46, 1.2, 46], [46, 1.2, 52]),
+      crate("sb.chainE1", [94, 0.6, 55.5]),
+      crate("sb.chainE2", [94, 0.6, 64.5]),
+      ...chain("sb.chainE", [94, 1.2, 56.5], [94, 1.2, 63.5]),
+      box({ id: "sb.SLa-deck", at: [52, 1.25, 51], size: [3, 2.5, 3], mat: "metal", tag: "mover" }),
+      box({ id: "sb.SLb-deck", at: [88, 1.25, 69], size: [3, 2.5, 3], mat: "metal", tag: "mover" }),
+      ...pylon("sb.py1-vis", [70, 0, 35]),
+      cylinder({ id: "sb.py2stub", at: [92, 0, 74], r: 1.5, h: 5, mat: "candleDown" }),
+      ...pylon("sb.py2-vis", [92, 5, 74]),
+      cylinder({ id: "sb.py3stub", at: [48, 0, 74], r: 1.5, h: 8, mat: "candleUp" }),
+      ...pylon("sb.py3-vis", [48, 8, 74]),
+      ...pylon("sb.cb1-vis", [47, 0, 66]),
+      ...pylon("sb.cb2-vis", [93, 0, 66]),
+      box({ id: "sb.lid", at: [70, 16.3, 60], size: [56, 0.6, 56], mat: "forceField", tag: "lockWall" }),
+      ...fireRing("sb.ring", { at: [70, 0, 60], r: 27.8, h: 4 }),
+      ...vista3,
+      disc({ id: "crit-CP10", at: [11, 0.08, 60], r: 1.2, mat: "neon" })
+    ],
+    weapons: [
+      { id: "bz-duo", at: [6, 0, 66], gun: "bazooka", quality: "uncommon", why: "pylons and the Duo in SB-BOSS" }
+    ],
+    checkpoints: [
+      { id: "CP10", at: [11, 0, 60] }
+    ],
+    mechanisms: [
+      { kind: "killPlane", id: "sb.kill", y: -40, rescue: [70, 0, 60], when: "flashCrash" },
+      { kind: "jetpack", id: "sb.jet", at: [6, 1.2, 54], skipIfOwned: true },
+      { kind: "jetpack", id: "sb.jet-lane", at: [12, 0.4, 60], skipIfOwned: true },
+      door4("sb.gate", [39.7, 3, 60], [0.6, 6, 6], { opens: "p.jet.has" }),
+      { kind: "fireRing", id: "sb.fire", at: [70, 0, 60], r: [27.8, 26.8, 25.5] },
+      { kind: "mover", id: "sb.SLa", mode: "pingpong", speed: 3, from: [52, 1.25, 51], to: [88, 1.25, 51], size: [3, 2.5, 3] },
+      { kind: "mover", id: "sb.SLb", mode: "pingpong", speed: 3, from: [88, 1.25, 69], to: [52, 1.25, 69], size: [3, 2.5, 3] },
+      { kind: "depotCrate", id: "depot-crate-vest", at: [18, 0, 60] },
+      { kind: "depotCrate", id: "depot-crate-arena", at: [74, 0, 64.5] },
+      { kind: "fuelPad", id: "sb.pad.vest", at: [16, 0.2, 66], safe: true },
+      { kind: "fuelPad", id: "sb.pad.t31", at: [86, 0.2, 44], safe: true },
+      { kind: "fuelPad", id: "sb.pad.t13", at: [54, 0.2, 76], safe: true },
+      { kind: "power", id: "sb.fuel", at: [70, 1, 60], modifier: "fuel", when: "part:5" },
+      ammo3("ammo-sb-1", [14, 0, 54], "bullets", 60),
+      ammo3("ammo-sb-2", [9, 0, 66], "rockets", 3),
+      ammo3("ammo-sb-3", [62, 0, 44], "bullets", 60),
+      ammo3("ammo-sb-4", [78, 0, 76], "bullets", 60),
+      ammo3("ammo-sb-5", [78, 0, 44], "rockets", 3),
+      { kind: "ammoCrate", id: "crate-l3", at: [70, 1, 60], uses: 3, refill: 0.5, opens: "SB-BOSS.cleared" },
+      {
+        kind: "bossReward",
+        id: "sb.reward",
+        at: [70, 1, 60],
+        spell: "pumpIt",
+        guns: { rare: 2, boss: ["ray", "bigbullets"] }
+      }
+    ],
+    encounters: [ENCOUNTERS2.BOSS]
+  };
+
+  // src/data/levels/L04/enemies.js
+  var L04_FLYERS = {
+    bitbug: {
+      archetype: "swarmFlock",
+      hp: 12,
+      hpTier: 18,
+      seconds: 3,
+      note: "Live dress() hp is 18. Flocks of 6 count as 1 against maxAlive."
+    },
+    jetObama: {
+      archetype: "jetFlyer",
+      hp: 80,
+      hpTier: 122,
+      seconds: 9,
+      thruster: 2,
+      death: { r: 3, damage: 15 },
+      note: "Live dress() hp is 55 and the weak spot is 2.5\xD7. The level wants \xD72."
+    },
+    balloonMidget: {
+      archetype: "floaterMine",
+      hp: 10,
+      hpTier: 15,
+      seconds: 5,
+      speed: 3,
+      fuse: 2.5,
+      burst: { r: 4, damage: 20, damageTier: 30 },
+      note: "Live dress() hp is 28 and the blast is 18 in r 2.6."
+    }
+  };
+  var FLAK_POD = {
+    id: "flakPod",
+    name: "Gas Fee Flak Pod",
+    archetype: "flakTurret",
+    hp: 160,
+    hpTier: 243,
+    stagger: false,
+    radius: 1.3,
+    height: 2.6,
+    speed: 0,
+    turn: 120,
+    pitch: [-5, 85],
+    range: 45,
+    airborne: { groundedFor: 0.35, feetAbove: 1.2 },
+    dropLock: 0.5,
+    tell: 0.9,
+    shells: 4,
+    shellGap: 0.22,
+    shellSpeed: 24,
+    shellRadius: 0.3,
+    fuse: 2.5,
+    burst: { r: 3.2, damage: [8, 4], damageTier: [12, 6] },
+    fuelDrain: 18,
+    lead: 0.7,
+    between: [3, 3.6],
+    gooJam: 4,
+    zapStun: 1.5,
+    shield: { absorb: 0.6, fuel: 0, manaPerHit: 6 },
+    elite: {
+      name: "Priority Fee",
+      hp: 400,
+      hpTier: 608,
+      shells: 6,
+      range: 55,
+      scale: 1.25
+    },
+    drops: { ammo: 0.85, gun: 0.08, tickets: 4, resources: 0 },
+    seconds: 9,
+    look: [
+      { kind: "cylinder", at: [0, 0, 0], r: 1.3, h: 1, mat: "metal" },
+      { kind: "sphere", at: [0, 1.7, 0], r: 0.85, mat: "neon", color: 11693055 },
+      { kind: "box", at: [0.25, 1.7, 0.6], size: [0.3, 0.3, 1.6], mat: "metal" },
+      { kind: "box", at: [-0.25, 1.7, 0.6], size: [0.3, 0.3, 1.6], mat: "metal" },
+      { kind: "box", at: [0, 0.8, -1.2], size: [0.5, 0.5, 0.3], mat: "metal" }
+    ],
+    hitboxes: [
+      { zone: "body", shape: "cylinder", r: 1.3, y0: 0, y1: 1 },
+      { zone: "armor", shape: "sphere", r: 0.85, y: 1.7, mult: 0.4 },
+      { zone: "weak", shape: "sphere", r: 0.4, y: 0.8, z: -1.2, mult: 2.5, onlyWhen: "vent" }
+    ]
+  };
+  var DUO = {
+    k: 1.52,
+    obama: { pump: 578, hype: 669, dump: 760, total: 2007 },
+    midget: { smallCap: 684, moon: 783, squeeze: 852, total: 2319 },
+    pylon: 274,
+    breaker: 365,
+    names: { obama: "Bitcoin Obama", midget: "The Midget", duo: "The Pump & Dump Duo" }
+  };
+  var L04_SPELLS = {
+    held: ["gooBolt", "chainZap", "carpet", "yeet", "swarm"],
+    shrine: "manaShield",
+    reward: "pumpIt"
+  };
+
+  // src/data/levels/L04/index.js
+  var L04_PACING = [
+    ["S1-E1", 70.2],
+    ["jetpack", 42],
+    ["S1-E2", 70.4],
+    ["S2-E3", 142.1],
+    ["S2-E4", 79.1],
+    ["depot-a", 65.5],
+    ["S3-E5", 125.2],
+    ["S4-E6", 75.6],
+    ["S4-E7", 175],
+    ["S5-E8", 125.5],
+    ["depot-b", 56.8],
+    ["SB-BOSS", 257.3]
+  ];
+  var L04_BOT = [
+    { section: "S1", steps: ["spawn", "zap c1 from (28, 0, 60)", "eb1", "clear E1", "gate1", "pedestal", "jet h1 h2 h3", "clear E2", "chain", "tunnel"] },
+    { section: "S2", steps: ["porch", "cross x 47", "take mg-pit", "hold pk5 through 4 waves", "jet sl1 sl2 K8", "v3", "K11", "v4", "K14", "ring"] },
+    { section: "S3", steps: ["depot", "shrine", "chain", "FP1 on foot", "zap c2", "walk eb2", "zap c3", "walk eb3", "destroy the gate pylon", "tunnel"] },
+    { section: "S4", steps: ["take sn-mines", "snipe A and B from the wall", "jet b3 b6 b9", "cross x 153", "fight from hb3", "zap c4", "eb4", "pod", "exit"] },
+    { section: "S5", steps: ["plaza", "jet n2 n1 n3", "roof", "vault", "depot", "exit door"] },
+    { section: "SB", steps: ["pedestal", "gate", "pylons from the centre tile", "breakers from the centre tile", "follow the Midget cycle with jet steps"] }
+  ];
+  function shift(at2, origin) {
+    return [at2[0] + origin[0], (at2[1] || 0) + (origin[1] || 0), at2[2] + origin[2]];
+  }
+  var BUILT2 = makeV2Level({
     id: "L04",
     name: "The Blockchain Void",
     stage: "void",
     tier: 4,
-    parTime: 18 * 60,
+    parTime: 20 * 60,
     jetpack: "pickup",
-    sections: [
-      {
-        id: "S1",
-        name: "Candle Forest",
-        length: 52,
-        floor: "metal",
-        encounters: [{ id: "E1", x: 18, space: "sky", units: [["bitbug", 5]] }],
-        weapons: [{ id: "mg-bugs", x: 28, gun: "mg", why: "bitbug flocks" }],
-        mechanisms: [
-          { kind: "jetpack", id: "jetpack-1", x: 12 },
-          { kind: "jumpPad", id: "updraft", x: 22, power: 14 }
-        ],
-        secret: { x: 8, modifier: "moonBoots" }
-      },
-      {
-        id: "S2",
-        name: "Mine Field",
-        length: 52,
-        floor: "metal",
-        intro: card3("Liquidity", ["Bitcoin Obama pumps the price. The Midget dumps it.", "You ride the chart."]),
-        encounters: [{ id: "E2", x: 16, space: "sky", units: [["jetObama", 2], ["balloonMidget", 3]] }],
-        weapons: [{ id: "sn-mine", x: 30, gun: "sniper", why: "jet Obamas between candles" }],
-        mechanisms: [
-          { kind: "fuel", id: "fuel-1", x: 12 },
-          { kind: "hazard", id: "gravity-well", x: 24, slow: 0.4, dps: 0 },
-          { kind: "power", id: "infinite-fuel", x: 36, modifier: "fuel" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "The Exchange",
-        length: 50,
-        intro: card3("The Blockchain Void", ["The Pump and Dump Duo.", "One counts. One flies."]),
-        encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["obamaDuo", 1], ["midgetDuo", 1]] }],
-        weapons: [{ id: "bz-duo", x: 10, gun: "bazooka", why: "the duo on the exchange floor" }]
-      }
-    ]
+    useNav: false,
+    maxAlive: 12,
+    lighting: { sky: "black", aurora: ["green", "purple"], chart: true, fogStart: 220 },
+    bounds: { min: [-40, -80, -80], max: [1400, 160, 220] },
+    sections: [S13, S23, S33, S43, S53, SB]
   });
-  var L05 = makeLevel({
+  for (const sec of BUILT2.sections) {
+    sec.navBounds = null;
+    if (!sec.voidRescue) sec.voidRescue = { y: sec.id === "S4" ? -60 : -40, penalty: 0.25 };
+    const o = sec.origin;
+    if (sec.navLinks) {
+      sec.navLinks = sec.navLinks.map((link) => ({
+        ...link,
+        from: { x: link.from.x + o[0], z: link.from.z + o[2] },
+        to: { x: link.to.x + o[0], z: link.to.z + o[2] }
+      }));
+    }
+    if (sec.voids) {
+      sec.voids = sec.voids.map((v) => ({
+        ...v,
+        min: shift(v.min, o),
+        max: shift(v.max, o),
+        to: v.to ? shift(v.to, o) : v.to
+      }));
+    }
+  }
+  BUILT2.estimateSeconds = Math.round(L04_PACING.reduce((sum, row) => sum + row[1], 0) * 10) / 10;
+  BUILT2.pacing = L04_PACING;
+  BUILT2.botRoute = L04_BOT;
+  BUILT2.census = EXPECTED_COUNTS2;
+  BUILT2.archetypes = { ...L04_FLYERS, flakPod: FLAK_POD };
+  BUILT2.duo = DUO;
+  BUILT2.spellNotes = L04_SPELLS;
+  BUILT2.drops = "voidSafe";
+  BUILT2.difficulty = {
+    easy: { voidPenalty: 0.1, flakShells: 3, flakFuel: 10, l1NoBooms: true, l2Whale: false, e5Flock: false, bossDrop: false, midgetStep: 16, ammo: 1.5 },
+    heroic: { flakLead: 1, flakRange: 55, eliteRange: 65, e2EliteFlyer: true, l1ExtraFlock: 6, l2Pods: 2, e8Kills: 5, bossBreaker: 3, midgetStep: 9, crateUses: 1 }
+  };
+  BUILT2.loot = {
+    tierOdds: { common: 30, uncommon: 45, rare: 22, epic: 3, legendary: 0 },
+    baseTier: "uncommon",
+    racks: ["mg-pit", "sn-mines", "bz-duo"],
+    elites: ["Head Trader", "Priority Fee", "Whale", "Shooter Bot"],
+    chests: ["chest-l1", "chest-l2"],
+    boss: ["rare", "rare", "ray|bigbullets"],
+    secretCache: "s4.cache"
+  };
+  var L04 = BUILT2;
+  registerLevel(L04);
+
+  // src/data/levels/L05/prim.js
+  function P(x, y, n) {
+    return [x, y == null ? 0 : y, -n];
+  }
+  function zone3(x0, x1, n0, n1, y0 = -8, y1 = 30) {
+    return {
+      min: [Math.min(x0, x1), y0, -Math.max(n0, n1)],
+      max: [Math.max(x0, x1), y1, -Math.min(n0, n1)]
+    };
+  }
+  function ammo4(id, x, y, n, ammoType, amount) {
+    return { kind: "ammo", id, at: P(x, y, n), ammoType, amount };
+  }
+  function hook(id, x, y, n, r = 1.8) {
+    return { id, at: P(x, y, n), r };
+  }
+  function door5(id, x, y, n, size, extra = {}) {
+    return { kind: "door", id, at: P(x, y, n), size, ...extra };
+  }
+  function latch(id, doorId, at2) {
+    return { kind: "switch", id, at: at2, opens: doorId, needsHold: true, holdTime: 999, latch: true };
+  }
+  function slab(id, x, y, n, size, mat, extra = {}) {
+    return box({ id, at: P(x, y, n), size, mat, ...extra });
+  }
+  function spans2(a, b, gaps) {
+    const cuts = gaps.slice().sort((p, q2) => p[0] - q2[0]);
+    const out = [];
+    let cursor = a;
+    for (const [g0, g1] of cuts) {
+      if (g0 - cursor >= 0.5) out.push([cursor, g0]);
+      cursor = Math.max(cursor, g1);
+    }
+    if (b - cursor >= 0.5) out.push([cursor, b]);
+    return out;
+  }
+  function room(id, x0, x1, n0, n1, y, h, doors = [], mat = "concrete") {
+    const parts = [];
+    const on = { s: [], n: [], w: [], e: [] };
+    for (const d of doors) {
+      const want = d.h || 2.6;
+      const dh = h - want >= 0.5 ? want : h;
+      const w = d.w || 2.4;
+      const side = d.side;
+      on[side].push({ at: d.at, w, dh });
+    }
+    const wallY = y + h / 2;
+    const south = spans2(x0, x1, on.s.map((d) => [d.at - d.w / 2, d.at + d.w / 2]));
+    south.forEach((seg, i) => {
+      parts.push(slab(`${id}-s${i}`, (seg[0] + seg[1]) / 2, wallY, n0, [seg[1] - seg[0], h, 1], mat));
+    });
+    const north = spans2(x0, x1, on.n.map((d) => [d.at - d.w / 2, d.at + d.w / 2]));
+    north.forEach((seg, i) => {
+      parts.push(slab(`${id}-n${i}`, (seg[0] + seg[1]) / 2, wallY, n1, [seg[1] - seg[0], h, 1], mat));
+    });
+    const west = spans2(n0, n1, on.w.map((d) => [d.at - d.w / 2, d.at + d.w / 2]));
+    west.forEach((seg, i) => {
+      parts.push(slab(`${id}-w${i}`, x0, wallY, (seg[0] + seg[1]) / 2, [1, h, seg[1] - seg[0]], mat));
+    });
+    const east = spans2(n0, n1, on.e.map((d) => [d.at - d.w / 2, d.at + d.w / 2]));
+    east.forEach((seg, i) => {
+      parts.push(slab(`${id}-e${i}`, x1, wallY, (seg[0] + seg[1]) / 2, [1, h, seg[1] - seg[0]], mat));
+    });
+    for (const d of [...on.s, ...on.n, ...on.w, ...on.e]) {
+      if (!(h - d.dh >= 0.5)) continue;
+      const lintelY = y + d.dh + (h - d.dh) / 2;
+      const horizontal = on.s.includes(d) || on.n.includes(d);
+      const n = on.s.includes(d) ? n0 : on.n.includes(d) ? n1 : d.at;
+      const x = horizontal ? d.at : on.w.includes(d) ? x0 : x1;
+      const size = horizontal ? [d.w, h - d.dh, 1] : [1, h - d.dh, d.w];
+      parts.push(slab(`${id}-lintel-${parts.length}`, x, lintelY, n, size, mat));
+    }
+    parts.push(slab(`${id}-roof`, (x0 + x1) / 2, y + h + 0.25, (n0 + n1) / 2, [x1 - x0, 0.5, n1 - n0], mat));
+    return parts;
+  }
+  function hazard(id, x0, x1, n0, n1, extra = {}) {
+    const box3 = zone3(x0, x1, n0, n1, extra.y0 == null ? -2 : extra.y0, extra.y1 == null ? 6 : extra.y1);
+    const mech = { kind: "hazardZone", id, min: box3.min, max: box3.max };
+    for (const key2 of Object.keys(extra)) {
+      if (key2 === "y0" || key2 === "y1") continue;
+      mech[key2] = extra[key2];
+    }
+    return mech;
+  }
+
+  // src/data/levels/L05/encounters.js
+  var u3 = (type, count, extra = {}) => ({ type, count, ...extra });
+  function at(points2) {
+    return points2.map((p) => p.length === 2 ? P(p[0], 0, p[1]) : P(p[0], p[1], p[2]));
+  }
+  function squad5(id, trigger, units2, points2, method = "placed", extra = {}) {
+    return { id, trigger, method, at: at(points2), units: units2, ...extra };
+  }
+  function alarm(id, alarmId, units2, points2, method = "door") {
+    return squad5(id, { type: "onAlarm", alarm: alarmId }, units2, points2, method, { optional: true, delay: 6 });
+  }
+  var E13 = {
+    id: "S1-E1",
+    name: "The Picket",
+    maxAlive: 9,
+    objective: { kind: "clearAll", text: "Clear the picket" },
+    activate: zone3(90, 200, 60, 220, -4, 12),
+    squads: [
+      squad5("E1-a", { type: "onEnter" }, [u3("midget", 5)], [[158, 0, 168]], "placed", {
+        facing: "away",
+        note: "Two face away from the ridge. Fire barrel is heard by the lookout."
+      }),
+      squad5("E1-b", { type: "onEnter" }, [
+        u3("obama", 1, { role: "runner", alarm: "S1-alarm1" }),
+        u3("obama", 1)
+      ], [[120, 2.5, 186], [122, 2.5, 186]], "placed"),
+      squad5("E1-c", { type: "onEnter" }, [
+        u3("sewerMidget", 2)
+      ], [[150, 0, 165], [172, 0, 166]], "burrow", { delay: 0.6, near: "the campfire, 20 m" }),
+      alarm("E1-R", "S1-alarm1", [u3("midget", 4), u3("boomMidget", 2)], [[18, 0, 215]])
+    ]
+  };
+  var E23 = {
+    id: "S1-E2",
+    name: "Frozen Creek",
+    maxAlive: 7,
+    objective: { kind: "reach", text: "Reach the north bank" },
+    activate: zone3(12, 288, 200, 356, -4, 16),
+    zone: zone3(12, 288, 266, 290, -2, 8),
+    squads: [
+      squad5("E2-a", { type: "onEnter" }, [u3("spotterDrone", 1)], [[80, 8, 256]], "air", {
+        patrol: { loop: [[80, 8, 256], [235, 8, 256]], speed: 8, period: 39 }
+      }),
+      squad5("E2-b", { type: "onEnter" }, [u3("midget", 4)], [[150, 0, 274]], "placed", { asleep: true, hearing: 12 }),
+      squad5("E2-c", { type: "onAlert", zBelow: -266 }, [u3("frostHound", 2)], [[205, 0, 285], [205, 0, 285]], "door", { delay: 1.5 }),
+      alarm("E2-R", "S1-drone", [u3("midget", 3), u3("robotLaser", 1)], [[150, 0, 275]], "drop")
+    ]
+  };
+  var E33 = {
+    id: "S1-E3",
+    name: "The Listening Post",
+    maxAlive: 5,
+    objective: { kind: "clearAll", text: "Clear the listening post" },
+    activate: zone3(40, 270, 300, 530, -4, 30),
+    squads: [
+      squad5("E3-a", { type: "onEnter" }, [u3("auditSniper", 2)], [[150, 14, 442], [70, 6, 420]], "placed", {
+        perches: [["P1", "P3", "P1"], ["P2", "P3", "P2"]],
+        shotsBeforeMove: 2
+      }),
+      squad5("E3-b", { type: "onEnter" }, [
+        u3("obama", 1, { role: "runner", alarm: "S1-alarm3" })
+      ], [[216, 0, 433]], "placed"),
+      squad5("E3-c", { type: "onKills", n: 2 }, [
+        u3("auditSniper", 1, { elite: true, name: "the Head Auditor" })
+      ], [[150, 22, 442]], "hidden", { delay: 2, perches: ["P4", "P1", "P3"] }),
+      squad5("E3-d", { type: "onAlert", box: zone3(100, 200, 400, 530, -2, 8) }, [
+        u3("miningRig", 1)
+      ], [[150, 0, 512]], "placed"),
+      alarm("E3-R", "S1-alarm3", [u3("midget", 3), u3("riotMidget", 2)], [[216, 0, 433]])
+    ]
+  };
+  var E43 = {
+    id: "S2-E4",
+    name: "The Kill Zone",
+    maxAlive: 12,
+    objective: { kind: "reach", text: "Reach the gate apron" },
+    activate: zone3(0, 260, 0, 380, -8, 20),
+    zone: zone3(110, 150, 180, 200, -2, 6),
+    squads: [
+      squad5("E4-a", { type: "onEnter" }, [u3("miningRig", 2)], [[130, 0, 172], [130, 0, 176]], "placed", {
+        overheatOffset: 3,
+        openFire: 90
+      }),
+      squad5("E4-b", { type: "onEnter" }, [u3("auditSniper", 2)], [[130, 0, 100], [130, 0, 108]], "placed", {
+        perches: [[60, 12, 203], [85, 12, 203], [200, 12, 203], [175, 12, 203]]
+      }),
+      squad5("E4-c", { type: "onEnter" }, [u3("spotterDrone", 2)], [[100, 9, 110], [150, 9, 70]], "air", {
+        patrol: [
+          [[100, 9, 110], [160, 9, 110], [160, 9, 160], [100, 9, 160]],
+          [[150, 9, 70], [240, 9, 70], [240, 9, 170], [150, 9, 170]]
+        ],
+        ringsAlarm: "S2-alarm4"
+      }),
+      squad5("E4-d", { type: "onEnter" }, [u3("midget", 3)], [[130, 0, 196]], "placed", { asleep: true, hearing: 0.01 }),
+      squad5("E4-e", { type: "onEnter" }, [u3("obama", 2)], [[130, 0, 148]], "placed", {
+        patrol: { loop: [[130, 0, 148], [130, 0, 130], [130, 0, 148]], period: 40 }
+      }),
+      squad5("E4-f", { type: "onEnter" }, [u3("balloonMidget", 2)], [[200, 4, 95], [225, 5, 135]], "placed", { tethered: true }),
+      squad5("E4-g", { type: "onAlert", zBelow: -150 }, [u3("frostHound", 2)], [[130, 0, 160]], "door", { delay: 1 }),
+      alarm("E4-R", "S2-alarm4", [u3("midget", 4), u3("obama", 2)], [[130, 0, 160]], "drop")
+    ]
+  };
+  var E53 = {
+    id: "S2-E5",
+    name: "The two Bunkers",
+    maxAlive: 8,
+    objective: { kind: "destroy", ids: ["BW-gen-body", "BE-gen-body"], text: "Destroy both generators" },
+    activate: zone3(80, 180, 198, 240, -2, 12),
+    squads: [
+      squad5("E5-a", { type: "onEnter" }, [u3("riotMidget", 3)], [[130, 0, 208]], "placed"),
+      squad5("E5-b", { type: "onAlert", box: zone3(86, 114, 214, 236, -2, 8) }, [u3("midget", 2)], [[108, 0, 208]], "door", { delay: 1 }),
+      alarm("E5-RW", "S2-alarm5W", [u3("midget", 2), u3("riotMidget", 1)], [[100, 0, 235]]),
+      squad5("E5-c", { type: "onAlert", box: zone3(156, 164, 198, 206, -2, 6) }, [
+        u3("glowieAgent", 3, { flashbang: 1 })
+      ], [[153, 0, 221], [167, 0, 221], [160, 0, 219]], "placed"),
+      squad5("E5-d", { type: "onKills", n: 2 }, [
+        u3("glowieAgent", 1, { elite: true, name: "the Supervisor" }),
+        u3("boomMidget", 2)
+      ], [[160, 0, 235], [152, 0, 208]], "door", { also: "generator E at 50%" }),
+      alarm("E5-RE", "S2-alarm5E", [u3("glowieAgent", 2)], [[170, 8, 208]], "drop")
+    ]
+  };
+  var E63 = {
+    id: "S4-E6",
+    name: "Intake",
+    maxAlive: 7,
+    objective: { kind: "reach", text: "Reach Lift A" },
+    activate: zone3(20, 60, 14, 110, -2, 8),
+    zone: zone3(32, 48, 56, 68, -2, 8),
+    squads: [
+      squad5("E6-a", { type: "onAlert", zBelow: -14 }, [u3("riotMidget", 3)], [[40, 0, 52]], "placed"),
+      squad5("E6-b", { type: "onAlert", zBelow: -28 }, [u3("midget", 2)], [[40, 0, 26]], "door"),
+      squad5("E6-c", { type: "onKills", n: 3 }, [u3("frostHound", 2)], [[40, 0, 48]], "door", { delay: 1 })
+    ]
+  };
+  var E73 = {
+    id: "S4-E7",
+    name: "Records Library",
+    maxAlive: 12,
+    objective: { kind: "clearAll", text: "Clear the Records Library" },
+    activate: zone3(32, 48, 58, 66, 6, 12),
+    lockdown: {
+      id: "L2",
+      entry: "LIB-in",
+      exit: "LIB-out",
+      threshold: zone3(36, 44, 48, 52, 6, 14),
+      delaySec: 1,
+      waveSec: 25,
+      stallSec: 12,
+      stallN: 2,
+      room: zone3(12, 68, 12, 56, 7, 20)
+    },
+    squads: [
+      squad5("W1", { type: "onEnter" }, [u3("midget", 6)], [[40, 7, 46]], "drop"),
+      squad5("W1b", { type: "with", after: "W1", delay: 0 }, [u3("glowieAgent", 2)], [[40, 7, 42]], "door"),
+      squad5("W2", { type: "onRemain", n: 2 }, [u3("riotMidget", 2)], [[40, 7, 38]], "door"),
+      squad5("W2b", { type: "with", after: "W2", delay: 0 }, [u3("auditSniper", 2)], [[40, 7, 28], [40, 7, 24]], "door"),
+      squad5("W2c", { type: "with", after: "W2", delay: 0 }, [u3("manaLeech", 1)], [[40, 7, 22]], "door"),
+      squad5("W3", { type: "onRemain", n: 2 }, [u3("midget", 4), u3("boomMidget", 2)], [[40, 7, 48]], "drop"),
+      squad5("W3b", { type: "with", after: "W3", delay: 0 }, [u3("frostHound", 2)], [[40, 7, 44]], "door"),
+      squad5("W4", { type: "onRemain", n: 2 }, [u3("midget", 2)], [[40, 7, 40]], "drop"),
+      squad5("W4b", { type: "with", after: "W4", delay: 0 }, [u3("glowieAgent", 1)], [[40, 7, 36]], "door"),
+      squad5("W4c", { type: "with", after: "W4", delay: 0 }, [
+        u3("robotShooter", 1, { elite: true, name: "the Archivist" })
+      ], [[40, 7, 26]], "hidden")
+    ]
+  };
+  var spW = [18, 0, 59];
+  var spE = [82, 0, 59];
+  var spN = [[35, 5, 92], [65, 5, 92]];
+  var spK = [62, 0, 93];
+  var F12 = {
+    id: "S3-F1",
+    name: "The Abominable Auditor",
+    maxAlive: 8,
+    objective: { kind: "clearAll", text: "Drop the Abominable Auditor" },
+    activate: zone3(15, 85, 24, 94, -6, 14),
+    arena: { x: 50, z: -59, radius: 35 },
+    lockdown: {
+      id: "L1",
+      entry: "S3-arenaDoor",
+      exit: "S3-exitDoor",
+      threshold: zone3(42, 58, 28, 32, -2, 8),
+      delaySec: 1,
+      stallSec: 12,
+      room: zone3(15, 85, 24, 94, -6, 12)
+    },
+    squads: [
+      squad5("auditor", { type: "onEnter" }, [
+        u3("monster", 1, { name: "The Abominable Auditor" })
+      ], [[50, 0.6, 59]], "placed", { frozen: 2 })
+    ],
+    script: {
+      parts: [
+        {
+          id: "frozen-assets",
+          name: "Frozen Assets",
+          seconds: 60,
+          attacks: ["chase", "volley", "missiles", "chase", "charge", "slam"],
+          adds: [
+            { t: 20, at: spW, method: "door", spawn: "SP-W", units: [["midget", 4]] },
+            { t: 45, at: spE, method: "door", spawn: "SP-E", units: [["midget", 4]] }
+          ]
+        },
+        {
+          id: "cold-storage",
+          name: "Cold Storage",
+          seconds: 40,
+          immune: true,
+          attacks: ["missiles"],
+          targets: [
+            { id: "S3-genNW", hp: 500, at: P(42, 0, 55) },
+            { id: "S3-genNE", hp: 500, at: P(58, 0, 55) }
+          ],
+          adds: [
+            { t: 0, at: spN[0], method: "drop", spawn: "SP-N", units: [["glowieAgent", 3, { flashbang: 1 }]] },
+            { t: 18, at: spW, method: "door", spawn: "SP-W", units: [["midget", 3]] },
+            { t: 18, at: spE, method: "door", spawn: "SP-E", units: [["boomMidget", 2]] }
+          ]
+        },
+        {
+          id: "final-notice",
+          name: "Final Notice",
+          seconds: 60,
+          attacks: ["chase", "missiles", "volley", "charge", "slam"],
+          adds: [
+            { onBossHp: 35, at: spW, method: "door", spawn: "SP-W", units: [["midget", 3]] },
+            { onBossHp: 35, at: spE, method: "door", spawn: "SP-E", units: [["midget", 2]] },
+            { onBossHp: 20, at: spK, method: "door", spawn: "SP-K", units: [["frostHound", 1, { elite: true, name: "Alpha" }], ["frostHound", 2]] }
+          ]
+        }
+      ]
+    }
+  };
+  var F22 = {
+    id: "S5-F2",
+    name: "Vault hold",
+    maxAlive: 12,
+    objective: {
+      kind: "clearAll",
+      also: { kind: "hold", seconds: 90 },
+      text: "Hold the drill and clear the vault"
+    },
+    activate: zone3(18, 62, 40, 84, -2, 14),
+    hold: zone3(31, 49, 53, 71, -1, 4),
+    lockdown: {
+      id: "L3",
+      entry: "S5-blastDoor",
+      exit: "S5-exitDoor",
+      threshold: zone3(34, 46, 44, 48, -2, 8),
+      delaySec: 1,
+      stallSec: 12,
+      room: zone3(18, 62, 40, 84, -2, 13)
+    },
+    squads: [
+      squad5("W1", { type: "onEnter" }, [u3("midget", 6)], [[26, 12, 50]], "drop"),
+      squad5("W2", { type: "time", t: 25 }, [
+        u3("glowieAgent", 3, { flashbang: 1 })
+      ], [[54, 12, 50]], "drop"),
+      squad5("W2b", { type: "with", after: "W2", delay: 0 }, [u3("boomMidget", 2)], [[26, 12, 74]], "drop"),
+      squad5("W3", { type: "time", t: 50 }, [u3("spotterDrone", 1)], [[40, 12, 62]], "air"),
+      squad5("W3b", { type: "with", after: "W3", delay: 0 }, [u3("midget", 4)], [[54, 12, 74]], "drop"),
+      squad5("W3c", { type: "with", after: "W3", delay: 0 }, [u3("frostHound", 2)], [[17, 0, 62]], "door"),
+      squad5("W4", { type: "time", t: 75 }, [u3("midget", 4)], [[26, 12, 50]], "drop"),
+      squad5("W4b", { type: "with", after: "W4", delay: 0 }, [u3("boomMidget", 2)], [[26, 12, 74]], "drop"),
+      squad5("W5", { type: "time", t: 100 }, [
+        u3("riotMidget", 1, { elite: true, name: "the Vault Warden" })
+      ], [[17, 0, 62]], "door")
+    ],
+    strikes: [8, 22, 36, 50, 64, 78, 92],
+    strikeEvery: 14,
+    coolant: [30, 60, 90]
+  };
+  var S5_END = {
+    id: "S5-END",
+    name: "Extraction",
+    objective: { kind: "reach", text: "Step on the pad" },
+    activate: zone3(30, 50, 88, 100, -2, 6),
+    zone: zone3(35, 45, 91, 101, -1, 4),
+    squads: []
+  };
+  function addUnits(counts, units2, key2) {
+    for (const unit of units2) {
+      const bucket2 = counts[key2];
+      bucket2[unit.type] = (bucket2[unit.type] || 0) + unit.count;
+      bucket2._n += unit.count;
+    }
+  }
+  function census(list) {
+    const counts = { always: { _n: 0 }, alarm: { _n: 0 }, script: { _n: 0 } };
+    for (const enc of list) {
+      for (const sq of enc.squads || []) {
+        if (sq.units.some((unit) => unit.type === "monster")) continue;
+        addUnits(counts, sq.units, sq.optional ? "alarm" : "always");
+      }
+      for (const part of enc.script && enc.script.parts || []) {
+        for (const add3 of part.adds || []) {
+          for (const unit of add3.units || []) {
+            const type = unit[0];
+            const n = unit[1] || 1;
+            counts.script[type] = (counts.script[type] || 0) + n;
+            counts.script._n += n;
+          }
+        }
+      }
+    }
+    return counts;
+  }
+
+  // src/data/levels/L05/enemies.js
+  var SPOTTER_DRONE = {
+    id: "spotterDrone",
+    name: "Spotter Drone",
+    archetype: "detection",
+    hp: 45,
+    hpTier: 79,
+    lamp: { hp: 20, hpTier: 35, weak: true },
+    speed: 8,
+    turn: 90,
+    fly: { min: 8, max: 9, indoor: 4 },
+    sense: { length: 35, halfAngle: 20, spotRadius: 5, spotAhead: 14 },
+    hold: 1.5,
+    holdWindow: 3,
+    recall: 10,
+    mortar: { count: 3, gap: 0.5, telegraph: 1.4, radius: 3.5, damage: 22, damageTier: 38 },
+    wake: 60,
+    poise: 20,
+    affinity: { weak: "shock" },
+    drops: { ammo: 0.5, tickets: 2, gun: 0.04 },
+    seconds: 8,
+    look: [
+      { kind: "box", at: [0, 0, 0], size: [1, 0.4, 1], mat: "metal" },
+      { kind: "cone", at: [0, -0.5, 0], r: 0.3, h: 0.5, mat: "neon" },
+      { kind: "disc", at: [0.45, 0.1, 0.45], r: 0.35, mat: "metal" },
+      { kind: "disc", at: [-0.45, 0.1, 0.45], r: 0.35, mat: "metal" },
+      { kind: "disc", at: [0.45, 0.1, -0.45], r: 0.35, mat: "metal" },
+      { kind: "disc", at: [-0.45, 0.1, -0.45], r: 0.35, mat: "metal" }
+    ],
+    hitboxes: [
+      { zone: "body", shape: "sphere", r: 0.6 },
+      { zone: "weak", shape: "sphere", r: 0.25, part: "lamp" }
+    ]
+  };
+  var FROST_HOUND = {
+    id: "frostHound",
+    name: "Frost Hound",
+    archetype: "tracker",
+    hp: 55,
+    hpTier: 96,
+    trot: 5,
+    run: 9.5,
+    scent: 45,
+    trail: { every: 2, length: 60 },
+    bark: 12,
+    lunge: { range: 9, crouch: 0.5, speed: 20, damage: 16, damageTier: 28, knockback: 6, recover: 0.9 },
+    patch: { radius: 2.5, seconds: 6 },
+    poise: 30,
+    affinity: { weak: "fire" },
+    drops: { ammo: 0.4, health: 0.08, tickets: 2, gun: 0.03 },
+    seconds: 5,
+    ignores: ["decoy", "weather", "slick"],
+    elite: { name: "Alpha", hpMult: 2.5, lunges: 2, patch: 3.5 },
+    look: [
+      { kind: "box", at: [0, 0.55, 0], size: [1.2, 0.5, 0.6], mat: "ice" },
+      { kind: "box", at: [0, 0.7, 0.55], size: [0.45, 0.45, 0.45], mat: "ice" },
+      { kind: "cylinder", at: [-0.35, 0, 0.3], r: 0.1, h: 0.5, mat: "ice" },
+      { kind: "cylinder", at: [0.35, 0, 0.3], r: 0.1, h: 0.5, mat: "ice" },
+      { kind: "cylinder", at: [-0.35, 0, -0.3], r: 0.1, h: 0.5, mat: "ice" },
+      { kind: "cylinder", at: [0.35, 0, -0.3], r: 0.1, h: 0.5, mat: "ice" },
+      { kind: "cone", at: [0, 0.55, -0.5], r: 0.15, h: 0.5, mat: "ice" },
+      { kind: "sphere", at: [0.12, 0.85, 0.7], r: 0.08, mat: "neon" },
+      { kind: "sphere", at: [-0.12, 0.85, 0.7], r: 0.08, mat: "neon" }
+    ],
+    hitboxes: [
+      { zone: "body", shape: "capsule", r: 0.5, length: 1.2, y0: 0.3, y1: 0.9 },
+      { zone: "weak", shape: "sphere", r: 0.28, part: "head" }
+    ]
+  };
+  var DECOY = {
+    id: "decoy",
+    name: "Cardboard Sproto",
+    mana: 30,
+    cooldown: 12,
+    life: 6,
+    castRange: 20,
+    pop: { damage: 20, radius: 3 },
+    locks: ["auditSniper", "spotterDrone", "searchlight", "miningRig", "droneStrike"],
+    ignoredBy: ["frostHound"]
+  };
+  var AUDITOR = {
+    id: "monster",
+    name: "The Abominable Auditor",
+    model: "monster",
+    hp: 3800,
+    hpTier: 6646,
+    radius: 2.4,
+    height: 7,
+    plates: [
+      { id: "brow", covers: "head", hp: 250, hpTier: 437, shape: { kind: "sphere", r: 1, y: 6.5 } },
+      { id: "chest", covers: "front", hp: 400, hpTier: 700, arc: 180, bodyMul: 0.1 },
+      { id: "back", covers: "rear", hp: 400, hpTier: 700, arc: 180, bodyMul: 0.1 }
+    ]
+  };
+  var DRONE_STRIKE = {
+    radius: 2.6,
+    track: 1.8,
+    lock: 0.75,
+    every: 14,
+    damagePlayer: 30,
+    damageEnemy: 120,
+    followsDecoy: true
+  };
+
+  // src/data/levels/L05/prefabs.js
+  function pine(id, x, n) {
+    return [
+      cylinder({ id: `${id}-trunk`, at: P(x, 0, n), r: 0.3, h: 2.5, mat: "wood" }),
+      cone({ id: `${id}-bough1`, at: P(x, 2, n), r: 1.6, h: 3, mat: "hedge" }),
+      cone({ id: `${id}-bough2`, at: P(x, 4, n), r: 1.1, h: 2.4, mat: "hedge" })
+    ];
+  }
+  function boulderS(id, x, n) {
+    return [sphere({ id, at: P(x, 0.4, n), r: 1, mat: "ice" })];
+  }
+  function boulderM(id, x, n) {
+    return [sphere({ id, at: P(x, 0.8, n), r: 1.6, mat: "ice" })];
+  }
+  function boulderL(id, x, n) {
+    return [
+      sphere({ id: `${id}-a`, at: P(x, 1.2, n), r: 2.6, mat: "ice" }),
+      sphere({ id: `${id}-b`, at: P(x + 2.4, 0.6, n - 0.8), r: 1.6, mat: "ice" })
+    ];
+  }
+  function rockSlab(id, x, n) {
+    return [slab(id, x, 1.1, n, [4, 2.2, 1.2], "rock")];
+  }
+  function snowBerm(id, x, n) {
+    return [slab(id, x, 0.6, n, [6, 1.2, 1.5], "snow")];
+  }
+  function crateStack(id, x, n) {
+    return [
+      box({ id: `${id}-a`, at: P(x - 0.6, 0.6, n), size: [1.2, 1.2, 1.2], mat: "crate" }),
+      box({ id: `${id}-b`, at: P(x + 0.6, 0.6, n), size: [1.2, 1.2, 1.2], mat: "crate" }),
+      box({ id: `${id}-c`, at: P(x, 1.8, n), size: [1.2, 1.2, 1.2], mat: "crate" })
+    ];
+  }
+  function snowcat(id, x, n, yaw = 0) {
+    const body = box({ id: `${id}-body`, at: P(x, 1.2, n), size: [5, 1.6, 2.4], yaw, mat: "metal" });
+    const cabin = box({ id: `${id}-cabin`, at: P(x + 1.2, 2.7, n), size: [2.2, 1.4, 2.2], yaw, mat: "metal" });
+    const west = box({ id: `${id}-trackW`, at: P(x, 0.4, n - 1.3), size: [5.4, 0.8, 0.6], yaw, mat: "metal" });
+    const east = box({ id: `${id}-trackE`, at: P(x, 0.4, n + 1.3), size: [5.4, 0.8, 0.6], yaw, mat: "metal" });
+    return [body, cabin, west, east];
+  }
+  function fishHut(id, x, n) {
+    const parts = [];
+    const segs = spansSafe(x - 1.5, x + 1.5, [[x - 0.6, x + 0.6]]);
+    segs.forEach((seg, i) => {
+      parts.push(slab(`${id}-s${i}`, (seg[0] + seg[1]) / 2, 1.2, n - 1.5, [seg[1] - seg[0], 2.4, 0.5], "wood"));
+    });
+    parts.push(slab(`${id}-n`, x, 1.2, n + 1.5, [3, 2.4, 0.5], "wood"));
+    parts.push(slab(`${id}-w`, x - 1.5, 1.2, n, [0.5, 2.4, 3], "wood"));
+    parts.push(slab(`${id}-e`, x + 1.5, 1.2, n, [0.5, 2.4, 3], "wood"));
+    parts.push(slab(`${id}-roof`, x, 2.65, n, [3.4, 0.5, 3.4], "wood"));
+    return parts;
+  }
+  function spansSafe(a, b, gaps) {
+    const out = [];
+    let cursor = a;
+    for (const [g0, g1] of gaps) {
+      if (g0 - cursor >= 0.5) out.push([cursor, g0]);
+      cursor = Math.max(cursor, g1);
+    }
+    if (b - cursor >= 0.5) out.push([cursor, b]);
+    return out;
+  }
+  function watchtower(id, x, y, n, legH = 8) {
+    const half = 1.7;
+    const corners = [[-half, -half], [half, -half], [-half, half], [half, half]];
+    const parts = corners.map((c, i) => cylinder({
+      id: `${id}-leg${i}`,
+      at: P(x + c[0], y, n + c[1]),
+      r: 0.3,
+      h: legH,
+      mat: "metal"
+    }));
+    const floor3 = y + legH;
+    parts.push(slab(`${id}-deck`, x, floor3 - 0.25, n, [4.4, 0.5, 4.4], "metal"));
+    const rails3 = [
+      [0, 2.2, [4.4, 1.2, 0.5]],
+      [0, -2.2, [4.4, 1.2, 0.5]],
+      [2.2, 0, [0.5, 1.2, 4.4]],
+      [-2.2, 0, [0.5, 1.2, 4.4]]
+    ];
+    rails3.forEach((r, i) => {
+      parts.push(slab(`${id}-rail${i}`, x + r[0], floor3 + 0.6, n + r[1], r[2], "metal"));
+    });
+    corners.forEach((c, i) => {
+      parts.push(cylinder({
+        id: `${id}-post${i}`,
+        at: P(x + c[0], floor3, n + c[1]),
+        r: 0.25,
+        h: 2.3,
+        mat: "metal"
+      }));
+    });
+    parts.push(slab(`${id}-roof`, x, floor3 + 2.55, n, [4.8, 0.5, 4.8], "metal"));
+    parts.push({
+      kind: "ramp",
+      id: `${id}-stairs`,
+      visual: "stairs",
+      steps: 8,
+      at: P(x, y + legH / 2, n + 2.2 + 2.5),
+      size: [1, legH, 5],
+      yaw: 0,
+      mat: "metal"
+    });
+    return parts;
+  }
+  function searchlight(id, x, y, n) {
+    return [
+      cylinder({ id: `${id}-post`, at: P(x, y, n), r: 0.3, h: 2, mat: "metal" }),
+      box({ id: `${id}-lamp`, at: P(x, y + 2.4, n), size: [0.8, 0.8, 0.8], mat: "metal" }),
+      cone({ id: `${id}-beam`, at: P(x, y + 2.8, n), r: 0.6, h: 4, mat: "neon" })
+    ];
+  }
+  function alarmPole(id, x, y, n) {
+    return [
+      cylinder({ id: `${id}-pole`, at: P(x, y, n), r: 0.25, h: 4, mat: "metal" }),
+      box({ id: `${id}-siren`, at: P(x, y + 4, n), size: [0.6, 0.6, 0.6], mat: "neon" })
+    ];
+  }
+  function generator(id, x, y, n) {
+    return [
+      cylinder({ id: `${id}-body`, at: P(x, y, n), r: 1.2, h: 2.4, mat: "metal" }),
+      box({ id: `${id}-coilW`, at: P(x - 1.5, y + 1, n), size: [0.6, 2, 0.6], mat: "metal" }),
+      box({ id: `${id}-coilE`, at: P(x + 1.5, y + 1, n), size: [0.6, 2, 0.6], mat: "metal" }),
+      sphere({ id: `${id}-core`, at: P(x, y + 1.6, n), r: 0.5, mat: "neon" })
+    ];
+  }
+
+  // src/data/levels/L05/S1.js
+  var lips = [118, 134, 150, 166, 182].map((x, i) => slab(`S1-ridgeLip${i + 1}`, x, 3.6, 77.5, [6, 1.2, 1], "snow"));
+  var pines = [[60, 100], [72, 118], [55, 135], [80, 140], [66, 160], [90, 170], [58, 185], [84, 198], [70, 215], [95, 225]].flatMap(([x, n], i) => pine(`S1-pine${i + 1}`, x, n));
+  var flank = [[50, 330], [58, 350], [46, 368], [60, 385], [52, 400], [66, 410]].flatMap(([x, n], i) => pine(`S1-flank${i + 1}`, x, n));
+  var field = [[140, 100], [170, 112], [128, 122], [152, 136], [186, 144], [122, 150]].flatMap(([x, n], i) => boulderM(`S1-fieldRock${i + 1}`, x, n));
+  var bermX = [44.5, 114.5, 193, 263];
+  var bermL = [65, 63, 78, 50];
+  var berms = [];
+  bermX.forEach((x, i) => {
+    berms.push(slab(`S1-bermS${i + 1}`, x, 0.6, 249.25, [bermL[i], 1.2, 1.5], "snow"));
+    berms.push(slab(`S1-bermN${i + 1}`, x, 0.6, 262.75, [bermL[i], 1.2, 1.5], "snow"));
+  });
+  var rowA = [[110, 320], [150, 320], [190, 320]].flatMap(([x, n], i) => boulderL(`S1-rowA${i + 1}`, x, n));
+  var rowB = [[90, 340], [130, 340], [170, 340], [210, 340]].flatMap(([x, n], i) => boulderM(`S1-rowB${i + 1}`, x, n));
+  var rowC = [[110, 360], [150, 360], [190, 360]].flatMap(([x, n], i) => rockSlab(`S1-rowC${i + 1}`, x, n));
+  var rowD = [[95, 378], [135, 378], [165, 378], [205, 378]].flatMap(([x, n], i) => boulderM(`S1-rowD${i + 1}`, x, n));
+  var rowE = [[120, 395], [150, 395], [180, 395]].flatMap(([x, n], i) => snowBerm(`S1-rowE${i + 1}`, x, n));
+  var pass = [[146, 470], [154, 482], [146, 494]].flatMap(([x, n], i) => rockSlab(`S1-passSlab${i + 1}`, x, n));
+  var mastRails = [
+    [0, 2.5, [5, 1.2, 0.5]],
+    [0, -2.5, [5, 1.2, 0.5]],
+    [2.5, 0, [0.5, 1.2, 5]],
+    [-2.5, 0, [0.5, 1.2, 5]]
+  ].map((r, i) => slab(`S1-mastRail${i}`, 150 + r[0], 14.6, 445 + r[1], r[2], "metal"));
+  var nestRails = [
+    [0, 1.5, [3, 1.2, 0.5]],
+    [0, -1.5, [3, 1.2, 0.5]],
+    [1.5, 0, [0.5, 1.2, 3]],
+    [-1.5, 0, [0.5, 1.2, 3]]
+  ].map((r, i) => slab(`S1-nestRail${i}`, 150 + r[0], 22.6, 445 + r[1], r[2], "metal"));
+  var S14 = {
+    id: "S1",
+    name: "Crash Site and Outer Snowfield",
+    origin: [0, 0, 0],
+    start: P(150, 0, 19),
+    yaw: 0,
+    footprint: [300, 520],
+    routeM: 516,
+    flyerVolume: { min: [0, 0, -520], max: [300, 40, 0] },
+    exit: zone3(143, 157, 519, 524, -2, 8),
+    intro: {
+      title: "FROSTSPIRE BLACK SITE",
+      lines: [
+        "The ledgers are in a vault at the top of the spire.",
+        "Glowie is watching from a drone. Be far away. Be boring."
+      ]
+    },
+    grappleAnchors: [
+      hook("S1-hook-ridge", 150, 3.6, 75, 2.2),
+      hook("S1-hook-look", 120, 3.2, 186),
+      hook("S1-hook-mast", 150, 14.4, 445),
+      hook("S1-hook-nest", 150, 22.2, 445),
+      hook("S1-hook-spire", 70, 6.4, 420),
+      hook("S1-hook-hut", 225, 4.4, 432)
+    ],
+    terrain: terrain({
+      id: "S1-ground",
+      origin: [0, 0, -520],
+      size: [300, 520],
+      cell: 4,
+      seed: 501,
+      mat: "snow",
+      noise: { amp: 1.2, freq: 0.012, octaves: 2 },
+      flat: [{ n0: 244, n1: 268 }, { x0: 143, x1: 157, n0: 460, n1: 520 }]
+    }),
+    geometry: [
+      slab("S1-floor", 150, -0.25, 260, [300, 0.5, 520], "snow", { tag: "terrainStandIn" }),
+      slab("S1-cliffW", 6, 7, 260, [12, 14, 520], "rock"),
+      slab("S1-cliffE", 294, 7, 260, [12, 14, 520], "rock"),
+      slab("S1-cliffS", 150, 7, 4, [276, 14, 8], "rock"),
+      slab("S1-cliffNW", 77.5, 7, 490, [131, 14, 60], "rock"),
+      slab("S1-cliffNE", 222.5, 7, 490, [131, 14, 60], "rock"),
+      { kind: "cylinder", id: "S1-pod", at: P(150, 0, 15), r: 1.6, h: 3.2, mat: "metal" },
+      slab("S1-podFin1", 147.8, 1, 14, [0.5, 2, 2.4], "metal"),
+      slab("S1-podFin2", 152.2, 1, 14, [0.5, 2, 2.4], "metal"),
+      slab("S1-podFin3", 150, 1, 12.6, [0.5, 2, 2.4], "metal"),
+      slab("S1-debris1", 143, 0.6, 26, [3, 1.2, 0.8], "metal"),
+      slab("S1-debris2", 158, 0.6, 32, [3, 1.2, 0.8], "metal"),
+      slab("S1-debris3", 149, 0.6, 40, [3, 1.2, 0.8], "metal"),
+      slab("S1-debris4", 144, 0.6, 50, [3, 1.2, 0.8], "metal"),
+      slab("S1-cacheC1", 156, 0.6, 54, [2.4, 1.2, 1.4], "crate"),
+      { kind: "ramp", id: "S1-ridgeS", at: P(150, 1.5, 66), size: [80, 3, 12], yaw: 180, mat: "snow" },
+      slab("S1-ridgeTop", 150, 1.5, 75, [80, 3, 6], "snow"),
+      ...lips,
+      { kind: "ramp", id: "S1-ridgeN", at: P(150, 1.5, 83), size: [80, 3, 10], yaw: 0, mat: "snow", tag: "slide" },
+      ...field,
+      ...pines,
+      ...snowcat("S1-snowcat", 165, 172, 30),
+      { kind: "cone", id: "S1-tent1", at: P(171, 0, 181), r: 2.2, h: 2.6, mat: "wood" },
+      { kind: "cylinder", id: "S1-tent1-col", at: P(171, 0, 181), r: 1.8, h: 2, mat: "wood" },
+      { kind: "cone", id: "S1-tent2", at: P(149, 0, 183), r: 2.2, h: 2.6, mat: "wood" },
+      { kind: "cylinder", id: "S1-tent2-col", at: P(149, 0, 183), r: 1.8, h: 2, mat: "wood" },
+      ...crateStack("S1-campCrate1", 152, 176),
+      ...crateStack("S1-campCrate2", 164, 162),
+      { kind: "sphere", id: "S1-mound1", at: P(150, -0.4, 165), r: 1.2, mat: "snow" },
+      { kind: "sphere", id: "S1-mound2", at: P(172, -0.4, 166), r: 1.2, mat: "snow" },
+      slab("S1-lookDeck", 120, 2.25, 186, [5, 0.5, 5], "wood"),
+      { kind: "cylinder", id: "S1-lookLeg1", at: P(117.8, 0, 183.8), r: 0.3, h: 2, mat: "wood" },
+      { kind: "cylinder", id: "S1-lookLeg2", at: P(122.2, 0, 183.8), r: 0.3, h: 2, mat: "wood" },
+      { kind: "cylinder", id: "S1-lookLeg3", at: P(117.8, 0, 188.2), r: 0.3, h: 2, mat: "wood" },
+      { kind: "cylinder", id: "S1-lookLeg4", at: P(122.2, 0, 188.2), r: 0.3, h: 2, mat: "wood" },
+      stairs({ id: "S1-lookStairs", at: P(120, 1.25, 190.5), size: [1.5, 2.5, 4], yaw: 0, mat: "wood" }),
+      slab("S1-lookRail", 120, 3.1, 183.75, [5, 1.2, 0.5], "wood"),
+      ...alarmPole("S1-alarm1", 122, 2.5, 187.5),
+      slab("S1-relay1", 120, 0.75, 205, [1, 1.5, 1], "metal"),
+      slab("S1-tunnelJambW", 9.5, 2, 215, [1, 4, 1], "metal"),
+      slab("S1-tunnelJambE", 15.5, 2, 215, [1, 4, 1], "metal"),
+      slab("S1-tunnelLintel", 12.5, 4.5, 215, [6, 1, 1], "metal"),
+      slab("S1-creekIce", 150, -0.2, 256, [276, 0.5, 12], "ice"),
+      ...berms,
+      slab("S1-bridge", 150, 1.5, 256, [3, 0.6, 18], "wood"),
+      { kind: "ramp", id: "S1-bridgeRampS", at: P(150, 0.9, 244.5), size: [3, 1.8, 5], yaw: 180, mat: "wood" },
+      { kind: "ramp", id: "S1-bridgeRampN", at: P(150, 0.9, 267.5), size: [3, 1.8, 5], yaw: 0, mat: "wood" },
+      slab("S1-bridgeRailW", 148.25, 2.4, 256, [0.5, 1.2, 18], "wood"),
+      slab("S1-bridgeRailE", 151.75, 2.4, 256, [0.5, 1.2, 18], "wood"),
+      slab("S1-leanRoof", 165, 1.85, 265.5, [6, 0.5, 3], "wood"),
+      slab("S1-leanWall", 165, 0.8, 267.25, [6, 1.6, 0.5], "wood"),
+      ...room("S1-kennel", 203, 207, 284, 286, 0, 1.6, [{ side: "s", at: 205, w: 1.2, h: 1.6 }], "wood"),
+      { kind: "disc", id: "S1-shrineDais", at: P(150, 0.02, 300), r: 3, mat: "stone" },
+      { kind: "cylinder", id: "S1-shrineObelisk", at: P(150, 0.5, 300), r: 0.5, h: 3, mat: "gold" },
+      { kind: "disc", id: "S1-shrineDisc", at: P(150, 0.05, 300), r: 5, mat: "neon" },
+      { kind: "cylinder", id: "S1-shrineStone1", at: P(146, 0, 296), r: 0.6, h: 2.5, mat: "ice" },
+      { kind: "cylinder", id: "S1-shrineStone2", at: P(154, 0, 296), r: 0.6, h: 2.5, mat: "ice" },
+      { kind: "cylinder", id: "S1-shrineStone3", at: P(146, 0, 304), r: 0.6, h: 2.5, mat: "ice" },
+      { kind: "cylinder", id: "S1-shrineStone4", at: P(154, 0, 304), r: 0.6, h: 2.5, mat: "ice" },
+      ...searchlight("S1-practiceLight", 150, 0, 312),
+      ...rowA,
+      ...rowB,
+      ...rowC,
+      ...rowD,
+      ...rowE,
+      ...flank,
+      slab("S1-flankWall", 250, 1.1, 360, [1.5, 2.2, 60], "snow"),
+      slab("S1-fenceW", 122, 1.2, 410, [44, 2.4, 0.5], "metal"),
+      slab("S1-fenceE", 178, 1.2, 410, [44, 2.4, 0.5], "metal"),
+      { kind: "cylinder", id: "S1-mast", at: P(150, 0, 445), r: 0.6, h: 24, mat: "metal" },
+      slab("S1-mastDeck", 150, 13.75, 445, [5, 0.5, 5], "metal"),
+      ...mastRails,
+      slab("S1-crowsNest", 150, 21.75, 445, [3, 0.5, 3], "metal"),
+      ...nestRails,
+      slab("S1-mastLift", 157, 0.25, 448, [1.5, 0.5, 1.5], "metal"),
+      { kind: "cylinder", id: "S1-spire", at: P(70, 0, 425), r: 4, h: 9, mat: "ice" },
+      { kind: "cone", id: "S1-spireCap", at: P(70, 9, 425), r: 4, h: 6, mat: "ice" },
+      slab("S1-spireLedge", 70, 5.75, 420, [4, 0.5, 3], "ice"),
+      { kind: "ramp", id: "S1-spireRamp", at: P(76, 3, 430), size: [2, 6, 12], yaw: 0, mat: "ice" },
+      slab("S1-hut", 225, 2, 432, [10, 4, 8], "concrete"),
+      stairs({ id: "S1-hutStairs", at: P(231.75, 2, 425), size: [1.5, 4, 6], yaw: 180, mat: "concrete" }),
+      slab("S1-hutRail", 225, 4.6, 428.25, [10, 1.2, 0.5], "concrete"),
+      ...pass,
+      { kind: "disc", id: "S1-rigPad", at: P(150, 0.02, 512), r: 2.2, mat: "concrete" },
+      slab("S1-rigBagW", 146.5, 0.6, 508, [3, 1.2, 0.8], "concrete"),
+      slab("S1-rigBagE", 153.5, 0.6, 508, [3, 1.2, 0.8], "concrete")
+    ],
+    weapons: [
+      { id: "C1", at: P(156, 0.6, 54), gun: "sniper", why: "E1, E3, E4: every long shot in the quiet half", quality: "uncommon", manufacturer: "reliable", element: "none", level: 5 },
+      { id: "R1", at: P(146, 0, 462), gun: "bazooka", why: "The rig in the pass and the two wall rigs", quality: "uncommon", manufacturer: "reliable", element: "none", level: 5 }
+    ],
+    checkpoints: [
+      { id: "CP1", at: P(163, 0, 174), when: "S1-E1.cleared" },
+      { id: "CP2", at: P(150, 0, 300), when: "S1-shrine" },
+      { id: "CP3", at: P(150, 0, 516), when: "S1-E3.cleared" }
+    ],
+    mechanisms: [
+      { kind: "barrel", id: "S1-fire", at: P(158, 0.55, 168), element: "fire" },
+      { kind: "shrine", id: "S1-shrine", at: P(150, 0.5, 300), spell: "decoy", name: "Cardboard Sproto" },
+      { kind: "searchlight", id: "S1-practice", at: P(150, 0, 312), harmless: true, beam: 120, spot: 6, sweep: 8 },
+      hazard("S1-slickW", 12, 146, 250, 262, { slow: 0.15, tag: "slick", y0: -1, y1: 1.2 }),
+      hazard("S1-slickE", 154, 288, 250, 262, { slow: 0.15, tag: "slick", y0: -1, y1: 1.2 }),
+      door5("S1-tunnel", 12.5, 1.5, 215, [4, 3, 1]),
+      door5("S1-hutDoor", 220, 1.3, 433, [1, 2.6, 2.4]),
+      door5("S1-passGate", 150, 2.5, 518.5, [14, 5, 1], { opens: "S1-E3.cleared" }),
+      latch("S1-passLatch", "S1-passGate", P(6, 3, 500)),
+      { kind: "mover", id: "S1-lift", carry: true, from: P(157, 0, 448), to: P(157, 22, 448), speed: 2, stops: [0, 14, 22] },
+      { kind: "alarm", id: "S1-alarm1", at: P(122, 6.5, 187.5), hp: 40, cableHp: 20, cableTo: P(120, 0.75, 205), runner: 1.5, arrive: 6 },
+      { kind: "alarm", id: "S1-alarm3", at: P(219.7, 2, 430), hp: 40, cableHp: 20, cableTo: P(219.7, 4, 436) },
+      { kind: "cache", id: "S1-secretCache", at: P(70, 6, 424), gun: "sniper", quality: "legendary" },
+      { kind: "secret", id: "S1-file1", at: P(150, 22, 445), tickets: 5, file: 1, name: "Audit File 1" },
+      ammo4("AB1", 154, 0, 56, "sniper", 8),
+      ammo4("AB2", 163, 0, 174, "bullets", 60),
+      ammo4("AB3", 120, 2.5, 186, "sniper", 8),
+      ammo4("AB4", 153, 0, 300, "sniper", 8),
+      ammo4("AB5", 150, 14, 445, "sniper", 8),
+      ammo4("AB6", 225, 4, 432, "sniper", 8),
+      ammo4("AB7", 154, 0, 463, "rockets", 3),
+      ammo4("AB8", 150, 0, 516, "sniper", 8)
+    ],
+    encounters: [E13, E23, E33]
+  };
+
+  // src/data/levels/L05/S2.js
+  function mirror(parts) {
+    return parts.map((p) => {
+      const q2 = { ...p, id: p.id.replaceAll("BW-", "BE-") };
+      if (p.at) q2.at = [260 - p.at[0], p.at[1], p.at[2]];
+      if (p.size) q2.size = p.size.slice();
+      return q2;
+    });
+  }
+  var parapet = [];
+  for (let i = 0; i < 20; i++) parapet.push(slab(`S2-parapet${i + 1}`, 16 + i * 12, 8.6, 200.25, [10, 1.2, 0.5], "concrete"));
+  var bw = [
+    ...room("BW-shell", 85, 115, 200, 236, 0, 8, [
+      { side: "s", at: 100, w: 4 },
+      { side: "n", at: 100, w: 2.4 }
+    ], "concrete"),
+    slab("BW-corrL", 97.5, 3.75, 207.5, [1, 7.5, 13], "concrete"),
+    slab("BW-corrR", 102.5, 3.75, 207.5, [1, 7.5, 13], "concrete"),
+    slab("BW-part1", 86.4, 3.75, 214.5, [0.8, 7.5, 1], "concrete"),
+    slab("BW-part2", 94, 3.75, 214.5, [9.6, 7.5, 1], "concrete"),
+    slab("BW-part3", 104, 3.75, 214.5, [5.6, 7.5, 1], "concrete"),
+    slab("BW-part4", 111.6, 3.75, 214.5, [4.8, 7.5, 1], "concrete"),
+    slab("BW-partLintel1", 88, 5.05, 214.5, [2.4, 4.9, 1], "concrete"),
+    slab("BW-partLintel2", 100, 5.05, 214.5, [2.4, 4.9, 1], "concrete"),
+    slab("BW-partLintel3", 108, 5.05, 214.5, [2.4, 4.9, 1], "concrete"),
+    { kind: "ramp", id: "BW-stairs", visual: "stairs", steps: 16, at: P(88, 3.75, 207), size: [3, 7.5, 12], yaw: 0, mat: "concrete" },
+    slab("BW-bunk1", 110, 0.6, 204, [2, 1.2, 1], "wood"),
+    slab("BW-bunk2", 110, 0.6, 210, [2, 1.2, 1], "wood"),
+    ...crateStack("BW-crate1", 93, 221),
+    ...crateStack("BW-crate2", 107, 221),
+    slab("BW-crate3", 100, 0.6, 219, [4, 1.2, 1], "crate"),
+    { kind: "cylinder", id: "BW-rigPad", at: P(100, 8, 203), r: 2, h: 0.5, mat: "concrete" }
+  ];
+  var approach = [[125, 30], [137, 50], [121, 70]].flatMap(([x, n], i) => boulderM(`S2-approach${i + 1}`, x, n));
+  var centre = [
+    ...boulderM("S2-centre1", 116, 110),
+    ...boulderM("S2-centre2", 146, 112),
+    ...boulderM("S2-centre3", 112, 145),
+    ...boulderM("S2-centre4", 141, 147),
+    ...rockSlab("S2-centreSlab", 120, 128),
+    ...boulderS("S2-centreS", 150, 126)
+  ];
+  var S24 = {
+    id: "S2",
+    name: "Kill Zone, Wall and two Bunkers",
+    origin: [20, 0, -520],
+    start: P(130, 0, 8),
+    yaw: 0,
+    footprint: [260, 250],
+    routeM: 438,
+    flyerVolume: { min: [0, -8, -250], max: [260, 24, 0] },
+    exit: zone3(126, 134, 206, 214, -2, 8),
+    grappleAnchors: [
+      hook("S2-hook-towerW", 60, 12.6, 203),
+      hook("S2-hook-towerE", 200, 12.6, 203),
+      hook("S2-hook-walkW", 85, 8.6, 203),
+      hook("S2-hook-walkE", 175, 8.6, 203),
+      hook("S2-hook-hatchW", 88, 8.6, 202),
+      hook("S2-hook-hatchE", 172, 8.6, 202)
+    ],
+    terrain: terrain({
+      id: "S2-ground",
+      origin: [0, 0, -200],
+      size: [170, 200],
+      cell: 4,
+      seed: 502,
+      mat: "snow",
+      noise: { amp: 0.8, freq: 0.015, octaves: 1 }
+    }),
+    geometry: [
+      slab("S2-floor", 85, -0.25, 100, [170, 0.5, 200], "snow", { tag: "terrainStandIn" }),
+      slab("S2-yard", 130, -0.25, 219, [240, 0.5, 42], "concrete"),
+      slab("S2-cliffW", 5, 7, 125, [10, 14, 250], "rock"),
+      slab("S2-cliffE", 255, 7, 125, [10, 14, 250], "rock"),
+      slab("S2-cliffS1", 66.5, 7, 4, [113, 14, 8], "rock"),
+      slab("S2-cliffS2", 193.5, 7, 4, [113, 14, 8], "rock"),
+      slab("S2-eastSnowS", 210, -3, 25, [80, 6, 50], "snow"),
+      slab("S2-eastSnowN", 210, -3, 192.5, [80, 6, 15], "snow"),
+      slab("S2-lakeBed", 210, -5.5, 117.5, [80, 1, 135], "rock"),
+      slab("S2-ice1", 210, -0.25, 65, [80, 0.5, 30], "ice"),
+      slab("S2-ice2", 210, -0.25, 106, [80, 0.5, 28], "ice"),
+      slab("S2-ice3", 210, -0.25, 146, [80, 0.5, 28], "ice"),
+      slab("S2-ice4", 210, -0.25, 178.5, [80, 0.5, 13], "ice"),
+      slab("S2-band1", 210, -0.25, 86, [80, 0.5, 12], "ice", { tag: "crackTiles" }),
+      slab("S2-band2", 210, -0.25, 126, [80, 0.5, 12], "ice", { tag: "crackTiles" }),
+      slab("S2-band3", 210, -0.25, 166, [80, 0.5, 12], "ice", { tag: "crackTiles" }),
+      slab("S2-log1", 190, 0.3, 86, [3, 0.6, 12], "wood"),
+      slab("S2-log2", 240, 0.3, 86, [3, 0.6, 12], "wood"),
+      slab("S2-log3", 180, 0.3, 126, [3, 0.6, 12], "wood"),
+      slab("S2-log4", 225, 0.3, 126, [3, 0.6, 12], "wood"),
+      slab("S2-log5", 200, 0.3, 166, [3, 0.6, 12], "wood"),
+      slab("S2-log6", 245, 0.3, 166, [3, 0.6, 12], "wood"),
+      ...fishHut("S2-hut1", 190, 70),
+      ...fishHut("S2-hut2", 232, 100),
+      ...fishHut("S2-hut3", 212, 143),
+      ...fishHut("S2-hut4", 238, 150),
+      slab("S2-caveFloor", 212, -4.25, 126, [10, 0.5, 10], "ice"),
+      slab("S2-caveS", 212, -2.5, 121, [10, 4, 1], "ice"),
+      slab("S2-caveN", 212, -2.5, 131, [10, 4, 1], "ice"),
+      slab("S2-caveW", 207, -2.5, 126, [1, 4, 10], "ice"),
+      slab("S2-caveE", 217, -2.5, 126, [1, 4, 10], "ice"),
+      { kind: "ramp", id: "S2-caveRamp", at: P(212, -2, 136), size: [3, 4, 10], yaw: 180, mat: "ice" },
+      { kind: "sphere", id: "S2-bonkGlow", at: P(212, -3.6, 126), r: 0.4, mat: "gold" },
+      ...approach,
+      slab("S2-rock1", 118, 1.1, 90, [5, 2.2, 1.5], "rock"),
+      slab("S2-rock2", 122, 1.1, 88, [5, 2.2, 1.5], "rock"),
+      slab("S2-rock3", 142, 1.1, 90, [5, 2.2, 1.5], "rock"),
+      ...boulderL("S2-rockL", 104, 90),
+      ...boulderL("S2-rockR", 156, 90),
+      ...centre,
+      ...snowBerm("S2-last1", 118, 152),
+      ...snowBerm("S2-last2", 106, 155),
+      ...snowBerm("S2-last3", 142, 152),
+      slab("S2-apronW", 121, 0.6, 188, [4, 1.2, 1], "concrete"),
+      slab("S2-apronE", 139, 0.6, 188, [4, 1.2, 1], "concrete"),
+      slab("S2-trW1", 37.75, 1.1, 86.5, [1.5, 2.2, 73], "snow"),
+      slab("S2-trE1", 42.25, 1.1, 65, [1.5, 2.2, 30], "snow"),
+      slab("S2-trE2", 42.25, 1.1, 103.25, [1.5, 2.2, 30.5], "snow"),
+      slab("S2-jog1N", 52.75, 1.1, 122.25, [31.5, 2.2, 1.5], "snow"),
+      slab("S2-jog1S", 56.25, 1.1, 117.75, [26.5, 2.2, 1.5], "snow"),
+      slab("S2-trW2", 67.75, 1.1, 135.25, [1.5, 2.2, 25.5], "snow"),
+      slab("S2-trW3", 67.75, 1.1, 160.75, [1.5, 2.2, 17.5], "snow"),
+      slab("S2-trE3", 72.25, 1.1, 128.5, [1.5, 2.2, 23], "snow"),
+      slab("S2-trE4", 72.25, 1.1, 158.25, [1.5, 2.2, 20.5], "snow"),
+      ...room("S2-dugout", 58, 67, 146, 154, 0, 2.2, [{ side: "e", at: 150, w: 2.4, h: 2.2 }], "wood"),
+      slab("S2-jog2N", 82.75, 1.1, 172.25, [31.5, 2.2, 1.5], "snow"),
+      slab("S2-jog2S", 86.25, 1.1, 167.75, [26.5, 2.2, 1.5], "snow"),
+      slab("S2-trW4", 97.75, 1.1, 185.5, [1.5, 2.2, 27], "snow"),
+      slab("S2-trE5", 102.25, 1.1, 183, [1.5, 2.2, 32], "snow"),
+      slab("S2-wallW", 47.5, 4, 203, [75, 8, 6], "concrete"),
+      slab("S2-wallE", 212.5, 4, 203, [75, 8, 6], "concrete"),
+      slab("S2-pierW", 120.5, 4, 203, [11, 8, 6], "concrete"),
+      slab("S2-pierE", 139.5, 4, 203, [11, 8, 6], "concrete"),
+      slab("S2-lintel", 130, 7, 203, [8, 2, 6], "concrete"),
+      ...parapet,
+      slab("S2-parapetN", 130, 9.5, 205.75, [240, 3, 0.5], "concrete"),
+      ...watchtower("S2-towerW", 60, 8, 203, 4),
+      ...watchtower("S2-towerE", 200, 8, 203, 4),
+      ...searchlight("S2-lightW", 30, 8, 202),
+      ...searchlight("S2-lightE", 230, 8, 202),
+      ...room("S2-kennel", 73, 77, 197, 200, 0, 2, [{ side: "s", at: 75, w: 1.6, h: 2 }], "concrete"),
+      ...bw,
+      ...mirror(bw),
+      { kind: "box", id: "BW-gen-body", at: P(130, 1.2, 186), size: [8, 2.4, 1.2], mat: "metal" },
+      { kind: "box", id: "BE-gen-body", at: P(130, 1.2, 192), size: [8, 2.4, 1.2], mat: "metal" },
+      { kind: "box", id: "BW-gen-coil", at: P(124, 1, 186), size: [0.6, 2, 0.6], mat: "metal" },
+      { kind: "box", id: "BE-gen-coil", at: P(136, 1, 192), size: [0.6, 2, 0.6], mat: "metal" }
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP4", at: P(130, 0, 157), whenDesign: "both tower snipers dead, or the apron" },
+      { id: "CP5", at: P(100, 0, 230), whenDesign: "first generator destroyed" }
+    ],
+    mechanisms: [
+      {
+        kind: "weather",
+        id: "S2-blizzard",
+        whiteout: 20,
+        period: 90,
+        warning: 4,
+        windows: [[10, 30], [100, 120], [190, 210]],
+        sightCap: 40,
+        viewCap: 40
+      },
+      { kind: "searchlight", id: "S2-lightW", at: P(30, 8, 202), yaw: Math.PI, beam: 120, spot: 6, hold: 2, lamp: 30, sweep: 8, alarm: "S2-alarm4" },
+      { kind: "searchlight", id: "S2-lightE", at: P(230, 8, 202), yaw: Math.PI, beam: 120, spot: 6, hold: 2, lamp: 30, sweep: 8, alarm: "S2-alarm4" },
+      { kind: "alarm", id: "S2-alarm4", at: P(130, 9.2, 200.2), hp: 40, cableHp: 20, cables: [P(30, 7, 203), P(230, 7, 203)] },
+      { kind: "alarm", id: "S2-alarm5W", at: P(113, 2, 234), hp: 40, cableHp: 20, cableTo: P(100, 2, 234) },
+      { kind: "alarm", id: "S2-alarm5E", at: P(147, 2, 234), hp: 40, cableHp: 20, cableTo: P(160, 2, 234) },
+      { kind: "crackTiles", id: "S2-crack1", at: P(210, 0, 86), size: [80, 0.5, 12], tile: 4, fall: 1, telegraph: 0.5, return: 20 },
+      { kind: "crackTiles", id: "S2-crack2", at: P(210, 0, 126), size: [80, 0.5, 12], tile: 4, fall: 1, telegraph: 0.5, return: 20, secret: "S2-bonk" },
+      { kind: "crackTiles", id: "S2-crack3", at: P(210, 0, 166), size: [80, 0.5, 12], tile: 4, fall: 1, telegraph: 0.5, return: 20 },
+      hazard("S2-lake", 170, 250, 50, 185, { dps: 100, kill: true, rescue: true, y0: -5, y1: -0.5, tag: "water" }),
+      { kind: "target", id: "BW-gen-hp", solid: "BW-gen-body", hp: 500, at: P(130, 1.2, 186), weak: 2 },
+      { kind: "target", id: "BE-gen-hp", solid: "BE-gen-body", hp: 500, at: P(130, 1.2, 192), weak: 2 },
+      door5("S2-shieldGate", 130, 3, 200.5, [8, 6, 1], { opens: "S2-E5.cleared" }),
+      latch("S2-gateLatch", "S2-shieldGate", P(5, 4, 230)),
+      door5("S2-kennelDoor", 75, 1, 197, [1.6, 2, 0.6]),
+      door5("BW-doorS", 100, 1.3, 200, [4, 2.6, 1]),
+      door5("BW-doorN", 100, 1.3, 236, [2.4, 2.6, 1]),
+      door5("BE-doorS", 160, 1.3, 200, [4, 2.6, 1]),
+      door5("BE-doorN", 160, 1.3, 236, [2.4, 2.6, 1]),
+      { kind: "power", id: "S2-overshield", at: P(238, 1, 150), modifier: "overshield" },
+      { kind: "secret", id: "S2-bonk", at: P(212, -4, 126), modifier: "taxSeason", name: "Tax Season" },
+      { kind: "secret", id: "S2-file2", at: P(60, 12, 203), tickets: 5, file: 2, name: "Audit File 2" },
+      ammo4("AB9", 62, 0, 150, "bullets", 60),
+      ammo4("AB10", 232, 0, 100, "sniper", 8),
+      ammo4("AB11", 130, 0, 157, "rockets", 3),
+      ammo4("AB12", 60, 12, 203, "sniper", 8),
+      ammo4("AB13", 93, 0, 230, "shells", 12),
+      ammo4("AB14", 167, 0, 230, "bullets", 60)
+    ],
+    encounters: [E43, E53]
+  };
+
+  // src/data/levels/L05/S3.js
+  var rails = [];
+  for (let i = 0; i < 6; i++) {
+    const x = 22 + i * 10;
+    const n = 30 + i * 10;
+    rails.push(slab(`S3-railS${i}`, x, 5.6, 28, [8, 1.2, 0.5], "metal"));
+    rails.push(slab(`S3-railN${i}`, x, 5.6, 90, [8, 1.2, 0.5], "metal"));
+    rails.push(slab(`S3-railW${i}`, 19, 5.6, n, [0.5, 1.2, 8], "metal"));
+    rails.push(slab(`S3-railE${i}`, 81, 5.6, n, [0.5, 1.2, 8], "metal"));
+  }
+  var dots = [];
+  for (let i = 0; i < 8; i++) dots.push({ kind: "disc", id: `S3-threshold${i}`, at: P(46.5 + i, 0.05, 30), r: 0.4, mat: "neon" });
+  var S34 = {
+    id: "S3",
+    name: "Gatehouse and Courtyard",
+    origin: [100, 0, -726],
+    start: P(50, 0, 6),
+    yaw: 0,
+    footprint: [100, 120],
+    routeM: 105,
+    flyerVolume: { min: [0, -6, -120], max: [100, 14, 0] },
+    exit: zone3(48, 52, 114, 120, -2, 8),
+    grappleAnchors: [
+      hook("S3-hook-gallSW", 20, 5.8, 28),
+      hook("S3-hook-gallSE", 80, 5.8, 28),
+      hook("S3-hook-gallNW", 20, 5.8, 90),
+      hook("S3-hook-gallNE", 80, 5.8, 90),
+      hook("S3-hook-pillarSW", 32, 7.4, 41),
+      hook("S3-hook-pillarSE", 68, 7.4, 41),
+      hook("S3-hook-pillarNW", 32, 7.4, 77),
+      hook("S3-hook-pillarNE", 68, 7.4, 77),
+      hook("S3-hook-rig", 50, 6.4, 26)
+    ],
+    intro: {
+      title: "Something in the courtyard has been on ice since the last audit.",
+      lines: []
+    },
+    geometry: [
+      slab("S3-floorS", 50, -0.5, 23, [100, 1, 46], "concrete"),
+      slab("S3-floorN", 50, -0.5, 96, [100, 1, 48], "concrete"),
+      slab("S3-floorW", 18.5, -0.5, 59, [37, 1, 26], "concrete"),
+      slab("S3-floorE", 81.5, -0.5, 59, [37, 1, 26], "concrete"),
+      slab("S3-basin", 50, -4.5, 59, [26, 1, 26], "ice"),
+      slab("S3-iceFloor", 50, -0.25, 59, [26, 0.5, 26], "ice", { tag: "crackTiles" }),
+      { kind: "cylinder", id: "S3-dais", at: P(50, -4, 59), r: 5, h: 4.6, mat: "ice" },
+      { kind: "cylinder", id: "S3-iceMachine", at: P(50, 0.6, 59), r: 1.5, h: 4, mat: "metal" },
+      slab("S3-passW", 45.5, 3, 11, [1, 6, 22], "concrete"),
+      slab("S3-passE", 54.5, 3, 11, [1, 6, 22], "concrete"),
+      slab("S3-passRoof", 50, 6.25, 11, [10, 0.5, 22], "concrete"),
+      ...room("S3-depot", 28, 45, 2, 20, 0, 6, [{ side: "e", at: 11 }], "concrete"),
+      ...room("S3-stairRoom", 55, 72, 2, 20, 0, 6, [{ side: "w", at: 11 }, { side: "n", at: 70 }], "concrete"),
+      stairs({ id: "S3-stairUp", at: P(70, 2.5, 10), size: [3, 5, 12], yaw: 180, mat: "concrete" }),
+      slab("S3-landing", 70, 4.75, 23, [4, 0.5, 6], "metal"),
+      slab("S3-wallW1", 14, 6, 39.75, [2, 12, 35.5], "concrete"),
+      slab("S3-wallW2", 14, 6, 78.25, [2, 12, 35.5], "concrete"),
+      slab("S3-wallWLintel", 14, 7.5, 59, [2, 9, 3], "concrete"),
+      slab("S3-wallE1", 86, 6, 39.75, [2, 12, 35.5], "concrete"),
+      slab("S3-wallE2", 86, 6, 78.25, [2, 12, 35.5], "concrete"),
+      slab("S3-wallELintel", 86, 7.5, 59, [2, 9, 3], "concrete"),
+      slab("S3-wallS1", 30, 6, 23, [32, 12, 2], "concrete"),
+      slab("S3-wallS2", 70, 6, 23, [32, 12, 2], "concrete"),
+      slab("S3-wallSLintel", 50, 9, 23, [8, 6, 2], "concrete"),
+      slab("S3-wallN1", 31, 6, 95, [34, 12, 2], "concrete"),
+      slab("S3-wallN2", 69, 6, 95, [34, 12, 2], "concrete"),
+      slab("S3-wallNLintel", 50, 8, 95, [4, 8, 2], "concrete"),
+      slab("S3-gallS", 50, 4.75, 26, [62, 0.5, 4], "metal"),
+      slab("S3-gallN", 50, 4.75, 92, [62, 0.5, 4], "metal"),
+      slab("S3-gallW", 17, 4.75, 59, [4, 0.5, 70], "metal"),
+      slab("S3-gallE", 83, 4.75, 59, [4, 0.5, 70], "metal"),
+      ...rails,
+      stairs({ id: "S3-stairSW", at: P(20.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
+      stairs({ id: "S3-stairSE", at: P(79.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
+      { kind: "cylinder", id: "S3-pillar1", at: P(32, 0, 41), r: 2, h: 8, mat: "ice" },
+      { kind: "cylinder", id: "S3-pillar2", at: P(68, 0, 41), r: 2, h: 8, mat: "ice" },
+      { kind: "cylinder", id: "S3-pillar3", at: P(32, 0, 77), r: 2, h: 8, mat: "ice" },
+      { kind: "cylinder", id: "S3-pillar4", at: P(68, 0, 77), r: 2, h: 8, mat: "ice" },
+      slab("S3-bar1", 40, 0.6, 32, [4, 1.2, 1], "concrete"),
+      slab("S3-bar2", 60, 0.6, 32, [4, 1.2, 1], "concrete"),
+      slab("S3-bar3", 24, 0.6, 59, [4, 1.2, 1], "concrete"),
+      slab("S3-bar4", 76, 0.6, 59, [4, 1.2, 1], "concrete"),
+      slab("S3-bar5", 40, 0.6, 86, [4, 1.2, 1], "concrete"),
+      slab("S3-bar6", 60, 0.6, 86, [4, 1.2, 1], "concrete"),
+      ...crateStack("S3-crate1", 26, 30),
+      ...crateStack("S3-crate2", 74, 30),
+      ...crateStack("S3-crate3", 26, 88),
+      ...crateStack("S3-crate4", 74, 88),
+      ...generator("S3-genNW", 17, 5, 91),
+      ...generator("S3-genNE", 83, 5, 91),
+      { kind: "cylinder", id: "S3-rigPad", at: P(50, 5, 26), r: 1.2, h: 1, mat: "metal" },
+      slab("S3-hatch", 62, 0.75, 93, [3, 1.5, 2], "metal"),
+      slab("S3-passN1", 47.5, 3, 106, [1, 6, 20], "concrete"),
+      slab("S3-passN2", 52.5, 3, 106, [1, 6, 20], "concrete"),
+      slab("S3-passNRoof", 50, 6.25, 106, [6, 0.5, 20], "concrete"),
+      ...dots
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP6", at: P(50, 0, 18), whenDesign: "leaving depot 1" },
+      { id: "CP7", at: P(50, 0.6, 59), when: "S3-F1.cleared" }
+    ],
+    mechanisms: [
+      { kind: "depot", id: "D1", at: P(36, 0, 11) },
+      { kind: "depotCrate", id: "D1-crate", at: P(33, 0, 6) },
+      { kind: "health", id: "D1-health", at: P(33, 0, 16) },
+      { kind: "bench", id: "D1-bench", at: P(41, 0, 6) },
+      { kind: "shop", id: "D1-shop", at: P(41, 0, 16) },
+      door5("S3-arenaDoor", 50, 3, 22.5, [8, 6, 0.6]),
+      door5("S3-exitDoor", 50, 2, 95, [4, 4, 0.6]),
+      door5("S3-doorUp", 70, 5, 20, [2.4, 2.6, 0.6]),
+      door5("SP-W", 14, 1.5, 59, [2, 3, 3]),
+      door5("SP-E", 86, 1.5, 59, [2, 3, 3]),
+      { kind: "emplacement", id: "S3-rig", at: P(50, 5, 26), yaw: 180, def: "miningRig", arc: 120, rate: 8, damage: 3, overheat: 4, recover: 2 },
+      { kind: "target", id: "S3-genNW-hp", solid: "S3-genNW-body", hp: 500, at: P(17, 6, 91), weak: 2 },
+      { kind: "target", id: "S3-genNE-hp", solid: "S3-genNE-body", hp: 500, at: P(83, 6, 91), weak: 2 },
+      hazard("S3-cold", 15, 85, 24, 94, { set: "F1-part2", dps: 3, shieldRegen: 0, y0: -4, y1: 3, tag: "cold" }),
+      hazard("S3-slick", 35, 65, 44, 74, { set: "F1-part3", slow: 0.15, tag: "slick" }),
+      { kind: "crackTiles", id: "S3-crack", at: P(50, 0, 59), size: [26, 0.5, 26], tile: 3.25, set: "F1-part3", fall: 1, telegraph: 0.5, return: 20 },
+      { kind: "breakable", id: "S3-break1", solid: "S3-pillar1", hits: 2, stun: 2 },
+      { kind: "breakable", id: "S3-break2", solid: "S3-pillar2", hits: 2, stun: 2 },
+      { kind: "breakable", id: "S3-break3", solid: "S3-pillar3", hits: 2, stun: 2 },
+      { kind: "breakable", id: "S3-break4", solid: "S3-pillar4", hits: 2, stun: 2 },
+      { kind: "power", id: "S3-overshield", at: P(50, 5, 90), modifier: "overshield" },
+      { kind: "chest", id: "chest-l1", at: P(50, 0.6, 63), opens: "S3-F1.cleared", tier: "uncommon" },
+      { kind: "ammoCrate", id: "AC1", at: P(52, 0.6, 63), uses: 3, opens: "S3-F1.cleared" },
+      ammo4("AB15", 50, 5, 92, "sniper", 8),
+      ammo4("AB16", 46, 5, 26, "bullets", 60)
+    ],
+    encounters: [F12]
+  };
+
+  // src/data/levels/L05/S4.js
+  var shelfX = [24, 29, 34, 46, 51, 56];
+  var shelves = [];
+  for (const x of shelfX) {
+    for (const n of [25, 43]) shelves.push(slab(`S4-shelf-${x}-${n}`, x, 8.5, n, [0.8, 3, 10], "wood"));
+  }
+  var rails2 = [];
+  for (let i = 0; i < 4; i++) {
+    rails2.push(slab(`S4-railW${i}`, 16, 14.6, 18 + i * 10, [0.5, 1.2, 8], "metal"));
+    rails2.push(slab(`S4-railE${i}`, 64, 14.6, 18 + i * 10, [0.5, 1.2, 8], "metal"));
+    rails2.push(slab(`S4-railS${i}`, 20 + i * 12, 14.6, 16, [8, 1.2, 0.5], "metal"));
+    rails2.push(slab(`S4-railN${i}`, 20 + i * 12, 14.6, 52, [8, 1.2, 0.5], "metal"));
+  }
+  var S44 = {
+    id: "S4",
+    name: "Frost Halls",
+    origin: [110, 0, -842],
+    start: P(40, 0, 2),
+    yaw: 0,
+    footprint: [80, 70],
+    routeM: 250,
+    flyerVolume: { min: [0, -2, -70], max: [80, 22, 0] },
+    grappleAnchors: [
+      hook("S4-hook-gallW", 14, 14.6, 34),
+      hook("S4-hook-gallE", 66, 14.6, 34),
+      hook("S4-hook-gallS", 40, 14.6, 14),
+      hook("S4-hook-gallN", 40, 14.6, 54)
+    ],
+    exit: zone3(36, 44, 64, 70, 20, 26),
+    geometry: [
+      slab("S4-floor", 40, -0.5, 31, [80, 1, 78], "concrete"),
+      slab("S4-f2s", 40, 6.5, 30, [80, 1, 60], "concrete"),
+      slab("S4-f2n", 40, 6.5, 67, [80, 1, 6], "concrete"),
+      slab("S4-f2w", 19, 6.5, 62, [38, 1, 4], "concrete"),
+      slab("S4-f2e", 61, 6.5, 62, [38, 1, 4], "concrete"),
+      slab("S4-roof", 40, 20.5, 35, [80, 1, 70], "concrete"),
+      slab("S4-wallW", 0.5, 10.5, 35, [1, 21, 70], "concrete"),
+      slab("S4-wallE", 79.5, 10.5, 35, [1, 21, 70], "concrete"),
+      slab("S4-wallN", 40, 10.5, 69.5, [80, 21, 1], "concrete"),
+      slab("S4-wallSlowL", 19, 1.3, 0.5, [38, 2.6, 1], "concrete"),
+      slab("S4-wallSlowR", 61, 1.3, 0.5, [38, 2.6, 1], "concrete"),
+      slab("S4-wallSup", 40, 11.8, 0.5, [80, 18.4, 1], "concrete"),
+      ...room("S4-vest", 32, 48, 1, 12, 0, 6, [
+        { side: "s", at: 40, w: 4 },
+        { side: "n", at: 40, w: 2.4 },
+        { side: "w", at: 8, w: 2.4 }
+      ], "concrete"),
+      slab("S4-corrW1", 37, 3, 16.5, [1, 6, 9], "concrete"),
+      slab("S4-corrW2", 37, 3, 33.2, [1, 6, 19.6], "concrete"),
+      slab("S4-corrW3", 37, 3, 50.7, [1, 6, 10.6], "concrete"),
+      slab("S4-corrWlintel1", 37, 4.3, 22.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrWlintel2", 37, 4.3, 44.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrE1", 43, 3, 20.5, [1, 6, 17], "concrete"),
+      slab("S4-corrE2", 43, 3, 40.2, [1, 6, 17.6], "concrete"),
+      slab("S4-corrE3", 43, 3, 53.7, [1, 6, 4.6], "concrete"),
+      slab("S4-corrElintel1", 43, 4.3, 30.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrElintel2", 43, 4.3, 50.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-pallet1", 39, 0.6, 20, [1.5, 1.2, 1], "ice"),
+      slab("S4-pallet2", 41.5, 0.6, 32, [1.5, 1.2, 1], "ice"),
+      slab("S4-pallet3", 39, 0.6, 44, [1.5, 1.2, 1], "ice"),
+      slab("S4-service", 21.5, 3, 33, [1, 6, 52], "concrete"),
+      slab("S4-linkS", 28.5, 3, 5.5, [7, 6, 1], "concrete"),
+      slab("S4-linkN", 28.5, 3, 10.5, [7, 6, 1], "concrete"),
+      ...room("S4-W1", 26, 36.5, 16, 28, 0, 6, [{ side: "e", at: 22 }, { side: "w", at: 22 }], "metal"),
+      ...room("S4-W2", 26, 36.5, 38, 50, 0, 6, [{ side: "e", at: 44 }, { side: "w", at: 44 }], "metal"),
+      ...room("S4-E1", 43.5, 56, 24, 36, 0, 6, [{ side: "w", at: 30 }], "metal"),
+      ...room("S4-kennel", 43.5, 56, 44, 56, 0, 6, [{ side: "w", at: 50 }], "metal"),
+      ...room("S4-lobby", 30, 50, 56, 68, 0, 6, [{ side: "s", at: 40 }, { side: "w", at: 58 }], "concrete"),
+      slab("S4-liftA", 40, 0.25, 62, [4, 0.5, 2], "metal"),
+      ...room("S4-f2lobby", 30, 50, 58, 68, 7, 6, [{ side: "s", at: 40 }], "concrete"),
+      slab("S4-libNlowL", 25, 10, 56, [26, 6, 1], "concrete"),
+      slab("S4-libNlowR", 55, 10, 56, [26, 6, 1], "concrete"),
+      slab("S4-libNup", 40, 16.5, 56, [56, 7, 1], "concrete"),
+      slab("S4-libSlow", 40, 10.5, 12, [56, 7, 1], "concrete"),
+      slab("S4-libShighL", 25, 17, 12, [26, 6, 1], "concrete"),
+      slab("S4-libShighR", 55, 17, 12, [26, 6, 1], "concrete"),
+      slab("S4-libW1", 12, 13.5, 22.25, [1, 13, 20.5], "concrete"),
+      slab("S4-libW2", 12, 13.5, 45.75, [1, 13, 20.5], "concrete"),
+      slab("S4-libE1", 68, 13.5, 22.25, [1, 13, 20.5], "concrete"),
+      slab("S4-libE2", 68, 13.5, 45.75, [1, 13, 20.5], "concrete"),
+      ...shelves,
+      slab("S4-table1", 20, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      slab("S4-table2", 30, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      slab("S4-table3", 50, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      slab("S4-table4", 60, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      { kind: "cylinder", id: "S4-desk", at: P(28, 7, 34), r: 2, h: 1.2, mat: "wood" },
+      ...room("S4-cage", 13, 21, 13, 21, 7, 3, [{ side: "e", at: 17, h: 3 }], "glass"),
+      slab("S4-gallW", 14, 13.75, 34, [4, 0.5, 44], "metal"),
+      slab("S4-gallE", 66, 13.75, 34, [4, 0.5, 44], "metal"),
+      slab("S4-gallS", 40, 13.75, 14, [48, 0.5, 4], "metal"),
+      slab("S4-gallN", 40, 13.75, 54, [48, 0.5, 4], "metal"),
+      ...rails2,
+      stairs({ id: "S4-stairNW", at: P(17.5, 10.5, 43), size: [3, 7, 14], yaw: 180, mat: "metal", tag: "slide" }),
+      slab("S4-landNW", 17.5, 13.75, 35, [3, 0.5, 2], "metal"),
+      stairs({ id: "S4-stairSE", at: P(62.5, 10.5, 25), size: [3, 7, 14], yaw: 0, mat: "metal", tag: "slide" }),
+      slab("S4-landSE", 62.5, 13.75, 33, [3, 0.5, 2], "metal"),
+      slab("S4-vent1", 26, 19.75, 43, [2, 0.5, 2], "metal"),
+      slab("S4-vent2", 54, 19.75, 25, [2, 0.5, 2], "metal"),
+      slab("S4-f3floor", 40, 13.5, 6.5, [20, 1, 9], "concrete"),
+      ...room("S4-f3lobby", 30, 50, 2, 11, 14, 6, [{ side: "n", at: 40, w: 4 }], "concrete"),
+      slab("S4-freightCar", 40, 14.25, 67, [6, 0.5, 5], "metal")
+    ],
+    weapons: [
+      { id: "R2", at: P(34, 0, 6), gun: "shotgun", why: "E6 corridor, Frost Hounds, the Library", quality: "uncommon", manufacturer: "reliable", element: "none", level: 5 }
+    ],
+    checkpoints: [
+      { id: "CP8", at: P(40, 7, 64), whenDesign: "Lift A arrives" },
+      { id: "CP9", at: P(40, 7, 34), when: "S4-E7.cleared" }
+    ],
+    mechanisms: [
+      hazard("S4-slickW", 37.5, 38.5, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
+      hazard("S4-slickE", 42, 42.5, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
+      hazard("S4-coldW1", 26, 36.5, 16, 28, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      hazard("S4-coldW2", 26, 36.5, 38, 50, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      hazard("S4-coldE1", 43.5, 56, 24, 36, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      { kind: "mover", id: "S4-lift", carry: true, from: P(40, 0, 62), to: P(40, 7, 62), speed: 2 },
+      { kind: "mover", id: "S4-freight", carry: true, from: P(40, 14, 67), to: P(40, 21, 67), speed: 7 / 15, rideSec: 15 },
+      door5("LIB-in", 40, 10, 56.5, [4, 6, 0.6]),
+      door5("LIB-out", 40, 17, 11.5, [4, 6, 0.6]),
+      door5("LIB-doorW", 11.5, 8.5, 34, [0.6, 3, 3]),
+      door5("LIB-doorE", 68.5, 8.5, 34, [0.6, 3, 3]),
+      door5("LIB-doorG", 68.5, 15.5, 44, [0.6, 3, 3]),
+      { kind: "secret", id: "S4-battery", at: P(31, 0.5, 47), mana: 10, manaRegen: 0.5, name: "Mana Battery" },
+      { kind: "secret", id: "S4-file3", at: P(17, 7, 17), tickets: 5, file: 3, name: "Audit File 3", opens: "S4-E7.cleared" },
+      { kind: "chest", id: "chest-l2", at: P(42, 7, 34), opens: "S4-E7.cleared", tier: "uncommon" },
+      { kind: "ammoCrate", id: "AC2", at: P(44, 7, 34), uses: 3, opens: "S4-E7.cleared" },
+      { kind: "manaBloom", id: "S4-bloom", at: P(40, 7.2, 34), mana: 50, regrow: 20, opens: "S4-E7.cleared" },
+      ammo4("AB17", 46, 0, 6, "shells", 12),
+      ammo4("AB18", 44, 7, 64, "shells", 12),
+      ammo4("AB19", 38, 7, 36, "shells", 12),
+      ammo4("AB20", 14, 14, 20, "sniper", 8)
+    ],
+    encounters: [E63, E73]
+  };
+
+  // src/data/levels/L05/S5.js
+  var blocks = [
+    [54, 62],
+    [49.9, 71.9],
+    [40, 76],
+    [30.1, 71.9],
+    [26, 62],
+    [30.1, 52.1],
+    [40, 48],
+    [49.9, 52.1]
+  ].map(([x, n], i) => slab(
+    `S5-block${i + 1}`,
+    x,
+    i % 2 === 0 ? 1.1 : 0.6,
+    n,
+    i % 2 === 0 ? [3, 2.2, 1.5] : [3, 1.2, 1.5],
+    "metal"
+  ));
+  function band(id, x0, x1, n, y = 12.5) {
+    return slab(id, (x0 + x1) / 2, y, n, [x1 - x0, 1, 3], "metal");
+  }
+  var S54 = {
+    id: "S5",
+    name: "Armory and Vault",
+    origin: [110, 21, -904],
+    start: P(40, 0, 5),
+    yaw: 0,
+    footprint: [80, 100],
+    routeM: 105,
+    flyerVolume: { min: [0, -2, -100], max: [80, 14, 0] },
+    grappleAnchors: [
+      hook("S5-hook-pillarSW", 24, 10, 46),
+      hook("S5-hook-pillarSE", 56, 10, 46),
+      hook("S5-hook-pillarNW", 24, 10, 78),
+      hook("S5-hook-pillarNE", 56, 10, 78)
+    ],
+    noGrapple: [zone3(18, 62, 40, 84, 12, 30)],
+    exit: null,
+    intro: {
+      title: "Glowie, on the speakers: 'This is a routine inquiry. Please stand still.'",
+      lines: []
+    },
+    geometry: [
+      slab("S5-floor", 40, -0.5, 50, [80, 1, 100], "concrete"),
+      ...room("S5-liftBay", 36, 44, 1, 9, 0, 5, [{ side: "n", at: 40 }], "concrete"),
+      ...room("S5-armory", 28, 52, 9, 25, 0, 5, [{ side: "s", at: 40 }, { side: "n", at: 40 }], "concrete"),
+      ...room("S5-ante", 36, 44, 25, 39, 0, 6, [{ side: "s", at: 40 }, { side: "n", at: 40, w: 6 }], "concrete"),
+      slab("S5-vaultS1", 26.5, 6, 39, [21, 12, 2], "metal"),
+      slab("S5-vaultS2", 53.5, 6, 39, [21, 12, 2], "metal"),
+      slab("S5-vaultSLintel", 40, 9, 39, [6, 6, 2], "metal"),
+      slab("S5-vaultN1", 27, 6, 85, [22, 12, 2], "metal"),
+      slab("S5-vaultN2", 53, 6, 85, [22, 12, 2], "metal"),
+      slab("S5-vaultNLintel", 40, 8, 85, [4, 8, 2], "metal"),
+      slab("S5-vaultW1", 17, 6, 50.25, [2, 12, 20.5], "metal"),
+      slab("S5-vaultW2", 17, 6, 73.75, [2, 12, 20.5], "metal"),
+      slab("S5-vaultWLintel", 17, 7.5, 62, [2, 9, 3], "metal"),
+      slab("S5-vaultE", 63, 6, 62, [2, 12, 44], "metal"),
+      slab("S5-roofS1", 40, 12.5, 44.25, [44, 1, 8.5], "metal"),
+      slab("S5-roofS2", 40, 12.5, 53.75, [44, 1, 4.5], "metal"),
+      band("S5-roofSA", 18, 24.5, 50),
+      band("S5-roofSM", 27.5, 52.5, 50),
+      band("S5-roofSB", 55.5, 62, 50),
+      slab("S5-roofN1", 40, 12.5, 70.25, [44, 1, 4.5], "metal"),
+      slab("S5-roofN2", 40, 12.5, 79.75, [44, 1, 8.5], "metal"),
+      band("S5-roofNC", 18, 24.5, 74),
+      band("S5-roofNM", 27.5, 52.5, 74),
+      band("S5-roofND", 55.5, 62, 74),
+      slab("S5-roofW", 26, 12.5, 62, [16, 1, 12], "metal"),
+      slab("S5-roofE", 54, 12.5, 62, [16, 1, 12], "metal"),
+      ...room("S5-guard", 6, 17, 56, 68, 0, 4, [{ side: "e", at: 62, w: 3, h: 3 }], "concrete"),
+      { kind: "cylinder", id: "S5-safe", at: P(40, 0, 62), r: 2.5, h: 3, mat: "gold" },
+      slab("S5-drill", 40, 4, 62, [1, 1, 6], "metal"),
+      { kind: "disc", id: "S5-ring", at: P(40, 0.04, 62), r: 9, mat: "neon" },
+      slab("S5-console1", 46, 0.6, 62, [2, 1.2, 1], "metal"),
+      slab("S5-console2", 34, 0.6, 62, [2, 1.2, 1], "metal"),
+      slab("S5-console3", 40, 0.6, 56, [2, 1.2, 1], "metal"),
+      slab("S5-console4", 40, 0.6, 68, [2, 1.2, 1], "metal"),
+      ...blocks,
+      { kind: "cylinder", id: "S5-pillar1", at: P(24, 0, 46), r: 1.5, h: 12, mat: "concrete" },
+      { kind: "cylinder", id: "S5-pillar2", at: P(56, 0, 46), r: 1.5, h: 12, mat: "concrete" },
+      { kind: "cylinder", id: "S5-pillar3", at: P(24, 0, 78), r: 1.5, h: 12, mat: "concrete" },
+      { kind: "cylinder", id: "S5-pillar4", at: P(56, 0, 78), r: 1.5, h: 12, mat: "concrete" },
+      { kind: "disc", id: "S5-grate1", at: P(30, 0.04, 56), r: 3, mat: "ice" },
+      { kind: "disc", id: "S5-grate2", at: P(50, 0.04, 56), r: 3, mat: "ice" },
+      { kind: "disc", id: "S5-grate3", at: P(30, 0.04, 68), r: 3, mat: "ice" },
+      { kind: "disc", id: "S5-grate4", at: P(50, 0.04, 68), r: 3, mat: "ice" },
+      slab("S5-gantry", 40, -0.25, 90, [4, 0.5, 12], "metal"),
+      slab("S5-padFloor", 40, -0.25, 96, [10, 0.5, 10], "concrete", { tag: "padStandIn" }),
+      { kind: "disc", id: "S5-pad", at: P(40, 0.05, 96), r: 5, mat: "neon" }
+    ],
+    weapons: [],
+    checkpoints: [
+      { id: "CP10", at: P(40, 0, 34), whenDesign: "leaving depot 2" }
+    ],
+    mechanisms: [
+      { kind: "depot", id: "D2", at: P(40, 0, 17) },
+      { kind: "depotCrate", id: "D2-crate", at: P(33, 0, 17) },
+      { kind: "health", id: "D2-health", at: P(33, 0, 21) },
+      { kind: "bench", id: "D2-bench", at: P(47, 0, 21) },
+      { kind: "shop", id: "D2-shop", at: P(47, 0, 17) },
+      door5("S5-blastDoor", 40, 3, 39.5, [6, 6, 0.6]),
+      door5("S5-exitDoor", 40, 2, 84.5, [4, 4, 0.6]),
+      door5("S5-guardDoor", 17, 1.5, 62, [0.6, 3, 3]),
+      { kind: "switch", id: "S5-drillSwitch", at: P(40, 1.2, 59.5), needsHold: true, holdTime: 1.5, starts: "S5-F2" },
+      {
+        kind: "droneStrike",
+        id: "S5-strikes",
+        at: P(40, 12, 62),
+        ...DRONE_STRIKE,
+        times: [8, 22, 36, 50, 64, 78, 92],
+        thenEvery: 14
+      },
+      hazard("S5-cool1", 27, 33, 53, 59, { set: "F2-coolant", tag: "cold", shieldRegen: 0, y0: -1, y1: 3 }),
+      hazard("S5-cool2", 47, 53, 53, 59, { set: "F2-coolant", tag: "cold", shieldRegen: 0, y0: -1, y1: 3 }),
+      hazard("S5-cool3", 27, 33, 65, 71, { set: "F2-coolant", tag: "cold", shieldRegen: 0, y0: -1, y1: 3 }),
+      hazard("S5-cool4", 47, 53, 65, 71, { set: "F2-coolant", tag: "cold", shieldRegen: 0, y0: -1, y1: 3 }),
+      { kind: "hold", id: "S5-hold", at: P(40, 0, 62), r: 9, seconds: 90, needs: "player-or-buddy" },
+      { kind: "chest", id: "chest-l3", at: P(40, 0, 66), opens: "S5-F2.cleared", tier: "uncommon" },
+      { kind: "ammoCrate", id: "AC3", at: P(42, 0, 66), uses: 3, opens: "S5-F2.cleared" },
+      ammo4("AB21", 42, 0, 32, "bullets", 60),
+      ammo4("AB22", 60, 0, 62, "bullets", 60),
+      ammo4("AB23", 40, 0, 80, "shells", 12)
+    ],
+    encounters: [F22, S5_END]
+  };
+
+  // src/data/levels/L05/index.js
+  var L05_PACING = [
+    ["B1", 31],
+    ["E1", 66],
+    ["E2", 54],
+    ["B2", 20],
+    ["E3", 106],
+    ["E4", 152],
+    ["E5", 115],
+    ["D1", 52],
+    ["F1", 160],
+    ["E6", 78],
+    ["E7", 166],
+    ["B3", 20],
+    ["D2", 51],
+    ["F2", 158]
+  ];
+  var L05_BOT = [
+    { section: "S1", steps: ["C1", "ridge slot 3", "snipe the runner", "camp", "bridge after the drone", "shrine", "Decoy", "P1 P2 elite", "clerk", "R1", "vent", "gate"] },
+    { section: "S2", steps: ["whiteout", "Sniper Rocks", "Last Cover", "rig vents", "hounds", "bunker W roof", "bunker E", "gate"] },
+    { section: "S3", steps: ["depot", "south gallery", "brow plate", "emplacement", "generators", "gallery through part 3"] },
+    { section: "S4", steps: ["R2", "service passage", "locker W2", "Lift A", "north-west stair", "freight"] },
+    { section: "S5", steps: ["depot", "drill", "circle the ring", "ledgers", "pad"] }
+  ];
+  function add2(at2, origin) {
+    return [at2[0] + origin[0], (at2[1] || 0) + (origin[1] || 0), at2[2] + origin[2]];
+  }
+  function shiftBox2(box3, origin) {
+    if (!box3 || !box3.min || !box3.max) return box3;
+    return { min: add2(box3.min, origin), max: add2(box3.max, origin) };
+  }
+  function shiftDesign(at2, origin) {
+    if (!at2) return at2;
+    return [at2[0] + origin[0], (at2[1] || 0) + (origin[1] || 0), -(at2[2] || 0) + origin[2]];
+  }
+  var BUILT3 = makeV2Level({
     id: "L05",
     name: "Frostspire Black Site",
     stage: "glacier",
     tier: 5,
-    parTime: 18 * 60,
-    sections: [
-      {
-        id: "S1",
-        name: "Snowfield",
-        length: 54,
-        floor: "ice",
-        encounters: [{ id: "E1", x: 18, space: "field", units: [["auditSniper", 2], ["miningRig", 1]] }],
-        weapons: [
-          { id: "sn-snow", x: 10, gun: "sniper", why: "snipers on the snowfield" },
-          { id: "bz-turret", x: 14, gun: "bazooka", why: "mining rig turret" }
-        ],
-        mechanisms: [{ kind: "hazard", id: "ice-slick", x: 26, slow: 0.2, dps: 0 }],
-        secret: { x: 8, modifier: "taxSeason" }
-      },
-      {
-        id: "S2",
-        name: "Bunkers",
-        length: 48,
-        floor: "ice",
-        encounters: [{ id: "E2", x: 16, space: "interior", units: [["glowieAgent", 4]] }],
-        mechanisms: [
-          { kind: "switch", id: "generator", x: 12, opens: "shield-gate" },
-          { kind: "door", id: "shield-gate", x: 34, opens: "switch:generator" }
-        ]
-      },
-      {
-        id: "S3",
-        name: "Frost Halls",
-        length: 48,
-        floor: "ice",
-        encounters: [{ id: "E3", x: 16, space: "hold", units: [["glowieAgent", 2], ["auditSniper", 2]] }],
-        weapons: [{ id: "sg-hall", x: 28, gun: "shotgun", why: "frost halls" }],
-        mechanisms: [{ kind: "hazard", id: "drone-strike", x: 22, dps: 6 }]
-      }
-    ]
+    parTime: 20 * 60,
+    jetpack: false,
+    // Nav stays off until pathing can take a 300 by 520 section. See ENGINE-NEEDS.md.
+    useNav: false,
+    maxAlive: 12,
+    lighting: { sky: "polar-night", aurora: true, indoor: "cold-blue", blizzard: "S2" },
+    bounds: { min: [-30, -40, -1100], max: [420, 80, 40] },
+    sections: [S14, S24, S34, S44, S54]
   });
+  for (const sec of BUILT3.sections) {
+    const origin = sec.origin;
+    for (const enc of sec.encounters || []) {
+      for (const sq of enc.squads || []) {
+        const tr = sq.trigger;
+        if (!tr) continue;
+        if (tr.box) tr.box = shiftBox2(tr.box, origin);
+        if (tr.zBelow != null) tr.zBelow += origin[2];
+        if (tr.zAbove != null) tr.zAbove += origin[2];
+      }
+      const script = enc.script;
+      if (!script) continue;
+      for (const part of script.parts || []) {
+        for (const addSpec of part.adds || []) {
+          if (addSpec.at && addSpec.at.length && Array.isArray(addSpec.at[0])) {
+            addSpec.at = addSpec.at.map((p) => shiftDesign(p, origin));
+          } else addSpec.at = shiftDesign(addSpec.at, origin);
+        }
+      }
+    }
+  }
+  var counted = census(BUILT3.sections.flatMap((sec) => sec.encounters));
+  BUILT3.estimateSeconds = L05_PACING.reduce((sum, row) => sum + row[1], 0);
+  BUILT3.estimateWithAlarms = BUILT3.estimateSeconds + 47;
+  BUILT3.pacing = L05_PACING;
+  BUILT3.botRoute = L05_BOT;
+  BUILT3.census = counted;
+  BUILT3.archetypes = { spotterDrone: SPOTTER_DRONE, frostHound: FROST_HOUND };
+  BUILT3.spellNotes = { held: ["gooBolt", "chainZap", "carpet", "yeet", "swarm", "manaShield", "pumpIt"], shrine: DECOY };
+  BUILT3.decoy = DECOY;
+  BUILT3.auditor = AUDITOR;
+  BUILT3.outro = { title: "You have the ledgers. Glowie has your face. See you at the office.", lines: [] };
+  BUILT3.difficulty = {
+    easy: { laser: 1.8, searchHold: 3, droneHold: 2.5, alarmFewer: 2, whiteout: 30, rigVent: 3, hounds: 1, sniperBox: 12, plates: 0.7, generators: 1, drill: 70, strike: 18 },
+    heroic: { laser: 1.1, searchHold: 1.2, droneHold: 1, alarmMore: 2, whiteout: 15, rigVent: 2, thirdRig: true, hounds: 3, dropBoxes: ["AB4", "AB8"], plates: 1.3, generators: 3, missiles: 5, waveAt: 4, drill: 110, strike: 10, strikePairsAfter: 60 }
+  };
+  BUILT3.loot = {
+    tierOdds: { common: 20, uncommon: 42, rare: 30, epic: 7, legendary: 1 },
+    baseTier: "uncommon",
+    racks: ["C1", "R1", "R2"],
+    elites: ["the Head Auditor", "the Supervisor", "Alpha", "the Archivist", "the Vault Warden"],
+    chests: ["chest-l1", "chest-l2", "chest-l3"],
+    secretCache: "S1-secretCache",
+    bonk: "Tax Season"
+  };
+  BUILT3.sightlines = [
+    { name: "ridge to campfire", meters: 91 },
+    { name: "ridge to lookout", meters: 113 },
+    { name: "row A to mast", meters: 125 },
+    { name: "row A to spire", meters: 128 },
+    { name: "row A to hut", meters: 135 },
+    { name: "Sniper Rocks to tower", meters: 135 },
+    { name: "Sniper Rocks to rig", meters: 119 }
+  ];
+  var L05 = BUILT3;
+  registerLevel(L05);
+
+  // src/data/levels/campaign.js
+  var card3 = (title, lines) => ({ title, lines });
   var L06 = makeLevel({
     id: "L06",
     name: "Vape Cabal Skyline",
@@ -4791,6 +8551,10 @@ var SprotoShooterSim = (() => {
   var LEVELS = { arena: arena_default };
   for (const level of CAMPAIGN_LEVELS) LEVELS[level.id] = level;
   var CAMPAIGN = CAMPAIGN_LEVELS.map((l) => l.id);
+  function installLevel(level) {
+    LEVELS[level.id] = level;
+    return level;
+  }
   function getLevelData(id) {
     const level = LEVELS[id] || LEVELS[resolveLevelId(id)];
     if (!level) throw new Error(`unknown level: ${id}`);
@@ -4823,19 +8587,100 @@ var SprotoShooterSim = (() => {
     const rt = getLevelRuntime(levelId);
     return rt.sectionById[sectionId] || rt.sections[0] || null;
   }
-  function inBox(box2, x, y, z) {
-    if (!box2) return false;
-    const y0 = box2.min ? box2.min[1] : -1e9;
-    const y1 = box2.max ? box2.max[1] : 1e9;
-    const min = box2.min || box2;
-    const max = box2.max || box2;
-    if (box2.min) return x >= box2.min[0] && x <= box2.max[0] && y >= y0 && y <= y1 && z >= box2.min[2] && z <= box2.max[2];
+  function inBox(box3, x, y, z) {
+    if (!box3) return false;
+    const y0 = box3.min ? box3.min[1] : -1e9;
+    const y1 = box3.max ? box3.max[1] : 1e9;
+    const min = box3.min || box3;
+    const max = box3.max || box3;
+    if (box3.min) return x >= box3.min[0] && x <= box3.max[0] && y >= y0 && y <= y1 && z >= box3.min[2] && z <= box3.max[2];
     return x >= min[0] && x <= max[0] && z >= min[2] && z <= max[2];
   }
-  function nearPoint(at, x, y, z, r) {
-    if (!at) return false;
-    const dx = x - at[0], dy = y - (at[1] || 0), dz = z - at[2];
+  function nearPoint(at2, x, y, z, r) {
+    if (!at2) return false;
+    const dx = x - at2[0], dy = y - (at2[1] || 0), dz = z - at2[2];
     return dx * dx + dy * dy + dz * dz <= r * r;
+  }
+
+  // src/sim/campaign/terrain.js
+  function hash2(ix, iz, seed) {
+    let n = Math.imul(ix, 374761393) + Math.imul(iz, 668265263) + Math.imul(seed | 0, 1442695041) | 0;
+    n = Math.imul(n ^ n >>> 16, 2146121005);
+    n = Math.imul(n ^ n >>> 15, 2221713035);
+    n = (n ^ n >>> 16) >>> 0;
+    return n / 4294967296;
+  }
+  function fade(t) {
+    return t * t * (3 - 2 * t);
+  }
+  function valueNoise(x, z, seed) {
+    const x0 = Math.floor(x);
+    const z0 = Math.floor(z);
+    const tx = fade(x - x0);
+    const tz = fade(z - z0);
+    const v00 = hash2(x0, z0, seed);
+    const v10 = hash2(x0 + 1, z0, seed);
+    const v01 = hash2(x0, z0 + 1, seed);
+    const v11 = hash2(x0 + 1, z0 + 1, seed);
+    const a = v00 + (v10 - v00) * tx;
+    const b = v01 + (v11 - v01) * tx;
+    return (a + (b - a) * tz) * 2 - 1;
+  }
+  function fbm(x, z, seed, octaves) {
+    let amp = 1;
+    let freq = 1;
+    let sum = 0;
+    let norm = 0;
+    const n = Math.max(1, octaves | 0);
+    for (let i = 0; i < n; i++) {
+      sum += valueNoise(x * freq, z * freq, seed + i * 101 | 0) * amp;
+      norm += amp;
+      amp *= 0.5;
+      freq *= 2;
+    }
+    return norm > 0 ? sum / norm : 0;
+  }
+  function terrainLocal(t, x, z) {
+    if (!t || !t.origin || !t.size) return null;
+    const u4 = x - t.origin[0];
+    const v = z - t.origin[2];
+    if (u4 < 0 || v < 0 || u4 > t.size[0] || v > t.size[1]) return null;
+    return { u: u4, v, north: t.size[1] - v };
+  }
+  function inFlat(t, u4, north) {
+    const flats = t.flat || [];
+    for (let i = 0; i < flats.length; i++) {
+      const f = flats[i];
+      if (f.x0 != null && (u4 < f.x0 || u4 > f.x1)) continue;
+      if (f.n0 != null) {
+        const lo = Math.min(f.n0, f.n1);
+        const hi = Math.max(f.n0, f.n1);
+        if (north < lo || north > hi) continue;
+      }
+      if (f.x0 == null && f.n0 == null) continue;
+      return true;
+    }
+    return false;
+  }
+  function solidTerrain(sec) {
+    if (!sec || !sec.terrain) return null;
+    const geometry = sec.geometry || [];
+    for (let i = 0; i < geometry.length; i++) {
+      if (geometry[i] && geometry[i].tag === "terrainStandIn") return null;
+    }
+    return sec.terrain;
+  }
+  function heightAt(t, x, z) {
+    const local = terrainLocal(t, x, z);
+    if (!local) return null;
+    const base = t.origin[1] || 0;
+    if (inFlat(t, local.u, local.north)) return base;
+    const noise = t.noise || {};
+    const amp = noise.amp || 0;
+    if (!amp) return base;
+    const freq = noise.freq == null ? 0.02 : noise.freq;
+    const octaves = noise.octaves == null ? 1 : noise.octaves;
+    return base + amp * fbm(x * freq, z * freq, t.seed || 1, octaves);
   }
 
   // src/sim/campaign/solids.js
@@ -4890,7 +8735,22 @@ var SprotoShooterSim = (() => {
   function overlapsXZ(s, x, z, r) {
     return x + r > s.min[0] && x - r < s.max[0] && z + r > s.min[2] && z - r < s.max[2];
   }
+  function terrainSolid(t) {
+    const amp = t.noise && t.noise.amp || 0;
+    const oy = t.origin[1] || 0;
+    return {
+      kind: "terrain",
+      id: t.id,
+      terrain: t,
+      min: [t.origin[0], oy - amp - 1, t.origin[2]],
+      max: [t.origin[0] + t.size[0], oy + amp + 1, t.origin[2] + t.size[1]]
+    };
+  }
   function surfaceY(s, x, z) {
+    if (s.kind === "terrain") {
+      const h = heightAt(s.terrain, x, z);
+      return h == null ? -1e9 : h;
+    }
     if (s.kind !== "ramp") return s.max[1];
     const spanZ = Math.max(1e-3, s.max[2] - s.min[2]);
     const spanX = Math.max(1e-3, s.max[0] - s.min[0]);
@@ -4913,6 +8773,21 @@ var SprotoShooterSim = (() => {
       if (top > g) g = top;
     }
     return g;
+  }
+  function pushDownhill(ent, s, step) {
+    const h = heightAt(s.terrain, ent.pos.x, ent.pos.z);
+    if (h == null || h <= ent.pos.y + step + 0.02) return;
+    const e = 0.35;
+    const east = heightAt(s.terrain, ent.pos.x + e, ent.pos.z);
+    const west = heightAt(s.terrain, ent.pos.x - e, ent.pos.z);
+    const north = heightAt(s.terrain, ent.pos.x, ent.pos.z + e);
+    const south = heightAt(s.terrain, ent.pos.x, ent.pos.z - e);
+    const hx = (east == null ? h : east) - (west == null ? h : west);
+    const hz = (north == null ? h : north) - (south == null ? h : south);
+    const gl = Math.hypot(hx, hz);
+    if (gl < 1e-4) return;
+    ent.pos.x -= hx / gl * 0.2;
+    ent.pos.z -= hz / gl * 0.2;
   }
   function pushCircle(x, z, s, radius) {
     const cx = Math.max(s.min[0], Math.min(x, s.max[0]));
@@ -4947,6 +8822,10 @@ var SprotoShooterSim = (() => {
     for (let n = 0; n < 3; n++) {
       for (let i = 0; i < solids.length; i++) {
         const s = solids[i];
+        if (s.kind === "terrain") {
+          pushDownhill(ent, s, step);
+          continue;
+        }
         const top = surfaceY(s, ent.pos.x, ent.pos.z);
         if (top <= feet + step + 0.02) continue;
         if (head <= s.min[1] + 0.01 || feet + step >= s.max[1]) continue;
@@ -4979,9 +8858,9 @@ var SprotoShooterSim = (() => {
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
       if (typeof allow === "function" && !allow(s)) continue;
-      const thin = s.max[1] - s.min[1] <= 0.6;
+      const thin = s.kind !== "terrain" && s.max[1] - s.min[1] <= 0.6;
       if (!includeThin && thin && s.max[1] <= origin.y + 0.05) continue;
-      const t = rayAabb(origin, dir, s.min, s.max, maxDist);
+      const t = s.kind === "terrain" ? rayTerrain(origin, dir, s.terrain, maxDist, includeThin) : rayAabb(origin, dir, s.min, s.max, maxDist);
       if (t < 0) continue;
       if (bestT < 0 || t < bestT) {
         bestT = t;
@@ -4993,6 +8872,30 @@ var SprotoShooterSim = (() => {
   function raySolids(solids, origin, dir, maxDist, allow = null) {
     const hit = firstSolid(solids, origin, dir, maxDist, allow);
     return hit ? hit.t : -1;
+  }
+  function rayTerrain(o, d, field2, maxDist, includeThin) {
+    const step = Math.max(0.5, (field2 && field2.cell || 2) * 0.5);
+    const startH = heightAt(field2, o.x, o.z);
+    let prevY = o.y;
+    let prevH = startH;
+    let prev = 0;
+    for (let dist = step; dist <= maxDist; dist += step) {
+      const x = o.x + d.x * dist;
+      const y = o.y + d.y * dist;
+      const z = o.z + d.z * dist;
+      const h = heightAt(field2, x, z);
+      if (prevH != null && h != null && (prevY - prevH) * (y - h) <= 0) {
+        const denom = prevY - prevH - (y - h);
+        const f = Math.abs(denom) < 1e-8 ? 0 : (prevY - prevH) / denom;
+        const hit = prev + (dist - prev) * Math.max(0, Math.min(1, f));
+        if (hit > 0.2 && hit <= maxDist) return hit;
+        if (includeThin && hit >= 0 && hit <= maxDist) return hit;
+      }
+      prevY = y;
+      prevH = h;
+      prev = dist;
+    }
+    return -1;
   }
   function rayAabb(o, d, min, max, maxDist) {
     let t0 = 0, t1 = maxDist;
@@ -5047,12 +8950,12 @@ var SprotoShooterSim = (() => {
     const dist = Math.hypot(dx, dz) || 1;
     const fx = dx / dist, fz = dz / dist;
     const side = index % 2 === 0 ? 1 : -1;
-    const at = spec.at || [
+    const at2 = spec.at || [
       boss2.pos.x + fx * 3 + -fz * side * 1.6,
       0,
       boss2.pos.z + fz * 3 + fx * side * 1.6
     ];
-    const e = createEnemy(state, "midget", { pos: { x: at[0], z: at[2] } });
+    const e = createEnemy(state, "midget", { pos: { x: at2[0], z: at2[2] } });
     e.campaignEnc = enc.id;
     e.partId = spec.id;
     e.ai.scriptTarget = true;
@@ -5064,10 +8967,10 @@ var SprotoShooterSim = (() => {
     e.hp = hp;
     return e;
   }
-  function spawnAdd(state, enc, unit, boss2, at, slot, count) {
+  function spawnAdd(state, enc, unit, boss2, at2, slot, count) {
     const type = unit[0];
     const extra = unit[2] || {};
-    const base = at || [boss2.pos.x + 2, boss2.pos.y || 0, boss2.pos.z + 2];
+    const base = at2 || [boss2.pos.x + 2, boss2.pos.y || 0, boss2.pos.z + 2];
     const ox = ((slot || 0) - ((count || 1) - 1) / 2) * 1.1;
     const e = createEnemy(state, type, { elite: !!extra.elite, pos: { x: base[0] + ox, z: base[2] } });
     e.pos.y = base[1] || 0;
@@ -5098,9 +9001,9 @@ var SprotoShooterSim = (() => {
     return n;
   }
   function scriptShields(state, solidId) {
-    const book2 = state.level && state.level.scripts;
-    if (!book2 || !solidId) return false;
-    for (const prog of Object.values(book2)) {
+    const book3 = state.level && state.level.scripts;
+    if (!book3 || !solidId) return false;
+    for (const prog of Object.values(book3)) {
       for (const id of Object.keys(prog.targets)) {
         const spec = (prog.specs || {})[id];
         if (!spec || !spec.shields || spec.shields.indexOf(solidId) < 0) continue;
@@ -5110,12 +9013,12 @@ var SprotoShooterSim = (() => {
     }
     return false;
   }
-  function applyField(state, p, center2, field, dt) {
-    if (!field || !p) return;
-    const d = Math.hypot(p.pos.x - (field.at ? field.at[0] : center2.x), p.pos.z - (field.at ? field.at[2] : center2.z));
-    if (d > (field.r || 0)) return;
-    if (field.slow != null && field.slow < 1) p.scriptSlow = Math.min(p.scriptSlow == null ? 1 : p.scriptSlow, field.slow);
-    if (field.dps) damagePlayer(state, p, { base: field.dps * dt, sourceKind: "world", fromPos: { x: p.pos.x, y: 0, z: p.pos.z } });
+  function applyField(state, p, center2, field2, dt) {
+    if (!field2 || !p) return;
+    const d = Math.hypot(p.pos.x - (field2.at ? field2.at[0] : center2.x), p.pos.z - (field2.at ? field2.at[2] : center2.z));
+    if (d > (field2.r || 0)) return;
+    if (field2.slow != null && field2.slow < 1) p.scriptSlow = Math.min(p.scriptSlow == null ? 1 : p.scriptSlow, field2.slow);
+    if (field2.dps) damagePlayer(state, p, { base: field2.dps * dt, sourceKind: "world", fromPos: { x: p.pos.x, y: 0, z: p.pos.z } });
   }
   function tickBossScript(state, enc, dt) {
     const script = enc.script;
@@ -5133,6 +9036,11 @@ var SprotoShooterSim = (() => {
     prog.partT += dt;
     if (!prog.center) prog.center = { x: boss2.pos.x, z: boss2.pos.z };
     const last = prog.part >= script.parts.length - 1;
+    if (part.hp && prog.hpFor !== prog.part) {
+      prog.hpFor = prog.part;
+      boss2.maxHp = part.hp;
+      boss2.hp = part.hp;
+    }
     boss2.boss.scripted = true;
     boss2.boss.attackList = Array.isArray(part.attacks) ? part.attacks : null;
     boss2.boss.attackScale = part.attacks && part.attacks.bolts === "half" ? 2 : 1;
@@ -5148,19 +9056,19 @@ var SprotoShooterSim = (() => {
     if (part.immune && (part.targets || []).length) boss2.boss.invuln = targetsLeft(state, prog) > 0;
     else boss2.boss.invuln = !!part.immune && !(part.targets || []).length && prog.partT < (part.seconds || 0);
     boss2.boss.scriptHold = !part.immune && !last;
-    (part.adds || []).forEach((add2, i) => {
+    (part.adds || []).forEach((add3, i) => {
       const key2 = `${part.id}:${i}`;
       if (prog.spawned[key2]) return;
       let ready = false;
-      if (add2.t != null) ready = prog.partT >= add2.t;
-      if (add2.on === "firstLoom" || add2.on === "firstTarget") ready = deadTargets(state, prog) >= 1;
-      if (add2.on === "secondPylon" || add2.on === "secondTarget") ready = deadTargets(state, prog) >= 2;
-      if (add2.onBossHp != null && boss2.maxHp > 0) ready = boss2.hp / boss2.maxHp * 100 <= add2.onBossHp;
+      if (add3.t != null) ready = prog.partT >= add3.t;
+      if (add3.on === "firstLoom" || add3.on === "firstTarget") ready = deadTargets(state, prog) >= 1;
+      if (add3.on === "secondPylon" || add3.on === "secondTarget") ready = deadTargets(state, prog) >= 2;
+      if (add3.onBossHp != null && boss2.maxHp > 0) ready = boss2.hp / boss2.maxHp * 100 <= add3.onBossHp;
       if (!ready) return;
       prog.spawned[key2] = true;
-      for (const unit of add2.units || []) {
+      for (const unit of add3.units || []) {
         const count = unit[1] || 1;
-        for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2, add2.at, n, count);
+        for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2, add3.at, n, count);
       }
     });
     for (const id of Object.keys(prog.targets)) {
@@ -5176,9 +9084,9 @@ var SprotoShooterSim = (() => {
     }
     if (part.pit) applyField(state, p, prog.center, part.pit, dt);
     for (const pool of part.pools || []) applyField(state, p, prog.center, pool, dt);
-    for (const vent of part.vents || []) {
-      if (!vent.period || (prog.partT + (vent.offset || 0)) % vent.period / vent.period < 0.45) {
-        applyField(state, p, prog.center, vent, dt);
+    for (const vent2 of part.vents || []) {
+      if (!vent2.period || (prog.partT + (vent2.offset || 0)) % vent2.period / vent2.period < 0.45) {
+        applyField(state, p, prog.center, vent2, dt);
       }
     }
     if (part.ring && p) {
@@ -5215,19 +9123,112 @@ var SprotoShooterSim = (() => {
     }
   }
 
+  // src/sim/campaign/duo.js
+  var BARS = {
+    obamaDuo: [578, 669, 760],
+    midgetDuo: [684, 783, 852]
+  };
+  var PYLONS = ["sb.py1", "sb.py2", "sb.py3"];
+  var BREAKERS = ["sb.cb1", "sb.cb2"];
+  function book(lv, encId) {
+    if (!lv.scripts) lv.scripts = {};
+    if (!lv.scripts[encId]) lv.scripts[encId] = { part: 0, partT: 0, home: {} };
+    return lv.scripts[encId];
+  }
+  function destroyed(lv, id) {
+    return !!(lv.v2 && lv.v2.parts && lv.v2.parts[id]);
+  }
+  function tickDuo(state, enc, dt) {
+    const parts = enc.parts;
+    if (!parts || !parts.length) return;
+    const bosses2 = [];
+    for (const e of state.enemies) {
+      if (!e.boss || e.campaignEnc !== enc.id || !BARS[e.type]) continue;
+      if (e.dead && e.type !== "obamaDuo") continue;
+      bosses2.push(e);
+    }
+    const living = bosses2.filter((e) => !e.dead);
+    if (!living.length) return;
+    const lv = state.level;
+    const prog = book(lv, enc.id);
+    const part = parts[prog.part];
+    if (!part) return;
+    prog.partT += dt;
+    const obama = bosses2.find((e) => e.type === "obamaDuo");
+    for (const b of living) {
+      b.boss.scripted = true;
+      if (!b.boss.bars) {
+        b.boss.bars = BARS[b.type].slice();
+        b.boss.bar = 0;
+        b.maxHp = b.boss.bars[0];
+        b.hp = b.maxHp;
+        prog.home[b.id] = { x: b.pos.x, y: b.pos.y, z: b.pos.z };
+      }
+      const lastBar = b.boss.bar >= b.boss.bars.length - 1;
+      if (b.boss.barEmpty && !lastBar) {
+        b.boss.bar += 1;
+        b.boss.barEmpty = false;
+        b.maxHp = b.boss.bars[b.boss.bar];
+        b.hp = b.maxHp;
+        if (b.boss.bar >= 2) prog.held = true;
+      }
+      b.boss.phaseIdx = Math.min(2, b.boss.bar);
+    }
+    const midget = living.find((e) => e.type === "midgetDuo");
+    let advance = false;
+    if (part.kind === "entry") advance = PYLONS.every((id) => destroyed(lv, id));
+    else if (part.kind === "intermission") advance = BREAKERS.every((id) => destroyed(lv, id));
+    else if (part.kind === "double" && prog.part === 1) advance = living.some((b) => b.boss.bar >= 2);
+    else if (part.kind === "double") advance = (!obama || obama.dead) && !!(midget && midget.boss.bar >= 2);
+    else if (part.kind === "chase") advance = !midget;
+    if (advance && prog.part < parts.length - 1) {
+      prog.part += 1;
+      prog.partT = 0;
+    }
+    const now = parts[prog.part];
+    const shield = now && (now.kind === "entry" || now.kind === "intermission");
+    for (const b of living) {
+      const lastBar = b.boss.bar >= b.boss.bars.length - 1;
+      const locked = b.type === "midgetDuo" && b.boss.bar >= 2 && obama && !obama.dead;
+      if (shield && prog.home[b.id]) {
+        const h = prog.home[b.id];
+        b.pos.x = h.x;
+        b.pos.y = h.y;
+        b.pos.z = h.z;
+        b.vel.x = 0;
+        b.vel.y = 0;
+        b.vel.z = 0;
+        b.boss.invuln = true;
+        b.boss.attackList = null;
+        b.boss.scriptHold = false;
+      } else if (locked) {
+        b.boss.invuln = true;
+        b.boss.scriptHold = false;
+        b.boss.attackList = ["pigRain"];
+      } else {
+        b.boss.invuln = false;
+        b.boss.scriptHold = !lastBar;
+        b.boss.attackList = b.type === "midgetDuo" ? ["bolt", "fly", "blast"] : ["bolt", "blast"];
+      }
+    }
+  }
+
   // src/sim/campaign/v2.js
-  function book(lv) {
+  function book2(lv) {
     if (!lv.v2) lv.v2 = { enc: {}, parts: {}, doorOpen: {} };
     return lv.v2;
   }
   function encState(lv, id) {
-    const v = book(lv);
+    const v = book2(lv);
     if (!v.enc[id]) v.enc[id] = { started: false, t: 0, kills: 0, alive: 0, squads: {}, sealed: false };
     return v.enc[id];
   }
   function bindV2Section(state, sec) {
     const lv = state.level;
-    let solids = sec && sec.solids ? sec.solids.slice() : solidsFromGeometry(sec && sec.geometry);
+    const field2 = solidTerrain(sec);
+    const geometry = field2 ? (sec.geometry || []).filter((g) => g.tag !== "terrainStandIn") : sec && sec.geometry;
+    let solids = sec && sec.solids ? sec.solids.slice() : solidsFromGeometry(geometry);
+    if (field2) solids.push(terrainSolid(field2));
     if (lv.brokenSolids) solids = solids.filter((s) => !lv.brokenSolids[s.id]);
     lv.solids = solids;
     lv.closedDoors = [];
@@ -5237,10 +9238,10 @@ var SprotoShooterSim = (() => {
     const lv = state.level;
     lv.format = "v2";
     lv.useSolids = true;
-    book(lv);
+    book2(lv);
   }
-  function squadKey(squad3, i) {
-    return squad3.id || String(i);
+  function squadKey(squad6, i) {
+    return squad6.id || String(i);
   }
   function noteKills(state, enc, prog) {
     if (!prog.seen) prog.seen = {};
@@ -5275,12 +9276,12 @@ var SprotoShooterSim = (() => {
     return aliveUnits(state, enc) + unitOf(enc, type) <= capOf(state, enc) + 1e-9;
   }
   function partClock(state, enc) {
-    const book2 = state.level.scripts && state.level.scripts[enc.id];
-    if (!book2) return null;
-    return { n: (book2.part || 0) + 1, t: book2.partT || 0 };
+    const book3 = state.level.scripts && state.level.scripts[enc.id];
+    if (!book3) return null;
+    return { n: (book3.part || 0) + 1, t: book3.partT || 0 };
   }
-  function triggerReady(state, enc, squad3, prog) {
-    const tr = squad3.trigger || { type: "onEnter" };
+  function triggerReady(state, enc, squad6, prog) {
+    const tr = squad6.trigger || { type: "onEnter" };
     if (tr.type === "onEnter") return prog.started;
     if (tr.type === "time") {
       if (tr.part != null) {
@@ -5293,7 +9294,7 @@ var SprotoShooterSim = (() => {
     if (tr.type === "onRemain") {
       const byCount = prog.started && aliveOf(state, enc.id) <= (tr.n ?? 2) && Object.keys(prog.squads).length > 0;
       if (byCount) return true;
-      const wait = waveWait(enc, squad3);
+      const wait = waveWait(enc, squad6);
       if (wait == null || wait <= 0 || !prog.started) return false;
       const keys = Object.keys(prog.squads);
       if (!keys.length) return false;
@@ -5302,7 +9303,7 @@ var SprotoShooterSim = (() => {
       for (let i = 0; i < (enc.squads || []).length; i++) {
         const sq = enc.squads[i];
         if (prog.squads[squadKey(sq, i)]) continue;
-        return sq === squad3;
+        return sq === squad6;
       }
       return false;
     }
@@ -5325,16 +9326,16 @@ var SprotoShooterSim = (() => {
       }
       return false;
     }
-    if (tr.type === "onPartDestroyed") return !!book(state.level).parts[tr.id];
+    if (tr.type === "onPartDestroyed") return !!book2(state.level).parts[tr.id];
     if (tr.type === "with") {
       const prev = prog.squads[tr.after];
       return !!prev && prog.t - prev.at >= (tr.delay || 0);
     }
     if (tr.type === "onAlarm") {
-      const at = state.level.alarms && state.level.alarms[tr.alarm];
-      if (at == null) return false;
-      const delay = squad3.delay != null ? squad3.delay : tr.delay || 0;
-      return (state.level.time || 0) - at >= delay;
+      const at2 = state.level.alarms && state.level.alarms[tr.alarm];
+      if (at2 == null) return false;
+      const delay = squad6.delay != null ? squad6.delay : tr.delay || 0;
+      return (state.level.time || 0) - at2 >= delay;
     }
     return false;
   }
@@ -5347,52 +9348,61 @@ var SprotoShooterSim = (() => {
     lv.alarms[id] = lv.time || 0;
     emit(state, "alarm", { id });
   }
-  function waveWait(enc, squad3) {
-    if (squad3 && squad3.fallbackSec != null) return squad3.fallbackSec;
+  function waveWait(enc, squad6) {
+    if (squad6 && squad6.fallbackSec != null) return squad6.fallbackSec;
     const lock = enc.lockdown;
     if (!lock) return null;
     if (lock.waveSec != null) return lock.waveSec;
     if (lock.fallbackSec != null) return lock.fallbackSec;
     return null;
   }
-  function spawnOne(state, enc, squad3, at) {
-    const type = at.type;
-    const pos = at.pos;
+  function spawnOne(state, enc, squad6, at2) {
+    const type = at2.type;
+    const pos = at2.pos;
     const bossDef = BOSSES[type];
-    const e = bossDef ? createBoss(state, type, { pos: { x: pos[0], z: pos[2] } }) : createEnemy(state, type, { elite: !!at.elite, pos: { x: pos[0], z: pos[2] } });
+    const e = bossDef ? createBoss(state, type, { pos: { x: pos[0], z: pos[2] } }) : createEnemy(state, type, { elite: !!at2.elite, pos: { x: pos[0], z: pos[2] } });
     e.pos.y = pos[1] || 0;
     e.campaignEnc = enc.id;
-    e.spawnMethod = squad3.method || "placed";
+    e.spawnMethod = squad6.method || "placed";
     if (enc.noAmmoDrop) e.noAmmoDrop = true;
-    if (at.partId) e.partId = at.partId;
-    if (at.flockPart != null) e.flockPart = at.flockPart;
-    if (at.role) e.role = at.role;
-    if (at.alarm) e.alarm = at.alarm;
-    if (at.ringsAlarm) e.ringsAlarm = at.ringsAlarm;
+    if (at2.partId) e.partId = at2.partId;
+    if (at2.flockPart != null) e.flockPart = at2.flockPart;
+    if (at2.role) e.role = at2.role;
+    if (at2.alarm) e.alarm = at2.alarm;
+    if (at2.ringsAlarm) e.ringsAlarm = at2.ringsAlarm;
+    if (at2.asleep) {
+      e.ai.alert = "asleep";
+      e.ai.hearing = at2.hearing || 12;
+    }
     if (bossDef) {
+      if (state.mode === "campaign" && type === "monster") equipAuditorPlates(e, state.tier);
       if (enc.arena) e.boss.arena = enc.arena;
+      if (at2.name) e.boss.displayName = at2.name;
       emit(state, "bossSpawn", { id: e.id, bossType: type });
     }
     return e;
   }
-  function trySpawn(state, enc, squad3, key2) {
+  function trySpawn(state, enc, squad6, key2) {
     const lv = state.level;
     const prog = encState(lv, enc.id);
     const spots = [];
     let i = 0;
-    const flockPart = squad3.trigger && squad3.trigger.part != null ? squad3.trigger.part : null;
-    for (const u2 of squad3.units || []) {
-      for (let n = 0; n < u2.count; n++) {
-        const at = squad3.at && squad3.at[Math.min(i, squad3.at.length - 1)] || [0, 0, 0];
+    const flockPart = squad6.trigger && squad6.trigger.part != null ? squad6.trigger.part : null;
+    for (const u4 of squad6.units || []) {
+      for (let n = 0; n < u4.count; n++) {
+        const at2 = squad6.at && squad6.at[Math.min(i, squad6.at.length - 1)] || [0, 0, 0];
         spots.push({
-          type: u2.type,
-          pos: at,
-          partId: u2.partId || null,
-          elite: !!u2.elite,
+          type: u4.type,
+          pos: at2,
+          partId: u4.partId || null,
+          elite: !!u4.elite,
           flockPart,
-          role: u2.role || null,
-          alarm: u2.alarm || null,
-          ringsAlarm: squad3.ringsAlarm || u2.ringsAlarm || null
+          role: u4.role || null,
+          alarm: u4.alarm || null,
+          ringsAlarm: squad6.ringsAlarm || u4.ringsAlarm || null,
+          name: u4.name || null,
+          asleep: !!(squad6.asleep || u4.asleep),
+          hearing: squad6.hearing || u4.hearing || null
         });
         i++;
       }
@@ -5404,10 +9414,10 @@ var SprotoShooterSim = (() => {
         prog.queue.push({ encId: enc.id, squad: key2, spot, part: spot.flockPart });
         continue;
       }
-      born.push(spawnOne(state, enc, squad3, spot));
+      born.push(spawnOne(state, enc, squad6, spot));
     }
     prog.squads[key2] = { at: prog.t, count: spots.length };
-    emit(state, "squadSpawn", { encounter: enc.id, squad: key2, method: squad3.method || "placed", count: born.length });
+    emit(state, "squadSpawn", { encounter: enc.id, squad: key2, method: squad6.method || "placed", count: born.length });
   }
   function doorBox(m) {
     if (!m || !m.at) return null;
@@ -5452,9 +9462,17 @@ var SprotoShooterSim = (() => {
     const doors = [];
     for (const m of sec && sec.mechanisms || []) {
       if (m.kind !== "door") continue;
+      if (m.opens === "p.jet.has") {
+        const who = state.players[state.localPlayerId];
+        if (!who || !who.jetpack) {
+          const gate = doorBox(m);
+          if (gate) doors.push(gate);
+        }
+        continue;
+      }
       if (!sealed[m.id] && !(switched[m.id] && !lv.got[m.id])) continue;
-      const box2 = doorBox(m);
-      if (box2) doors.push(box2);
+      const box3 = doorBox(m);
+      if (box3) doors.push(box3);
     }
     lv.closedDoors = doors;
   }
@@ -5463,15 +9481,15 @@ var SprotoShooterSim = (() => {
     if (prog.sealed || !enc.lockdown) return;
     const p = state.players[state.localPlayerId];
     const entry = (sec.mechanisms || []).find((m) => m.kind === "door" && m.id === enc.lockdown.entry);
-    const box2 = doorBox(entry);
-    if (box2 && prog.sealDelay && p) {
+    const box3 = doorBox(entry);
+    if (box3 && prog.sealDelay && p) {
       const act = enc.activate;
       const toward = act ? [
         (act.min[0] + act.max[0]) / 2,
         0,
         (act.min[2] + act.max[2]) / 2
       ] : [p.pos.x, 0, p.pos.z];
-      if (!pushClear(p, box2, toward)) return;
+      if (!pushClear(p, box3, toward)) return;
     }
     prog.sealed = true;
     prog.sealWait = 0;
@@ -5519,8 +9537,8 @@ var SprotoShooterSim = (() => {
     for (const enc of rt.encounters || []) {
       const prog = encState(lv, enc.id);
       if (!prog.started) {
-        const box2 = enc.activate || enc.zone;
-        if (box2 && inBox(box2, p.pos.x, p.pos.y, p.pos.z)) {
+        const box3 = enc.activate || enc.zone;
+        if (box3 && inBox(box3, p.pos.x, p.pos.y, p.pos.z)) {
           prog.started = true;
           lv.spawned[enc.id] = true;
         }
@@ -5534,11 +9552,11 @@ var SprotoShooterSim = (() => {
         prog.hold = (prog.hold || 0) + dt * (rushed ? 3 : 1);
       }
       tickStrikes(state, enc, prog, dt);
-      (enc.squads || []).forEach((squad3, i) => {
-        const key2 = squadKey(squad3, i);
+      (enc.squads || []).forEach((squad6, i) => {
+        const key2 = squadKey(squad6, i);
         if (prog.squads[key2]) return;
-        if (!triggerReady(state, enc, squad3, prog)) return;
-        trySpawn(state, enc, squad3, key2);
+        if (!triggerReady(state, enc, squad6, prog)) return;
+        trySpawn(state, enc, squad6, key2);
       });
       if (prog.queue && prog.queue.length) {
         const job = prog.queue[0];
@@ -5546,8 +9564,8 @@ var SprotoShooterSim = (() => {
         if (job.part != null && clock && clock.n !== job.part) prog.queue.shift();
         else if (roomFor(state, enc, job.spot.type)) {
           prog.queue.shift();
-          const squad3 = (enc.squads || []).find((s, i) => squadKey(s, i) === job.squad) || { method: "door" };
-          spawnOne(state, enc, squad3, job.spot);
+          const squad6 = (enc.squads || []).find((s, i) => squadKey(s, i) === job.squad) || { method: "door" };
+          spawnOne(state, enc, squad6, job.spot);
         }
       }
     }
@@ -5562,9 +9580,9 @@ var SprotoShooterSim = (() => {
     if (prog.partSeen === clock.n) return;
     const ended = prog.partSeen;
     prog.partSeen = clock.n;
-    (enc.squads || []).forEach((squad3, i) => {
-      if (!squad3.trigger || squad3.trigger.part !== ended) return;
-      const key2 = squadKey(squad3, i);
+    (enc.squads || []).forEach((squad6, i) => {
+      if (!squad6.trigger || squad6.trigger.part !== ended) return;
+      const key2 = squadKey(squad6, i);
       if (!prog.squads[key2]) prog.squads[key2] = { at: prog.t, count: 0, skipped: true };
     });
     if (prog.queue) prog.queue = prog.queue.filter((job) => job.part !== ended);
@@ -5581,11 +9599,11 @@ var SprotoShooterSim = (() => {
     if (obj.kind === "hold") return true;
     return !!(obj.also && obj.also.kind === "hold");
   }
-  function bodyIn(state, box2) {
+  function bodyIn(state, box3) {
     const p = state.players[state.localPlayerId];
-    if (p && !p.dead && inBox(box2, p.pos.x, p.pos.y, p.pos.z)) return true;
+    if (p && !p.dead && inBox(box3, p.pos.x, p.pos.y, p.pos.z)) return true;
     for (const a of state.allies || []) {
-      if (a && !a.dead && a.pos && inBox(box2, a.pos.x, a.pos.y, a.pos.z)) return true;
+      if (a && !a.dead && a.pos && inBox(box3, a.pos.x, a.pos.y, a.pos.z)) return true;
     }
     return false;
   }
@@ -5652,13 +9670,13 @@ var SprotoShooterSim = (() => {
     if (kind === "hold" || kind === "survive" || kind === "capture") return (prog.hold || 0) >= (enc.objective && enc.objective.seconds || 1);
     if (kind === "destroy") {
       const ids = enc.objective && enc.objective.ids || [];
-      return ids.length > 0 && ids.every((id) => book(state.level).parts[id]);
+      return ids.length > 0 && ids.every((id) => book2(state.level).parts[id]);
     }
     if (kind === "escort") return (prog.hold || 0) >= (enc.objective && enc.objective.seconds || 1);
     return false;
   }
   function markPartDestroyed(state, id) {
-    book(state.level).parts[id] = true;
+    book2(state.level).parts[id] = true;
     emit(state, "partDestroyed", { id });
   }
   function v2Post(state, dt) {
@@ -5670,6 +9688,7 @@ var SprotoShooterSim = (() => {
       const prog = encState(lv, enc.id);
       if (!prog.started || lv.cleared[enc.id]) continue;
       tickBossScript(state, enc, dt);
+      tickDuo(state, enc, dt);
       retirePartSquads(state, enc, prog);
       noteKills(state, enc, prog);
       if (enc.fleeAt) {
@@ -5746,8 +9765,8 @@ var SprotoShooterSim = (() => {
     state.level.flyerVolume = sec && sec.flyerVolume;
     const lids = [];
     for (const enc of sec && sec.encounters || []) {
-      const room = enc.lockdown && enc.lockdown.room;
-      if (room) lids.push(room);
+      const room2 = enc.lockdown && enc.lockdown.room;
+      if (room2) lids.push(room2);
       if (enc.lid) lids.push(enc.lid);
     }
     if (lids.length) state.level.flyerLids = lids;
@@ -5800,6 +9819,29 @@ var SprotoShooterSim = (() => {
     if (taken <= 0) return 0;
     dmg *= taken;
     dmg = Math.max(1, Math.round(dmg));
+    const plated = applyPlates(state, e, hit, dmg);
+    if (plated != null) {
+      const soaked = dmg - plated;
+      if (p && soaked > 0) state.run.damageDealt += soaked;
+      if (plated <= 0) {
+        e.hitFlash = 0.08;
+        emit(state, "damage", {
+          sourceId: hit.sourceId,
+          targetId: e.id,
+          amount: dmg,
+          element: el,
+          isCrit: false,
+          isWeak: false,
+          zone: "plate",
+          pos: hit.point,
+          sourceKind: hit.sourceKind,
+          killed: false,
+          pellet: !!hit.pellet
+        });
+        return dmg;
+      }
+      dmg = plated;
+    }
     if (e.type === "dummy" && state.tuning.dummyInfinite) e.hp = e.maxHp + dmg;
     if (e.boss && e.boss.scriptHold && e.hp - dmg <= 0) {
       const dealt = Math.max(0, e.hp - 1);
@@ -6143,19 +10185,19 @@ var SprotoShooterSim = (() => {
   var yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
 
   // src/sim/grapple.js
-  function inBox2(box2, x, y, z) {
-    if (!box2 || !box2.min || !box2.max) return false;
-    return x >= box2.min[0] && x <= box2.max[0] && y >= box2.min[1] && y <= box2.max[1] && z >= box2.min[2] && z <= box2.max[2];
+  function inBox2(box3, x, y, z) {
+    if (!box3 || !box3.min || !box3.max) return false;
+    return x >= box3.min[0] && x <= box3.max[0] && y >= box3.min[1] && y <= box3.max[1] && z >= box3.min[2] && z <= box3.max[2];
   }
   function sealOf(state, p) {
     const sec = state._v2section;
-    const book2 = state.level && state.level.v2 && state.level.v2.enc;
-    if (!sec || !book2) return null;
+    const book3 = state.level && state.level.v2 && state.level.v2.enc;
+    if (!sec || !book3) return null;
     for (const enc of sec.encounters || []) {
-      const prog = book2[enc.id];
-      const room = enc.lockdown && enc.lockdown.room;
-      if (!prog || !prog.sealed || !room) continue;
-      if (inBox2(room, p.pos.x, p.pos.y + 0.4, p.pos.z)) return room;
+      const prog = book3[enc.id];
+      const room2 = enc.lockdown && enc.lockdown.room;
+      if (!prog || !prog.sealed || !room2) continue;
+      if (inBox2(room2, p.pos.x, p.pos.y + 0.4, p.pos.z)) return room2;
     }
     return null;
   }
@@ -6170,13 +10212,13 @@ var SprotoShooterSim = (() => {
     let bd = 2.4;
     for (let i = 0; i < anchors.length; i++) {
       const a = anchors[i];
-      const at = a.at;
-      if (!at) continue;
-      const d = Math.hypot(at[0] - point.x, (at[1] || 0) - point.y, at[2] - point.z);
+      const at2 = a.at;
+      if (!at2) continue;
+      const d = Math.hypot(at2[0] - point.x, (at2[1] || 0) - point.y, at2[2] - point.z);
       const reach = a.r == null ? 2.4 : a.r;
-      if (d <= reach && d < bd && Math.hypot(at[0] - point.x, at[2] - point.z) < maxDist) {
+      if (d <= reach && d < bd && Math.hypot(at2[0] - point.x, at2[2] - point.z) < maxDist) {
         bd = d;
-        best = { x: at[0], y: at[1] || 0, z: at[2], id: a.id || null };
+        best = { x: at2[0], y: at2[1] || 0, z: at2[2], id: a.id || null };
       }
     }
     return best;
@@ -6187,17 +10229,17 @@ var SprotoShooterSim = (() => {
     let bt = maxDist;
     for (let i = 0; i < anchors.length; i++) {
       const a = anchors[i];
-      const at = a.at;
-      if (!at) continue;
-      const ox = at[0] - origin.x, oy = (at[1] || 0) - origin.y, oz = at[2] - origin.z;
+      const at2 = a.at;
+      if (!at2) continue;
+      const ox = at2[0] - origin.x, oy = (at2[1] || 0) - origin.y, oz = at2[2] - origin.z;
       const t = ox * dir.x + oy * dir.y + oz * dir.z;
       if (t < 0.4 || t > maxDist) continue;
       const px = origin.x + dir.x * t, py = origin.y + dir.y * t, pz = origin.z + dir.z * t;
-      const miss = Math.hypot(at[0] - px, (at[1] || 0) - py, at[2] - pz);
+      const miss = Math.hypot(at2[0] - px, (at2[1] || 0) - py, at2[2] - pz);
       const reach = a.r == null ? 1.4 : a.r;
       if (miss <= reach && t < bt) {
         bt = t;
-        best = { x: at[0], y: at[1] || 0, z: at[2], id: a.id || null, t };
+        best = { x: at2[0], y: at2[1] || 0, z: at2[2], id: a.id || null, t };
       }
     }
     return best;
@@ -6209,14 +10251,14 @@ var SprotoShooterSim = (() => {
     const solids = activeSolids(state);
     let hit = null;
     if (solids) {
-      const wall = firstSolid(solids, origin, dir, maxDist, null, true);
-      if (wall) {
+      const wall2 = firstSolid(solids, origin, dir, maxDist, null, true);
+      if (wall2) {
         hit = {
-          x: origin.x + dir.x * wall.t,
-          y: origin.y + dir.y * wall.t,
-          z: origin.z + dir.z * wall.t,
-          t: wall.t,
-          id: wall.solid.id || null
+          x: origin.x + dir.x * wall2.t,
+          y: origin.y + dir.y * wall2.t,
+          z: origin.z + dir.z * wall2.t,
+          t: wall2.t,
+          id: wall2.solid.id || null
         };
       }
     }
@@ -6237,40 +10279,40 @@ var SprotoShooterSim = (() => {
       if (snapped) hit = snapped;
     }
     if (!hit || blocked(state, hit.x, hit.y, hit.z)) return null;
-    const room = sealOf(state, p);
-    if (room && !inBox2(room, hit.x, hit.y, hit.z)) return null;
+    const room2 = sealOf(state, p);
+    if (room2 && !inBox2(room2, hit.x, hit.y, hit.z)) return null;
     return { x: hit.x, y: hit.y, z: hit.z, id: hit.id || null };
   }
-  function stillClear(state, p, hook) {
+  function stillClear(state, p, hook2) {
     const origin = eyePos(p);
-    const dx = hook.x - origin.x, dy = hook.y - origin.y, dz = hook.z - origin.z;
+    const dx = hook2.x - origin.x, dy = hook2.y - origin.y, dz = hook2.z - origin.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
     const solids = activeSolids(state);
     if (!solids) return true;
-    const wall = firstSolid(solids, origin, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35, null, true);
-    return !wall;
+    const wall2 = firstSolid(solids, origin, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35, null, true);
+    return !wall2;
   }
-  function clampToRoom(p, room) {
-    if (!room) return;
+  function clampToRoom(p, room2) {
+    if (!room2) return;
     const pad = 0.45;
-    if (p.pos.x < room.min[0] + pad) {
-      p.pos.x = room.min[0] + pad;
+    if (p.pos.x < room2.min[0] + pad) {
+      p.pos.x = room2.min[0] + pad;
       if (p.vel.x < 0) p.vel.x = 0;
     }
-    if (p.pos.x > room.max[0] - pad) {
-      p.pos.x = room.max[0] - pad;
+    if (p.pos.x > room2.max[0] - pad) {
+      p.pos.x = room2.max[0] - pad;
       if (p.vel.x > 0) p.vel.x = 0;
     }
-    if (p.pos.z < room.min[2] + pad) {
-      p.pos.z = room.min[2] + pad;
+    if (p.pos.z < room2.min[2] + pad) {
+      p.pos.z = room2.min[2] + pad;
       if (p.vel.z < 0) p.vel.z = 0;
     }
-    if (p.pos.z > room.max[2] - pad) {
-      p.pos.z = room.max[2] - pad;
+    if (p.pos.z > room2.max[2] - pad) {
+      p.pos.z = room2.max[2] - pad;
       if (p.vel.z > 0) p.vel.z = 0;
     }
-    if (p.pos.y > room.max[1] - 0.3) {
-      p.pos.y = room.max[1] - 0.3;
+    if (p.pos.y > room2.max[1] - 0.3) {
+      p.pos.y = room2.max[1] - 0.3;
       if (p.vel.y > 0) p.vel.y = 0;
     }
   }
@@ -6287,20 +10329,20 @@ var SprotoShooterSim = (() => {
     }
     if (!p.grapple) {
       if (p.grappleCd > 0) return;
-      const hook2 = findHook(state, p);
+      const hook3 = findHook(state, p);
       p.grappleCd = TUNING.grappleCd;
-      if (!hook2) return;
-      p.grapple = hook2;
-      emit(state, "grapple", { playerId: p.id, pos: { x: hook2.x, y: hook2.y, z: hook2.z }, id: hook2.id });
+      if (!hook3) return;
+      p.grapple = hook3;
+      emit(state, "grapple", { playerId: p.id, pos: { x: hook3.x, y: hook3.y, z: hook3.z }, id: hook3.id });
     }
-    const hook = p.grapple;
-    if (!stillClear(state, p, hook)) {
+    const hook2 = p.grapple;
+    if (!stillClear(state, p, hook2)) {
       emit(state, "grappleRelease", { playerId: p.id });
       p.grapple = null;
       return;
     }
     const originY = p.pos.y + 0.9;
-    const dx = hook.x - p.pos.x, dy = hook.y - originY, dz = hook.z - p.pos.z;
+    const dx = hook2.x - p.pos.x, dy = hook2.y - originY, dz = hook2.z - p.pos.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
     if (dist < TUNING.grappleArrive) {
       emit(state, "grappleRelease", { playerId: p.id });
@@ -6311,15 +10353,15 @@ var SprotoShooterSim = (() => {
     p.vel.x += dx / dist * pull;
     p.vel.y += dy / dist * pull;
     p.vel.z += dz / dist * pull;
-    const room = sealOf(state, p);
-    if (room) {
+    const room2 = sealOf(state, p);
+    if (room2) {
       const pad = 0.45;
-      if (p.pos.x < room.min[0] + pad) p.pos.x = room.min[0] + pad;
-      if (p.pos.x > room.max[0] - pad) p.pos.x = room.max[0] - pad;
-      if (p.pos.z < room.min[2] + pad) p.pos.z = room.min[2] + pad;
-      if (p.pos.z > room.max[2] - pad) p.pos.z = room.max[2] - pad;
-      if (p.pos.y > room.max[1] - 0.2) {
-        p.pos.y = room.max[1] - 0.2;
+      if (p.pos.x < room2.min[0] + pad) p.pos.x = room2.min[0] + pad;
+      if (p.pos.x > room2.max[0] - pad) p.pos.x = room2.max[0] - pad;
+      if (p.pos.z < room2.min[2] + pad) p.pos.z = room2.min[2] + pad;
+      if (p.pos.z > room2.max[2] - pad) p.pos.z = room2.max[2] - pad;
+      if (p.pos.y > room2.max[1] - 0.2) {
+        p.pos.y = room2.max[1] - 0.2;
         if (p.vel.y > 0) p.vel.y = 0;
       }
     }
@@ -6442,6 +10484,7 @@ var SprotoShooterSim = (() => {
     let slow = 1;
     for (const m of sec && sec.mechanisms || []) {
       if (!isZone(m) || !hazardOn(lv, m) || !m.affectsEnemies || m.slow == null) continue;
+      if (e.type === "frostHound" && m.tag === "slick") continue;
       if (!insideZone(m, e.pos.x, e.pos.z)) continue;
       if (m.slow < slow) slow = m.slow;
     }
@@ -6522,8 +10565,8 @@ var SprotoShooterSim = (() => {
     const period = m.period || 5;
     const phase = ((lv.time + (m.offset || 0)) % period + period) % period;
     const rumble = m.rumble == null ? 1.2 : m.rumble;
-    const book2 = lv.mech || (lv.mech = {});
-    const st = book2[m.id] || (book2[m.id] = {});
+    const book3 = lv.mech || (lv.mech = {});
+    const st = book3[m.id] || (book3[m.id] = {});
     const warning = rumble > 0 && phase >= period - rumble;
     if (warning && !st.warn) {
       st.warn = true;
@@ -6558,22 +10601,52 @@ var SprotoShooterSim = (() => {
     const hit = raySolids(solids, from, dir, dist, blocksSight);
     return hit < 0 || hit > dist - 0.25;
   }
+  function capSight(state, range2, uncapped) {
+    if (uncapped) return range2;
+    if (state.level && state.level.whiteout) return Math.min(range2, state.level.sightCap || 40);
+    return range2;
+  }
+  function inCone(e, target, halfDeg, yaw) {
+    const fx = -Math.sin(yaw);
+    const fz = -Math.cos(yaw);
+    const dx = target.pos.x - e.pos.x;
+    const dz = target.pos.z - e.pos.z;
+    const d = Math.hypot(dx, dz) || 1;
+    return dx / d * fx + dz / d * fz >= Math.cos(halfDeg * Math.PI / 180);
+  }
+  function heardShot(state, dist, hear) {
+    for (let i = 0; i < state.events.length; i++) {
+      if (state.events[i].type === "shot" && dist <= hear) return true;
+    }
+    return false;
+  }
   function sensePlayer(state, e, target) {
-    if (!e.ai.alert || e.ai.alert === "alerted") return true;
-    const sight = e.ai.sight || 28;
+    if (e.ai.alert === "alerted") return true;
+    const stealth = e.type === "auditSniper" || e.type === "miningRig" || e.type === "frostHound" || e.ai.alert === "asleep" || e.ai.alert === "idle" || e.ai.alert === "unaware";
+    if (!stealth) return true;
     const dx = target.pos.x - e.pos.x, dz = target.pos.z - e.pos.z;
     const dist = Math.hypot(dx, dz);
-    const from = { x: e.pos.x, y: e.pos.y + e.height * 0.8, z: e.pos.z };
+    const from = { x: e.pos.x, y: e.pos.y + (e.height || 1) * 0.8, z: e.pos.z };
     const to = { x: target.pos.x, y: target.pos.y + 1.2, z: target.pos.z };
-    let wake = dist <= sight && hasLOS(state, from, to);
-    if (!wake) {
-      const hear = e.ai.hearing || 16;
-      for (let i = 0; i < state.events.length; i++) {
-        if (state.events[i].type === "shot" && dist <= hear) {
-          wake = true;
-          break;
-        }
-      }
+    const time = state.level && state.level.time || 0;
+    let wake = false;
+    if (e.ai.alert === "asleep") {
+      wake = heardShot(state, dist, e.ai.hearing || 12);
+    } else if (e.type === "frostHound") {
+      wake = dist <= 45;
+    } else if (e.type === "auditSniper") {
+      const yaw = e.yaw + Math.sin(time * Math.PI * 2 / 6) * (30 * Math.PI / 180);
+      const los = hasLOS(state, from, to, 140);
+      const cone4 = dist <= capSight(state, 140, false) && inCone(e, target, 15, yaw);
+      const outside = dist <= capSight(state, 60, false);
+      wake = los && (cone4 || outside);
+    } else if (e.type === "miningRig") {
+      const under = dist < 15 && target.pos.y + 1.2 < e.pos.y - 1;
+      wake = !under && dist <= capSight(state, 90, false) && hasLOS(state, from, to, 90);
+    } else {
+      const yaw = e.yaw;
+      wake = dist <= capSight(state, e.ai.sight || 30, false) && inCone(e, target, 60, yaw) && hasLOS(state, from, to, 30);
+      if (!wake) wake = heardShot(state, dist, e.ai.hearing || 16);
     }
     if (!wake) return false;
     e.ai.alert = "alerted";
@@ -6594,8 +10667,8 @@ var SprotoShooterSim = (() => {
     return lv.alarmHp;
   }
   function recOf(lv, m) {
-    const book2 = hpBook(lv);
-    return book2[m.id] || (book2[m.id] = {
+    const book3 = hpBook(lv);
+    return book3[m.id] || (book3[m.id] = {
       box: m.hp == null ? 40 : m.hp,
       cable: m.cableHp == null ? 20 : m.cableHp,
       lamp: m.lamp == null ? 30 : m.lamp,
@@ -6624,9 +10697,9 @@ var SprotoShooterSim = (() => {
     const ox = o.x - c[0], oy = o.y - (c[1] || 0), oz = o.z - c[2];
     const b = ox * d.x + oy * d.y + oz * d.z;
     const c0 = ox * ox + oy * oy + oz * oz - r * r;
-    const disc2 = b * b - c0;
-    if (disc2 < 0) return -1;
-    const t = -b - Math.sqrt(disc2);
+    const disc3 = b * b - c0;
+    if (disc3 < 0) return -1;
+    const t = -b - Math.sqrt(disc3);
     if (t < 0.05 || t > maxDist) return -1;
     return t;
   }
@@ -6635,8 +10708,8 @@ var SprotoShooterSim = (() => {
     let best = -1;
     const steps = 8;
     for (let i = 0; i <= steps; i++) {
-      const u2 = i / steps;
-      const c = [a[0] + abx * u2, (a[1] || 0) + aby * u2, a[2] + abz * u2];
+      const u4 = i / steps;
+      const c = [a[0] + abx * u4, (a[1] || 0) + aby * u4, a[2] + abz * u4];
       const t = raySphere2(o, d, c, radius, maxDist);
       if (t >= 0 && (best < 0 || t < best)) best = t;
     }
@@ -6649,8 +10722,8 @@ var SprotoShooterSim = (() => {
     for (const m of mechanisms(state)) {
       if (!m.at) continue;
       if (m.kind === "alarm") {
-        const box2 = raySphere2(origin, dir, m.at, 0.8, maxDist);
-        if (box2 >= 0 && (!best || box2 < best.t)) best = { t: box2, id: m.id, part: "box", m };
+        const box3 = raySphere2(origin, dir, m.at, 0.8, maxDist);
+        if (box3 >= 0 && (!best || box3 < best.t)) best = { t: box3, id: m.id, part: "box", m };
         for (const seg of cablesOf(m)) {
           const t = rayCable(origin, dir, seg.a, seg.b, 0.45, maxDist);
           if (t >= 0 && (!best || t < best.t)) best = { t, id: m.id, part: "cable", m };
@@ -6730,10 +10803,10 @@ var SprotoShooterSim = (() => {
     if (!e || e.role !== "runner" || !e.alarm || e.dead) return null;
     const lv = state.level;
     if (!lv || lv.alarms && lv.alarms[e.alarm] != null) return null;
-    const box2 = alarmOf(state, e.alarm);
-    if (!box2 || !box2.at) return null;
-    const dx = box2.at[0] - e.pos.x;
-    const dz = box2.at[2] - e.pos.z;
+    const box3 = alarmOf(state, e.alarm);
+    if (!box3 || !box3.at) return null;
+    const dx = box3.at[0] - e.pos.x;
+    const dz = box3.at[2] - e.pos.z;
     const dist = Math.hypot(dx, dz);
     const cut = alarmCut(lv, e.alarm);
     if (dist > 1.8) {
@@ -6741,8 +10814,8 @@ var SprotoShooterSim = (() => {
       return { x: dx / (dist || 1), z: dz / (dist || 1) };
     }
     e.ai.alarmT = (e.ai.alarmT || 0) + dt;
-    if (cut) return { x: 0, z: 0, wait: e.ai.alarmT < (box2.wonder || 3) };
-    if (e.ai.alarmT >= (box2.runner || 1.5)) ringAlarm(state, e.alarm);
+    if (cut) return { x: 0, z: 0, wait: e.ai.alarmT < (box3.wonder || 3) };
+    if (e.ai.alarmT >= (box3.runner || 1.5)) ringAlarm(state, e.alarm);
     return { x: 0, z: 0, wait: true };
   }
 
@@ -6800,6 +10873,7 @@ var SprotoShooterSim = (() => {
       let maxSpeed = sprinting ? TUNING.sprintSpeed : TUNING.walkSpeed;
       if (p.campaignSpeed) maxSpeed *= p.campaignSpeed;
       if (state.mode === "campaign" && p.hazardSlow != null && p.hazardSlow < 1) maxSpeed *= p.hazardSlow;
+      if (p.iceSlow != null && p.iceSlow < 1) maxSpeed *= p.iceSlow;
       if (state.mode === "campaign" && p.scriptSlow != null && p.scriptSlow < 1) maxSpeed *= p.scriptSlow;
       if (p.downed) maxSpeed *= TUNING.downedSpeedMult;
       if (c.pressed.jump) p.jumpBufferT = TUNING.jumpBuffer;
@@ -6926,10 +11000,18 @@ var SprotoShooterSim = (() => {
       if (state.mode === "campaign" && state.level && state.level.gravityMult !== 1 && m.mode !== "dash") {
         p.vel.y -= TUNING.gravity * (state.level.gravityMult - 1) * dt;
       }
-      if (state.mode === "campaign" && p.jetpack && c.held.jump && !p.onGround && state.level && state.level.fuel > 0) {
-        p.vel.y += 28 * dt;
-        if (p.vel.y > 12) p.vel.y = 12;
-        if (!state.level.modifiers.fuelInfinite) state.level.fuel = Math.max(0, state.level.fuel - 18 * dt);
+      if (state.mode === "campaign" && p.jetpack && state.level) {
+        const lv = state.level;
+        if (lv.fuel == null) lv.fuel = 0;
+        const infinite = !!(lv.modifiers && lv.modifiers.fuelInfinite);
+        const drop = !p.onGround && (c.pressed.slide || c.held && c.held.slide);
+        if (drop) p.vel.y = Math.min(p.vel.y, -16);
+        else if (!p.onGround && c.held.jump && (infinite || lv.fuel > 0)) {
+          p.vel.y += TUNING.gravity * dt;
+          p.vel.y *= Math.max(0, 1 - 8 * dt);
+          if (!infinite) lv.fuel = Math.max(0, lv.fuel - 10 * dt);
+        }
+        if (p.onGround && !infinite && lv.fuel < 100) lv.fuel = Math.min(100, lv.fuel + 25 * dt);
       }
       p.pos.x += p.vel.x * dt;
       p.pos.y += p.vel.y * dt;
@@ -6970,6 +11052,18 @@ var SprotoShooterSim = (() => {
         p.onGround = true;
       } else p.onGround = false;
       if (seal2) clampToRoom(p, seal2);
+      if (state.mode === "campaign" && p.jetpack && state.level) {
+        const lids = state.level.flyerLids || (state.level.flyerVolume ? [state.level.flyerVolume] : []);
+        for (const lid of lids) {
+          if (!lid || !lid.max || !lid.min) continue;
+          if (p.pos.x < lid.min[0] || p.pos.x > lid.max[0] || p.pos.z < lid.min[2] || p.pos.z > lid.max[2]) continue;
+          const cap = lid.max[1] - 2;
+          if (p.pos.y > cap) {
+            p.pos.y = cap;
+            if (p.vel.y > 0) p.vel.y = 0;
+          }
+        }
+      }
       if (state.mode !== "campaign") {
         clampToArena(p, TUNING.playerRadius);
         pushOutOfBoxes(state, p, TUNING.playerRadius);
@@ -7049,13 +11143,13 @@ var SprotoShooterSim = (() => {
     if (campaignSolidsOn(state)) {
       const solids = activeSolids(state);
       if (solids) {
-        const wall = firstSolid(solids, origin, dir, remaining);
-        if (wall && !damageLevelSolid(state, wall.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall.t;
+        const wall2 = firstSolid(solids, origin, dir, remaining);
+        if (wall2 && !damageLevelSolid(state, wall2.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall2.t;
       }
-      const alarm = alarmRay(state, origin, dir, remaining);
-      if (alarm) {
-        damageAlarm(state, alarm, st.damage);
-        remaining = alarm.t;
+      const alarm2 = alarmRay(state, origin, dir, remaining);
+      if (alarm2) {
+        damageAlarm(state, alarm2, st.damage);
+        remaining = alarm2.t;
       }
     }
     let pierce = st.pierce;
@@ -7448,9 +11542,9 @@ var SprotoShooterSim = (() => {
     } else if (o === "resources") {
       const carried = p.guns.filter((g) => g);
       const t = carried.length ? carried[0].ammoType : "bullets";
-      const add2 = TUNING.ammoDrop[t] || 0;
-      p.ammo[t] = Math.min(p.ammoCap[t], p.ammo[t] + add2);
-      detail = `${add2} ${t}`;
+      const add3 = TUNING.ammoDrop[t] || 0;
+      p.ammo[t] = Math.min(p.ammoCap[t], p.ammo[t] + add3);
+      detail = `${add3} ${t}`;
     } else if (o === "jackpot") {
       p.tickets += 60;
       detail = "60 tickets";
@@ -7462,7 +11556,7 @@ var SprotoShooterSim = (() => {
   }
   function buyUpgrade(state, p, id) {
     if (!shopOpen(state)) return;
-    const def = SHOP.upgrades.find((u2) => u2.id === id);
+    const def = SHOP.upgrades.find((u4) => u4.id === id);
     const up = state.shop.upgrades;
     const rank = id === "slot4" ? up.slot4 ? 1 : 0 : up[id];
     if (!def || rank >= def.prices.length) return fail(state, p, "Maxed out");
@@ -7573,14 +11667,14 @@ var SprotoShooterSim = (() => {
           list.forEach((it, i) => w.spawnQueue.push({ ...it, delay: i * 0.35, pt: pts[i] }));
           w.groupIdx++;
         }
-        for (const q of w.spawnQueue) q.delay -= dt;
+        for (const q2 of w.spawnQueue) q2.delay -= dt;
         for (let i = 0; i < w.spawnQueue.length; i++) {
-          const q = w.spawnQueue[i];
-          if (q.delay > 0 || alive(state) >= cfg.maxAlive) continue;
+          const q2 = w.spawnQueue[i];
+          if (q2.delay > 0 || alive(state) >= cfg.maxAlive) continue;
           w.spawnQueue.splice(i--, 1);
-          const pos = { x: q.pt.x + range(state.rng, -0.8, 0.8), z: q.pt.z + range(state.rng, -0.8, 0.8) };
+          const pos = { x: q2.pt.x + range(state.rng, -0.8, 0.8), z: q2.pt.z + range(state.rng, -0.8, 0.8) };
           createHazard(state, { kind: "spawnPortal", pos: { x: pos.x, y: 0, z: pos.z }, radius: 1.2, ttl: 0.8 });
-          createEnemy(state, q.type, { elite: q.elite, pos });
+          createEnemy(state, q2.type, { elite: q2.elite, pos });
           w.spawnedCount++;
         }
         if (w.groupIdx >= cfg.groups.length && !w.spawnQueue.length && alive(state) === 0) {
@@ -7663,20 +11757,97 @@ var SprotoShooterSim = (() => {
     emit(state, "ticketsGained", { amount: tk, reason: "Wave clear" });
   }
 
+  // src/sim/campaign/weather.js
+  function clearWeather(lv) {
+    if (lv.whiteout) delete lv.whiteout;
+    if (lv.whiteoutWarn != null) delete lv.whiteoutWarn;
+    if (lv.sightCap) delete lv.sightCap;
+    if (lv.viewCap) delete lv.viewCap;
+    if (lv._wx) delete lv._wx;
+    if (lv._weatherT != null) delete lv._weatherT;
+    if (lv._weatherSec) delete lv._weatherSec;
+  }
+  function nextWindow(weather, t) {
+    const dur = weather.whiteout || 20;
+    const period = weather.period || 90;
+    const listed = weather.windows || [];
+    let on = false;
+    let next2 = Infinity;
+    for (let i = 0; i < listed.length; i++) {
+      const start2 = listed[i][0];
+      const end = listed[i][1];
+      if (t >= start2 && t < end) on = true;
+      if (start2 > t && start2 < next2) next2 = start2;
+    }
+    const origin = listed.length ? listed[0][0] : 0;
+    if (period > 0) {
+      const n = Math.floor((t - origin) / period);
+      for (let k = Math.max(0, n); k <= n + 2; k++) {
+        const start2 = origin + k * period;
+        if (t >= start2 && t < start2 + dur) on = true;
+        if (start2 > t && start2 < next2) next2 = start2;
+      }
+    }
+    return { on, next: next2 };
+  }
+  function tickWeather(state, sec, dt) {
+    const lv = state.level;
+    if (!lv) return;
+    const list = sec && sec.mechanisms || [];
+    let weather = null;
+    for (let i = 0; i < list.length; i++) if (list[i].kind === "weather") {
+      weather = list[i];
+      break;
+    }
+    if (!weather) {
+      clearWeather(lv);
+      return;
+    }
+    if (lv._weatherSec !== sec.id) {
+      lv._weatherSec = sec.id;
+      lv._weatherT = 0;
+      if (lv._wx) delete lv._wx;
+    }
+    lv._weatherT += dt;
+    const { on, next: next2 } = nextWindow(weather, lv._weatherT);
+    const warnFor = weather.warning || 0;
+    const soon = !on && next2 < Infinity && next2 - lv._weatherT <= warnFor && next2 - lv._weatherT > 0;
+    const phase = on ? "on" : soon ? "warn" : "off";
+    if (on) {
+      lv.whiteout = true;
+      lv.sightCap = weather.sightCap || 40;
+      lv.viewCap = weather.viewCap || 40;
+      if (lv.whiteoutWarn != null) delete lv.whiteoutWarn;
+    } else {
+      if (lv.whiteout) delete lv.whiteout;
+      if (lv.sightCap) delete lv.sightCap;
+      if (lv.viewCap) delete lv.viewCap;
+      if (soon) lv.whiteoutWarn = next2 - lv._weatherT;
+      else if (lv.whiteoutWarn != null) delete lv.whiteoutWarn;
+    }
+    if (lv._wx !== phase) {
+      const prev = lv._wx;
+      lv._wx = phase;
+      if (phase === "warn") emit(state, "whiteoutWarn", { id: weather.id, in: next2 - lv._weatherT });
+      else if (phase === "on") emit(state, "whiteout", { id: weather.id });
+      else if (prev === "on") emit(state, "whiteoutLift", { id: weather.id });
+    }
+  }
+
   // src/sim/campaign/sectionMotion.js
-  function pointOn(from, to, u2) {
+  function pointOn(from, to, u4) {
     return {
-      x: from[0] + (to[0] - from[0]) * u2,
-      y: (from[1] || 0) + ((to[1] || 0) - (from[1] || 0)) * u2,
-      z: from[2] + (to[2] - from[2]) * u2
+      x: from[0] + (to[0] - from[0]) * u4,
+      y: (from[1] || 0) + ((to[1] || 0) - (from[1] || 0)) * u4,
+      z: from[2] + (to[2] - from[2]) * u4
     };
   }
   function lengthOf(from, to) {
     const dy = (to[1] || 0) - (from[1] || 0);
     return Math.hypot(to[0] - from[0], dy, to[2] - from[2]) || 1;
   }
-  function near(p, q, r) {
-    return Math.hypot(p.pos.x - q.x, p.pos.z - q.z) <= r && Math.abs(p.pos.y - q.y) < 2.2;
+  function near(p, q2, r) {
+    return Math.hypot(p.pos.x - q2.x, p.pos.z - q2.z) <= r && Math.abs(p.pos.y - q2.y) < 2.2;
   }
   function rideBook(lv) {
     if (!lv.rides) lv.rides = {};
@@ -7711,7 +11882,7 @@ var SprotoShooterSim = (() => {
     const v = sec && sec.voidRescue;
     const lv = state.level;
     if (!v) {
-      if (lv.safePos) delete lv.safePos;
+      if (lv.safePos && !lv.padSafe) delete lv.safePos;
       return;
     }
     const p = state.players[state.localPlayerId];
@@ -7749,12 +11920,12 @@ var SprotoShooterSim = (() => {
       if (lv.rides) delete lv.rides;
       return;
     }
-    const book2 = rideBook(lv);
+    const book3 = rideBook(lv);
     const p = state.players[state.localPlayerId];
     if (!p) return;
     for (const c of carpets) {
       if (!c.from || !c.to) continue;
-      const st = book2[c.id] || (book2[c.id] = { u: 0, dir: 1, pause: 0, armed: c.mode !== "onTrigger" });
+      const st = book3[c.id] || (book3[c.id] = { u: 0, dir: 1, pause: 0, armed: c.mode !== "onTrigger" });
       if (!st.armed) {
         if (near(p, pointOn(c.from, c.to, 0), 1.35)) st.armed = true;
         else continue;
@@ -7770,7 +11941,7 @@ var SprotoShooterSim = (() => {
     }
     for (const z of zips) {
       if (!z.from || !z.to) continue;
-      const st = book2[z.id] || (book2[z.id] = { u: 0, dir: 1, pause: 0, riding: false });
+      const st = book3[z.id] || (book3[z.id] = { u: 0, dir: 1, pause: 0, riding: false });
       if (!st.riding) {
         if (near(p, pointOn(z.from, z.to, 0), 1.2)) st.riding = true;
         else continue;
@@ -7854,11 +12025,19 @@ var SprotoShooterSim = (() => {
     const lv = state.level;
     if (!lv || lv.won || lv.lost) return;
     lv.time += dt;
+    if (lv.fuelTimer > 0) {
+      lv.fuelTimer -= dt;
+      if (lv.fuelTimer <= 0) {
+        lv.fuelTimer = 0;
+        if (lv.modifiers) lv.modifiers.fuelInfinite = false;
+      }
+    }
     const p = state.players[state.localPlayerId];
     if (p.padCd > 0) p.padCd -= dt;
     const sec = sectionById(lv.id, lv.section);
     if (!sec) return;
     tickAlarms(state, dt);
+    tickWeather(state, sec, dt);
     for (const m of sec.mechanisms || []) {
       touchMechanism(state, p, lv, sec, m, dt);
       tickZoneDamage(state, p, m, dt);
@@ -8033,7 +12212,7 @@ var SprotoShooterSim = (() => {
         if (g && g.stats && g.ammoInMag < g.stats.magSize) g.ammoInMag = g.stats.magSize;
       }
     }
-    if (m.kind === "door" && m.opens && !lv.got[m.id] && flagOn(lv, m.opens)) {
+    if (m.kind === "door" && m.opens && m.opens !== "p.jet.has" && !lv.got[m.id] && flagOn(lv, m.opens)) {
       lv.got[m.id] = true;
       emit(state, "door", { id: m.id, open: true });
     }
@@ -8053,11 +12232,18 @@ var SprotoShooterSim = (() => {
       slowEnemiesInHazard(state, m);
       if (m.enemyDps) hurtEnemiesInHazard(state, p, m, dt);
     }
-    if ((m.kind === "jetpack" || m.kind === "fuel") && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.8)) {
+    if ((m.kind === "jetpack" || m.kind === "fuel") && !lv.got[m.id] && !(m.skipIfOwned && p.jetpack) && nearPoint(m.at, x, y + 1, z, 1.8)) {
       lv.got[m.id] = true;
       p.jetpack = true;
-      lv.fuel = Math.max(lv.fuel, m.kind === "fuel" ? 100 : 80);
+      lv.fuel = Math.max(lv.fuel || 0, m.kind === "fuel" ? 100 : 80);
       emit(state, "jetpack", { id: m.id });
+    }
+    if (m.kind === "fuelPad" && m.at && nearPoint(m.at, x, y + 1, z, 1.6)) {
+      lv.fuel = Math.min(100, (lv.fuel || 0) + 40 * dt);
+      if (m.safe) {
+        lv.padSafe = true;
+        lv.safePos = { x: m.at[0], y: m.at[1] || 0, z: m.at[2] };
+      }
     }
     if (m.kind === "power" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.8)) {
       lv.got[m.id] = true;
@@ -8127,6 +12313,7 @@ var SprotoShooterSim = (() => {
       p.jetpack = true;
       state.level.fuel = 100;
       state.level.modifiers.fuelInfinite = true;
+      state.level.fuelTimer = 20;
     }
     if (id === "overshield" || id === "ironSproto") {
       p.maxShield += id === "ironSproto" ? 80 : 40;
@@ -8162,16 +12349,16 @@ var SprotoShooterSim = (() => {
     emit(state, "worldGun", { type, slot });
   }
   function spawnSquad(state, enc) {
-    const squad3 = enc.squads[0];
+    const squad6 = enc.squads[0];
     let i = 0;
-    for (const u2 of squad3.units) {
-      for (let n = 0; n < u2.count; n++) {
-        const at = squad3.at[i] || squad3.at[squad3.at.length - 1];
+    for (const u4 of squad6.units) {
+      for (let n = 0; n < u4.count; n++) {
+        const at2 = squad6.at[i] || squad6.at[squad6.at.length - 1];
         i++;
-        const boss2 = BOSSES[u2.type] && BOSSES[u2.type].campaign;
-        const e = boss2 ? createBoss(state, u2.type, { pos: { x: at[0], z: at[2] } }) : createEnemy(state, u2.type, { pos: { x: at[0], z: at[2] } });
+        const boss2 = BOSSES[u4.type] && BOSSES[u4.type].campaign;
+        const e = boss2 ? createBoss(state, u4.type, { pos: { x: at2[0], z: at2[2] } }) : createEnemy(state, u4.type, { pos: { x: at2[0], z: at2[2] } });
         e.campaignEnc = enc.id;
-        if (boss2) emit(state, "bossSpawn", { id: e.id, bossType: u2.type });
+        if (boss2) emit(state, "bossSpawn", { id: e.id, bossType: u4.type });
       }
     }
   }
@@ -8202,7 +12389,10 @@ var SprotoShooterSim = (() => {
     const scale = e.boss.scripted && e.boss.attackScale ? e.boss.attackScale : 1;
     e.ai.atk = (def.attackEvery || 1.6) * scale;
     const attacks = e.boss.scripted && e.boss.attackList ? e.boss.attackList : def.attacks;
-    const name = attacks[Math.floor(float(state.rng) * attacks.length)];
+    const roll = e.boss.scripted ? next(state.rng) : float(state.rng);
+    const span2 = attacks && attacks.length ? attacks.length : 1;
+    const index = e.boss.scripted ? span2 <= 1 ? 0 : roll % span2 : Math.floor(roll * span2);
+    const name = attacks[index];
     bossAttack(state, e, def, t, name);
   }
   function livingPlayer(state) {
@@ -8259,6 +12449,10 @@ var SprotoShooterSim = (() => {
       e.pos.y = 1.2;
       return;
     }
+    if (name === "pigRain") {
+      for (let i = 0; i < 4; i++) shot(18, 6, { homing: 0.4, homingSpeed: 14 });
+      return;
+    }
     shot(26, 7);
   }
   function bucket(state) {
@@ -8272,8 +12466,8 @@ var SprotoShooterSim = (() => {
   function saveCheckpoint(state, id) {
     const lv = state.level;
     if (!lv) return;
-    bucket(state)[id] = structuredClone(state);
     lv.checkpoint = id;
+    bucket(state)[id] = structuredClone(state);
   }
   function restoreCheckpoint(state) {
     const lv = state.level;
@@ -8281,9 +12475,14 @@ var SprotoShooterSim = (() => {
     const b = snaps.get(state);
     const snap = b && (b[lv.checkpoint] || b.start);
     if (!snap) return false;
+    const tick = state.tick;
+    const time = state.time;
     const fresh = structuredClone(snap);
     for (const k of Object.keys(state)) delete state[k];
     Object.assign(state, fresh);
+    state.tick = tick;
+    state.time = time;
+    state.events = [];
     snaps.set(state, b);
     return true;
   }
@@ -8718,24 +12917,24 @@ var SprotoShooterSim = (() => {
   var CELL = 1;
   var grids = /* @__PURE__ */ new WeakMap();
   function blocked2(solids, x, z) {
-    let floor2 = -Infinity;
+    let floor3 = -Infinity;
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
       if (x < s.min[0] || x > s.max[0] || z < s.min[2] || z > s.max[2]) continue;
       const top = surfaceY(s, x, z);
       const thin = s.kind === "ramp" || s.max[1] - s.min[1] <= 0.6;
-      if (thin && top > floor2) floor2 = top;
+      if (thin && top > floor3) floor3 = top;
     }
-    if (floor2 === -Infinity) {
+    if (floor3 === -Infinity) {
       const g = groundHeight(solids, x, z, 0.15, 0, 0.5);
       if (g === -Infinity) return true;
-      floor2 = g;
+      floor3 = g;
     }
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
       if (x < s.min[0] || x > s.max[0] || z < s.min[2] || z > s.max[2]) continue;
       const top = surfaceY(s, x, z);
-      if (top > floor2 + 0.45 && s.min[1] < floor2 + 1.5) return true;
+      if (top > floor3 + 0.45 && s.min[1] < floor3 + 1.5) return true;
     }
     return false;
   }
@@ -8745,9 +12944,9 @@ var SprotoShooterSim = (() => {
   function zoneCostAt(zones, x, z) {
     let cost = 1;
     for (let i = 0; i < zones.length; i++) {
-      const zone2 = zones[i];
-      if (x < zone2.min[0] || x > zone2.max[0] || z < zone2.min[2] || z > zone2.max[2]) continue;
-      if (zone2.cost > cost) cost = zone2.cost;
+      const zone4 = zones[i];
+      if (x < zone4.min[0] || x > zone4.max[0] || z < zone4.min[2] || z > zone4.max[2]) continue;
+      if (zone4.cost > cost) cost = zone4.cost;
     }
     return cost;
   }
@@ -8926,6 +13125,18 @@ var SprotoShooterSim = (() => {
     e.state = s;
     e.stateT = 0;
   }
+  function finite(v, fallback) {
+    return Number.isFinite(v) ? v : fallback;
+  }
+  function weightsOf(def) {
+    const w = def && def.weights || {};
+    return {
+      seek: finite(w.seek, 1),
+      sep: finite(w.sep, 1.2),
+      wall: finite(w.wall, 2),
+      strafe: finite(w.strafe, 0.25)
+    };
+  }
   function steer(state, e, target, w, invertSeek = false) {
     const seek = !invertSeek && e.ai.navPoint ? e.ai.navPoint : target.pos;
     let sx = seek.x - e.pos.x, sz = seek.z - e.pos.z;
@@ -8956,8 +13167,9 @@ var SprotoShooterSim = (() => {
       wz = -e.pos.z / r * k;
     }
     const stx = -sz * e.ai.strafeDir, stz = sx * e.ai.strafeDir;
-    let dx = w.seek * sx + w.sep * px + w.wall * wx + w.strafe * stx;
-    let dz = w.seek * sz + w.sep * pz + w.wall * wz + w.strafe * stz;
+    const weights = weightsOf({ weights: w });
+    let dx = weights.seek * sx + weights.sep * px + weights.wall * wx + weights.strafe * stx;
+    let dz = weights.seek * sz + weights.sep * pz + weights.wall * wz + weights.strafe * stz;
     const dl = Math.hypot(dx, dz) || 1;
     return { x: dx / dl, z: dz / dl };
   }
@@ -8998,7 +13210,7 @@ var SprotoShooterSim = (() => {
         } else from = { x: e.pos.x - Math.sin(e.yaw) * 0.6 * sc, y: e.pos.y + e.height * 0.7 * sc, z: e.pos.z - Math.cos(e.yaw) * 0.6 * sc };
         const dx = t.pos.x - from.x, dy = t.pos.y + 1.1 - from.y, dz = t.pos.z - from.z;
         const dl = Math.hypot(dx, dy, dz) || 1;
-        const d2 = cone2(state, { x: dx / dl, y: dy / dl, z: dz / dl }, gun.spread);
+        const d2 = cone3(state, { x: dx / dl, y: dy / dl, z: dz / dl }, gun.spread);
         const kind = gun.kind || (gun.small ? "pellet" : "bullet");
         createProjectile(state, {
           kind,
@@ -9033,7 +13245,7 @@ var SprotoShooterSim = (() => {
     }
     return false;
   }
-  function cone2(state, aim, spreadDeg) {
+  function cone3(state, aim, spreadDeg) {
     const th = deg(spreadDeg) * Math.sqrt(float(state.rng));
     const ph = float(state.rng) * Math.PI * 2;
     const up = Math.abs(aim.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
@@ -9050,10 +13262,15 @@ var SprotoShooterSim = (() => {
     midget: {
       update(state, e, t, def, speed, dt) {
         const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
+        const range2 = finite(def.range, 1.3);
+        const windup = finite(def.windup, 0.25);
+        const active = finite(def.active, 0.15);
+        const recover = finite(def.recover, 0.45);
+        const dash = finite(def.lunge, 4);
         if (e.state === "chase") {
           faceToward(e, t, deg(720), dt);
-          approachVel(e, steer(state, e, t, def.weights), speed, def.accel, dt);
-          if (d < def.range + e.radius * e.scale + TUNING.playerRadius) {
+          approachVel(e, steer(state, e, t, def.weights), speed, finite(def.accel, 40), dt);
+          if (d < range2 + e.radius * e.scale + TUNING.playerRadius) {
             setState(e, "attack");
             e.attack = { phase: "windup", t: 0, hasHit: false };
             emit(state, "enemyAttack", { id: e.id, enemyType: e.type });
@@ -9064,25 +13281,40 @@ var SprotoShooterSim = (() => {
           faceToward(e, t, deg(300), dt);
           if (a.phase === "windup") {
             approachVel(e, { x: 0, z: 0 }, 0, 30, dt);
-            if (a.t >= def.windup) {
+            if (a.t >= windup) {
               a.phase = "active";
               a.t = 0;
             }
           } else if (a.phase === "active") {
             const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
-            e.vel.x = fx * 4;
-            e.vel.z = fz * 4;
+            e.vel.x = fx * dash;
+            e.vel.z = fz * dash;
             if (!a.hasHit) {
               const c = { x: e.pos.x + fx * 0.9 * e.scale, y: e.pos.y + 0.8, z: e.pos.z + fz * 0.9 * e.scale };
-              if (hitPlayerSphere(state, c, 0.9 * e.scale, def.damage * e.dmgMult, "enemy", e.pos)) a.hasHit = true;
+              let bite = finite(def.damage, 9) * e.dmgMult;
+              if (Number.isFinite(def.lunge)) bite = Math.round(bite);
+              const hit = hitPlayerSphere(state, c, 0.9 * e.scale, bite, "enemy", e.pos);
+              if (hit) {
+                a.hasHit = true;
+                const kb = finite(def.knockback, 0);
+                if (kb > 0) knockPlayer(hit, e.pos, kb, 3);
+              }
             }
-            if (a.t >= def.active) {
+            if (a.t >= active) {
               a.phase = "recover";
               a.t = 0;
+              const patch = def.patch;
+              if (patch && !a.patched) {
+                a.patched = true;
+                const radius = finite(patch.radius, 2.5);
+                const pos = { x: e.pos.x, y: 0.05, z: e.pos.z };
+                createHazard(state, { kind: "icePatch", pos, radius, ttl: finite(patch.seconds, 6), slow: finite(patch.slow, 0.15) });
+                emit(state, "icePatch", { pos, radius });
+              }
             }
           } else {
             approachVel(e, { x: 0, z: 0 }, 0, 20, dt);
-            if (a.t >= def.recover) setState(e, "chase");
+            if (a.t >= recover) setState(e, "chase");
           }
         }
       }
@@ -9091,13 +13323,15 @@ var SprotoShooterSim = (() => {
       update(state, e, t, def, speed, dt) {
         const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
         faceToward(e, t, deg(360), dt);
-        const w = { ...def.weights };
+        const w = weightsOf(def);
         let inv = false;
-        if (d < def.keepMin) inv = true;
-        else if (d < def.keepMax) w.seek = 0.1;
-        const shooting = enemyGun(state, e, t, def.gun, dt, true);
+        const keepMin = finite(def.keepMin, 8);
+        const keepMax = finite(def.keepMax, 18);
+        if (d < keepMin) inv = true;
+        else if (d < keepMax) w.seek = 0.1;
+        const shooting = def.gun ? enemyGun(state, e, t, def.gun, dt, true) : false;
         e.ai.shooting = shooting;
-        approachVel(e, steer(state, e, t, w, inv), shooting ? speed * 0.35 : speed, def.accel, dt);
+        approachVel(e, steer(state, e, t, w, inv), shooting ? speed * 0.35 : speed, finite(def.accel, 22), dt);
       }
     },
     // Two weapons: regular arm-gun bursts, and a charged special (def.special) on its own cooldown. Only one fires
@@ -9106,42 +13340,57 @@ var SprotoShooterSim = (() => {
       update(state, e, t, def, speed, dt) {
         const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
         faceToward(e, t, deg(300), dt);
-        const w = { ...def.weights };
+        const w = weightsOf(def);
         let inv = false;
-        if (d < def.keepMin) inv = true;
-        else if (d < def.keepMax) w.seek = 0.1;
+        const keepMin = finite(def.keepMin, 8);
+        const keepMax = finite(def.keepMax, 18);
+        if (d < keepMin) inv = true;
+        else if (d < keepMax) w.seek = 0.1;
         const ai = e.ai;
         const regularBusy = ai.aimT > 0 || ai.burstLeft > 0;
-        const special = enemyGun(state, e, t, def.special, dt, !regularBusy, "sp");
-        const regular = special ? false : enemyGun(state, e, t, def.gun, dt, true);
+        const special = def.special ? enemyGun(state, e, t, def.special, dt, !regularBusy, "sp") : false;
+        const regular = special || !def.gun ? false : enemyGun(state, e, t, def.gun, dt, true);
         ai.special = special;
         ai.shooting = special || regular;
-        approachVel(e, steer(state, e, t, w, inv), special ? 0 : regular ? speed * 0.35 : speed, def.accel, dt);
+        approachVel(e, steer(state, e, t, w, inv), special ? 0 : regular ? speed * 0.35 : speed, finite(def.accel, 16), dt);
       }
     },
     flyingMidget: {
       update(state, e, t, def, speed, dt) {
         const ai = e.ai;
-        ai.jinkT = (ai.jinkT ?? 0) - dt;
+        const span2 = (lo, hi, fallbackLo, fallbackHi) => {
+          const a = Number.isFinite(lo) ? lo : fallbackLo;
+          const b = Number.isFinite(hi) ? hi : fallbackHi;
+          return a <= b ? [a, b] : [b, a];
+        };
+        ai.jinkT = (Number.isFinite(ai.jinkT) ? ai.jinkT : 0) - dt;
         if (ai.jinkT <= 0) {
-          ai.jinkT = range(state.rng, def.jinkMin, def.jinkMax);
+          const [jLo, jHi] = span2(def.jinkMin, def.jinkMax, 0.5, 1.2);
+          const [aLo, aHi] = span2(def.altMin, def.altMax, 3, 6.5);
+          const [oLo, oHi] = span2(def.orbitMin, def.orbitMax, 7, 14);
+          ai.jinkT = range(state.rng, jLo, jHi);
           ai.orbitDir = float(state.rng) < 0.5 ? -1 : 1;
-          ai.alt = range(state.rng, def.altMin, def.altMax);
-          ai.orbitR = range(state.rng, def.orbitMin, def.orbitMax);
+          ai.alt = range(state.rng, aLo, aHi);
+          ai.orbitR = range(state.rng, oLo, oHi);
         }
+        const orbitR = Number.isFinite(ai.orbitR) ? ai.orbitR : 10;
+        const orbitDir = ai.orbitDir === -1 ? -1 : 1;
+        const alt = Number.isFinite(ai.alt) ? ai.alt : Number.isFinite(e.pos.y) ? e.pos.y : 0;
         const dx = t.pos.x - e.pos.x, dz = t.pos.z - e.pos.z;
         const d = Math.hypot(dx, dz) || 1;
         const nx = dx / d, nz = dz / d;
-        const radial = Math.max(-1, Math.min(1, (d - ai.orbitR) / 4));
-        let wx = nx * radial + -nz * ai.orbitDir, wz = nz * radial + nx * ai.orbitDir;
+        const radial = Math.max(-1, Math.min(1, (d - orbitR) / 4));
+        let wx = nx * radial + -nz * orbitDir, wz = nz * radial + nx * orbitDir;
         const r = Math.hypot(e.pos.x, e.pos.z);
         if (r > ARENA_R - 4) {
           wx -= e.pos.x / r;
           wz -= e.pos.z / r;
         }
         const wl = Math.hypot(wx, wz) || 1;
-        approachVel(e, { x: wx / wl, z: wz / wl }, speed, def.accel, dt);
-        e.vel.y += ((ai.alt - e.pos.y) * 3 - e.vel.y) * Math.min(1, 4 * dt);
+        approachVel(e, { x: wx / wl, z: wz / wl }, speed, Number.isFinite(def.accel) ? def.accel : 20, dt);
+        if (!Number.isFinite(e.pos.y)) e.pos.y = 0;
+        if (!Number.isFinite(e.vel.y)) e.vel.y = 0;
+        e.vel.y += ((alt - e.pos.y) * 3 - e.vel.y) * Math.min(1, 4 * dt);
         faceToward(e, t, deg(720), dt);
         ai.shooting = def.gun ? enemyGun(state, e, t, def.gun, dt, true) : false;
       }
@@ -9150,13 +13399,13 @@ var SprotoShooterSim = (() => {
       update(state, e, t, def, speed, dt) {
         const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
         if (e.state === "chase") {
-          faceToward(e, t, deg(def.turnRate), dt);
+          faceToward(e, t, deg(finite(def.turnRate, 70)), dt);
           const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
-          const shooting = enemyGun(state, e, t, def.gun, dt, d > 5);
+          const shooting = def.gun ? enemyGun(state, e, t, def.gun, dt, d > 5) : false;
           e.ai.shooting = shooting;
-          approachVel(e, { x: fx, z: fz }, d > 2 && !shooting ? speed : 0, def.accel, dt);
+          approachVel(e, { x: fx, z: fz }, d > 2 && !shooting ? speed : 0, finite(def.accel, 8), dt);
           const ang = Math.abs(angleWrap(yawTo(e.pos, t.pos) - e.yaw));
-          if (!shooting && d < def.range && ang < deg(30)) {
+          if (!shooting && d < finite(def.range, 3.5) && ang < deg(30)) {
             setState(e, "attack");
             e.attack = { phase: "windup", t: 0, hasHit: false };
             emit(state, "enemyAttack", { id: e.id, enemyType: e.type });
@@ -9165,15 +13414,16 @@ var SprotoShooterSim = (() => {
           const a = e.attack;
           a.t += dt;
           approachVel(e, { x: 0, z: 0 }, 0, 20, dt);
-          if (a.phase === "windup" && a.t >= def.windup) {
+          if (a.phase === "windup" && a.t >= finite(def.windup, 0.9)) {
             a.phase = "recover";
             a.t = 0;
             const fx = -Math.sin(e.yaw), fz = -Math.cos(e.yaw);
             const c = { x: e.pos.x + fx * 1.2, y: 0, z: e.pos.z + fz * 1.2 };
-            createHazard(state, { kind: "stompRing", pos: { ...c, y: 0.05 }, radius: def.poundRadius, maxRadius: def.poundRadius, ttl: 0.4 });
-            enemyAoE(state, c, def.poundRadius, def.damage * e.dmgMult, "enemy", 1.5);
+            const pound = finite(def.poundRadius, 3.2);
+            createHazard(state, { kind: "stompRing", pos: { ...c, y: 0.05 }, radius: pound, maxRadius: pound, ttl: 0.4 });
+            enemyAoE(state, c, pound, finite(def.damage, 25) * e.dmgMult, "enemy", 1.5);
             emit(state, "pound", { id: e.id, pos: c });
-          } else if (a.phase === "recover" && a.t >= def.recover) setState(e, "chase");
+          } else if (a.phase === "recover" && a.t >= finite(def.recover, 1.2)) setState(e, "chase");
         }
       }
     },
@@ -9208,7 +13458,7 @@ var SprotoShooterSim = (() => {
         e.ai.burstLeft = 0;
         e.ai.aimT = 0;
         approachVel(e, { x: 0, z: 0 }, 0, 25, dt);
-        if (e.stateT >= def.staggerTime) setState(e, "chase");
+        if (e.stateT >= finite(def.staggerTime, 0.4)) setState(e, "chase");
       } else if (e.ai.scriptTarget) {
         approachVel(e, { x: 0, z: 0 }, 0, 30, dt);
       } else if (e.ai.buried > 0) {
@@ -9224,9 +13474,10 @@ var SprotoShooterSim = (() => {
         }
         if (e.state === "idle" && e.type !== "dummy") setState(e, "chase");
         const slow = e.status.goo ? 1 - e.status.goo.slow : 1;
-        const zone2 = state.mode === "campaign" ? enemyZoneSlow(state.level, state._campaignSection, e) : 1;
+        const zone4 = state.mode === "campaign" ? enemyZoneSlow(state.level, state._campaignSection, e) : 1;
         const rush = e.ai.charge ? 1.8 : 1;
-        const speed = def.speed * e.speedMult * slow * zone2 * rush;
+        const pace = finite(def.run, finite(def.speed, 5));
+        const speed = pace * e.speedMult * slow * zone4 * rush;
         const steer2 = state.mode === "campaign" ? runnerSteer(state, e, dt) : null;
         if (steer2) approachVel(e, steer2, steer2.wait ? 0 : speed, 20, dt);
         else {
@@ -9423,6 +13674,7 @@ var SprotoShooterSim = (() => {
         e.pos.y = 0;
         e.vel.y = 0;
       }
+      if (state.mode === "campaign" && e.boss.arena) return holdInCircle(e, 4);
       const r = Math.hypot(e.pos.x, e.pos.z), maxR = ARENA_R - def.radius;
       if (r > maxR) {
         e.pos.x *= maxR / r;
@@ -9683,6 +13935,19 @@ var SprotoShooterSim = (() => {
       ttl
     });
   }
+  function holdInCircle(e, margin) {
+    const c = e.boss && e.boss.arena;
+    if (!c) return false;
+    const ax = e.pos.x - c.x, az = e.pos.z - c.z;
+    const ar = Math.hypot(ax, az);
+    const limit = Math.max(1, (c.radius || 30) - margin);
+    if (ar > limit) {
+      e.pos.x = c.x + ax / ar * limit;
+      e.pos.z = c.z + az / ar * limit;
+      return true;
+    }
+    return false;
+  }
   function aimDir(e, t, yawOff = 0) {
     const dx = t.pos.x - e.pos.x, dy = t.pos.y + 1.2 - e.pos.y, dz = t.pos.z - e.pos.z;
     const h = Math.hypot(dx, dz) || 1;
@@ -9713,16 +13978,7 @@ var SprotoShooterSim = (() => {
           e.pos.x *= (ARENA_R - 4) / r;
           e.pos.z *= (ARENA_R - 4) / r;
         }
-      } else if (e.boss.arena) {
-        const c = e.boss.arena;
-        const ax = e.pos.x - c.x, az = e.pos.z - c.z;
-        const ar = Math.hypot(ax, az);
-        const limit = Math.max(1, (c.radius || 30) - 4);
-        if (ar > limit) {
-          e.pos.x = c.x + ax / ar * limit;
-          e.pos.z = c.z + az / ar * limit;
-        }
-      }
+      } else holdInCircle(e, 4);
       e.yaw = yawTo(e.pos, t.pos);
     }
     const auraR = p3 ? def.auraRadiusP3 : def.auraRadius;
@@ -10053,9 +14309,9 @@ var SprotoShooterSim = (() => {
       const dir = len > 0 ? { x: p.vel.x * dt / len, y: p.vel.y * dt / len, z: p.vel.z * dt / len } : { x: 0, y: 0, z: 1 };
       const shotSolids = activeSolids(state);
       if (shotSolids && len > 0) {
-        const wall = raySolids(shotSolids, p.pos, dir, len);
-        if (wall >= 0) {
-          p.pos = { x: p.pos.x + dir.x * wall, y: p.pos.y + dir.y * wall, z: p.pos.z + dir.z * wall };
+        const wall2 = raySolids(shotSolids, p.pos, dir, len);
+        if (wall2 >= 0) {
+          p.pos = { x: p.pos.x + dir.x * wall2, y: p.pos.y + dir.y * wall2, z: p.pos.z + dir.z * wall2 };
           detonate(state, p);
           continue;
         }
@@ -10181,6 +14437,30 @@ var SprotoShooterSim = (() => {
     if (p.kind === "missile" || p.kind === "tyre") emit(state, "explosion", { pos: { x: pos.x, y: Math.max(0.3, pos.y), z: pos.z }, radius: p.splash.radius, element: "none", enemy: true });
     else emit(state, "splat", { pos: { ...pos }, element: p.element });
   }
+  function tickIce(state) {
+    let live = false;
+    for (let i = 0; i < state.hazards.length; i++) {
+      const h = state.hazards[i];
+      if (!h.dead && h.kind === "icePatch") live = true;
+    }
+    const players = Object.values(state.players);
+    let sticky = false;
+    if (!live) {
+      for (let i = 0; i < players.length; i++) if (players[i].iceSlow != null) sticky = true;
+      if (!sticky) return;
+    }
+    for (let i = 0; i < players.length; i++) if (players[i].iceSlow != null) delete players[i].iceSlow;
+    if (!live) return;
+    for (let i = 0; i < state.hazards.length; i++) {
+      const h = state.hazards[i];
+      if (h.dead || h.kind !== "icePatch") continue;
+      for (let p = 0; p < players.length; p++) {
+        const pl = players[p];
+        if (pl.dead) continue;
+        if (Math.hypot(pl.pos.x - h.pos.x, pl.pos.z - h.pos.z) < h.radius + 0.4) pl.iceSlow = h.slow == null ? 0.15 : h.slow;
+      }
+    }
+  }
   function hazards(state, dt) {
     for (const h of state.hazards) {
       if (h.dead) continue;
@@ -10205,6 +14485,7 @@ var SprotoShooterSim = (() => {
       }
       if (h.t >= h.ttl && h.kind !== "shockwave") h.dead = true;
     }
+    tickIce(state);
   }
   function statusEffects(state, dt) {
     for (const e of state.enemies) {
@@ -10246,9 +14527,9 @@ var SprotoShooterSim = (() => {
         k.pos.y += k.vel.y * dt;
         k.pos.z += k.vel.z * dt;
         const dropSolids = activeSolids(state);
-        const floor2 = dropSolids ? Math.max(0.6, groundHeight(dropSolids, k.pos.x, k.pos.z, 0.2, k.pos.y, 2) + 0.3) : 0.6;
-        if (k.pos.y < floor2) {
-          k.pos.y = floor2;
+        const floor3 = dropSolids ? Math.max(0.6, groundHeight(dropSolids, k.pos.x, k.pos.z, 0.2, k.pos.y, 2) + 0.3) : 0.6;
+        if (k.pos.y < floor3) {
+          k.pos.y = floor3;
           k.vel.y = 0;
           k.vel.x *= 0.85;
           k.vel.z *= 0.85;
@@ -10403,6 +14684,43 @@ var SprotoShooterSim = (() => {
     }
   }
 
+  // src/sim/campaign/scriptSnap.js
+  function q(n) {
+    return Math.round(n * 1e4) / 1e4;
+  }
+  function snapBody(o) {
+    if (!o || !o.pos) return;
+    o.pos.x = q(o.pos.x);
+    o.pos.y = q(o.pos.y);
+    o.pos.z = q(o.pos.z);
+    if (o.prevPos) {
+      o.prevPos.x = q(o.prevPos.x);
+      o.prevPos.y = q(o.prevPos.y);
+      o.prevPos.z = q(o.prevPos.z);
+    }
+    if (o.vel) {
+      o.vel.x = q(o.vel.x);
+      o.vel.y = q(o.vel.y);
+      o.vel.z = q(o.vel.z);
+    }
+  }
+  function snapScripted(state) {
+    if (!state || state.mode !== "campaign" || !state.level || !state.level.scripts) return;
+    const sec = state._v2section;
+    if (!sec) return;
+    let multi = false;
+    for (const enc of sec.encounters || []) {
+      if (enc.script && enc.script.parts && enc.script.parts.length > 1) multi = true;
+    }
+    if (!multi) return;
+    const players = state.players ? Object.keys(state.players) : [];
+    for (let i = 0; i < players.length; i++) snapBody(state.players[players[i]]);
+    const enemies = state.enemies || [];
+    for (let i = 0; i < enemies.length; i++) snapBody(enemies[i]);
+    const shots = state.projectiles || [];
+    for (let i = 0; i < shots.length; i++) snapBody(shots[i]);
+  }
+
   // src/sim/simulate.js
   var DT = 1 / 60;
   function simulate(state, commands, dt = DT) {
@@ -10429,6 +14747,7 @@ var SprotoShooterSim = (() => {
     crafting(state, dt);
     progression(state);
     if (state.mode === "campaign") campaignPost(state, dt);
+    snapScripted(state);
     cleanup(state);
   }
 
@@ -10440,12 +14759,12 @@ var SprotoShooterSim = (() => {
     if (t === "string" || t === "boolean") return JSON.stringify(value);
     if (t !== "object") return "null";
     if (Array.isArray(value)) {
-      let s2 = "[";
+      let s5 = "[";
       for (let i = 0; i < value.length; i++) {
-        if (i) s2 += ",";
-        s2 += stableStringify(value[i]);
+        if (i) s5 += ",";
+        s5 += stableStringify(value[i]);
       }
-      return s2 + "]";
+      return s5 + "]";
     }
     const keys = Object.keys(value).sort();
     let s = "{";
@@ -10487,6 +14806,203 @@ var SprotoShooterSim = (() => {
   }
   function verifyStateHash(state) {
     return fnv1a(stableStringify(quantizeForHash(state)));
+  }
+
+  // src/sim/campaign/kiteAim.js
+  function livingBosses(state) {
+    const out = [];
+    for (let i = 0; i < state.enemies.length; i++) {
+      const e = state.enemies[i];
+      if (e.boss && !e.dead && !e.fled) out.push(e);
+    }
+    return out;
+  }
+  function aimYaw(from, to) {
+    return Math.atan2(-(to.x - from.x), -(to.z - from.z));
+  }
+  function worldMove(yaw, wx, wz) {
+    const sy = Math.sin(yaw);
+    const cy = Math.cos(yaw);
+    const len = Math.hypot(wx, wz) || 1;
+    return {
+      moveZ: Math.max(-1, Math.min(1, (wx * -sy + wz * -cy) / len)),
+      moveX: Math.max(-1, Math.min(1, (wx * cy - wz * sy) / len))
+    };
+  }
+  function kiteCommand(state, mode) {
+    const p = state.players[state.localPlayerId];
+    const exchange = state.level && state.level.section === "SB";
+    if (exchange && (p.pos.x < 1136 || p.pos.y < -0.5)) {
+      const home = { x: 1160, z: 60 };
+      const yaw2 = aimYaw(p.pos, home);
+      const mv = worldMove(yaw2, home.x - p.pos.x, home.z - p.pos.z);
+      return {
+        yaw: yaw2,
+        pitch: 0,
+        moveX: mv.moveX,
+        moveZ: mv.moveZ,
+        held: { sprint: true },
+        pressed: {},
+        slot: -1,
+        wheel: 0,
+        actions: []
+      };
+    }
+    const live = livingBosses(state);
+    if (!live.length) {
+      return { yaw: -Math.PI / 2, pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
+    }
+    const shielded = exchange && live.every((e) => e.boss && e.boss.invuln);
+    const pool = [];
+    if (shielded) {
+      for (let i = 0; i < state.enemies.length; i++) {
+        const e = state.enemies[i];
+        if (!e.dead && !e.fled && !e.boss && e.partId) pool.push(e);
+      }
+    }
+    const choices = pool.length ? pool : live;
+    let target = choices[0];
+    let best = Infinity;
+    const focusWeak = exchange && !pool.length && live.length >= 2;
+    for (let i = 0; i < choices.length; i++) {
+      const e = choices[i];
+      const d = Math.hypot(e.pos.x - p.pos.x, e.pos.z - p.pos.z);
+      const score = focusWeak && e.maxHp ? d + e.hp / e.maxHp * 30 : d;
+      if (score < best) {
+        best = score;
+        target = e;
+      }
+    }
+    best = Math.hypot(target.pos.x - p.pos.x, target.pos.z - p.pos.z);
+    if (mode === "fail") {
+      if (best > 4.5) {
+        return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 1, held: { sprint: true }, pressed: {}, slot: -1, wheel: 0, actions: [] };
+      }
+      return { yaw: aimYaw(p.pos, target.pos), pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
+    }
+    const eye = p.pos.y + 1.6;
+    const aimY = target.pos.y + (target.height || 1.6) * 0.55;
+    let pitch = Math.atan2(aimY - eye, Math.max(0.2, best)) - p.recoil.pitch;
+    if (pitch > 1.45) pitch = 1.45;
+    if (pitch < -1.45) pitch = -1.45;
+    const refills = !!(target.boss && target.boss.scriptHold);
+    const assist = mode === "assisted" && !refills && target.hp < 80;
+    let moveZ = 0;
+    let moveX = 0;
+    let yaw = aimYaw(p.pos, target.pos);
+    const off = exchange && (p.pos.y < -0.2 || p.pos.z < 52 || p.pos.z > 70 || p.pos.x > 1170 || p.pos.x < 1146);
+    if (off) {
+      yaw = aimYaw(p.pos, { x: 1158, z: 62 });
+      const mv = worldMove(yaw, 1158 - p.pos.x, 62 - p.pos.z);
+      moveX = mv.moveX;
+      moveZ = mv.moveZ;
+    } else if (exchange) {
+      const dx = target.pos.x - p.pos.x;
+      const dz = target.pos.z - p.pos.z;
+      const d = Math.hypot(dx, dz) || 1;
+      const lv = state.level;
+      if (p.pos.x > 1164) lv._sweep = -1;
+      else if (p.pos.x < 1152) lv._sweep = 1;
+      else if (!lv._sweep) lv._sweep = 1;
+      let wx = -dz / d * lv._sweep;
+      let wz = dx / d * lv._sweep;
+      if (best > 20) {
+        wx += dx / d;
+        wz += dz / d;
+      } else if (best < 12) {
+        wx -= dx / d;
+        wz -= dz / d;
+      }
+      const mv = worldMove(yaw, wx, wz);
+      moveX = mv.moveX;
+      moveZ = mv.moveZ;
+    } else if (best > 18) moveZ = 1;
+    else if (best < 9) moveZ = -1;
+    const pressed = {};
+    const finishing = exchange && live.some((e) => e.boss && !e.boss.scriptHold && e.hp < 90);
+    const nearEdge = target.pos && (target.pos.y < 0.2 || target.pos.z < 50 || target.pos.z > 70 || target.pos.x < 1142 || target.pos.x > 1172);
+    if (assist || exchange && !finishing && !nearEdge && p.mana >= 15) pressed.gooBolt = true;
+    if (!assist && p.hp < (exchange ? 70 : 45) && p.medkits > 0 && !p.downed) pressed.medkit = true;
+    return {
+      yaw,
+      pitch,
+      moveX,
+      moveZ,
+      held: { fire: !assist, sprint: best > 18 && !exchange },
+      pressed,
+      slot: -1,
+      wheel: 0,
+      actions: []
+    };
+  }
+
+  // src/sim/campaign/kiteProbe.js
+  var ATTACKS = ["bolt", "blast", "rugSlam"];
+  function kiteLevel() {
+    return makeV2Level({
+      id: "kite-probe",
+      name: "Kite",
+      sections: [{
+        id: "S",
+        start: [8, 0, 8],
+        geometry: [box({ id: "floor", at: [16, -0.25, 16], size: [48, 0.5, 48] })],
+        encounters: [{
+          id: "kite",
+          activate: { min: [0, -4, 0], max: [40, 8, 40] },
+          squads: [{
+            id: "boss",
+            trigger: { type: "onEnter" },
+            at: [[16, 0, 16]],
+            units: [{ type: "sahil", count: 1 }]
+          }],
+          script: {
+            parts: [
+              { id: "p1", hp: 1500, attacks: ATTACKS },
+              { id: "p2", hp: 1500, attacks: ATTACKS },
+              { id: "p3", hp: 1500, attacks: ATTACKS }
+            ]
+          }
+        }]
+      }]
+    });
+  }
+  function bossOf2(state) {
+    for (let i = 0; i < state.enemies.length; i++) {
+      const e = state.enemies[i];
+      if (e.boss && e.type === "sahil") return e;
+    }
+    return null;
+  }
+  function runSahilKiteProbe(seed = 7, mode = "success", maxFrames = 3600) {
+    installLevel(kiteLevel());
+    const state = createGameState({ seed });
+    const p = state.players[state.localPlayerId];
+    startCampaign(state, p, "kite-probe");
+    grantSpell(state, p, "gooBolt");
+    state.tuning.infiniteAmmo = true;
+    const frames = maxFrames > 0 ? maxFrames : 3600;
+    for (let i = 0; i < frames; i++) {
+      const cmd = kiteCommand(state, mode);
+      const dx = 16 - p.pos.x, dz = 16 - p.pos.z;
+      if (dx * dx + dz * dz > 14 * 14) {
+        cmd.yaw = Math.atan2(-dx, -dz);
+        cmd.moveZ = 1;
+        cmd.held.sprint = true;
+      }
+      simulate(state, { [p.id]: cmd });
+    }
+    const boss2 = bossOf2(state);
+    const book3 = state.level && state.level.scripts && state.level.scripts.kite;
+    return {
+      seed,
+      mode,
+      tick: state.tick,
+      hash: verifyStateHash(state),
+      playerDead: !!p.dead,
+      bossDead: !boss2 || !!boss2.dead,
+      bossHp: boss2 ? boss2.hp : 0,
+      part: book3 ? book3.part : 0
+    };
   }
 
   // src/data/serverManifest.js
@@ -10560,9 +15076,9 @@ var SprotoShooterSim = (() => {
     }
     return null;
   }
-  function sameParts(units, parts) {
+  function sameParts(units2, parts) {
     for (let i = 0; i < parts.length; i++) {
-      const got = units.filter((u2) => u2.type === parts[i]);
+      const got = units2.filter((u4) => u4.type === parts[i]);
       if (got.length !== 1 || got[0].count !== 1) return false;
     }
     return parts.length > 0;
@@ -10572,11 +15088,11 @@ var SprotoShooterSim = (() => {
       const found = resolveCanonicalEncounter(boss2);
       if (!found) throw new Error(`missing canonical encounter ${boss2.id}`);
       if (found.encounter.fleeAt) throw new Error(`${boss2.id} encounter flees and cannot pay`);
-      const units = [];
-      for (const squad3 of found.encounter.squads || []) {
-        for (const u2 of squad3.units || []) units.push(u2);
+      const units2 = [];
+      for (const squad6 of found.encounter.squads || []) {
+        for (const u4 of squad6.units || []) units2.push(u4);
       }
-      if (!sameParts(units, boss2.parts)) throw new Error(`${boss2.id} parts drifted`);
+      if (!sameParts(units2, boss2.parts)) throw new Error(`${boss2.id} parts drifted`);
       for (let i = 0; i < boss2.parts.length; i++) {
         const part = boss2.parts[i];
         if (!DUEL_BOSSES[part] || DUEL_BOSSES[part].id !== part) throw new Error(`${boss2.id} part ${part} drifted`);
@@ -10602,9 +15118,9 @@ var SprotoShooterSim = (() => {
   }
   function encounterFacts(boss2) {
     const found = resolveCanonicalEncounter(boss2);
-    const units = [];
-    for (const squad3 of found.encounter.squads) {
-      for (const u2 of squad3.units) units.push({ type: u2.type, count: u2.count });
+    const units2 = [];
+    for (const squad6 of found.encounter.squads) {
+      for (const u4 of squad6.units) units2.push({ type: u4.type, count: u4.count });
     }
     return {
       id: boss2.id,
@@ -10614,7 +15130,7 @@ var SprotoShooterSim = (() => {
       encounterId: found.encounter.id,
       sectionStart: found.section.start,
       fleeAt: found.encounter.fleeAt || 0,
-      units,
+      units: units2,
       hp: boss2.parts.map((part) => ({ part, hp: DUEL_BOSSES[part] ? DUEL_BOSSES[part].hp : null }))
     };
   }
@@ -10624,12 +15140,12 @@ var SprotoShooterSim = (() => {
       bosses: CANONICAL_BOSSES,
       encounters: CANONICAL_BOSSES.map(encounterFacts),
       guns: GUN_TYPES.map(gunBalance),
-      qualities: QUALITIES.map((q) => ({
-        id: q.id,
-        damageMult: q.damageMult,
-        magMult: q.magMult,
-        reloadMult: q.reloadMult,
-        spreadMult: q.spreadMult
+      qualities: QUALITIES.map((q2) => ({
+        id: q2.id,
+        damageMult: q2.damageMult,
+        magMult: q2.magMult,
+        reloadMult: q2.reloadMult,
+        spreadMult: q2.spreadMult
       })),
       manufacturers: MANUFACTURERS.map((m) => ({ id: m.id, mods: m.mods, add: m.add, alwaysElement: !!m.alwaysElement })),
       parts: PARTS.map((p) => ({ id: p.id, mods: p.mods, add: p.add })),
@@ -10731,25 +15247,25 @@ var SprotoShooterSim = (() => {
     }
     return null;
   }
-  function dequantizeCommand(q) {
+  function dequantizeCommand(q2) {
     const held = {};
     const pressed = {};
     for (let i = 0; i < BUTTONS.length; i++) {
-      if (q.held & 1 << i) held[BUTTONS[i]] = true;
-      if (q.pressed & 1 << i) pressed[BUTTONS[i]] = true;
+      if (q2.held & 1 << i) held[BUTTONS[i]] = true;
+      if (q2.pressed & 1 << i) pressed[BUTTONS[i]] = true;
     }
     const cmd = {
-      yaw: q.yaw / 32767 * Math.PI,
-      pitch: q.pitch / 32767 * 1.5,
-      moveX: q.moveX / 127,
-      moveZ: q.moveZ / 127,
+      yaw: q2.yaw / 32767 * Math.PI,
+      pitch: q2.pitch / 32767 * 1.5,
+      moveX: q2.moveX / 127,
+      moveZ: q2.moveZ / 127,
       held,
       pressed,
-      slot: q.slot,
-      wheel: q.wheel,
+      slot: q2.slot,
+      wheel: q2.wheel,
       actions: []
     };
-    if (q.action === 1) cmd.actions.push({ type: "transitionDone" });
+    if (q2.action === 1) cmd.actions.push({ type: "transitionDone" });
     return cmd;
   }
   function i16(lo, hi) {
@@ -10794,20 +15310,20 @@ var SprotoShooterSim = (() => {
       for (let i = 0; i < actions.length; i++) {
         const row = actions[i];
         if (!Array.isArray(row) || row.length !== 2) return { error: "malformed" };
-        const [at, id] = row;
-        if (typeof at !== "number" || !Number.isInteger(at)) return { error: "malformed" };
-        if (at < 0) return { error: "negative" };
-        if (at >= n) return { error: "malformed" };
+        const [at2, id] = row;
+        if (typeof at2 !== "number" || !Number.isInteger(at2)) return { error: "malformed" };
+        if (at2 < 0) return { error: "negative" };
+        if (at2 >= n) return { error: "malformed" };
         if (id === 2 || id === 3) return { error: id === 3 ? "god_mode" : "debug" };
         if (id !== 1) return { error: "debug" };
-        if (actionAt.has(at)) return { error: "malformed" };
-        actionAt.set(at, 1);
+        if (actionAt.has(at2)) return { error: "malformed" };
+        actionAt.set(at2, 1);
       }
     }
     const commands = new Array(n);
     for (let i = 0; i < n; i++) {
       const o = i * FRAME_BYTES;
-      const q = {
+      const q2 = {
         yaw: i16(bytes[o], bytes[o + 1]),
         pitch: i16(bytes[o + 2], bytes[o + 3]),
         moveX: i8(bytes[o + 4]),
@@ -10818,11 +15334,11 @@ var SprotoShooterSim = (() => {
         wheel: i8(bytes[o + 11]),
         action: actionAt.get(i) || 0
       };
-      if (q.yaw < -32767 || q.yaw > 32767 || q.pitch < -32767 || q.pitch > 32767) return { error: "malformed" };
-      if (q.moveX < -127 || q.moveX > 127 || q.moveZ < -127 || q.moveZ > 127) return { error: "malformed" };
-      if (q.slot < -1 || q.slot > 4 || q.wheel < -4 || q.wheel > 4) return { error: "malformed" };
-      if (q.held > 65535 || q.pressed > 65535) return { error: "malformed" };
-      commands[i] = dequantizeCommand(q);
+      if (q2.yaw < -32767 || q2.yaw > 32767 || q2.pitch < -32767 || q2.pitch > 32767) return { error: "malformed" };
+      if (q2.moveX < -127 || q2.moveX > 127 || q2.moveZ < -127 || q2.moveZ > 127) return { error: "malformed" };
+      if (q2.slot < -1 || q2.slot > 4 || q2.wheel < -4 || q2.wheel > 4) return { error: "malformed" };
+      if (q2.held > 65535 || q2.pressed > 65535) return { error: "malformed" };
+      commands[i] = dequantizeCommand(q2);
     }
     return { commands };
   }
@@ -10923,7 +15439,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "872f7d6c29e04a6395ebc33e0853045429c9b828";
+  var SOURCE_COMMIT = "fc127ef50ee25511bf8d7f1d2a0fa22075eb5017";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
@@ -11206,7 +15722,7 @@ var SprotoShooterSim = (() => {
         const before = { x: state.players[playerId].pos.x, y: state.players[playerId].pos.y, z: state.players[playerId].pos.z };
         simulate(state, { [playerId]: decoded.commands[f] });
         const moved = movementDelta(before, state.players[playerId].pos);
-        if (moved) return fail2(moved, { logDigest: digest, tick: state.tick });
+        if (moved && !checkpointRestored(state)) return fail2(moved, { logDigest: digest, tick: state.tick });
         const cheat = runtimeCheat(state) || inventoryCheat(state);
         if (cheat) return fail2(cheat, { logDigest: digest, tick: state.tick });
         noteParts(seenParts, state, boss2);
@@ -11241,6 +15757,15 @@ var SprotoShooterSim = (() => {
       economy: ECONOMY
     };
   }
+  function checkpointRestored(state) {
+    const events = state && state.events;
+    if (!events) return false;
+    for (let i = 0; i < events.length; i++) {
+      const type = events[i].type;
+      if (type === "lockdownReset" || type === "voidRescue") return true;
+    }
+    return false;
+  }
   function rejectedOrUnknown(id) {
     if (id === "agent" || id === "glowieAgent") return "glowie_not_agent";
     if (id === "obamaDuo" || id === "midgetDuo") return "obama_is_one";
@@ -11261,6 +15786,17 @@ var SprotoShooterSim = (() => {
       return JSON.stringify(out);
     }
     return JSON.stringify(publicReceipt(verifyRun(body.log, body.ctx)));
+  }
+  function runKiteProbeJSON(text) {
+    let body = {};
+    if (typeof text === "string" && text) {
+      try {
+        body = JSON.parse(text);
+      } catch {
+        body = {};
+      }
+    }
+    return JSON.stringify(runSahilKiteProbe(body.seed, body.mode, body.maxFrames));
   }
   function contentFingerprintOf() {
     return contentFingerprint(PROTOCOL_VERSION);
