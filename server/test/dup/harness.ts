@@ -311,10 +311,11 @@ export async function call(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   else params.set('http_key', HTTP_KEY);
-  const send = async (): Promise<Response> => {
+  const once = async (): Promise<RpcResult> => {
     const timeout = opts?.signal ?? AbortSignal.timeout(opts?.timeoutMs ?? 20_000);
+    let response: Response;
     try {
-      return await fetch(`${BASE}/v2/rpc/${encodeURIComponent(name)}?${params}`, {
+      response = await fetch(`${BASE}/v2/rpc/${encodeURIComponent(name)}?${params}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),
@@ -325,26 +326,32 @@ export async function call(
       const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
       throw new Error(cause ? `${message}: ${cause}` : message);
     }
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+      throw new Error(cause ? `${message}: ${cause}` : message);
+    }
+    let parsed: RpcBody = {};
+    if (text) {
+      try {
+        parsed = JSON.parse(text) as RpcBody;
+      } catch {
+        parsed = { message: text };
+      }
+    }
+    return { status: response.status, body: parsed };
   };
-  let response: Response;
   try {
-    response = await send();
+    return await once();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    // Nakama closes an idle keep-alive socket. The request was not read.
+    // One retry. A closed keep-alive socket, or a write timeout, drops the response.
     if (!message.includes('fetch failed')) throw error;
-    response = await send();
+    return once();
   }
-  const text = await response.text();
-  let parsed: RpcBody = {};
-  if (text) {
-    try {
-      parsed = JSON.parse(text) as RpcBody;
-    } catch {
-      parsed = { message: text };
-    }
-  }
-  return { status: response.status, body: parsed };
 }
 
 export function faulted(result: RpcResult): boolean {

@@ -53,6 +53,8 @@ services:
           --logger.level INFO \
           --session.token_expiry_sec 7200 \
           --socket.server_key "$$NAKAMA_SERVER_KEY" \
+          --socket.read_timeout_ms 30000 \
+          --socket.write_timeout_ms 30000 \
           --runtime.http_key "$$NAKAMA_HTTP_KEY" \
           --session.refresh_token_expiry_sec 2592000 \
           --session.encryption_key "$$NAKAMA_SESSION_ENCRYPTION_KEY" \

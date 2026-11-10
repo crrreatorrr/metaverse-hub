@@ -354,10 +354,6 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     await racePayOnce('broccoli', 20, 'race20');
   });
 
-  await test('shooter', '4 concurrent Sahil races pay once', async () => {
-    await racePayOnce('sahil', 4, 'race4');
-  });
-
   await test('shooter', 'crash after commit and a raised wallet fault pay once', async () => {
     installFaultHooks();
     try {

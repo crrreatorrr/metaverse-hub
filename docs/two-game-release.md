@@ -158,6 +158,8 @@ Do this in order. Do not drop tables.
 
 Twenty concurrent verifies of a long campaign clear, such as the L02 Sahil fight at about 10k frames, exceed the verifier's 15 second wall-clock budget and come back limited. A short clear (Broccoli, about 3k frames) still fits. A real player submitting a long clear while the node is busy verifying others can hit the same limit and not be paid. That needs a capacity or queue fix before go-live. This release does not change the budget.
 
+Nakama's default HTTP write timeout is 10 seconds. One Sahil verify can take longer than that, so the socket closed before the receipt was written. The hub config and the local compose stack now wait 30 seconds, which is above the 15 second verifier budget, so a single clear can return. That is the transport timeout, not the budget.
+
 ## Cost and alerts
 
 Not measured on a staging host, so this does not state a CCU, a bill, or an alert that was not configured. Local observations only:
