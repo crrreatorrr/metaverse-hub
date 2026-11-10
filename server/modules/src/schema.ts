@@ -3513,6 +3513,66 @@ namespace HubSchema {
         $fn$`,
       ],
     },
+    {
+      // Derive Duel staff ownership from existing claims, including claims made before this migration.
+      id: "0047_duel_relic_staves",
+      statements: [
+        `CREATE OR REPLACE FUNCTION game.owned_item_ids(p_user_id uuid)
+         RETURNS text[]
+         LANGUAGE sql
+         STABLE
+         AS $own$
+           SELECT COALESCE(array_agg(item_id ORDER BY item_id), ARRAY[]::text[])
+           FROM (
+             SELECT DISTINCT item_id FROM (
+               SELECT 'duel_staff_sproto'::text AS item_id
+               UNION ALL
+               SELECT v.item_id
+               FROM (VALUES
+                 ('nobu_clown_collar', 'hpos10i_core'),
+                 ('pb_summon_speed_sproto', 'hpos10i_core'),
+                 ('duel_staff_momentum', 'hpos10i_core'),
+                 ('pet_speed_sproto', 'hpos10i_core'),
+                 ('hpos_skin_golden_sproto', 'genesis_shard'),
+                 ('nobu_golden_collar', 'genesis_shard'),
+                 ('duel_staff_moonward', 'genesis_shard'),
+                 ('hpos_skin_nobu', 'cones_tip'),
+                 ('pb_summon_nobu', 'cones_tip'),
+                 ('duel_staff_nobu', 'cones_tip'),
+                 ('pet_nobu', 'cones_tip'),
+                 ('pb_summon_duelist_sproto', 'tinubu_crown'),
+                 ('nobu_wizard_hat', 'tinubu_crown'),
+                 ('hpos_cape_duelist', 'tinubu_crown'),
+                 ('pet_duelist_sproto', 'tinubu_crown'),
+                 ('duel_staff_fighters_might', 'tidebreaker_belt'),
+                 ('duel_staff_alien_ray', 'breakwater_coin'),
+                 ('duel_staff_shooter', 'dragon_scale'),
+                 ('duel_staff_fighter', 'tinubu_crown'),
+                 ('nobu_champions_crown', 'tidebreaker_belt'),
+                 ('pb_summon_champion_sproto', 'tidebreaker_belt'),
+                 ('hpos_skin_tidebreaker', 'tidebreaker_belt')
+               ) AS v(item_id, relic_id)
+               WHERE EXISTS (
+                 SELECT 1 FROM game.relic_claim c
+                 WHERE c.user_id = p_user_id AND c.relic_id = v.relic_id
+               )
+               UNION ALL
+               SELECT o.item_id
+               FROM game.item_owned o
+               WHERE o.user_id = p_user_id
+               -- quantum_cell is keepsake-derived from NOBU rematch pieces. Those piece ids are
+               -- not in this repo. An empty piece list must not count as owned. A real item_owned
+               -- row for the id still counts in the branch above.
+             ) u
+             WHERE item_id IS NOT NULL AND item_id <> ''
+               AND NOT EXISTS (
+                 SELECT 1 FROM game.item_owned_pending p
+                 WHERE p.user_id = p_user_id AND p.item_id = u.item_id
+               )
+           ) d
+         $own$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
