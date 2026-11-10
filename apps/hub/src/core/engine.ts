@@ -150,12 +150,13 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     setHiddenRelics(ids: readonly string[]) { hidden = new Set(ids); syncGems(); },
     setRemoteOrbit(avatars: readonly OrbitAvatar[]) { remoteOrbit = avatars; syncGems(); },
     setPreviewAvatars(avatars: readonly OrbitAvatar[]) { previewOrbit = avatars; syncGems(); },
-    update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir) {
+    update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number) {
       elapsed += dt;
       for (const fn of animated) fn(elapsed, dt);
-      actors().avatarRig.update(dt, moving, sprint, air);
+      const rigMoving = actors().avatarRig.update(dt, moving, sprint, air, speed);
       actors().pets.update(dt, actors().rig.position, STAND_Y, sprint);
       gems.update(elapsed);
+      return rigMoving;
     },
     render(measure = true) {
       scene.updateMatrixWorld(true);

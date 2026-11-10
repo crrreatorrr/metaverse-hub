@@ -29,6 +29,7 @@ import { AVATAR_SCALE, CAMERA_ARM, CAMERA_LOOK_DROP, CHARACTERS, SPRINT_SPEED, W
 import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { createPetCollision } from './pet-collision';
+import { createPlanarSpeed } from './planar-speed';
 import { EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
@@ -120,6 +121,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const player = createPlayerController(world.collider.bvh);
   const initial = definition.spawn(window.location.hash);
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
+  const planarSpeed = createPlanarSpeed(initial.x, initial.z);
   // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
   // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
   // development visits. Production waits for the account profile. ?pet=<id> is a DEV-only art preview.
@@ -464,9 +466,16 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
-    const moving = Math.hypot(input.forward, input.strafe) > 0;
+    const inputAmount = Math.hypot(input.forward, input.strafe);
+    const moving = inputAmount > 0;
+    const requestedSpeed = Math.min(1, inputAmount) * (input.sprint ? SPRINT_SPEED : WALK_SPEED);
+    const speed = planarSpeed.sample(dt, player.position.x, player.position.z, moving ? player.facingYaw : undefined, requestedSpeed);
     airTime = player.grounded ? 0 : airTime + dt;
-    const air = { airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE, vy: player.velocity.y };
+    const air = {
+      airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,
+      vy: player.velocity.y,
+      flight: { airborne: !player.grounded, dt },
+    };
     // P4: the jog / dash clips bake their own bounce, so the procedural bob stays at 0.
     world.bob.position.y = 0;
     bodyYaw = dampAngle(bodyYaw, player.facingYaw, TURN_RATE, dt);
@@ -479,7 +488,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     world.shadow.scale.setScalar((1.15 + lift * 0.25) * AVATAR_SCALE);
     world.shadowMat.opacity = Math.max(0.12, 0.5 - lift * 0.12);
 
-    engine.update(dt, moving, input.sprint, air);
+    const rigMoving = engine.update(dt, moving, input.sprint, air, speed);
     content.update(dt, { moving, sprint: input.sprint, position: player.position });
     remotes.update(dt, performance.now(), world.camera, player.position);
     overheads.update(dt, world.camera, (id, out) => remotes.positionOf(id, out), { width: window.innerWidth, height: window.innerHeight });
@@ -488,13 +497,14 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       player.position.y,
       player.position.z,
       bodyYaw,
-      animIndex(air.airborne ? 'jump' : moving ? (input.sprint ? 'run' : 'walk') : 'idle'),
+      animIndex(air.airborne ? 'jump' : rigMoving ? (input.sprint ? 'run' : 'walk') : 'idle'),
     );
     const warp = content.consumeWarp?.();
     if (warp) {
       dwell = initialDwell();
       yaw = warp.yaw;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
+      planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
       bodyYaw = player.facingYaw;
       airTime = 0;
