@@ -292,7 +292,7 @@ const HOSTED_SESSION = `(function () {
   assert.equal(HubGames.matchmakingAllowed('hub', '', 'sproto-shooter'), false);
   const campaign = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-sim.pin.json'), 'utf8')) as { fingerprint: string; sha256: string };
   assert.equal(campaign.fingerprint, CAMPAIGN);
-  assert.equal(campaign.sha256, '7f8e30905b5d088349937a0d4333a35cfbc409e64a239344c57af30c3a97c23c');
+  assert.equal(campaign.sha256, '745ec7ba7f0118b9282b5f2f45feac8e4b3076d6ef27d54cec1e52babf94cd65');
   const source = ['shooter_match.ts', 'shooter_matchmaking.ts', 'shooter_protocol.ts'].map((name) => readFileSync(join(root, 'server/modules/src/games', name), 'utf8')).join('\n');
   assert.equal(/nk\.sql|earn_tickets|walletUpdate|leaderboardRecord|sproto_arena|sproto_duel|claimWinner|claim_winner/.test(source), false);
   // Hosts must use the hosted constructor, and nothing synthesizes a HELLO from a RESYNC.
