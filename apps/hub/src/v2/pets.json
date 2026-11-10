@@ -38,6 +38,12 @@
     "dur": 0.6,
     "loop": true
    },
+   "idle_trick": {
+    "delay_s": 3,
+    "loop": false,
+    "rearm": "movement",
+    "alternate": "idle_trick_2 when available"
+   },
    "sit_enter": {
     "dur": 0.4,
     "loop": false,
@@ -61,7 +67,7 @@
    }
   },
   "parts_clip": "pet_<name>_parts: 2 s loop, play it always (additively, on top of whichever body clip is playing). It only touches part nodes, never joints.",
-  "idle_rules": "0.5 s stopped -> idle; 10 s idle -> sit_enter then sit when available"
+  "idle_rules": "0.5 s stopped -> idle; 3 s stopped -> idle_trick once when available; 10 s idle -> sit_enter then sit when available"
  },
  "pets": {
   "pet_fighter": {

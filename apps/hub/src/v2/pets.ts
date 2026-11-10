@@ -28,8 +28,10 @@ const PET_DIR = `${WORLD_ROOT}v2/pets/`;
 const LOD1_DISTANCE: number = PETS_DATA.contract.lod.switch_m;
 const STOP_TO_IDLE = 0.5;
 const IDLE_TO_SIT = 10;
+const IDLE_TRICK_DELAY = PETS_DATA.contract.clips.idle_trick.delay_s;
+const IDLE_TRICKS = ['idle_trick', 'idle_trick_2'] as const;
 const FADE = 0.2;
-const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy']);
+const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy', ...IDLE_TRICKS]);
 /**
  * Follow clips play at 1x at the avatar's jog (follow_walk) and dash (follow_run) and scale with the pet's
  * real speed, so legs slow down as the follower settles instead of paddling at full rate. Run starts above
@@ -106,6 +108,10 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
 
   let stillFor = 0;
   let idleFor = 0;
+  let trickPlayed = false;
+  let nextTrick = 0;
+  let tricks: string[] = [];
+  let trickFadeUntil = 0;
   let time = 0;
   const motion = createPetMotion(collide);
   const orbGeometry = new SphereGeometry((FOLLOWERS.find(pet => pet.id === 'pet_starter')?.size ?? 0.45) / 2, 8, 6);
@@ -122,6 +128,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       next.reset().play();
       if (prev && prev !== next) prev.crossFadeTo(next, fade, false);
     }
+    if (tricks.includes(current)) trickFadeUntil = time + fade;
     current = name;
   }
 
@@ -129,7 +136,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     const name = event.action.getClip().name;
     if (name !== current) return;
     if (name === 'sit_enter') play('sit', 0); // sit's first key = sit_enter's last key
-    else if (name === 'spawn_poof' || name === 'emote_happy') play(idleAnimation);
+    else if (name === 'spawn_poof' || name === 'emote_happy' || tricks.includes(name)) play(idleAnimation);
   }
 
   function clear(): void {
@@ -146,6 +153,10 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     motion.reset();
     stillFor = 0;
     idleFor = 0;
+    trickPlayed = false;
+    nextTrick = 0;
+    tricks = [];
+    trickFadeUntil = 0;
     group.visible = false;
   }
 
@@ -155,12 +166,13 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     get current() { return current; },
     async setPet(id) {
       const mine = ++token;
+      if (id === active) return;
       const definition = FOLLOWERS.find(pet => pet.id === id);
-      motion.setFollowSpeed(definition?.followSpeed ?? 8);
-      idleAnimation = definition?.idleAnimation ?? 'idle';
       if (id === null) { clear(); active = null; return; }
       if (id === 'pet_starter') {
-        clear(); active = id; group.addLevel(orb, 0); current = 'idle'; return;
+        clear(); active = id; group.addLevel(orb, 0); current = 'idle';
+        motion.setFollowSpeed(definition?.followSpeed ?? 8);
+        return;
       }
       if (!isPetAssetId(id)) { console.warn('[pets] unknown pet id', id); return; }
       const entry = PETS_DATA.pets[id] as PetEntry;
@@ -169,7 +181,10 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       const [near, far] = await Promise.all([loadGLTF(file(definition?.model ?? entry.file)), loadGLTF(file(entry.lod1))]);
       if (mine !== token) return;
       clear();
+      motion.setFollowSpeed(definition?.followSpeed ?? 8);
+      idleAnimation = definition?.idleAnimation ?? 'idle';
       levels = [makeLevel(near.scene, near.animations, id, pulses), makeLevel(far.scene, far.animations, id, pulses)];
+      tricks = IDLE_TRICKS.filter(name => levels.every(level => level.actions.has(name)));
       const height = id === 'pet_sproto_pup' ? PETS_DATA.contract.height_m.sproto_pup : PETS_DATA.contract.height_m.sproto;
       for (const level of levels) level.root.scale.setScalar((definition?.size ?? height) / height);
       group.addLevel(levels[0].root, 0);
@@ -177,6 +192,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       for (const level of levels) level.mixer.addEventListener('finished', onFinished as never);
       active = id;
       play(levels[0].actions.has('spawn_poof') ? 'spawn_poof' : idleAnimation, 0);
+      for (const level of levels) level.mixer.update(0);
     },
     dispose() { ++token; clear(); active = null; parent.remove(group); orbGeometry.dispose(); orbMaterial.dispose(); },
     emote(name) { play(name, 0.1); },
@@ -199,22 +215,31 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       if (speed > 0.6) {
         stillFor = 0;
         idleFor = 0;
+        trickPlayed = false;
         const running = current === 'follow_run' ? speed > RUN_EXIT : speed > RUN_ENTER || (sprint && speed > RUN_EXIT);
         if (!busy) play(running ? 'follow_run' : 'follow_walk');
       } else {
         stillFor += dt;
         if (!busy && stillFor > STOP_TO_IDLE && (current === 'follow_walk' || current === 'follow_run' || current === '')) play(idleAnimation);
-        if (current === 'idle') {
+        if (current === idleAnimation) {
           idleFor += dt;
-          if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter')) play('sit_enter', 0.1);
+          if (!trickPlayed && stillFor >= IDLE_TRICK_DELAY && tricks.length > 0) {
+            trickPlayed = true;
+            play(tricks[nextTrick], 0.12);
+            nextTrick = (nextTrick + 1) % tricks.length;
+          } else if (idleFor > IDLE_TO_SIT && levels[0].actions.has('sit_enter')) {
+            play('sit_enter', 0.1);
+          }
         } else if (current !== 'sit' && current !== 'sit_enter') idleFor = 0;
       }
       const rate = current === 'follow_run' ? speed / RUN_REF : current === 'follow_walk' ? speed / WALK_REF : 1;
       const timeScale = current === 'follow_run' || current === 'follow_walk' ? Math.min(RATE_MAX, Math.max(RATE_MIN, rate)) : 1;
+      // Keep the one-shot and its outgoing fade synchronized across LODs.
+      const updateTrick = tricks.includes(current) || time - dt < trickFadeUntil;
       for (const level of levels) {
         const action = level.actions.get(current);
         if (action) action.timeScale = timeScale;
-        if (level.root.visible) level.mixer.update(dt);
+        if (level.root.visible || updateTrick) level.mixer.update(dt);
         for (const { mat, pulse } of level.mats) {
           mat.emissiveIntensity = pulse.min + (pulse.max - pulse.min) * (0.5 + 0.5 * Math.sin(time * Math.PI * 2 * pulse.hz));
         }
