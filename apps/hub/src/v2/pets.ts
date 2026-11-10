@@ -22,6 +22,8 @@ const CLEARANCE_BOXES: Record<string, Record<string, readonly number[]>> = CLEAR
 type PetEntry = (typeof PETS_DATA.pets)[keyof typeof PETS_DATA.pets];
 interface Pulse { node: string; material: string; min: number; max: number; hz: number }
 
+export const DEFAULT_PET_ID = 'pet_pepe_bull';
+
 export const PET_ASSET_IDS = Object.keys(PETS_DATA.pets) as (keyof typeof PETS_DATA.pets)[];
 export type PetAssetId = (typeof PET_ASSET_IDS)[number];
 /** Server catalog ids (HubPets.PETS) that this drop has a model for. */
@@ -49,6 +51,7 @@ const RATE_MAX = 1.5;
 const SPAWN_CLEARANCE_OFFSETS = [0.12, 0.24, 0.36, 0.48, 0.60];
 // The baked clips are grounded individually. Leave room for blended joints.
 const GROUND_CLEARANCE = 0.003;
+const BULL_SIDESTEPS = [Math.PI / 2, -Math.PI / 2, Math.PI, 0];
 const SPAWN_CLEARANCE_STEPS = SPAWN_CLEARANCE_OFFSETS.flatMap(d => [[-d, 0], [d, 0], [0, -d], [0, d]]);
 
 export function isPetAssetId(id: string): id is PetAssetId {
@@ -121,6 +124,8 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
   let poseFadeUntil = 0;
   let fadingPose = '';
   let hasSafePose = false;
+  const ownerPosition = new Vector3();
+  const sideSpot = new Vector3(), sweepSpot = new Vector3();
   const transform = new Matrix4();
   const bounds = new Box3();
   const beamOrigin = new Vector3();
@@ -182,12 +187,35 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     return active ? CLEARANCE_BOXES[active]?.[clip] : undefined;
   }
 
-  function fits(clip: string): boolean {
+  function fits(clip: string, ignoreOwner = false): boolean {
     const extent = clearance(clip);
-    if (!extent || !collide?.blocked) return true;
+    if (!extent) return true;
     bounds.min.set(extent[0], extent[1], extent[2]);
     bounds.max.set(extent[3], extent[4], extent[5]);
-    return !collide.blocked(bounds, transform);
+    if (active === DEFAULT_PET_ID && !ignoreOwner) {
+      const gap = Math.hypot(transform.elements[12] - ownerPosition.x, transform.elements[14] - ownerPosition.z);
+      if (gap < 1.05) return false;
+    }
+    return !collide?.blocked?.(bounds, transform);
+  }
+
+  /** Move to the side of the owner if they turn back into the Bull's trail. */
+  function sidestepBull(): boolean {
+    const from = hasSafePose ? group.position : motion.position;
+    for (const offset of BULL_SIDESTEPS) {
+      const angle = motion.headingYaw + offset;
+      sideSpot.set(ownerPosition.x + Math.sin(angle) * 1.25, motion.position.y, ownerPosition.z + Math.cos(angle) * 1.25);
+      let clear = true;
+      const steps = Math.max(1, Math.ceil(from.distanceTo(sideSpot) / 0.2));
+      for (let step = 1; step <= steps; step += 1) {
+        transform.setPosition(sweepSpot.lerpVectors(from, sideSpot, step / steps));
+        if (!fits('base', true)) { clear = false; break; }
+      }
+      if (!clear || !fits('base')) continue;
+      motion.position.copy(sideSpot);
+      return true;
+    }
+    return false;
   }
 
   function clipBeam(beam: Object3D): void {
@@ -211,6 +239,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       if (id === null) { clear(); active = null; return; }
       if (id === 'pet_starter') {
         clear(); active = id; group.addLevel(orb, 0); current = 'idle';
+        motion.setSpawnAtTarget(false);
         motion.setFollowSpeed(definition?.followSpeed ?? 8);
         return;
       }
@@ -221,6 +250,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       const [near, far] = await Promise.all([loadGLTF(file(definition?.model ?? entry.file)), loadGLTF(file(entry.lod1))]);
       if (mine !== token) return;
       clear();
+      motion.setSpawnAtTarget(id === DEFAULT_PET_ID);
       motion.setFollowSpeed(definition?.followSpeed ?? 8);
       idleAnimation = definition?.idleAnimation ?? 'idle';
       levels = [makeLevel(near.scene, near.animations, id, pulses), makeLevel(far.scene, far.animations, id, pulses)];
@@ -228,7 +258,8 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       const height = id === 'pet_sproto_pup' ? PETS_DATA.contract.height_m.sproto_pup : PETS_DATA.contract.height_m.sproto;
       for (const level of levels) {
         level.root.scale.setScalar((definition?.size ?? height) / height);
-        if (CLEARANCE_BOXES[id] && id !== 'pet_mecha') level.root.position.y += GROUND_CLEARANCE;
+        if (id === DEFAULT_PET_ID) level.root.position.y += 0.018; // keep both LODs' planted hooves above the floor
+        else if (CLEARANCE_BOXES[id] && id !== 'pet_mecha') level.root.position.y += GROUND_CLEARANCE;
       }
       group.addLevel(levels[0].root, 0);
       group.addLevel(levels[1].root, LOD1_DISTANCE);
@@ -242,16 +273,30 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     update(dt, player, standY, sprint) {
       if (!active) return;
       time += dt;
+      ownerPosition.copy(player);
       const oldX = group.position.x;
       const oldZ = group.position.z;
       motion.update(dt, player, standY);
       let speed = motion.speed;
       const yaw = speed > 0.6
         ? Math.atan2(motion.position.x - oldX, motion.position.z - oldZ)
-        : group.rotation.y;
+        : active === DEFAULT_PET_ID && !hasSafePose ? motion.headingYaw : group.rotation.y;
       transform.makeRotationY(yaw).setPosition(motion.position);
       let canMove = fits('base');
-      if (!canMove && !hasSafePose) {
+      if (!canMove && active === DEFAULT_PET_ID) {
+        // A cached pose can become unsafe when the owner doubles back.
+        transform.makeRotationY(group.rotation.y).setPosition(group.position);
+        if (!hasSafePose || !fits('base')) {
+          transform.makeRotationY(yaw);
+          canMove = sidestepBull();
+          if (!canMove) {
+            group.visible = false;
+            hasSafePose = false;
+            return;
+          }
+          speed = 0;
+        }
+      } else if (!canMove && !hasSafePose) {
         const { x, y, z } = motion.position;
         for (const [dx, dz] of SPAWN_CLEARANCE_STEPS) {
           transform.setPosition(x + dx, y, z + dz);

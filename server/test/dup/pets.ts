@@ -155,7 +155,7 @@ async function profileAndLoadout(): Promise<void> {
   const session = await login(HPOS);
   const hub = session.hub;
   const empty = await call('profile.get', {}, hub.token);
-  assert.deepEqual((empty.body as { pets?: ProfilePets }).pets, { owned: ['pet_starter'], active: null }, JSON.stringify(empty.body));
+  assert.deepEqual((empty.body as { pets?: ProfilePets }).pets, { owned: ['pet_pepe_bull', 'pet_starter'], active: 'pet_pepe_bull' }, JSON.stringify(empty.body));
   await clear(session, 'z1_retro_rush_hills', 1, crypto.randomUUID());
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
@@ -163,7 +163,7 @@ async function profileAndLoadout(): Promise<void> {
   // The act-2 clear's pet_honk_sproto is still held and stays out.
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
-    { owned: ['pet_runner', 'pet_speed_sproto', 'pet_starter'], active: null },
+    { owned: ['pet_pepe_bull', 'pet_runner', 'pet_speed_sproto', 'pet_starter'], active: 'pet_pepe_bull' },
     JSON.stringify(profile.body),
   );
   assert.equal(

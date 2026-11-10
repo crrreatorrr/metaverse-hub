@@ -112,6 +112,13 @@
    "rig": "mixamo",
    "pulses": []
   },
+  "pet_pepe_bull": {
+   "file": "glb/pet_pepe_bull.glb",
+   "lod1": "glb/pet_pepe_bull-lod1.glb",
+   "item_id": "pet_pepe_bull",
+   "rig": "pepe_quadruped",
+   "pulses": []
+  },
   "pet_sproto_base": {
    "file": "glb/pet_sproto_base.glb",
    "lod1": "glb/pet_sproto_base-lod1.glb",

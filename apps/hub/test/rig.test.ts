@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       // Only gait clips with a planted foot are measured; the dragon flies, so nothing of his is.
       assert.equal(clips, rig.animations, `${character.id} keeps its own clips`);
       for (const gait of clips) {
-        if (groundSpeedOf(gait) > 0) assert.ok(['walk', 'run'].includes(gait.name), `${character.id} ${gait.name} is not a gait clip`);
+        if (groundSpeedOf(gait) > 0) assert.ok(['walk', 'run', ...P4_CLIPS].includes(gait.name), `${character.id} ${gait.name} is not a gait clip`);
       }
       if (character.id === 'dragon') assert.ok(clips.every((gait) => groundSpeedOf(gait) === 0), 'the dragon has no foot contact');
       offSkeleton += 1;
@@ -291,6 +291,38 @@ async function main(): Promise<void> {
     assert.ok(dragon && !walksWithRun(dragon), 'the dragon flies its own walk');
     const rig = await loadGLB(`${PUBLIC}${dragon.asset}`);
     for (const name of ['idle', 'walk', 'run', 'fly', 'fireball']) clip(rig.animations, name);
+  }
+
+  // The Pepe rigs carry their own clips, with stride rates inside the hub's playback range.
+  for (const character of CHARACTERS.filter((entry) => entry.id.startsWith('pepe'))) {
+    const rig = await loadGLB(`${PUBLIC}${character.asset}`);
+    clip(rig.animations, 'idle');
+    const fit = characterHeight(character) / restHeight(rig.scene);
+    for (const [name, speed] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
+      const plantedSpeed = fit * measureGroundSpeed(rig.scene, clip(rig.animations, name));
+      assert.ok(speed / plantedSpeed < 2.5, `${character.id} ${name} can match controller speed`);
+    }
+  }
+  for (const file of ['pet_pepe_bull', 'pet_pepe_bull-lod1']) {
+    const { scene, animations } = await loadGLB(`${PUBLIC}world/v2/pets/${file}.glb`);
+    const names = ['tripo0_Left_Limb_3', 'tripo0_Right_Limb_3', 'tripo1_Left_Limb_3', 'tripo1_Right_Limb_3'];
+    for (const name of ['idle', 'follow_walk', 'follow_run']) {
+      const motion = clip(animations, name);
+      const mixer = new AnimationMixer(scene);
+      mixer.clipAction(motion).play();
+      const joints = name === 'idle' ? ['tripoHead_1', 'tripoTailTip'] : names;
+      for (const joint of joints) {
+        const bone = scene.getObjectByName(joint);
+        assert.ok(bone, `${file} has ${joint}`);
+        const extent = new Box3();
+        for (let step = 0; step < 24; step += 1) {
+          mixer.setTime(motion.duration * step / 24);
+          extent.expandByPoint(bone.getWorldPosition(new Vector3()));
+        }
+        assert.ok(extent.getSize(new Vector3()).length() > 0.02, `${file} ${name} moves ${joint}`);
+      }
+      mixer.stopAllAction();
+    }
   }
 
   // 5. The Flying Midget stays airborne in the clip it moves with (avatar.ts plays its own `run` for walk and sprint).

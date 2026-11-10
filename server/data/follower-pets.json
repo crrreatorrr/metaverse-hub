@@ -10,6 +10,16 @@
     "relic": ""
   },
   {
+    "id": "pet_pepe_bull",
+    "name": "Pepe Bull",
+    "model": "pet_pepe_bull.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": ""
+  },
+  {
     "id": "pet_nobu",
     "name": "Nobu",
     "model": "pet_nobu.glb",

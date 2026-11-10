@@ -30,7 +30,7 @@ import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { createPetCollision } from './pet-collision';
 import { createPlanarSpeed } from './planar-speed';
-import { EQUIPPABLE_PET_IDS } from '../v2/pets';
+import { DEFAULT_PET_ID, EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
@@ -124,35 +124,39 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const planarSpeed = createPlanarSpeed(initial.x, initial.z);
   // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
   // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
-  // development visits. Production waits for the account profile. ?pet=<id> is a DEV-only art preview.
+  // development visits. New accounts and offline visits start with Pepe Bull. ?pet=<id> previews art in DEV.
   const PET_KEY = 'hub:pet';
   const petParam = new URLSearchParams(window.location.search).get('pet');
-  let activePet: string | null = import.meta.env.DEV ? petParam ?? loadStoredPet() : null;
-  if (activePet) void world.setPet(activePet);
+  let activePet: string | null = import.meta.env.DEV ? petParam ?? loadStoredPet() : DEFAULT_PET_ID;
+  if (activePet) showPet(activePet);
 
   function loadStoredPet(): string | null {
     try {
       const stored = localStorage.getItem(PET_KEY);
-      return stored && (EQUIPPABLE_PET_IDS as readonly string[]).includes(stored) ? stored : null;
+      if (stored === 'none') return null;
+      return stored && (EQUIPPABLE_PET_IDS as readonly string[]).includes(stored) ? stored : DEFAULT_PET_ID;
     } catch {
-      return null;
+      return DEFAULT_PET_ID;
     }
   }
 
   function storePet(id: string | null): void {
     try {
-      if (id) localStorage.setItem(PET_KEY, id);
-      else localStorage.removeItem(PET_KEY);
+      localStorage.setItem(PET_KEY, id ?? 'none');
     } catch {
       // Storage may be off (private window). The pet still follows for this visit.
     }
+  }
+
+  function showPet(id: string | null): void {
+    void world.setPet(id).catch((error: unknown) => console.warn('[pets] could not load follower', error));
   }
 
   /** Show `id` following the avatar (null: none) here and to the plaza. */
   function applyPet(id: string | null): void {
     if (id === activePet) return;
     activePet = id;
-    void world.setPet(id);
+    showPet(id);
     plaza?.profile({ character: look.character, staff: look.staff, pet: activePet });
     menu.refreshPets();
   }
@@ -172,7 +176,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   let petSaves = Promise.resolve();
   async function savePet(id: string | null): Promise<void> {
-    if (!sessionPromise) return; // Equipping requires the account RPC.
+    if (!sessionPromise) {
+      if (id === null || id === DEFAULT_PET_ID) { storePet(id); applyPet(id); }
+      return;
+    }
     let session: HubSession;
     try {
       session = await sessionPromise;

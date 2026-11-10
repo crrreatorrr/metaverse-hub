@@ -1,5 +1,6 @@
 import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
+import { DEFAULT_PET_ID } from './v2/pets';
 import { CHARACTERS, DEFAULT_STAFF, STAFFS, STAFF_RELICS, holdsStaff, type CharacterId, type StaffId } from './config';
 import { cleanName, defaultLook, type AvatarLook } from './look';
 import { PERSONAS, QUIET } from './sims/director';
@@ -76,6 +77,7 @@ interface PetInfo {
 
 /** Hub pet catalog, mirrored from `server/modules/src/pets.ts` and docs/m6-server-prep.md. */
 const PETS: readonly PetInfo[] = [
+  { id: DEFAULT_PET_ID, name: 'Pepe Bull', from: 'Free starter companion' },
   { id: 'pet_fighter', name: 'Fighter Pet', from: 'Relic: Tidebreaker Belt', relic: 'tidebreaker_belt' },
   { id: 'pet_mecha', name: 'Mecha Pet', from: 'Relic: Breakwater Coin', relic: 'breakwater_coin' },
   { id: 'pet_president', name: 'President Pet', from: 'Relic: Genesis Block Shard', relic: 'genesis_shard' },
@@ -505,7 +507,7 @@ export function createMenu(options: MenuOptions): Menu {
     petGrid.replaceChildren();
     const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
-      Boolean(serverPets?.has(pet.id)) ||
+      pet.id === DEFAULT_PET_ID || Boolean(serverPets?.has(pet.id)) ||
       (!serverPets && pet.relic ? relics.has(pet.relic) : false) ||
       (!serverPets && pet.id === 'pet_four_lights_sproto' && all);
     const deployable = (pet: PetInfo) => owned(pet) && options.deployablePets.includes(pet.id);

@@ -19,6 +19,11 @@ assert.ok(pet.position.distanceTo(new Vector3(80, -300, 100)) < 1.6, 'portal sna
 pet.update(5, player, 1.8);
 assert.ok(Number.isFinite(pet.position.x), 'long frames remain stable');
 
+const longPet = createPetMotion();
+longPet.setSpawnAtTarget(true);
+longPet.update(1 / 60, new Vector3(0, 1.8, 0), 1.8);
+assert.ok(Math.abs(longPet.position.z - 1.5) < 1e-6, 'long companions spawn beyond the owner capsule');
+
 // Put a wall between the owner and trailing offset; the capsule must remain on the owner's side.
 const geometry = new BoxGeometry(8, 5, 0.1);
 geometry.translate(0, 1, 0.75);
@@ -28,6 +33,10 @@ const blocked = createPetMotion(collision);
 player.set(0, 1.8, 0);
 for (let i = 0; i < 180; i++) blocked.update(1 / 60, player, 1.8);
 assert.ok(blocked.position.z <= 0.46, `pet crossed wall: ${blocked.position.z}`);
+const bullAtWall = createPetMotion(collision);
+bullAtWall.setSpawnAtTarget(true);
+bullAtWall.update(1 / 60, player, 1.8);
+assert.ok(bullAtWall.position.z <= 0.46, 'long companion cannot spawn across the wall');
 const clearance = new Box3(new Vector3(-0.3, 0.02, -0.3), new Vector3(0.3, 0.8, 0.3));
 const transform = new Matrix4().makeTranslation(0, 0, 0.45);
 assert.equal(collision.blocked?.(clearance, transform), true, 'animated envelope crosses the wall even when the capsule stops');
