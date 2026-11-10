@@ -12,9 +12,7 @@ Named blockers before any public flag, purchase, or production deploy:
 
 1. **No staging host.** This repo has no configured staging environment. The drills below ran on local Docker Nakama (`server/docker-compose.yml`, image `heroiclabs/nakama:3.41.0`, Postgres `16.8`). They are not a measurement of a public edge.
 2. **No live HTTPS hostname.** `deploy/Caddyfile` terminates TLS and proxies `/ws`. This run proved the file's header rules and a local HTTP Caddy on `127.0.0.1:8080` (CORS preflight `204`, WebSocket connect). It did not fetch `https://` or `wss://` from a real name.
-3. **Ten six-seat Coop matches are not a capacity promise.** The soak-off re-run is ten matches with one human seat each. One separate match had six human seats. Do not quote a CCU number from this VM.
-4. **Shooter free play is not gated by `shooter_pvp`.** Turning the wager flags off stops new holds. It does not stop free queue or free rooms. Closing free play is a later hub change, not part of this rollback. S7 recorded the same gap.
-5. **Owner gates still open.** Operational, legal, and economy approval for entries, authoritative play, boss rewards, and wagers. Ken already accepted Ticket transfer through Shooter wagers (Nov 7, 2026). That does not turn the flags on.
+3. **Owner gates still open.** Operational, legal, and economy approval for entries, authoritative play, boss rewards, and wagers. Ken already accepted Ticket transfer through Shooter wagers (Nov 7, 2026). That does not turn the flags on. `shooter_pvp` off stops new free queues and new free rooms as well as, together with `shooter_pvp_wager`, new holds. Live matches still drain. Do not quote a CCU number from this VM.
 
 ## Coop gate
 
@@ -48,7 +46,7 @@ Separate switches. None of them is turned on by this change.
 
 | Switch | Committed state | What it gates |
 |---|---|---|
-| `shooter_pvp` | `off` | Together with the wager flag, escrow. It does not gate free Shooter matches. |
+| `shooter_pvp` | `off` | New free queues, new free rooms, and (with the wager flag) escrow. A match already running is left to finish. |
 | `shooter_pvp_wager` | `off` | New 10-Ticket holds. |
 | `shooter_pvp_ranked` | `off` | Ranked Shooter. Not enabled by the drills. |
 | Coop `ENABLED` | already true in the match module from H3-C | Authoritative `sproto_coop`. This phase does not edit that. |
@@ -86,6 +84,7 @@ Six accounts, one seat each, one private room.
 | Handler sample on that match | n 28, p50 1 ms, p95 2 ms, max 5 ms, rewards 0 |
 | Reconnect | new socket got a resume inside 15 s, `rewards` 0, `hostTakeover` 0, `acceptClientState` 0 |
 | Ten one-seat matches, 8 s, no browser soak | worst p95 **2 ms** (gate stays under 25 ms). Every match p95 2 ms, max 5–7 ms, `over25` 0, rewards 0 |
+| Ten six-seat matches, 8 s, after a Nakama restart, soak off | all 10 started. worst handler p95 **1 ms**. Every match p95 1 ms, max 3–8 ms, `over25` 0, rewards 0, `hostTakeover` 0. The 25 ms gate held. This is one 4-core VM, not a capacity promise |
 | Process restart | 8.5 s until sessions worked. `coop.resume` with client `hp` / `lives` returned `rejected`. The six-seat and bench balances stayed put |
 
 Wallet fault, the case C5 did not run:
@@ -148,7 +147,7 @@ Local Caddy (`server/Caddyfile`, port 8080) answered `OPTIONS /v2/healthcheck` w
 Do this in order. Do not drop tables.
 
 1. Set `shooter_pvp_wager` to `off`, then `shooter_pvp` to `off`. That stops new holds. See `docs/shooter-wager-operations.md` for the ledger rules. There is no anomaly auto-ban: Ken declined pair caps and same-IP blocks.
-2. Leave login, the cabinet, practice, and (today) free Shooter matches up unless a later change gates free play.
+2. Leave login, the cabinet, and practice up. `shooter_pvp` off stops new free queues and new free rooms. Matches that already started keep running until they end.
 3. Let a live match finish, or restart one Nakama node only when you accept that every `held` row refunds. A rolling restart can refund a match that is still live on the other node: both seats get 10 back and the winner is not paid. No Tickets are created.
 4. Holds older than 20 minutes are refunded by the sweep (`scripts/ops/sweep-shooter-wagers.mjs` and the in-process sweep). A `held` row after that is the thing to look at. The audit above fails while one exists without both locks.
 5. Keep `game.shooter_wager`, `game.tickets_ledger`, `game.coop_receipt`, and `game.coop_eligibility`. A Coop receipt survives a process restart. A wallet fault during the credit leaves no partial row; the clear can pay once after the fault is gone.

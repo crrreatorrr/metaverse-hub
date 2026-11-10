@@ -199,6 +199,12 @@ check(
 );
 const stale = await call('shooter.room_create', { v: 1 }, probe.gameToken);
 check('a stale shooter client is version_mismatch', stale.body.error === 'version_mismatch', JSON.stringify(stale.body));
+const flagsAtStart = flagsOff();
+check('launch flags start off', flagsAtStart === 'shooter_pvp=off,shooter_pvp_ranked=off,shooter_pvp_wager=off', flagsAtStart);
+const blocked = await call('shooter.room_create', {}, probe.gameToken);
+check('shooter_pvp off refuses a new free room', blocked.body.error === 'pvp_off', JSON.stringify(blocked.body));
+psql(`UPDATE game.server_flags SET state = 'on', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
+await sleep(6500);
 
 const ada = await login(GAME);
 const bea = await login(GAME);
@@ -297,9 +303,14 @@ check(
   JSON.stringify(samples.map((row) => ({ n: row.n, p95: row.p95, max: row.max, phase: row.phase, tick: row.tick, error: row.error }))),
 );
 
+psql(`UPDATE game.server_flags SET state = 'off', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
+await sleep(6500);
+const stopped = await call('shooter.room_create', {}, ada.gameToken);
+check('turning shooter_pvp off stops another free room', stopped.body.error === 'pvp_off', JSON.stringify(stopped.body));
+
 let rollback: Record<string, unknown> = {};
 const flagsBefore = flagsOff();
-check('launch flags start off', flagsBefore === 'shooter_pvp=off,shooter_pvp_ranked=off,shooter_pvp_wager=off', flagsBefore);
+check('launch flags are off before the wager drill', flagsBefore === 'shooter_pvp=off,shooter_pvp_ranked=off,shooter_pvp_wager=off', flagsBefore);
 try {
   const host = await claimed();
   const rival = await claimed();

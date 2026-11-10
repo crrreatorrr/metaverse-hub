@@ -25,6 +25,7 @@ and the replay record. The hub routes, rate-limits and keeps the clock.
   the 10 s linger for WELCOME, the final snapshot and a copy of RESULT. `matchTerminate` sends
   `cancel/server_shutdown` if the director had no RESULT yet, and every grace loop after it only
   cleans up. A director exception ends the match the same way.
+- **Flag.** `shooter_pvp` stays `off` in `game.server_flags`. Off refuses a new free queue (`pvp_off`) and a new free room. A match that already exists keeps running, including reconnect, until it ends. `shooter_pvp_wager` is a second flag: a hold still needs both. Turning only the wager flag off stops new holds and leaves free play up.
 - **Private rooms.** `shooter.room_create` codes are 12 characters from the CSPRNG. Only the host and
   accounts admitted by `shooter.room_join` (which signals `admit:<uid>`, at most 8) may join; the
   label carries `private: true`. A queued account cannot create or join a room (`already_queued`).

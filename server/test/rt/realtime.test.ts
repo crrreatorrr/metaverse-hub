@@ -5,7 +5,7 @@
 // scope, and NOBU scores from an unranked session through leaderboard.top.
 import assert from 'node:assert/strict';
 import { createRealtime, HubSdkError, type HubRealtime, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
-import { call, guest, login, waitReady } from '../dup/harness.ts';
+import { call, guest, login, psql, waitReady } from '../dup/harness.ts';
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -107,6 +107,9 @@ await test('matchmaker scope: hub sessions only for hub-scope games', async () =
   await rt.removeMatchmaker(ok.ticket);
   rt.disconnect();
 });
+
+psql(`UPDATE game.server_flags SET state = 'on', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
+await sleep(6500);
 
 await test('shooter-free: guests play one seat and delayed inputs move no tickets', async () => {
   const ada = await login('sproto-shooter');
@@ -282,6 +285,8 @@ await test('shooter-free: protocol, sim, and content mismatch are rejected', asy
   assert.equal(rejected.json<{ ticketsMinted?: number }>().ticketsMinted, 0);
   rt.disconnect();
 });
+
+psql(`UPDATE game.server_flags SET state = 'off', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
 
 await test('NOBU score from an unranked session shows in leaderboard.top (ms); god mode posts nothing', async () => {
   const session = await login('nobu');

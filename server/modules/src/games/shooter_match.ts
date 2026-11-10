@@ -1169,6 +1169,9 @@ namespace ShooterMatch {
     if (req["v"] !== undefined && Number(req["v"]) !== ShooterProto.PROTOCOL) return fail("version_mismatch", "Version mismatch");
     if (req["sim"] !== undefined && Number(req["sim"]) !== ShooterProto.SIM) return fail("version_mismatch", "Version mismatch");
     if (req["content"] !== undefined && String(req["content"]) !== ShooterProto.FINGERPRINT) return fail("version_mismatch", "Version mismatch");
+    // shooter_pvp gates a new free room. shooter_pvp_wager is still required, with it, for a hold.
+    // Joining or playing a match that already exists does not read this flag.
+    if (!wantWager && !Flags.on(nk, ShooterWagers.FLAG_PVP, ctx.userId || "", logger)) return fail("pvp_off", "Free matches are off");
     if (!ShooterMm.rateAllow(nk, ctx.userId || "", "create")) return fail("rate_limited", "Too many rooms");
     if (ShooterMm.liveMatch(nk, ctx.userId || "")) return fail("already_in_match", "Already in a match");
     // A queued account would be live in two matches: leave the queue first (MatchmakerRemove).

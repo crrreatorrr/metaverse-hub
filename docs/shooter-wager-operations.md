@@ -8,7 +8,7 @@ Ken’s decision on Nov 7, 2026: players may use these wagers to move Tickets be
 
 `shooter_pvp` and `shooter_pvp_wager` are seeded `off` in `game.server_flags`. A match escrows only when **both** are on for **both** accounts. This change does not turn either flag on. Do not turn them on until the economy review says so.
 
-Turning the flags off stops new holds. A hold that already exists still settles or refunds once. It is not deleted and it is not left in `held`.
+Turning `shooter_pvp_wager` off stops new holds. A hold that already exists still settles or refunds once. It is not deleted and it is not left in `held`. Turning `shooter_pvp` off also stops new free queues and new free rooms. A free match that has already started keeps running until it ends.
 
 There is no client RPC to settle, pick a winner, or refund. The Nakama match does that from the server director. `scripts/ops/sweep-shooter-wagers.mjs` only refunds stale holds.
 

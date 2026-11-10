@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
 import { createRealtime, HubSdkError, type MatchData, type MatchHandle } from '../../../packages/hub-sdk/src/index.ts';
-import { call, guest, login, num, sqlId, ticketBalance, type GameLogin } from './harness.ts';
+import { call, guest, login, num, psql, sqlId, ticketBalance, type GameLogin } from './harness.ts';
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
@@ -113,7 +113,15 @@ async function openPair(): Promise<Pair> {
   };
 }
 
+function setPvp(state: 'on' | 'off'): void {
+  psql(`UPDATE game.server_flags SET state = '${state}', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
+}
+
 export async function runShooterMatch(test: TestFn): Promise<void> {
+  // The committed row stays off. This suite turns it on only while it opens free matches, then puts it back.
+  setPvp('on');
+  await sleep(6500);
+  try {
   await test(CATEGORY, 'guest game sessions play one free seat and the ledger stays at zero', async () => {
     const hub = await guest();
     const denied = await call('shooter.version', {}, hub.token);
@@ -252,4 +260,7 @@ export async function runShooterMatch(test: TestFn): Promise<void> {
     rt.disconnect();
     assert.equal(ledger(ada.hub.userId), 0);
   });
+  } finally {
+    setPvp('off');
+  }
 }

@@ -152,6 +152,65 @@ async function waitRestart(): Promise<void> {
   throw new Error(`nakama did not accept sessions after restart: ${last}`);
 }
 
+async function sixSeatWave(count: number, pin: Version): Promise<{ ok: boolean; worst: number; samples: Metrics[] }> {
+  const people: GameLogin[] = [];
+  for (let i = 0; i < count * 6; i += 1) people.push(await login(GAME));
+  const rooms: string[] = [];
+  const held: HubRealtime[] = [];
+  try {
+    for (let match = 0; match < count; match += 1) {
+      const group = people.slice(match * 6, match * 6 + 6);
+      const host = group[0]!;
+      const created = await call('coop.room_create', {}, host.gameToken);
+      const body = created.body as { matchId?: string; code?: string; error?: string };
+      if (body.error || !body.matchId || !body.code) return { ok: false, worst: 0, samples: [] };
+      const locals: { rt: HubRealtime; match: MatchHandle; mail: number[] }[] = [];
+      let joined = true;
+      for (const session of group) {
+        if (session !== host) {
+          const seat = await call('coop.room_join', { code: body.code }, session.gameToken);
+          const joinedBody = seat.body as { matchId?: string; error?: string };
+          if (joinedBody.error || joinedBody.matchId !== body.matchId) joined = false;
+        }
+        const rt = socket(session.gameToken);
+        await rt.connect();
+        const handle = await rt.joinMatch({ matchId: body.matchId });
+        const mail: number[] = [];
+        handle.onMessage((msg) => mail.push(msg.opCode));
+        handle.send(1, { t: 'hello', protocol: pin.protocol, fingerprint: pin.fingerprint, devices: ['k1'] });
+        locals.push({ rt, match: handle, mail });
+        held.push(rt);
+      }
+      for (const seat of locals) {
+        const helloAt = Date.now();
+        while (!seat.mail.includes(2) && Date.now() - helloAt < 6000) await sleep(30);
+        if (!seat.mail.includes(2)) joined = false;
+      }
+      for (const seat of locals) seat.match.send(3, { t: 'ready' });
+      const readyAt = Date.now();
+      while (!locals[0]!.mail.includes(4) && Date.now() - readyAt < 8000) await sleep(30);
+      if (!joined || !locals[0]!.mail.includes(4)) return { ok: false, worst: 0, samples: [] };
+      await call('coop.metrics', { matchId: body.matchId, reset: true }, host.gameToken);
+      rooms.push(body.matchId);
+    }
+    await sleep(BENCH_MS);
+    const samples: Metrics[] = [];
+    for (let i = 0; i < rooms.length; i += 1) {
+      try {
+        const row = await call('coop.metrics', { matchId: rooms[i]! }, people[i * 6]!.gameToken);
+        samples.push(row.body as unknown as Metrics);
+      } catch (error) {
+        samples.push({ n: 0, p50: 0, p95: 0, max: 0, over25: 0, tick: 0, phase: '', rewards: 0, hostTakeover: 0, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+    const worst = samples.reduce((best, row) => (row.p95 > best ? row.p95 : best), 0);
+    const ok = samples.length === count && samples.every((row) => row.phase === 'playing' && row.n >= 100 && row.p95 < 25 && row.rewards === 0 && row.hostTakeover === 0 && !row.error);
+    return { ok, worst, samples };
+  } finally {
+    for (const rt of held) rt.disconnect();
+  }
+}
+
 await waitReady();
 const hardware = { cpu: cpus()[0]?.model ?? '', cores: cpus().length, memoryBytes: totalmem(), node: process.version };
 const probe = await login(GAME);
@@ -327,6 +386,28 @@ const afterCrash = sessions.map((session) => ticketBalance(session.hub.userId, G
 const afterBench = benchSessions.map((session) => ticketBalance(session.hub.userId, GAME));
 check('six-seat and bench balances did not move', before.every((value, index) => value === afterCrash[index]) && benchBefore.every((value, index) => value === afterBench[index]), `${before.join(',')} / ${afterBench.join(',')}`);
 
+let sixFitted = 0;
+let sixWorst = 0;
+let sixSamples: Metrics[] = [];
+for (const count of [10, 8, 6, 4, 2, 1]) {
+  const wave = await sixSeatWave(count, info);
+  if (wave.ok) {
+    sixFitted = count;
+    sixWorst = wave.worst;
+    sixSamples = wave.samples;
+    break;
+  }
+  if (count > 1) {
+    compose(['restart', 'nakama']);
+    await waitRestart();
+  }
+}
+check(
+  'six-seat concurrency stays under 25 ms p95',
+  sixFitted >= 1 && sixSamples.every((row) => row.p95 < 25),
+  JSON.stringify({ fitted: sixFitted, worst: sixWorst, samples: sixSamples.map((row) => ({ n: row.n, p95: row.p95, max: row.max, phase: row.phase, error: row.error })) }),
+);
+
 let wallet: Record<string, unknown> = {};
 installFaultHooks();
 try {
@@ -394,6 +475,7 @@ const report = {
     metrics: sixMetrics,
   },
   bench: { matches: BENCH_MATCHES, seatsEach: 1, ms: BENCH_MS, worstP95: worst, gateMs: 25, samples },
+  sixSeatConcurrency: { requested: 10, fitted: sixFitted, seatsEach: 6, ms: BENCH_MS, worstP95: sixWorst, gateMs: 25, samples: sixSamples },
   crash: { restartMs, resumeCode },
   wallet,
 };
