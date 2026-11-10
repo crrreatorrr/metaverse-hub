@@ -75,6 +75,10 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   ], p: [[1, 100, 178, 0, 0, 0]] }, 0);
   assert.equal(w.players.size, 1);
   assert.equal(w.shard, 2);
+  assert.deepEqual(w.selfRelics, []);
+  w.applyRoster({ upd: [{ s: 0, u: 'me', n: 'me', c: '', st: '', pt: '', r: ['dragon_scale'], g: '', away: false }] });
+  assert.deepEqual(w.selfRelics, ['dragon_scale']);
+  assert.equal(w.byUser('me'), null);
   w.applyRoster({ add: [{ s: 2, u: 'c', n: 'cy', c: '', st: '', pt: '', r: [], g: '', away: false }] });
   w.applyRoster({ upd: [{ s: 1, u: 'b', n: 'bob', c: 'wizard', st: '', pt: '', r: [], g: 'nobu', away: true }] });
   assert.equal(w.byUser('b')?.game, 'nobu');
@@ -83,7 +87,7 @@ import type { NakamaClient } from '@metaverse/hub-sdk';
   assert.equal(w.byUser('c'), null);
   w.applyDelta({ t: 2, p: [[1, 200, 178, 0, 0, 1]] }, 100);
   assert.equal(w.byUser('b')?.interp.latest()?.x, 2);
-  assert.equal(notified, 4);
+  assert.equal(notified, 5);
 }
 
 // connectPlaza against the SDK mock: hub.join placement, SNAPSHOT, throttled POSE, TRAVEL.
