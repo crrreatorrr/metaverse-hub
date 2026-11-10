@@ -96,7 +96,7 @@ function ident(name: string): string {
   return name;
 }
 
-/** Migration ids in schema.ts order. Tests use this instead of a fixed list, so a new migration does not break them. */
+/** All declared migration ids in runner order, including root and game-module registrations. */
 export function migrationIds(): string[] {
   const source = ts.createSourceFile(
     SCHEMA_FILE,
@@ -126,13 +126,10 @@ export function migrationIds(): string[] {
   };
   visit(source);
   if (ids.length === 0) throw new Error('no migrations found in schema.ts');
-  // Game files register theirs with HubSchema.register (Contract C4); the runner sorts by number.
-  const gamesDir = path.join(path.dirname(SCHEMA_FILE), 'games');
-  if (existsSync(gamesDir)) {
-    for (const name of readdirSync(gamesDir).filter((n) => n.endsWith('.ts')).sort()) {
-      const text = readFileSync(path.join(gamesDir, name), 'utf8');
-      for (const m of text.matchAll(/HubSchema\.register\(\s*\{\s*id:\s*["'`]([0-9]+_[a-z0-9_]+)["'`]/g)) ids.push(m[1] as string);
-    }
+  // Root modules and game files can both register migrations; use the same sources as checksums.
+  for (const file of migrationSourceFiles().filter((file) => file !== SCHEMA_FILE)) {
+    const text = readFileSync(file, 'utf8');
+    for (const m of text.matchAll(/HubSchema\.register\(\s*\{\s*id:\s*["'`]([0-9]+_[a-z0-9_]+)["'`]/g)) ids.push(m[1] as string);
   }
   return ids
     .map((id, index) => ({ id, index, n: Number(id.split('_')[0]) }))
@@ -145,10 +142,14 @@ function latestMigration(): string {
   return ids[ids.length - 1] as string;
 }
 
-/** Files that hold migrations: schema.ts (the MIGRATIONS array) and game files (HubSchema.register calls). */
+/** Sources for schema.ts MIGRATIONS and HubSchema.register calls in root or game modules. */
 function migrationSourceFiles(): string[] {
+  const srcDir = path.dirname(SCHEMA_FILE);
   const files = [SCHEMA_FILE];
-  const gamesDir = path.join(path.dirname(SCHEMA_FILE), 'games');
+  for (const name of readdirSync(srcDir).filter((n) => n.endsWith('.ts') && n !== path.basename(SCHEMA_FILE)).sort()) {
+    files.push(path.join(srcDir, name));
+  }
+  const gamesDir = path.join(srcDir, 'games');
   if (existsSync(gamesDir)) {
     for (const name of readdirSync(gamesDir).filter((n) => n.endsWith('.ts')).sort()) files.push(path.join(gamesDir, name));
   }
@@ -201,7 +202,7 @@ export function fileChecksum(migrationId: string): string {
     visit(ts.createSourceFile(file, readFileSync(file, 'utf8'), ts.ScriptTarget.Latest, true, ts.ScriptKind.TS));
     if (statements) break;
   }
-  if (!statements) throw new Error(`migration ${migrationId} not found in schema.ts or games/*.ts`);
+  if (!statements) throw new Error(`migration ${migrationId} not found in module migration sources`);
   return createHash('sha256').update((statements as string[]).join('\n'), 'utf8').digest('hex');
 }
 
@@ -758,7 +759,10 @@ export async function runMigrations(test: DupTest): Promise<void> {
     assert.match(stored, /^[0-9a-f]{64}$/);
   });
 
-  await test('migration', '0042 server_flags seeds every launch flag off and enforces its checks', async () => {
+  await test('migration', '0042/0049 server_flags seeds every launch flag off and enforces its checks', async () => {
+    const duelFlag = '0049_sproto_duel_wager_flag';
+    assert.equal(migrationIds().filter((id) => id === duelFlag).length, 1, 'root Duel migration is discovered once');
+    assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id = '${duelFlag}'`), fileChecksum(duelFlag), 'root Duel migration checksum');
     const rows = psql(`SELECT key || '=' || state || ':' || percent || ':' || cardinality(allowlist) FROM game.server_flags ORDER BY key`);
     assert.deepEqual(rows.split('\n'), [
       'diagnostics_prompt=off:0:0',
@@ -768,6 +772,7 @@ export async function runMigrations(test: DupTest): Promise<void> {
       'shooter_pvp=off:0:0',
       'shooter_pvp_ranked=off:0:0',
       'shooter_pvp_wager=off:0:0',
+      'sproto_duel_wager=off:0:0',
       'verse_store=off:0:0',
     ]);
     const refused = (sql: string, label: string) => {
