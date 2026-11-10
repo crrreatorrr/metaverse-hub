@@ -47,6 +47,7 @@ import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
 import { createBootSupport } from './rig/boot-support';
 import { createFlightTurn, type FlightTiming } from './rig/flight-turn';
+import { applyGaitProfile } from './rig/gait-profile';
 import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
 
@@ -157,10 +158,14 @@ export function createAvatarRig(): AvatarRig {
         const prepared = SkeletonUtils.clone(gltf.scene) as Group;
         // Duel-skeleton rigs without P4's jog / dash get the wizard's, retargeted, so their feet stay planted.
         // Flyers keep their own airborne `run` for both gaits instead.
-        const clips = fliesWhenMoving(character)
+        const sourceClips = fliesWhenMoving(character)
           ? gltf.animations
           : await locomotionFor(character.asset, gltf, () => loadGLTF(donorUrl));
         if (token !== loadToken) return;
+        // The Wizard also supplies the donor gaits. Fit its own playback
+        // here so the source clips stay available for retargeting.
+        const profile = gltf.scene.userData.native_locomotion_v1;
+        const clips = profile ? sourceClips.map((clip) => applyGaitProfile(clip, profile)) : sourceClips;
         const next = fitModel(prepared, characterHeight(character), characterYaw(character));
         // Before the mixer runs, so the socket is placed against the rest pose.
         const nextSocket = staffSocket(next, staffScale(character));

@@ -30,7 +30,8 @@ export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object
   let lift = 0;
   return (dt: number, grounded: boolean): void => {
     const previous = lift;
-    lift *= Math.exp(-24 * dt);
+    const maxStep = Math.min(0.028, 1.7 * dt);
+    lift = Math.max(previous * Math.exp(-24 * dt), previous - maxStep);
     if (grounded) {
       // Measure from the original pivot so the previous correction cannot feed back.
       pivot.position.y = floor;
@@ -46,8 +47,7 @@ export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object
         }
       }
       // Limit sudden height changes when blending swings a boot across the floor.
-      const maxRise = Math.min(0.028, 1.7 * dt);
-      lift = Math.max(lift, Math.min(floor - low, previous + maxRise));
+      lift = Math.max(lift, Math.min(floor - low, previous + maxStep));
     }
     pivot.position.y = floor + lift;
   };

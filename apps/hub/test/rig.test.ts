@@ -6,6 +6,7 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { AVATAR_BLEND, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
 import { createBootSupport } from '../src/rig/boot-support';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
+import { applyGaitProfile } from '../src/rig/gait-profile';
 import { buildLocomotion, groundSpeedOf, onWizardSkeleton, P4_CLIPS } from '../src/rig/locomotion';
 import { loadGLB } from './support/load-glb';
 
@@ -105,6 +106,10 @@ async function main(): Promise<void> {
     const measured = measureGroundSpeed(SkeletonUtils.clone(wizard.scene), clip(wizard.animations, name));
     const expected = authored.speed_mps / authored.fit_scale;
     assert.ok(Math.abs(measured - expected) / expected < 0.02, `wizard ${name}: measured ${measured}, authored ${expected}`);
+    const source = clip(wizard.animations, name);
+    const played = applyGaitProfile(source, wizard.scene.userData.native_locomotion_v1);
+    assert.notEqual(played, source, `Wizard playback has its own ${name} calibration`);
+    assert.equal(source.userData.speed_mps, authored.speed_mps, 'the donor retains its authored speed');
   }
   assert.equal(measureGroundSpeed(SkeletonUtils.clone(wizard.scene), clip(wizard.animations, 'idle')), 0, 'idle has no stride');
 
