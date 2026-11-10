@@ -322,6 +322,7 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
     const fingerprintFiles = [
       'scripts/check-shooter-sim-version.mjs',
       'scripts/load/shooter-bots.ts',
+      'server/modules/src/games/shooter_rewards.ts',
     ];
     for (const rel of fingerprintFiles) {
       const file = join(root, rel);

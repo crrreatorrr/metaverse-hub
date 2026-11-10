@@ -150,7 +150,7 @@ var SprotoShooterSim = (() => {
     spawnRadius: 43,
     spawnPointCount: 16,
     eyeHeight: 1.6,
-    slideEye: 0.9,
+    slideEye: 0.72,
     downedEye: 0.6,
     playerRadius: 0.4,
     playerHeight: 1.8,
@@ -164,10 +164,24 @@ var SprotoShooterSim = (() => {
     doubleJumpVel: 7,
     coyote: 0.1,
     jumpBuffer: 0.1,
-    slideMinSpeed: 5,
-    slideBoost: 13,
-    slideTime: 0.75,
-    slideCd: 0.4,
+    slideMinSpeed: 4.2,
+    slideBoost: 16,
+    slideCruise: 8,
+    slideDrag: 2.4,
+    slideTime: 0.7,
+    slideCd: 0.22,
+    slideHopCd: 0.85,
+    slideHopBoost: 1.12,
+    slideSlope: 14,
+    slideStamina: 0.14,
+    staminaSprint: 4.5,
+    staminaRegenDelay: 0.55,
+    staminaRegen: 1.7,
+    staminaRefill: 0.28,
+    grappleRange: 30,
+    grappleCd: 6,
+    grapplePull: 90,
+    grappleArrive: 1.35,
     dashSpeed: 24,
     dashTime: 0.15,
     dashCd: 2,
@@ -577,6 +591,62 @@ var SprotoShooterSim = (() => {
         { type: "capsule", zone: "body", r: 1.3, y0: 0, y1: 1 },
         { type: "sphere", zone: "armor", r: 0.85, x: 0, y: 1.7, z: 0 },
         { type: "sphere", zone: "weak", r: 0.4, x: 0, y: 0.8, z: -1.2 }
+      ]
+    },
+    spotterDrone: {
+      name: "Spotter Drone",
+      hp: 45,
+      speed: 8,
+      accel: 20,
+      radius: 0.6,
+      height: 0.8,
+      damage: 0,
+      flying: true,
+      poiseMax: 20,
+      staggerTime: 0.3,
+      color: 10475263,
+      affinity: { resist: null, weak: "shock" },
+      behavior: "flyingMidget",
+      look: [
+        { kind: "box", at: [0, 0.6, 0], size: [1, 0.4, 1], mat: "metal" },
+        { kind: "cone", at: [0, 0.1, 0], r: 0.3, h: 0.5, mat: "neon" },
+        { kind: "disc", at: [0.45, 0.7, 0.45], r: 0.35, mat: "metal" },
+        { kind: "disc", at: [-0.45, 0.7, 0.45], r: 0.35, mat: "metal" },
+        { kind: "disc", at: [0.45, 0.7, -0.45], r: 0.35, mat: "metal" },
+        { kind: "disc", at: [-0.45, 0.7, -0.45], r: 0.35, mat: "metal" }
+      ],
+      hitboxes: [
+        { type: "sphere", zone: "body", r: 0.6, y: 0.6 },
+        { type: "sphere", zone: "weak", r: 0.25, x: 0, y: 0.7, z: 0.2 }
+      ]
+    },
+    frostHound: {
+      name: "Frost Hound",
+      hp: 55,
+      speed: 5,
+      accel: 24,
+      radius: 0.5,
+      height: 0.9,
+      damage: 16,
+      poiseMax: 30,
+      staggerTime: 0.35,
+      color: 14017775,
+      affinity: { resist: null, weak: "fire" },
+      behavior: "midget",
+      look: [
+        { kind: "box", at: [0, 0.55, 0], size: [1.2, 0.5, 0.6], mat: "ice" },
+        { kind: "box", at: [0, 0.7, 0.55], size: [0.45, 0.45, 0.45], mat: "ice" },
+        { kind: "cylinder", at: [-0.35, 0, 0.3], r: 0.1, h: 0.5, mat: "ice" },
+        { kind: "cylinder", at: [0.35, 0, 0.3], r: 0.1, h: 0.5, mat: "ice" },
+        { kind: "cylinder", at: [-0.35, 0, -0.3], r: 0.1, h: 0.5, mat: "ice" },
+        { kind: "cylinder", at: [0.35, 0, -0.3], r: 0.1, h: 0.5, mat: "ice" },
+        { kind: "cone", at: [0, 0.55, -0.5], r: 0.15, h: 0.5, mat: "ice" },
+        { kind: "sphere", at: [0.12, 0.85, 0.7], r: 0.08, mat: "neon" },
+        { kind: "sphere", at: [-0.12, 0.85, 0.7], r: 0.08, mat: "neon" }
+      ],
+      hitboxes: [
+        { type: "capsule", zone: "body", r: 0.5, y0: 0.3, y1: 0.9 },
+        { type: "sphere", zone: "weak", r: 0.28, x: 0, y: 0.85, z: 0.55 }
       ]
     },
     miniTinubu: dress("midget", { name: "Mini Tinubu", hp: 90, speed: 6.4, color: 16738877, model: "tinubu", radius: 0.55, height: 1.8, archetype: { charge: { every: 3, duration: 0.4, speed: 14 } } }),
@@ -2594,6 +2664,8 @@ var SprotoShooterSim = (() => {
           to: g.to ? add(g.to, origin) : g.to
         })),
         carpets: (sec.carpets || []).map((c) => ({ ...c, from: add(c.from, origin), to: add(c.to, origin) })),
+        noGrapple: (sec.noGrapple || []).map((z) => ({ ...z, min: add(z.min, origin), max: add(z.max, origin) })),
+        grappleAnchors: (sec.grappleAnchors || []).map((a) => ({ ...a, at: add(a.at, origin) })),
         links: (sec.links || []).map((link) => ({
           ...link,
           at: link.at ? add(link.at, origin) : link.at,
@@ -4901,14 +4973,14 @@ var SprotoShooterSim = (() => {
     }
     ent.onGround = Math.abs(ent.pos.y - g) < 0.02;
   }
-  function firstSolid(solids, origin, dir, maxDist, allow = null) {
+  function firstSolid(solids, origin, dir, maxDist, allow = null, includeThin = false) {
     let best = null;
     let bestT = -1;
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
-      if (allow && !allow(s)) continue;
+      if (typeof allow === "function" && !allow(s)) continue;
       const thin = s.max[1] - s.min[1] <= 0.6;
-      if (thin && s.max[1] <= origin.y + 0.05) continue;
+      if (!includeThin && thin && s.max[1] <= origin.y + 0.05) continue;
       const t = rayAabb(origin, dir, s.min, s.max, maxDist);
       if (t < 0) continue;
       if (bestT < 0 || t < bestT) {
@@ -4992,12 +5064,16 @@ var SprotoShooterSim = (() => {
     e.hp = hp;
     return e;
   }
-  function spawnAdd(state, enc, unit, boss2) {
+  function spawnAdd(state, enc, unit, boss2, at, slot, count) {
     const type = unit[0];
     const extra = unit[2] || {};
-    const e = createEnemy(state, type, { elite: !!extra.elite, pos: { x: boss2.pos.x + 2, z: boss2.pos.z + 2 } });
+    const base = at || [boss2.pos.x + 2, boss2.pos.y || 0, boss2.pos.z + 2];
+    const ox = ((slot || 0) - ((count || 1) - 1) / 2) * 1.1;
+    const e = createEnemy(state, type, { elite: !!extra.elite, pos: { x: base[0] + ox, z: base[2] } });
+    e.pos.y = base[1] || 0;
     e.campaignEnc = enc.id;
     e.state = "chase";
+    if (extra.name) e.name = extra.name;
     if (extra.hp) {
       const hp = Math.max(1, Math.round(extra.hp * (state.tuning.enemyHpMult || 1)));
       e.maxHp = hp;
@@ -5084,7 +5160,7 @@ var SprotoShooterSim = (() => {
       prog.spawned[key2] = true;
       for (const unit of add2.units || []) {
         const count = unit[1] || 1;
-        for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2);
+        for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2, add2.at, n, count);
       }
     });
     for (const id of Object.keys(prog.targets)) {
@@ -5169,7 +5245,7 @@ var SprotoShooterSim = (() => {
   function noteKills(state, enc, prog) {
     if (!prog.seen) prog.seen = {};
     for (const e of state.enemies) {
-      if (!e.dead || e.campaignEnc !== enc.id || prog.seen[e.id]) continue;
+      if (!e.dead || e.dismissed || e.campaignEnc !== enc.id || prog.seen[e.id]) continue;
       prog.seen[e.id] = true;
       prog.kills++;
     }
@@ -5179,20 +5255,50 @@ var SprotoShooterSim = (() => {
     for (const e of state.enemies) if (!e.dead && e.campaignEnc === encId) n++;
     return n;
   }
+  function unitOf(enc, type) {
+    const size = enc && enc.flockUnit;
+    if (size > 0 && type === "bitbug") return 1 / size;
+    return 1;
+  }
+  function aliveUnits(state, enc) {
+    let n = 0;
+    for (const e of state.enemies) {
+      if (e.dead || e.campaignEnc !== enc.id) continue;
+      n += unitOf(enc, e.type);
+    }
+    return n;
+  }
+  function capOf(state, enc) {
+    return enc.maxAlive || state.level.maxAlive || 8;
+  }
+  function roomFor(state, enc, type) {
+    return aliveUnits(state, enc) + unitOf(enc, type) <= capOf(state, enc) + 1e-9;
+  }
+  function partClock(state, enc) {
+    const book2 = state.level.scripts && state.level.scripts[enc.id];
+    if (!book2) return null;
+    return { n: (book2.part || 0) + 1, t: book2.partT || 0 };
+  }
   function triggerReady(state, enc, squad3, prog) {
     const tr = squad3.trigger || { type: "onEnter" };
     if (tr.type === "onEnter") return prog.started;
-    if (tr.type === "time") return prog.t >= (tr.t || 0);
+    if (tr.type === "time") {
+      if (tr.part != null) {
+        const clock = partClock(state, enc);
+        return !!clock && clock.n === tr.part && clock.t >= (tr.t || 0);
+      }
+      return prog.t >= (tr.t || 0);
+    }
     if (tr.type === "onKills") return prog.kills >= (tr.n || 1);
     if (tr.type === "onRemain") {
       const byCount = prog.started && aliveOf(state, enc.id) <= (tr.n ?? 2) && Object.keys(prog.squads).length > 0;
       if (byCount) return true;
-      const waveSec = enc.lockdown && enc.lockdown.waveSec;
-      if (!waveSec || !prog.started) return false;
+      const wait = waveWait(enc, squad3);
+      if (wait == null || wait <= 0 || !prog.started) return false;
       const keys = Object.keys(prog.squads);
       if (!keys.length) return false;
       const last = prog.squads[keys[keys.length - 1]];
-      if (prog.t - (last.at || 0) < waveSec) return false;
+      if (prog.t - (last.at || 0) < wait) return false;
       for (let i = 0; i < (enc.squads || []).length; i++) {
         const sq = enc.squads[i];
         if (prog.squads[squadKey(sq, i)]) continue;
@@ -5224,7 +5330,21 @@ var SprotoShooterSim = (() => {
       const prev = prog.squads[tr.after];
       return !!prev && prog.t - prev.at >= (tr.delay || 0);
     }
+    if (tr.type === "onAlarm") {
+      const at = state.level.alarms && state.level.alarms[tr.alarm];
+      if (at == null) return false;
+      const delay = squad3.delay != null ? squad3.delay : tr.delay || 0;
+      return (state.level.time || 0) - at >= delay;
+    }
     return false;
+  }
+  function waveWait(enc, squad3) {
+    if (squad3 && squad3.fallbackSec != null) return squad3.fallbackSec;
+    const lock = enc.lockdown;
+    if (!lock) return null;
+    if (lock.waveSec != null) return lock.waveSec;
+    if (lock.fallbackSec != null) return lock.fallbackSec;
+    return null;
   }
   function spawnOne(state, enc, squad3, at) {
     const type = at.type;
@@ -5236,6 +5356,7 @@ var SprotoShooterSim = (() => {
     e.spawnMethod = squad3.method || "placed";
     if (enc.noAmmoDrop) e.noAmmoDrop = true;
     if (at.partId) e.partId = at.partId;
+    if (at.flockPart != null) e.flockPart = at.flockPart;
     if (bossDef) {
       if (enc.arena) e.boss.arena = enc.arena;
       emit(state, "bossSpawn", { id: e.id, bossType: type });
@@ -5245,21 +5366,21 @@ var SprotoShooterSim = (() => {
   function trySpawn(state, enc, squad3, key2) {
     const lv = state.level;
     const prog = encState(lv, enc.id);
-    const cap = enc.maxAlive || lv.maxAlive || 8;
     const spots = [];
     let i = 0;
+    const flockPart = squad3.trigger && squad3.trigger.part != null ? squad3.trigger.part : null;
     for (const u2 of squad3.units || []) {
       for (let n = 0; n < u2.count; n++) {
         const at = squad3.at && squad3.at[Math.min(i, squad3.at.length - 1)] || [0, 0, 0];
-        spots.push({ type: u2.type, pos: at, partId: u2.partId || null, elite: !!u2.elite });
+        spots.push({ type: u2.type, pos: at, partId: u2.partId || null, elite: !!u2.elite, flockPart });
         i++;
       }
     }
     const born = [];
     for (const spot of spots) {
-      if (aliveOf(state, enc.id) >= cap) {
+      if (!roomFor(state, enc, spot.type)) {
         prog.queue = prog.queue || [];
-        prog.queue.push({ encId: enc.id, squad: key2, spot });
+        prog.queue.push({ encId: enc.id, squad: key2, spot, part: spot.flockPart });
         continue;
       }
       born.push(spawnOne(state, enc, squad3, spot));
@@ -5387,28 +5508,122 @@ var SprotoShooterSim = (() => {
       noteKills(state, enc, prog);
       considerSeal(state, rt, enc, prog, dt);
       prog.t += dt;
-      if (enc.objective && enc.objective.kind === "hold" && enc.hold && inBox(enc.hold, p.pos.x, p.pos.y, p.pos.z)) {
-        prog.hold = (prog.hold || 0) + dt;
+      if (wantsHold(enc) && enc.hold && bodyIn(state, enc.hold)) {
+        const rushed = enc.objective && enc.objective.also && enc.objective.also.kind === "hold" && wavesClear(state, enc, prog);
+        prog.hold = (prog.hold || 0) + dt * (rushed ? 3 : 1);
       }
+      tickStrikes(state, enc, prog, dt);
       (enc.squads || []).forEach((squad3, i) => {
         const key2 = squadKey(squad3, i);
         if (prog.squads[key2]) return;
         if (!triggerReady(state, enc, squad3, prog)) return;
         trySpawn(state, enc, squad3, key2);
       });
-      if (prog.queue && prog.queue.length && aliveOf(state, enc.id) < (enc.maxAlive || lv.maxAlive || 8)) {
-        const job = prog.queue.shift();
-        const squad3 = (enc.squads || []).find((s, i) => squadKey(s, i) === job.squad) || { method: "door" };
-        spawnOne(state, enc, squad3, job.spot);
+      if (prog.queue && prog.queue.length) {
+        const job = prog.queue[0];
+        const clock = partClock(state, enc);
+        if (job.part != null && clock && clock.n !== job.part) prog.queue.shift();
+        else if (roomFor(state, enc, job.spot.type)) {
+          prog.queue.shift();
+          const squad3 = (enc.squads || []).find((s, i) => squadKey(s, i) === job.squad) || { method: "door" };
+          spawnOne(state, enc, squad3, job.spot);
+        }
       }
+    }
+  }
+  function retirePartSquads(state, enc, prog) {
+    const clock = partClock(state, enc);
+    if (!clock) return;
+    if (prog.partSeen == null) {
+      prog.partSeen = clock.n;
+      return;
+    }
+    if (prog.partSeen === clock.n) return;
+    const ended = prog.partSeen;
+    prog.partSeen = clock.n;
+    (enc.squads || []).forEach((squad3, i) => {
+      if (!squad3.trigger || squad3.trigger.part !== ended) return;
+      const key2 = squadKey(squad3, i);
+      if (!prog.squads[key2]) prog.squads[key2] = { at: prog.t, count: 0, skipped: true };
+    });
+    if (prog.queue) prog.queue = prog.queue.filter((job) => job.part !== ended);
+    for (const e of state.enemies) {
+      if (e.dead || e.campaignEnc !== enc.id || e.flockPart !== ended) continue;
+      e.dead = true;
+      e.hp = 0;
+      e.dismissed = true;
+    }
+  }
+  function wantsHold(enc) {
+    const obj = enc.objective;
+    if (!obj) return false;
+    if (obj.kind === "hold") return true;
+    return !!(obj.also && obj.also.kind === "hold");
+  }
+  function bodyIn(state, box2) {
+    const p = state.players[state.localPlayerId];
+    if (p && !p.dead && inBox(box2, p.pos.x, p.pos.y, p.pos.z)) return true;
+    for (const a of state.allies || []) {
+      if (a && !a.dead && a.pos && inBox(box2, a.pos.x, a.pos.y, a.pos.z)) return true;
+    }
+    return false;
+  }
+  function wavesClear(state, enc, prog) {
+    const accounted = (enc.squads || []).every((sq, i) => prog.squads[squadKey(sq, i)] || sq.optional);
+    return !!(prog.started && accounted && aliveOf(state, enc.id) === 0 && !(prog.queue && prog.queue.length));
+  }
+  var STRIKE = { radius: 2.6, track: 1.8, lock: 0.75, player: 30, enemy: 120 };
+  function strikeDue(enc, n) {
+    const times = enc.strikes || [];
+    if (!times.length || n < 0) return Infinity;
+    if (n < times.length) return times[n];
+    return times[times.length - 1] + (n - times.length + 1) * (enc.strikeEvery || 14);
+  }
+  function tickStrikes(state, enc, prog, dt) {
+    if (!enc.strikes || !enc.strikes.length) return;
+    if (prog.strikeN == null) prog.strikeN = 0;
+    if (prog.inbound) {
+      prog.inbound.t += dt;
+      const p = state.players[state.localPlayerId];
+      const tracking = enc.strikeTrack != null ? enc.strikeTrack : STRIKE.track;
+      if (p && prog.inbound.t < tracking) {
+        prog.inbound.x = p.pos.x;
+        prog.inbound.z = p.pos.z;
+      }
+      const track = enc.strikeTrack != null ? enc.strikeTrack : STRIKE.track;
+      const lock = enc.strikeLock != null ? enc.strikeLock : STRIKE.lock;
+      if (prog.inbound.t >= track + lock) {
+        const hit = prog.inbound;
+        const pNow = state.players[state.localPlayerId];
+        if (pNow && !pNow.dead && Math.hypot(pNow.pos.x - hit.x, pNow.pos.z - hit.z) <= STRIKE.radius) {
+          damagePlayer(state, pNow, { base: STRIKE.player, sourceKind: "world", fromPos: { x: hit.x, y: 0, z: hit.z } });
+        }
+        for (const e of state.enemies) {
+          if (e.dead || Math.hypot(e.pos.x - hit.x, e.pos.z - hit.z) > STRIKE.radius) continue;
+          e.hp -= STRIKE.enemy;
+          if (e.hp <= 0) {
+            e.hp = 0;
+            e.dead = true;
+          }
+        }
+        emit(state, "droneStrike", { x: hit.x, z: hit.z, encounter: enc.id });
+        prog.inbound = null;
+      }
+    }
+    if (!prog.inbound && prog.t >= strikeDue(enc, prog.strikeN)) {
+      const p = state.players[state.localPlayerId];
+      prog.inbound = { t: 0, x: p ? p.pos.x : 0, z: p ? p.pos.z : 0 };
+      prog.strikeN += 1;
     }
   }
   function objectiveDone(state, enc, prog) {
     const kind = enc.objective && enc.objective.kind || "clearAll";
-    const spawned = Object.keys(prog.squads).length;
-    const pending = (enc.squads || []).length;
-    const alive2 = aliveOf(state, enc.id);
-    if (kind === "clearAll" || kind === "boss") return prog.started && spawned >= pending && alive2 === 0 && !(prog.queue && prog.queue.length);
+    if (kind === "clearAll" || kind === "boss") {
+      const waves = wavesClear(state, enc, prog);
+      const also = enc.objective && enc.objective.also;
+      if (also && also.kind === "hold") return waves && (prog.hold || 0) >= (also.seconds || 1);
+      return waves;
+    }
     if (kind === "reach" || kind === "escape" || kind === "switch") {
       const p = state.players[state.localPlayerId];
       return !!(enc.zone && inBox(enc.zone, p.pos.x, p.pos.y, p.pos.z));
@@ -5434,6 +5649,7 @@ var SprotoShooterSim = (() => {
       const prog = encState(lv, enc.id);
       if (!prog.started || lv.cleared[enc.id]) continue;
       tickBossScript(state, enc, dt);
+      retirePartSquads(state, enc, prog);
       noteKills(state, enc, prog);
       if (enc.fleeAt) {
         for (const e of state.enemies) {
@@ -5519,6 +5735,10 @@ var SprotoShooterSim = (() => {
     else if (state.level.navLinks) delete state.level.navLinks;
     if (sec && sec.voids && sec.voids.length) state.level.voids = sec.voids;
     else if (state.level.voids) delete state.level.voids;
+    if (sec && sec.noGrapple && sec.noGrapple.length) state.level.noGrapple = sec.noGrapple;
+    else if (state.level.noGrapple) delete state.level.noGrapple;
+    if (sec && sec.grappleAnchors && sec.grappleAnchors.length) state.level.grappleAnchors = sec.grappleAnchors;
+    else if (state.level.grappleAnchors) delete state.level.grappleAnchors;
     if (sec) bindV2Section(state, sec);
   }
 
@@ -5901,6 +6121,189 @@ var SprotoShooterSim = (() => {
   }
   var yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
 
+  // src/sim/grapple.js
+  function inBox2(box2, x, y, z) {
+    if (!box2 || !box2.min || !box2.max) return false;
+    return x >= box2.min[0] && x <= box2.max[0] && y >= box2.min[1] && y <= box2.max[1] && z >= box2.min[2] && z <= box2.max[2];
+  }
+  function sealOf(state, p) {
+    const sec = state._v2section;
+    const book2 = state.level && state.level.v2 && state.level.v2.enc;
+    if (!sec || !book2) return null;
+    for (const enc of sec.encounters || []) {
+      const prog = book2[enc.id];
+      const room = enc.lockdown && enc.lockdown.room;
+      if (!prog || !prog.sealed || !room) continue;
+      if (inBox2(room, p.pos.x, p.pos.y + 0.4, p.pos.z)) return room;
+    }
+    return null;
+  }
+  function blocked(state, x, y, z) {
+    const zones = state.level && state.level.noGrapple || [];
+    for (let i = 0; i < zones.length; i++) if (inBox2(zones[i], x, y, z)) return true;
+    return false;
+  }
+  function snapAnchor(state, point, maxDist) {
+    const anchors = state.level && state.level.grappleAnchors || [];
+    let best = null;
+    let bd = 2.4;
+    for (let i = 0; i < anchors.length; i++) {
+      const a = anchors[i];
+      const at = a.at;
+      if (!at) continue;
+      const d = Math.hypot(at[0] - point.x, (at[1] || 0) - point.y, at[2] - point.z);
+      const reach = a.r == null ? 2.4 : a.r;
+      if (d <= reach && d < bd && Math.hypot(at[0] - point.x, at[2] - point.z) < maxDist) {
+        bd = d;
+        best = { x: at[0], y: at[1] || 0, z: at[2], id: a.id || null };
+      }
+    }
+    return best;
+  }
+  function anchorOnRay(state, origin, dir, maxDist) {
+    const anchors = state.level && state.level.grappleAnchors || [];
+    let best = null;
+    let bt = maxDist;
+    for (let i = 0; i < anchors.length; i++) {
+      const a = anchors[i];
+      const at = a.at;
+      if (!at) continue;
+      const ox = at[0] - origin.x, oy = (at[1] || 0) - origin.y, oz = at[2] - origin.z;
+      const t = ox * dir.x + oy * dir.y + oz * dir.z;
+      if (t < 0.4 || t > maxDist) continue;
+      const px = origin.x + dir.x * t, py = origin.y + dir.y * t, pz = origin.z + dir.z * t;
+      const miss = Math.hypot(at[0] - px, (at[1] || 0) - py, at[2] - pz);
+      const reach = a.r == null ? 1.4 : a.r;
+      if (miss <= reach && t < bt) {
+        bt = t;
+        best = { x: at[0], y: at[1] || 0, z: at[2], id: a.id || null, t };
+      }
+    }
+    return best;
+  }
+  function findHook(state, p) {
+    const origin = eyePos(p);
+    const dir = dirFromYawPitch(p.yaw, p.pitch);
+    const maxDist = TUNING.grappleRange;
+    const solids = activeSolids(state);
+    let hit = null;
+    if (solids) {
+      const wall = firstSolid(solids, origin, dir, maxDist, null, true);
+      if (wall) {
+        hit = {
+          x: origin.x + dir.x * wall.t,
+          y: origin.y + dir.y * wall.t,
+          z: origin.z + dir.z * wall.t,
+          t: wall.t,
+          id: wall.solid.id || null
+        };
+      }
+    }
+    const groundT = rayWorld(origin, dir, maxDist);
+    if (groundT > 0.4 && groundT < maxDist && (!hit || groundT < hit.t)) {
+      hit = {
+        x: origin.x + dir.x * groundT,
+        y: origin.y + dir.y * groundT,
+        z: origin.z + dir.z * groundT,
+        t: groundT,
+        id: "ground"
+      };
+    }
+    const along = anchorOnRay(state, origin, dir, maxDist);
+    if (along && (!hit || along.t <= hit.t + 0.4)) hit = along;
+    if (hit) {
+      const snapped = snapAnchor(state, hit, maxDist);
+      if (snapped) hit = snapped;
+    }
+    if (!hit || blocked(state, hit.x, hit.y, hit.z)) return null;
+    const room = sealOf(state, p);
+    if (room && !inBox2(room, hit.x, hit.y, hit.z)) return null;
+    return { x: hit.x, y: hit.y, z: hit.z, id: hit.id || null };
+  }
+  function stillClear(state, p, hook) {
+    const origin = eyePos(p);
+    const dx = hook.x - origin.x, dy = hook.y - origin.y, dz = hook.z - origin.z;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    const solids = activeSolids(state);
+    if (!solids) return true;
+    const wall = firstSolid(solids, origin, { x: dx / dist, y: dy / dist, z: dz / dist }, dist - 0.35, null, true);
+    return !wall;
+  }
+  function clampToRoom(p, room) {
+    if (!room) return;
+    const pad = 0.45;
+    if (p.pos.x < room.min[0] + pad) {
+      p.pos.x = room.min[0] + pad;
+      if (p.vel.x < 0) p.vel.x = 0;
+    }
+    if (p.pos.x > room.max[0] - pad) {
+      p.pos.x = room.max[0] - pad;
+      if (p.vel.x > 0) p.vel.x = 0;
+    }
+    if (p.pos.z < room.min[2] + pad) {
+      p.pos.z = room.min[2] + pad;
+      if (p.vel.z < 0) p.vel.z = 0;
+    }
+    if (p.pos.z > room.max[2] - pad) {
+      p.pos.z = room.max[2] - pad;
+      if (p.vel.z > 0) p.vel.z = 0;
+    }
+    if (p.pos.y > room.max[1] - 0.3) {
+      p.pos.y = room.max[1] - 0.3;
+      if (p.vel.y > 0) p.vel.y = 0;
+    }
+  }
+  function tickGrapple(state, p, dt) {
+    if (p.grappleCd > 0) p.grappleCd = Math.max(0, p.grappleCd - dt);
+    const c = p.cmd || {};
+    const held = !!(c.held && c.held.grapple);
+    if (!held || p.downed) {
+      if (p.grapple) {
+        emit(state, "grappleRelease", { playerId: p.id });
+        p.grapple = null;
+      }
+      return;
+    }
+    if (!p.grapple) {
+      if (p.grappleCd > 0) return;
+      const hook2 = findHook(state, p);
+      p.grappleCd = TUNING.grappleCd;
+      if (!hook2) return;
+      p.grapple = hook2;
+      emit(state, "grapple", { playerId: p.id, pos: { x: hook2.x, y: hook2.y, z: hook2.z }, id: hook2.id });
+    }
+    const hook = p.grapple;
+    if (!stillClear(state, p, hook)) {
+      emit(state, "grappleRelease", { playerId: p.id });
+      p.grapple = null;
+      return;
+    }
+    const originY = p.pos.y + 0.9;
+    const dx = hook.x - p.pos.x, dy = hook.y - originY, dz = hook.z - p.pos.z;
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    if (dist < TUNING.grappleArrive) {
+      emit(state, "grappleRelease", { playerId: p.id });
+      p.grapple = null;
+      return;
+    }
+    const pull = TUNING.grapplePull * dt;
+    p.vel.x += dx / dist * pull;
+    p.vel.y += dy / dist * pull;
+    p.vel.z += dz / dist * pull;
+    const room = sealOf(state, p);
+    if (room) {
+      const pad = 0.45;
+      if (p.pos.x < room.min[0] + pad) p.pos.x = room.min[0] + pad;
+      if (p.pos.x > room.max[0] - pad) p.pos.x = room.max[0] - pad;
+      if (p.pos.z < room.min[2] + pad) p.pos.z = room.min[2] + pad;
+      if (p.pos.z > room.max[2] - pad) p.pos.z = room.max[2] - pad;
+      if (p.pos.y > room.max[1] - 0.2) {
+        p.pos.y = room.max[1] - 0.2;
+        if (p.vel.y > 0) p.vel.y = 0;
+      }
+    }
+  }
+
   // src/sim/campaign/mechanisms.js
   function detonateBarrel(state, section, m) {
     const lv = state.level;
@@ -6142,6 +6545,13 @@ var SprotoShooterSim = (() => {
       const m = p.move;
       m.slideCd = Math.max(0, m.slideCd - dt);
       m.dashCd = Math.max(0, m.dashCd - dt);
+      if (p.stamina == null) {
+        p.stamina = 1;
+        p.staminaDelay = 0;
+        p.staminaLock = false;
+        p.grappleCd = 0;
+        p.grapple = null;
+      }
       const sy = Math.sin(p.yaw), cy = Math.cos(p.yaw);
       let wx = -sy * c.moveZ + cy * c.moveX;
       let wz = -cy * c.moveZ - sy * c.moveX;
@@ -6151,7 +6561,20 @@ var SprotoShooterSim = (() => {
         wz /= wl;
       }
       const canAct = !p.downed;
-      const sprinting = canAct && c.held.sprint && c.moveZ > 0 && !p.zooming;
+      const wantSprint = canAct && c.held.sprint && c.moveZ > 0 && !p.zooming && !p.staminaLock && p.stamina > 0;
+      let sprinting = wantSprint;
+      if (sprinting) {
+        p.stamina = Math.max(0, p.stamina - dt / TUNING.staminaSprint);
+        p.staminaDelay = TUNING.staminaRegenDelay;
+        if (p.stamina <= 0) {
+          p.staminaLock = true;
+          sprinting = false;
+        }
+      } else {
+        if (p.staminaDelay > 0) p.staminaDelay = Math.max(0, p.staminaDelay - dt);
+        else if (p.stamina < 1) p.stamina = Math.min(1, p.stamina + dt / TUNING.staminaRegen);
+        if (p.staminaLock && p.stamina >= TUNING.staminaRefill) p.staminaLock = false;
+      }
       let maxSpeed = sprinting ? TUNING.sprintSpeed : TUNING.walkSpeed;
       if (p.campaignSpeed) maxSpeed *= p.campaignSpeed;
       if (state.mode === "campaign" && p.hazardSlow != null && p.hazardSlow < 1) maxSpeed *= p.hazardSlow;
@@ -6173,13 +6596,22 @@ var SprotoShooterSim = (() => {
         emit(state, "dash", { playerId: p.id });
       }
       const hs = Math.hypot(p.vel.x, p.vel.z);
-      if (canAct && c.pressed.slide && p.onGround && m.mode !== "slide" && m.slideCd <= 0 && hs > TUNING.slideMinSpeed) {
+      const crouch = !!(c.held && c.held.crouch);
+      const wantSlide = canAct && p.onGround && m.mode !== "slide" && m.slideCd <= 0 && (c.pressed.slide || crouch && sprinting) && (hs > TUNING.slideMinSpeed || sprinting);
+      if (wantSlide) {
+        const dirx = hs > 0.4 ? p.vel.x / hs : -Math.sin(p.yaw);
+        const dirz = hs > 0.4 ? p.vel.z / hs : -Math.cos(p.yaw);
+        const boost = Math.max(hs, TUNING.slideBoost);
+        p.vel.x = dirx * boost;
+        p.vel.z = dirz * boost;
         m.mode = "slide";
         m.slideT = TUNING.slideTime;
-        p.vel.x = p.vel.x / hs * TUNING.slideBoost;
-        p.vel.z = p.vel.z / hs * TUNING.slideBoost;
+        p.stamina = Math.max(0, p.stamina - TUNING.slideStamina);
+        p.staminaDelay = TUNING.staminaRegenDelay;
+        if (p.stamina <= 0) p.staminaLock = true;
         emit(state, "slide", { playerId: p.id });
       }
+      const hooked = !!p.grapple || !!(c.held && c.held.grapple);
       if (m.mode === "dash") {
         m.dashT -= dt;
         p.vel.x = m.dashDir.x * TUNING.dashSpeed;
@@ -6190,19 +6622,34 @@ var SprotoShooterSim = (() => {
           p.vel.x *= 0.45;
           p.vel.z *= 0.45;
         }
-      } else if (m.mode === "slide") {
+      } else if (m.mode === "slide" && !hooked) {
         m.slideT -= dt;
-        const sp = Math.hypot(p.vel.x, p.vel.z);
-        const target = TUNING.walkSpeed + (TUNING.slideBoost - TUNING.walkSpeed) * Math.max(0, m.slideT / TUNING.slideTime);
-        if (sp > 0.01) {
-          p.vel.x *= target / sp;
-          p.vel.z *= target / sp;
+        if (wl > 0.2) {
+          p.vel.x += wx * 10 * dt;
+          p.vel.z += wz * 10 * dt;
         }
-        if (m.slideT <= 0 || !p.onGround) {
-          m.mode = "walk";
+        let sp = Math.hypot(p.vel.x, p.vel.z) || 1e-4;
+        const solidsNow = activeSolids(state);
+        if (solidsNow) {
+          const ux = p.vel.x / sp, uz = p.vel.z / sp;
+          const here = groundHeight(solidsNow, p.pos.x, p.pos.z, 0.15, p.pos.y + 0.5, 0.8);
+          const there = groundHeight(solidsNow, p.pos.x + ux * 0.75, p.pos.z + uz * 0.75, 0.15, p.pos.y + 1.4, 1.4);
+          if (here > -1e8 && there > -1e8 && here - there > 0.02) {
+            const gain = Math.min(TUNING.slideSlope * dt, (here - there) * 12);
+            p.vel.x += ux * gain;
+            p.vel.z += uz * gain;
+            sp = Math.hypot(p.vel.x, p.vel.z) || 1e-4;
+          }
+        }
+        const next2 = sp + (TUNING.slideCruise - sp) * Math.min(1, TUNING.slideDrag * dt);
+        const k = Math.max(0, next2) / sp;
+        p.vel.x *= k;
+        p.vel.z *= k;
+        if (m.slideT <= 0 || next2 < TUNING.walkSpeed * 0.9 || !p.onGround) {
+          m.mode = p.onGround ? "walk" : "air";
           m.slideCd = TUNING.slideCd;
         }
-      } else if (p.onGround) {
+      } else if (p.onGround && !hooked) {
         const tx = wx * maxSpeed, tz = wz * maxSpeed;
         const dx = tx - p.vel.x, dz = tz - p.vel.z;
         const dl = Math.hypot(dx, dz);
@@ -6213,6 +6660,8 @@ var SprotoShooterSim = (() => {
           p.vel.z += dz * k;
         }
         m.mode = sprinting ? "sprint" : "walk";
+      } else if (hooked) {
+        m.mode = "air";
       } else {
         const cap = Math.max(hs, TUNING.walkSpeed);
         p.vel.x += wx * TUNING.airAccel * dt;
@@ -6232,8 +6681,14 @@ var SprotoShooterSim = (() => {
           p.jumpsLeft = 1;
           p.jumpBufferT = 0;
           if (m.mode === "slide") {
+            const sp = Math.hypot(p.vel.x, p.vel.z);
+            if (sp > 0.1) {
+              const boosted = sp * TUNING.slideHopBoost;
+              p.vel.x = p.vel.x / sp * boosted;
+              p.vel.z = p.vel.z / sp * boosted;
+            }
             m.mode = "air";
-            m.slideCd = TUNING.slideCd;
+            m.slideCd = TUNING.slideHopCd;
           }
           emit(state, "jump", { playerId: p.id });
         } else if (p.jumpsLeft > 0) {
@@ -6243,6 +6698,8 @@ var SprotoShooterSim = (() => {
           emit(state, "doubleJump", { playerId: p.id });
         }
       }
+      const seal2 = sealOf(state, p);
+      tickGrapple(state, p, dt);
       if (m.mode !== "dash") p.vel.y -= TUNING.gravity * dt;
       if (state.mode === "campaign" && state.level && state.level.gravityMult !== 1 && m.mode !== "dash") {
         p.vel.y -= TUNING.gravity * (state.level.gravityMult - 1) * dt;
@@ -6258,7 +6715,7 @@ var SprotoShooterSim = (() => {
       const wasAir = !p.onGround;
       const solids = activeSolids(state);
       if (solids) {
-        pushHorizontal(p, solids, TUNING.playerRadius, TUNING.playerHeight, STEP_UP);
+        pushHorizontal(p, solids, TUNING.playerRadius, playerHeight(p), STEP_UP);
         const beforeY = p.pos.y;
         snapToGround(p, solids, TUNING.playerRadius, STEP_UP);
         if (wasAir && p.onGround && beforeY - p.pos.y > 0.05 && p.vel.y < -6) {
@@ -6290,6 +6747,7 @@ var SprotoShooterSim = (() => {
         }
         p.onGround = true;
       } else p.onGround = false;
+      if (seal2) clampToRoom(p, seal2);
       if (state.mode !== "campaign") {
         clampToArena(p, TUNING.playerRadius);
         pushOutOfBoxes(state, p, TUNING.playerRadius);
@@ -8066,7 +8524,7 @@ var SprotoShooterSim = (() => {
   // src/sim/campaign/nav.js
   var CELL = 1;
   var grids = /* @__PURE__ */ new WeakMap();
-  function blocked(solids, x, z) {
+  function blocked2(solids, x, z) {
     let floor2 = -Infinity;
     for (let i = 0; i < solids.length; i++) {
       const s = solids[i];
@@ -8108,7 +8566,7 @@ var SprotoShooterSim = (() => {
     for (let iz = 0; iz < nz; iz++) {
       for (let ix = 0; ix < nx; ix++) {
         const x = x0 + (ix + 0.5) * cell, z = z0 + (iz + 0.5) * cell;
-        if (!blocked(solids, x, z)) open.add(key(ix, iz));
+        if (!blocked2(solids, x, z)) open.add(key(ix, iz));
       }
     }
     const extra = [];
@@ -8672,8 +9130,9 @@ var SprotoShooterSim = (() => {
     e.boss.action = { id, t: 0, data };
   }
   function nextAction(state, e, def) {
-    const phase = def.phases[e.boss.phaseIdx];
-    const id = phase.pattern[e.boss.patternIdx++ % phase.pattern.length];
+    const scripted = e.boss.scripted && Array.isArray(e.boss.attackList) && e.boss.attackList.length;
+    const pattern = scripted ? e.boss.attackList : def.phases[e.boss.phaseIdx].pattern;
+    const id = pattern[e.boss.patternIdx++ % pattern.length];
     start(e, id);
   }
   function bosses(state, dt) {
@@ -8687,7 +9146,7 @@ var SprotoShooterSim = (() => {
       const t = nearestPlayer(state, e.pos);
       const frac = e.hp / e.maxHp;
       const nxt = def.phases[b.phaseIdx + 1];
-      if (nxt && frac <= nxt.hpBelow && !b.transitioning) {
+      if (!b.scripted && nxt && frac <= nxt.hpBelow && !b.transitioning) {
         b.transitioning = true;
         b.invuln = true;
         start(e, "transition", { duration: 2 });
@@ -8706,7 +9165,7 @@ var SprotoShooterSim = (() => {
           b.transitioning = false;
           b.invuln = false;
           b.patternIdx = 0;
-          if (impl === MEGA && b.phaseIdx === 1) summonGrunts(state, e);
+          if (impl === MEGA && b.phaseIdx === 1 && !b.scripted) summonGrunts(state, e);
         }
         nextAction(state, e, def);
       }
@@ -8723,9 +9182,11 @@ var SprotoShooterSim = (() => {
   }
   function summonGrunts(state, e) {
     const n = state.tier >= 5 ? 10 : 6;
-    const pts = state.spawnPoints.slice().sort((p1, p2) => Math.hypot(p1.x - e.pos.x, p1.z - e.pos.z) - Math.hypot(p2.x - e.pos.x, p2.z - e.pos.z));
+    const pts = (state.spawnPoints || []).slice().sort((p1, p2) => Math.hypot(p1.x - e.pos.x, p1.z - e.pos.z) - Math.hypot(p2.x - e.pos.x, p2.z - e.pos.z));
+    if (!pts.length) return;
     for (let i = 0; i < n; i++) {
       const pt = pts[i % 4];
+      if (!pt) continue;
       if (i < 4) createHazard(state, { kind: "spawnPortal", pos: { x: pt.x, y: 0, z: pt.z }, radius: 1.2, ttl: 0.8 });
       createEnemy(state, "midget", { pos: { x: pt.x + range(state.rng, -1, 1), z: pt.z + range(state.rng, -1, 1) }, summoned: true });
     }
@@ -9002,7 +9463,7 @@ var SprotoShooterSim = (() => {
         if (!a.data.done) {
           a.data.done = true;
           const alive2 = state.enemies.filter((o) => !o.dead && o.summoned).length;
-          if (alive2 < 10) summonGrunts(state, e);
+          if (!e.boss.scripted && alive2 < 10) summonGrunts(state, e);
         }
         return a.t > 1.2;
       }
@@ -10012,7 +10473,8 @@ var SprotoShooterSim = (() => {
     "chainZap",
     "swarm",
     "manaShield",
-    "meteor"
+    "meteor",
+    "grapple"
   ]);
   var FRAME_BYTES = 12;
   var B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
@@ -10161,7 +10623,7 @@ var SprotoShooterSim = (() => {
       if (q.yaw < -32767 || q.yaw > 32767 || q.pitch < -32767 || q.pitch > 32767) return { error: "malformed" };
       if (q.moveX < -127 || q.moveX > 127 || q.moveZ < -127 || q.moveZ > 127) return { error: "malformed" };
       if (q.slot < -1 || q.slot > 4 || q.wheel < -4 || q.wheel > 4) return { error: "malformed" };
-      if (q.held > 32767 || q.pressed > 32767) return { error: "malformed" };
+      if (q.held > 65535 || q.pressed > 65535) return { error: "malformed" };
       commands[i] = dequantizeCommand(q);
     }
     return { commands };
@@ -10263,7 +10725,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "82d5ab51b0eaa487f225f86e77ff93e94133dc89";
+  var SOURCE_COMMIT = "c5bdfe8210f91f8eb026bf11381628a4055446a9";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

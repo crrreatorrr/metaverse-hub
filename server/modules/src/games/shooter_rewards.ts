@@ -13,9 +13,9 @@ namespace ShooterRewards {
   export var BOARD_ID = "shooter_story_clear_ms_v1";
   export var PAY = 20;
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "82d5ab51b0eaa487f225f86e77ff93e94133dc89";
-  export var BUNDLE_SHA256 = "44172170fb08934845329236fc241d9c9801b8432f2d0457317f22da5c8fd4df";
-  export var FINGERPRINT = "4ae191d6";
+  export var COMMIT = "c5bdfe8210f91f8eb026bf11381628a4055446a9";
+  export var BUNDLE_SHA256 = "ae2f8b3444928ca59d7e1e64943b279fa80a761dc10f2040660ca242fc607417";
+  export var FINGERPRINT = "9ec1c6ea";
   export var PROTOCOL = 1;
   var BOSSES = ["sahil", "obama", "broccoli", "glowie", "tinubu"];
 
@@ -417,7 +417,7 @@ HubSchema.register({
     DECLARE src text;
     BEGIN
       src := pg_get_functiondef('game.settle_shooter_clear(uuid,uuid,text,text,date,text,text,bigint,integer,text,text)'::regprocedure);
-      src := replace(src, '3c657fb5', '4ae191d6');
+      src := replace(src, '3c657fb5', '9ec1c6ea');
       EXECUTE src;
     END;
     $fp$`,
