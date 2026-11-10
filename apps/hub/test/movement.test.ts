@@ -44,6 +44,18 @@ for (let direction = 0; direction < 1; direction++) {
   assert.ok(Math.hypot(player.position.x, player.position.z) > 290, `reached edge: ${direction}`);
   assert.ok(Math.hypot(player.position.x, player.position.z) < 320, `edge wall: ${direction}`);
 }
+// The club wall has triangulated seams where a side contact can point
+// upward. A sprint-jump into the back wall must settle on the club floor.
+const clubFloor = -300 + STAND_Y;
+const clubYaw = 3.68;
+player.spawn(4.15, clubFloor, 12.13, clubYaw);
+let clubPeak = clubFloor;
+for (let i = 0; i < 40; i++) {
+  player.step(1 / 20, { ...idle, forward: 1, sprint: true, jump: i === 0, yaw: clubYaw }, speeds);
+  clubPeak = Math.max(clubPeak, player.position.y);
+}
+assert.ok(clubPeak > clubFloor + 0.4 && clubPeak < clubFloor + 0.9, `club wall jump peak: ${clubPeak}`);
+assert.ok(player.grounded && Math.abs(player.position.y - clubFloor) < 0.01, `club wall landing: ${player.position.y}`);
 collider.geometry.dispose();
 console.log('locked movement and live plaza capsule ok', { restY, jump: peak - restY });
 
