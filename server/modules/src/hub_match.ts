@@ -282,13 +282,19 @@ namespace HubMatch {
     return true;
   }
 
+  function ownsStaff(p: Player, staff: string): boolean {
+    if (staff === "shooter") return p.relics.indexOf("dragon_scale") >= 0;
+    if (staff === "fighter") return p.relics.indexOf("tinubu_crown") >= 0;
+    return true;
+  }
+
   function applyProfile(nk: nkruntime.Nakama, p: Player, raw: string, tick: number): boolean {
     if (tick - p.lastProfileTick < PROFILE_EVERY_TICKS) return false;
     var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
     if (!data || typeof data !== "object") return false;
     var changed = false;
     var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
-    var st = typeof data.staff === "string" && ID.test(data.staff) ? data.staff : p.staff;
+    var st = typeof data.staff === "string" && ID.test(data.staff) && ownsStaff(p, data.staff) ? data.staff : p.staff;
     var pt = HubPets.profilePets(nk, p.userId).active || "";
     if (c !== p.character || st !== p.staff || pt !== p.pet) changed = true;
     p.character = c;
@@ -495,6 +501,7 @@ namespace HubMatch {
           var next = fresh[ids[f]] || [];
           if (fp && !sameList(fp.relics, next)) {
             fp.relics = next;
+            if (!ownsStaff(fp, fp.staff)) fp.staff = "sproto";
             rosterUpd[String(fp.slot)] = true;
           }
         }

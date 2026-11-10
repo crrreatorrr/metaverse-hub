@@ -206,6 +206,7 @@ namespace SprotoMm {
     if (!add || !ctx.userId || !ctx.sessionId) return;
     var props = add.stringProperties || {};
     if (props["game"] !== SprotoArena.GAME_ID) return;
+    if (Maint.on(nk)) throw new Error("maintenance");
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
     claimQueue(nk, ctx.userId, ctx.sessionId);
   }

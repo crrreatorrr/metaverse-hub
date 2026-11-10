@@ -41,6 +41,19 @@ function sandbox() {
   exe(join(scripts, 'check-env.sh'), `${say('check-env')}\n`);
   exe(join(scripts, 'backup-postgres.sh'), `${say('backup')}\n`);
   exe(join(scripts, 'deploy-game.sh'), `${say('deploy-game $*')}\n`);
+  exe(join(scripts, 'check-nakama-drain.sh'), `if [ "\$#" -eq 0 ]; then
+  ${say('drain-check')}
+else
+  ${say('drain-check $*')}
+fi
+if [ "\${STUB_DRAIN_FAIL:-}" = 1 ]; then
+  case " \$* " in
+    *" --allow-open "*) exit 0 ;;
+  esac
+  echo "refusing: shooter holds open" >&2
+  exit 1
+fi
+`);
 
   exe(join(bin, 'id'), `[ "\${1:-}" = -u ] && { echo 0; exit 0; }\nexec /usr/bin/id "$@"\n`);
   exe(
@@ -177,6 +190,7 @@ function keyNeverInArgv(calls) {
     /^sleep 15$/,
     /^rpc maint\.live/,
     /^sleep 60$/,
+    /^drain-check$/,
     /^docker IMAGE_TAG=\S* tag metaverse-nakama:0123456789ab metaverse-nakama:prod$/,
     /^docker IMAGE_TAG=prod compose .* up -d --no-build --no-deps --force-recreate --wait --wait-timeout 240 nakama$/,
     /^healthcheck$/,
@@ -210,6 +224,7 @@ function keyNeverInArgv(calls) {
     r.steps,
     /^docker IMAGE_TAG=\S* image inspect metaverse-nakama:aaaaaaaaaaaa$/,
     /^backup$/,
+    /^drain-check$/,
     /^docker IMAGE_TAG=\S* tag metaverse-nakama:aaaaaaaaaaaa metaverse-nakama:prod$/,
     /^docker IMAGE_TAG=prod compose .* up -d --no-build/,
     /^healthcheck$/,
@@ -307,4 +322,20 @@ function keyNeverInArgv(calls) {
   assert.match(compose, /^ {4}image: metaverse-nakama:\$\{IMAGE_TAG:-prod\}$/m);
 }
 
-console.log('deploy-server ok (13 cases against stubbed docker/curl)');
+// 14. Open holds or matches stop the restart before the container is recreated.
+{
+  const r = run([], { STUB_DRAIN_FAIL: '1' });
+  assert.notEqual(r.code, 0, r.out);
+  assert.equal(idx(r.steps, / up -d --no-build/), -1, 'did not restart');
+  assert.ok(idx(r.steps, /^drain-check$/) >= 0);
+}
+
+// 15. --allow-open is the explicit override and still reaches the restart.
+{
+  const r = run(['--allow-open'], { STUB_DRAIN_FAIL: '1' });
+  assert.equal(r.code, 0, r.out);
+  assert.ok(idx(r.steps, /^drain-check --allow-open$/) >= 0);
+  assert.ok(idx(r.steps, / up -d --no-build/) > idx(r.steps, /^drain-check --allow-open$/));
+}
+
+console.log('deploy-server ok (15 cases against stubbed docker/curl)');

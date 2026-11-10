@@ -66,8 +66,8 @@ namespace SprotoArena {
   export var PVP_DAILY_PAID_WINS = 10;
   export var WINS_BOARD = "sproto_wins";
 
-  /** Sproto Duel's staffs (src/sim-core/staffs.ts). Fighter's Might comes from the Tidebreaker Belt through game.owned_item_ids. */
-  export var STAFFS = ["duel_staff_sproto", "duel_staff_momentum", "duel_staff_moonward", "duel_staff_nobu", "duel_staff_fighters_might"];
+  /** Sproto Duel's staffs (src/sim-core/staffs.ts). Relic ownership comes through game.owned_item_ids. */
+  export var STAFFS = ["duel_staff_sproto", "duel_staff_momentum", "duel_staff_moonward", "duel_staff_nobu", "duel_staff_fighters_might", "duel_staff_alien_ray", "duel_staff_shooter", "duel_staff_fighter"];
   export var ROOM_ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
   export interface RoundRec { round: number; winnerSeat: number | null; reason: string; wins: number[]; tick: number }
@@ -159,8 +159,7 @@ namespace SprotoArena {
   var UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   // game.owned_item_ids is the hub's ownership union (starter, relic-derived, item_owned,
-  // minus held grants). Sproto Duel also gives the Nobu Staff for the Breakwater Coin
-  // (src/staff/loadout.ts STAFF_BY_RELIC), which that union keys only by Cone's Tip.
+  // minus held grants). Keep the legacy online Nobu Staff entitlement for the Breakwater Coin.
   var OWNED_STAFF_SQL = "SELECT jsonb_build_object("
     + "'owned', COALESCE(to_json(game.owned_item_ids($1::uuid)), '[]'::json),"
     + " 'coin', EXISTS (SELECT 1 FROM game.relic_claim c WHERE c.user_id = $1::uuid AND c.relic_id = 'breakwater_coin')"
@@ -754,6 +753,7 @@ namespace SprotoArena {
     for (var i = 0; i < 2; i++) if (!matches[i].properties || matches[i].properties["game"] !== GAME_ID) return;
     if (String(a.properties["v"]) !== String(b.properties["v"]) || String(a.properties["v"]) !== NET_VERSION) return;
     if (a.presence.userId === b.presence.userId) return;
+    if (Maint.on(nk)) return;
     var token = SprotoMm.pairToken(matches);
     var existing = SprotoMm.livePair(nk, token);
     if (existing) {
@@ -794,6 +794,7 @@ namespace SprotoArena {
     if (!gameSession(ctx)) throw new Error("wrong_scope");
     var req = body(payload);
     if (String(req["v"]) !== NET_VERSION) throw new Error("version_mismatch");
+    if (Maint.on(nk)) throw new Error("maintenance");
     var code = "";
     for (var attempt = 0; attempt < 5 && !code; attempt++) {
       var c = roomCode();

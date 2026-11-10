@@ -2,7 +2,7 @@
 
 This is a readiness record for Sproto Coop Battle and Sproto Shooter. It does not deploy, buy a server, or turn a public flag on. Public launch stays closed until Ken says otherwise.
 
-Parent hub `main` at branch time: `d7065e1` (H4-S, hub #120). The hub pin for this candidate is the head of this pull request.
+Parent hub `main` when this record merged: `8753d1c` (plaza controller, hub #123). H4-S `d7065e1` is an ancestor. The squash is `dcc8e6b` (hub #122).
 
 ## Decision
 
@@ -24,10 +24,10 @@ C5 could not run its own Nakama restart step or the wallet-fault half, and its t
 
 | Piece | Value |
 |---|---|
-| Hub parent | `d7065e1` |
-| Shooter `main` | `acafce3a39046d8117f29f068b3a57358fa89f77` (client #42). Protocol 2, sim 2. Re-vendored with `scripts/revendor-shooter-pvp.mjs`. The check is unchanged: the pin commit is shooter `main`. |
-| Shooter free / wager bundle | sha256 `fbc50576b6ddfd0feef3aaf7ab3f508308bac9a8548e3e29f0f5a8f9e94ff346`, content `17d87c54`, loadout `4cdfab55`, global `SprotoShooterPvp` |
-| Shooter campaign bundle | sha256 `fd0497741b3672bea457c333a01373248cf94cbf25df61dc63145c74d040a6c2`, protocol 1, fingerprint `3c657fb5`, global `SprotoShooterSim`. Bytes match the previous pin apart from the baked commit. |
+| Hub parent | `8753d1c` (hub #123). Squash `dcc8e6b` (hub #122) |
+| Shooter `main` | `f2034e7b3a22ebfb451b46ba77279b97eb945c50` (through shooter #89). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
+| Shooter free / wager bundle | sha256 `63059c09915714e285f05a6a16f71431181c64cd997b3930126adfe03debb658`, content `b33eada6`, loadout `4cdfab55`, golden tick 65 hash `532a562e`, global `SprotoShooterPvp` |
+| Shooter campaign bundle | sha256 `14cf231982c3eb3c80d925e96668330471353318f8791aca9b2e4db639061876`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
 | Coop game `main` | `ae9dd750878c4046d43825fff1724c129c4c1fdb` |
 | Coop hub pin | commit `9a0b5d9f97460617b4b2bb8445dae6849f163d51`, protocol 1, state 1, fingerprint `f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e`, bundle `28f9236d0df78c62cf600ad08c9924f8dd260b6948d7a73baf60230936934fac` |
 | Coop loop | 20 Hz, 3 substeps, 60 Hz sim, snapshot 10 Hz, reconnect 15 s, match `sproto_coop` |
@@ -96,7 +96,7 @@ Wallet fault, the case C5 did not run:
 
 ### Shooter 1v1
 
-Protocol 2 / sim 2, content `17d87c54`, bundle sha above. `wagerEnabled` was false at the start.
+Protocol 2 / sim 2, content `b33eada6`, bundle sha above. `wagerEnabled` was false at the start.
 
 | Measurement | Value |
 |---|---|
@@ -140,7 +140,7 @@ Two signed-in accounts, 20 Tickets each, funded in the local database only.
 
 Local Caddy (`server/Caddyfile`, port 8080) answered `OPTIONS /v2/healthcheck` with `204` and `Access-Control-Allow-Origin: *`, and a hub realtime socket connected through it. That is HTTP on localhost, not the production certificate.
 
-`deploy/scripts/check-dist-secrets.sh` refuses dev defaults, a PEM or OpenSSH private key, and, when `deploy/.env` is present, the live HTTP key, console password, and console signing key. CI runs `--defaults-only` on `apps/hub/dist` after the production build. That mode still refuses private keys and the credential literals (`defaultkey`, `localhttpkey`, and the rest of that list). It does not treat the English words `password` and `changeme` as secrets, because the hub login UI contains the field name `password`. The publish scan, which `deploy-game.sh` and `deploy-hub.sh` run, still refuses those words. A production hub dist from this tree matches `password` in `assets/login-*.js`, `assets/shell-*.js`, `hub/index.html`, and `realm/sandbox/index.html`. That is the field name, not a key, and this phase does not edit the login UI. `deploy-game.sh` does not write `game.server_flags`.
+`deploy/scripts/check-dist-secrets.sh` refuses the dev credential literals (`defaultkey`, `localhttpkey`, `localdb`, and the rest of that list), a PEM or OpenSSH private key, and, when `deploy/.env` is present, the live HTTP key, console password, and console signing key. It does not treat the English words `password` and `changeme` as dist secrets: the login UI contains the field name `password`. `check-env.sh` still rejects a secret whose value is one of those words. `deploy-game.sh` does not write `game.server_flags`.
 
 ## Rollback operators
 
@@ -153,6 +153,16 @@ Do this in order. Do not drop tables.
 5. Keep `game.shooter_wager`, `game.tickets_ledger`, `game.coop_receipt`, and `game.coop_eligibility`. A Coop receipt survives a process restart. A wallet fault during the credit leaves no partial row; the clear can pay once after the fault is gone.
 6. Ship a build whose protocol, sim, fingerprint, and bundle sha match this matrix, or clients get `version_mismatch`.
 7. Do not announce a public lobby and do not set any of the three Shooter flags to `on` in a committed or deployed config.
+
+## Client build env
+
+Shooter and Duel need `VITE_NAKAMA_URL` at build time. If it is unset, those clients open `127.0.0.1:7350`. Coop's deployed page is the tree `deploy-game.sh` publishes; that script does not write a key into the page. The Coop build inlines the Nakama server key before the upload, the same way the hub build inlines `VITE_NAKAMA_SERVER_KEY` as `__NAKAMA_SERVER_KEY__`.
+
+## Launch risks
+
+A single L02 Sahil verify missed the 15 second wall-clock budget on the CI runner and came back `cpu_budget`, so it was not paid. Twenty concurrent verifies of that clear miss it too. A short clear (Broccoli, about 3k frames) still fits, including twenty at once. A real player on a busy or small node can submit a long clear and not be paid. That needs a capacity or queue fix before go-live. This release does not change the budget.
+
+Nakama's default HTTP write timeout is 10 seconds. One Sahil verify can take longer than that, so the socket closed before the receipt was written. The hub config and the local compose stack now wait 30 seconds, which is above the 15 second verifier budget, so a single clear can return. That is the transport timeout, not the budget.
 
 ## Cost and alerts
 

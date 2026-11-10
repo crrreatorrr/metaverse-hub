@@ -225,6 +225,9 @@ function InitModule(
   SprotoDuel.expireAllHeldAtBoot(nk, logger);
   bootShooterWagers(nk, logger);
   initializer.registerRpc("healthcheck", rpcHealthcheck);
+  initializer.registerRpc("maint.begin", rpcMaintBegin);
+  initializer.registerRpc("maint.live", rpcMaintLive);
+  initializer.registerRpc("maint.end", rpcMaintEnd);
   initializer.registerRpc("profile.get", rpcProfile);
   initializer.registerRpc("portal.enter", rpcPortalEnter);
   initializer.registerRpc("session.event", rpcSessionEvent);
