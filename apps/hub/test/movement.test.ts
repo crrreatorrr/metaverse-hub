@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { BoxGeometry } from 'three';
+import { BoxGeometry, PlaneGeometry } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
@@ -112,3 +112,29 @@ for (const hz of [20, 60, 120]) {
 }
 passage.dispose();
 console.log('capsule wall, ceiling, and landing contacts ok at 20/60/120 Hz');
+
+// A vertical mesh can touch the capsule cap at its top edge without
+// supplying a floor. A platform at the same height must still support it.
+const edgeHeight = 1.5;
+const edgePieces = [
+  new BoxGeometry(20, 1, 20).translate(0, -0.5, 0),
+  new PlaneGeometry(8, edgeHeight).rotateY(Math.PI / 2).translate(0, edgeHeight / 2, 0),
+  new BoxGeometry(2, edgeHeight, 2).translate(0, edgeHeight / 2, 6),
+];
+const edges = mergeGeometries(edgePieces);
+for (const geometry of edgePieces) geometry.dispose();
+const falling = createPlayerController(new MeshBVH(edges));
+for (const hz of [20, 60, 120]) {
+  for (const x of [-0.2, 0, 0.2]) {
+    falling.spawn(x, STAND_Y + 3, 0);
+    for (let frame = 0; frame < hz; frame++) {
+      falling.step(1 / hz, idle, speeds);
+      assert.ok(!falling.grounded || falling.position.y <= STAND_Y + 0.01, `vertical edge cannot be a floor at ${hz} Hz`);
+    }
+    assert.ok(falling.grounded && Math.abs(falling.position.y - STAND_Y) < 0.01, `fall beside edge lands at ${hz} Hz`);
+  }
+  falling.spawn(0, STAND_Y + 3, 6);
+  for (let frame = 0; frame < hz; frame++) falling.step(1 / hz, idle, speeds);
+  assert.ok(falling.grounded && Math.abs(falling.position.y - STAND_Y - edgeHeight) < 0.01, `solid platform supports landing at ${hz} Hz`);
+}
+edges.dispose();

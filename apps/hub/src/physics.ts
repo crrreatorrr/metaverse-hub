@@ -99,16 +99,31 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
       intersectsTriangle: (tri) => {
         const distance = tri.closestPointToSegment(tempSegment, triPoint, capsulePoint);
         if (distance < CAPSULE_RADIUS) {
-          const depth = CAPSULE_RADIUS - distance;
+          let depth = CAPSULE_RADIUS - distance;
           const contactY = capsulePoint.y;
           const direction = capsulePoint.sub(triPoint);
-          if (direction.lengthSq() < 1e-12) direction.set(0, 1, 0);
-          else direction.normalize();
+          const supportsVerticalContact = Math.abs(tri.getNormal(normal).y) >= 0.45;
+          if (supportsVerticalContact) {
+            if (direction.lengthSq() < 1e-12) direction.set(0, 1, 0);
+            else direction.normalize();
+          } else {
+            // At a wall's top edge the capsule cap can overlap diagonally.
+            // Clear the overlap sideways, using the cap's radius at that height.
+            const reach = Math.sqrt(Math.max(0, CAPSULE_RADIUS * CAPSULE_RADIUS - direction.y * direction.y));
+            direction.y = 0;
+            const horizontal = direction.length();
+            depth = Math.max(0, reach - horizontal);
+            if (horizontal > 1e-6) direction.divideScalar(horizontal);
+            else {
+              direction.set(normal.x, 0, normal.z).normalize();
+              if ((lastGood.x - triPoint.x) * direction.x + (lastGood.z - triPoint.z) * direction.z < 0) direction.negate();
+            }
+          }
           // Keep floor and ceiling corrections when a much larger wall
           // contact would otherwise hide them in the combined correction.
           // A vertical face can push up at a triangle edge. Only surfaces
           // with a vertical normal component can support or cap the capsule.
-          if (Math.abs(tri.getNormal(normal).y) >= 0.45) {
+          if (supportsVerticalContact) {
             const correctedY = tempSegment.start.y + direction.y * depth;
             if (direction.y >= 0.45 && contactY <= tempSegment.end.y + 1e-6) floorY = Math.max(floorY, correctedY);
             if (direction.y <= -0.45 && contactY >= tempSegment.start.y - 1e-6) ceilingY = Math.min(ceilingY, correctedY);
@@ -129,7 +144,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     }
     const len = delta.length();
     const rising = velocity.y > 0.2;
-    grounded = !rising && delta.y > Math.abs(dt * velocity.y * 0.25);
+    grounded = !rising && Number.isFinite(floorY) && delta.y > Math.abs(dt * velocity.y * 0.25);
     if (len > 1e-5) {
       position.addScaledVector(delta, (len - 1e-5) / len);
       if (!grounded && !rising) {
