@@ -45,6 +45,7 @@ import {
 import type { AvatarLook } from './look';
 import { MOVEMENT } from './core/movement';
 import { STAND_Y } from './physics';
+import { createBootSupport } from './rig/boot-support';
 import { createFlightTurn, type FlightTiming } from './rig/flight-turn';
 import { groundSpeedOf, locomotionFor } from './rig/locomotion';
 import { loadGLTF } from './v2/core';
@@ -104,6 +105,7 @@ export function createAvatarRig(): AvatarRig {
   let actions: (Record<Gait, AnimationAction> & { air: AnimationAction | null }) | null = null;
   const flightTurn = createFlightTurn();
   let hasBackflip = false;
+  let bootSupport: ReturnType<typeof createBootSupport> = null;
   let pose: Pose = 'idle';
   let bank = 0;
   let lastYaw: number | null = null;
@@ -179,6 +181,8 @@ export function createAvatarRig(): AvatarRig {
         hasBackflip = character.id === 'flyer';
         flightTurn.reset();
         body.add(next);
+        lean.position.y = -STAND_Y;
+        bootSupport = createBootSupport(next, lean, group);
         retime();
         if (pose === 'air' && !actions.air) pose = 'idle';
         poseAction(pose).play();
@@ -257,6 +261,7 @@ export function createAvatarRig(): AvatarRig {
       actions.air.time = (AIR_WINDOW[0] + phase * (AIR_WINDOW[1] - AIR_WINDOW[0])) * clip.duration;
     }
     mixer.update(dt);
+    bootSupport?.(dt, !(air?.flight?.airborne ?? air?.airborne));
   }
 
   /** Roll into turns while moving, from the yaw the owner set on `group` this frame. */

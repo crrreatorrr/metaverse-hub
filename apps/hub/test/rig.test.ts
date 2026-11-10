@@ -1,9 +1,10 @@
 // Gait retarget and foot-plant checks on the shipped avatar GLBs (apps/hub/public/world/v2/avatar).
 import assert from 'node:assert/strict';
 import { fileURLToPath } from 'node:url';
-import { AnimationMixer, Box3, Quaternion, Vector3, type AnimationClip, type Object3D, type SkinnedMesh } from 'three';
+import { AnimationMixer, Box3, Object3D, Quaternion, Vector3, type AnimationClip, type SkinnedMesh } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
-import { CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
+import { AVATAR_BLEND, CHARACTERS, SPRINT_SPEED, WALK_SPEED, characterHeight, fliesWhenMoving, walksWithRun } from '../src/config';
+import { createBootSupport } from '../src/rig/boot-support';
 import { measureGroundSpeed, retargetClip } from '../src/rig/gait';
 import { buildLocomotion, groundSpeedOf, onWizardSkeleton, P4_CLIPS } from '../src/rig/locomotion';
 import { loadGLB } from './support/load-glb';
@@ -24,7 +25,7 @@ function restHeight(root: Object3D): number {
 }
 
 /** Boot geometry can be weighted to a shin instead of a foot or toe. */
-function checkBootClearance(root: Object3D, gait: AnimationClip): void {
+function checkBootClearance(root: Object3D, clips: readonly AnimationClip[], fit: number): void {
   const boots: { mesh: SkinnedMesh; indices: number[] }[] = [];
   const vertex = new Vector3();
   root.traverse((obj) => {
@@ -45,6 +46,7 @@ function checkBootClearance(root: Object3D, gait: AnimationClip): void {
   });
   assert.ok(boots.length > 0);
   const lowest = () => {
+    root.parent?.updateWorldMatrix(true, false);
     root.updateMatrixWorld(true);
     let y = Infinity;
     for (const { mesh, indices } of boots) {
@@ -57,10 +59,38 @@ function checkBootClearance(root: Object3D, gait: AnimationClip): void {
   };
   const floor = lowest();
   const mixer = new AnimationMixer(root);
-  mixer.clipAction(gait).play();
-  for (let i = 0; i < 120; i += 1) {
-    mixer.setTime(gait.duration * i / 120);
-    assert.ok(lowest() >= floor - 0.001, `Mega Tinubu's ${gait.name} boot clips the floor at sample ${i}`);
+  for (const name of P4_CLIPS) {
+    const gait = clip(clips, name);
+    mixer.clipAction(gait).play();
+    for (let i = 0; i < 120; i += 1) {
+      mixer.setTime(gait.duration * i / 120);
+      assert.ok(lowest() >= floor - 0.001, `Mega Tinubu's ${name} boot clips the floor at sample ${i}`);
+    }
+    mixer.stopAllAction();
+  }
+  const avatar = new Object3D();
+  const pivot = new Object3D();
+  avatar.add(pivot);
+  pivot.add(root);
+  root.scale.setScalar(fit);
+  root.position.y = -floor * fit;
+  const support = createBootSupport(root, pivot, avatar);
+  assert.ok(support);
+  const idle = mixer.clipAction(clip(clips, 'idle')).play();
+  mixer.update(0.5);
+  const sprint = mixer.clipAction(clip(clips, 'dash')).play();
+  sprint.timeScale = SPRINT_SPEED / (fit * groundSpeedOf(sprint.getClip()));
+  idle.crossFadeTo(sprint, AVATAR_BLEND.idleToMove, false);
+  for (let i = 0; i < 22; i += 1) {
+    mixer.update(1 / 60);
+    support(1 / 60, true);
+  }
+  idle.reset().setEffectiveWeight(1).play();
+  sprint.crossFadeTo(idle, AVATAR_BLEND.moveToIdle, false);
+  for (let i = 0; i < 12; i += 1) {
+    mixer.update(1 / 60);
+    support(1 / 60, true);
+    assert.ok(lowest() >= -0.001, `Mega Tinubu's boot clips while stopping at frame ${i}`);
   }
   mixer.stopAllAction();
   mixer.uncacheRoot(root);
@@ -179,8 +209,8 @@ async function main(): Promise<void> {
     for (const name of P4_CLIPS) {
       const drift = Math.abs(lowest(clip(clips, name)) - floor) * fit;
       assert.ok(drift < 0.06, `${character.id} ${name}: toes ${drift.toFixed(3)} m off the idle floor`);
-      if (character.id === 'megatinubu') checkBootClearance(SkeletonUtils.clone(rig.scene), clip(clips, name));
     }
+    if (character.id === 'megatinubu') checkBootClearance(SkeletonUtils.clone(rig.scene), clips, fit);
   }
   // 4. The Sproto Shooter cast ship a standing `idle` and a measured `run` (the plaza plays it for both gaits, see
   //    `walksWithRun`); the jade dragon hovers in `idle` and flies `walk` and `run`.
