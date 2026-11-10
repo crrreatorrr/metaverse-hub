@@ -409,9 +409,9 @@ HubSchema.register({
 
 // 0040 is already applied, so its fingerprint literal stays. This replaces the
 // live function with the rebaked campaign fingerprint. A fresh database runs
-// 0040 first, then this.
+// 0040 first, then this. 0047 is the duel relic staves migration on main.
 HubSchema.register({
-  id: "0047_shooter_campaign_fingerprint",
+  id: "0048_shooter_campaign_fingerprint",
   statements: [
     `DO $fp$
     DECLARE src text;
