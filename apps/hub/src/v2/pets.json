@@ -38,6 +38,12 @@
     "dur": 0.6,
     "loop": true
    },
+   "idle_trick": {
+    "delay_s": 3,
+    "loop": false,
+    "rearm": "movement",
+    "alternate": "idle_trick_2 when available"
+   },
    "sit_enter": {
     "dur": 0.4,
     "loop": false,
@@ -61,9 +67,51 @@
    }
   },
   "parts_clip": "pet_<name>_parts: 2 s loop, play it always (additively, on top of whichever body clip is playing). It only touches part nodes, never joints.",
-  "idle_rules": "0.5 s stopped -> idle; 10 s idle -> sit_enter then sit"
+  "idle_rules": "0.5 s stopped -> idle; 3 s stopped -> idle_trick once when available; 10 s idle -> sit_enter then sit when available"
  },
  "pets": {
+  "pet_fighter": {
+   "file": "glb/pet_fighter.glb",
+   "lod1": "glb/pet_fighter-lod1.glb",
+   "item_id": "pet_fighter",
+   "rig": "mixamo",
+   "pulses": []
+  },
+  "pet_mecha": {
+   "file": "glb/pet_mecha.glb",
+   "lod1": "glb/pet_mecha-lod1.glb",
+   "item_id": "pet_mecha",
+   "rig": "mixamo",
+   "pulses": []
+  },
+  "pet_president": {
+   "file": "glb/pet_president.glb",
+   "lod1": "glb/pet_president-lod1.glb",
+   "item_id": "pet_president",
+   "rig": "mixamo",
+   "pulses": []
+  },
+  "pet_wizard": {
+   "file": "glb/pet_wizard.glb",
+   "lod1": "glb/pet_wizard-lod1.glb",
+   "item_id": "pet_wizard",
+   "rig": "mixamo",
+   "pulses": []
+  },
+  "pet_runner": {
+   "file": "glb/pet_runner.glb",
+   "lod1": "glb/pet_runner-lod1.glb",
+   "item_id": "pet_runner",
+   "rig": "mixamo",
+   "pulses": []
+  },
+  "pet_soldier": {
+   "file": "glb/pet_soldier.glb",
+   "lod1": "glb/pet_soldier-lod1.glb",
+   "item_id": "pet_soldier",
+   "rig": "mixamo",
+   "pulses": []
+  },
   "pet_sproto_base": {
    "file": "glb/pet_sproto_base.glb",
    "lod1": "glb/pet_sproto_base-lod1.glb",

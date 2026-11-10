@@ -266,6 +266,8 @@ BEGIN
                item_id
         FROM game.item_owned
         WHERE item_id IN ('pet_speed_sproto', 'pet_nobu', 'pet_duelist_sproto',
+                          'pet_fighter', 'pet_mecha', 'pet_president',
+                          'pet_wizard', 'pet_runner', 'pet_soldier',
                           'hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown',
                           'tidebreaker_belt', 'breakwater_coin',
                           'marina_anchor', 'dragon_scale')

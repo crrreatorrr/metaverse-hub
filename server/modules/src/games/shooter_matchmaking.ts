@@ -229,6 +229,7 @@ namespace ShooterMm {
     if (!add || !ctx.userId || !ctx.sessionId) return;
     var props = add.stringProperties || {};
     if (props["game"] !== ShooterProto.GAME_ID) return;
+    if (Maint.on(nk)) throw new Error("maintenance");
     if (props["mode"] === "practice") throw new Error("practice_offline");
     var asProps = props as { [key: string]: string | number };
     if (props["mode"] === "wager" || props["stake"] === String(ShooterWagers.STAKE)) {
@@ -303,6 +304,7 @@ namespace ShooterMm {
       for (var j = 0; j < ids.length; j++) setLive(nk, ids[j], existing);
       return existing;
     }
+    if (Maint.on(nk)) return;
     for (var k = 0; k < ids.length; k++) {
       if (liveMatch(nk, ids[k])) {
         logger.info("sproto_shooter_free skip, already in a match");

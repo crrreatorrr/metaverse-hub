@@ -1,3 +1,6 @@
+import FOLLOWERS from '../../../server/data/follower-pets.json';
+import { createPetMotion, type PetCollision } from './core/pet-motion';
+import { createPetFollower, EQUIPPABLE_PET_IDS, type PetFollower } from './v2/pets';
 import type { RealmId } from './core/realm-id';
 // Remote plaza avatars for up to 100 players.
 //   near: the NEAR_MAX closest within NEAR_RADIUS get a full skinned rig (pooled),
@@ -14,6 +17,7 @@ import {
   Matrix4,
   MeshStandardMaterial,
   Quaternion,
+  SphereGeometry,
   Vector3,
   type Camera,
   type Object3D,
@@ -35,10 +39,13 @@ const HYSTERESIS = 3;
 const TIER_EVERY_MS = 250;
 const FAR_CAPACITY = 100;
 const LABEL_RADIUS = 25;
+const PET_SPEEDS = new Map(FOLLOWERS.map(pet => [pet.id, pet.followSpeed]));
 
 interface NearSlot {
   root: Group;
   rig: AvatarRig;
+  pet: PetFollower;
+  detailedPet: boolean;
   slot: number | null;
   version: number;
   label: HTMLDivElement;
@@ -59,11 +66,13 @@ export interface Remotes {
   positionOf(userId: string, out: Vector3): Vector3 | null;
   /** Players drawn this frame by tier. */
   readonly counts: { near: number; far: number };
+  setPetsHidden(hidden: boolean): void;
   dispose(): void;
 }
 
 export interface RemotesOptions {
   realm?: RealmId;
+  petCollision?: PetCollision;
   hud: HTMLElement;
   /** Near-tier avatars for the orbit-gem instancer. */
   setOrbitAvatars?: (avatars: OrbitAvatar[]) => void;
@@ -91,6 +100,17 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   far.name = 'remote-far';
   root.add(far);
 
+  // Two nearby followers get animated models; the rest share one instanced draw.
+  const petGeometry = new SphereGeometry(0.24, 6, 4);
+  const petMaterial = new MeshStandardMaterial({ color: '#a8dcff', roughness: 0.8 });
+  const farPets = new InstancedMesh(petGeometry, petMaterial, FAR_CAPACITY);
+  farPets.instanceMatrix.setUsage(DynamicDrawUsage);
+  farPets.frustumCulled = false;
+  farPets.count = 0;
+  root.add(farPets);
+  const petMotions = new Map<number, ReturnType<typeof createPetMotion>>();
+  let petsHidden = false;
+
   const near: NearSlot[] = [];
   const nearBySlot = new Map<number, NearSlot>();
   const rendered = new Map<number, Pose>();
@@ -115,7 +135,10 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     label.className = 'remote-name';
     label.hidden = true;
     opts.hud.append(label);
-    return { root: group, rig, slot: null, version: -1, label, lastY: null, vy: 0, lastPoseAt: null, descending: false, airborne: false };
+    return {
+      root: group, rig, pet: createPetFollower(root, opts.petCollision), detailedPet: near.length < 2,
+      slot: null, version: -1, label, lastY: null, vy: 0, lastPoseAt: null, descending: false, airborne: false,
+    };
   }
 
   function lookFor(p: RemotePlayer) {
@@ -129,6 +152,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   function assign(slotObj: NearSlot, p: RemotePlayer): void {
     slotObj.slot = p.slot;
     slotObj.version = p.version;
+    void slotObj.pet.setPet(slotObj.detailedPet && EQUIPPABLE_PET_IDS.includes(p.pet) ? p.pet : null).catch(console.warn);
     slotObj.lastY = null;
     slotObj.vy = 0;
     slotObj.lastPoseAt = null;
@@ -143,6 +167,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   function release(slotObj: NearSlot): void {
     if (slotObj.slot !== null) nearBySlot.delete(slotObj.slot);
     slotObj.slot = null;
+    void slotObj.pet.setPet(null);
     slotObj.root.visible = false;
     slotObj.label.hidden = true;
   }
@@ -203,16 +228,18 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
       }
       if (p.version !== n.version) {
         n.version = p.version;
+        void n.pet.setPet(n.detailedPet && EQUIPPABLE_PET_IDS.includes(p.pet) ? p.pet : null).catch(console.warn);
         n.rig.setLook(lookFor(p));
         n.label.textContent = p.name;
       }
     }
-    for (const slot of [...rendered.keys()]) if (!world.players.has(slot)) rendered.delete(slot);
+    for (const slot of [...rendered.keys()]) if (!world.players.has(slot)) { rendered.delete(slot); petMotions.delete(slot); }
     syncOrbit();
   });
 
   return {
     counts,
+    setPetsHidden(hidden) { petsHidden = hidden; },
     update(dt, nowMs, camera, localPos) {
       const localZone = zoneOf(localPos.y, opts.realm);
       for (const p of world.players.values()) {
@@ -234,12 +261,28 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         retier(localPos, localZone);
       }
 
+      let petCount = 0;
       let farCount = 0;
       let nearCount = 0;
       const { width, height } = opts.viewport();
       for (const [slot, r] of rendered) {
         if (zoneOf(r.y, opts.realm) !== localZone) continue;
+        const p = world.players.get(slot);
         const n = nearBySlot.get(slot);
+        if (!petsHidden && p && EQUIPPABLE_PET_IDS.includes(p.pet)) {
+          v.set(r.x, r.y, r.z);
+          if (n?.detailedPet) n.pet.update(dt, v, STAND_Y, r.anim === 2);
+          else {
+            let motion = petMotions.get(slot);
+            if (!motion) { motion = createPetMotion(opts.petCollision); petMotions.set(slot, motion); }
+            motion.setFollowSpeed(PET_SPEEDS.get(p.pet) ?? 8);
+            motion.update(dt, v, STAND_Y);
+            v.copy(motion.position).y += 0.28 + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04;
+            q.identity();
+            m.compose(v, q, s);
+            farPets.setMatrixAt(petCount++, m);
+          }
+        } else if (n) n.pet.group.visible = false;
         if (n) {
           nearCount += 1;
           n.root.visible = true;
@@ -279,7 +322,6 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
           continue;
         }
         if (farCount >= FAR_CAPACITY) continue;
-        const p = world.players.get(slot);
         q.setFromAxisAngle(up, -r.yaw);
         v.set(r.x, r.y - STAND_Y + 0.82, r.z);
         m.compose(v, q, s);
@@ -292,9 +334,12 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         const r = rendered.get(n.slot);
         if (!r || zoneOf(r.y, opts.realm) !== localZone) {
           n.root.visible = false;
+          n.pet.group.visible = false;
           n.label.hidden = true;
         }
       }
+      farPets.count = petCount;
+      farPets.instanceMatrix.needsUpdate = true;
       far.count = farCount;
       far.instanceMatrix.needsUpdate = true;
       if (far.instanceColor) far.instanceColor.needsUpdate = true;
@@ -314,6 +359,9 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     dispose() {
       unsubscribe();
       scene.remove(root);
+      for (const n of near) n.pet.dispose();
+      petGeometry.dispose();
+      petMaterial.dispose();
       capsule.dispose();
       farMat.dispose();
       for (const n of near) n.label.remove();

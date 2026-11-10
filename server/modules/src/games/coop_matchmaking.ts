@@ -205,6 +205,7 @@ namespace CoopMm {
     if (!add || !ctx.userId || !ctx.sessionId) return;
     var props = add.stringProperties || {};
     if (props["game"] !== CoopProto.GAME_ID) return;
+    if (Maint.on(nk)) throw new Error("maintenance");
     if (!CoopMatch.open(ctx)) throw new Error("capacity_dark");
     if (props["v"] !== String(CoopProto.PROTOCOL) || props["sim"] !== CoopProto.FINGERPRINT) throw new Error("version_mismatch");
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
@@ -233,6 +234,7 @@ namespace CoopMm {
    */
   export function onMatched(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
     if (!CoopMatch.open(_ctx)) return;
+    if (Maint.on(nk)) return;
     if (!matches || matches.length < 1 || matches.length > 6) return;
     var ids: string[] = [];
     var seen: { [id: string]: boolean } = {};

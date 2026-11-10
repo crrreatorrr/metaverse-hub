@@ -58,4 +58,38 @@ function block(name: string): string {
   assert.equal(res.error, 'not_hub_session');
 }
 
+// Existing relic claims unlock the new cosmetics through profile and loadout,
+// while item_owned rows alone cannot unlock a relic pet.
+{
+  const mappings = [
+    ['tidebreaker_belt', 'pet_fighter'],
+    ['breakwater_coin', 'pet_mecha'],
+    ['genesis_shard', 'pet_president'],
+    ['tinubu_crown', 'pet_wizard', 'pet_duelist_sproto'],
+    ['hpos10i_core', 'pet_runner', 'pet_speed_sproto'],
+    ['dragon_scale', 'pet_soldier'],
+  ];
+  for (const [relic, pet, legacy] of mappings) {
+    const server = loadModule();
+    const userId = '11111111-1111-4111-8111-111111111111';
+    const ctx = { userId, vars: { scope: 'hub' } };
+    const pets = server.global.HubPets as {
+      profilePets(nk: unknown, user: string): { owned: string[]; active: string | null };
+    };
+    const profile = () => JSON.parse(JSON.stringify(pets.profilePets(server.nk, userId)));
+    let claimed = false;
+    server.nk.onSql(/SELECT COALESCE\(json_agg\(item_id ORDER BY item_id\)/, () => [{ result: JSON.stringify([pet]) }]);
+    server.nk.onSql(/SELECT COALESCE\(json_agg\(relic_id\)/, () => [{ result: JSON.stringify(claimed ? [relic] : []) }]);
+    server.nk.onSql(/SELECT to_char\(now\(\)/, [{ result: '2026-01-01T00:00:00Z' }]);
+    assert.deepEqual(profile(), { owned: ['pet_starter'], active: null });
+    const equip = () => server.call<{ ok: boolean; reason?: string }>('loadout.set_hub', ctx, { v: 1, pet, seq: 1 });
+    assert.equal(equip().reason, 'not_owned');
+    claimed = true;
+    const owned = (legacy ? [legacy, pet, 'pet_starter'] : [pet, 'pet_starter']).sort();
+    assert.deepEqual(profile(), { owned, active: null });
+    assert.equal(equip().ok, true);
+    assert.deepEqual(profile(), { owned, active: pet });
+  }
+}
+
 console.log('item grant tests ok');
