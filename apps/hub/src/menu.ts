@@ -1,6 +1,6 @@
 import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
-import { CHARACTERS, STAFFS, holdsStaff, type CharacterId, type StaffId } from './config';
+import { CHARACTERS, DEFAULT_STAFF, STAFFS, STAFF_RELICS, holdsStaff, type CharacterId, type StaffId } from './config';
 import { cleanName, defaultLook, type AvatarLook } from './look';
 import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
@@ -37,9 +37,9 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 /** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
 const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
   hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Sun God' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green', unlock: 'Genesis Block Shard aura · Moonward Staff (Sproto Duel)' },
   cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Pissing Sproto' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto', unlock: "Tinubu's Crown aura · Fighter Staff (Sproto Duel)" },
   tidebreaker_belt: {
     game: 'Sproto Fighter (Bar arcade)',
     how: 'Win Story World 1, Tidebreaker Marina.',
@@ -52,7 +52,7 @@ const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; figh
     how: 'Beat Fat Head Dave at Tidebreak Marina, the first story boss. God mode counts.',
     pet: '',
     fighter: 'Pissing Sproto',
-    unlock: "Repeats Cone's Tip: Nobu's staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
+    unlock: "Alien Ray Staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
   },
   marina_anchor: {
     game: 'Sproto Coop Battle (Bar arcade)',
@@ -66,7 +66,7 @@ const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; figh
     how: 'Clear wave 1 of Wave Mode. God mode counts.',
     pet: '',
     fighter: '',
-    unlock: 'Dragon Scale aura · no items in other games yet',
+    unlock: 'Dragon Scale aura · Shooter Staff (Sproto Duel)',
   },
 };
 
@@ -375,6 +375,8 @@ export function createMenu(options: MenuOptions): Menu {
       const on = id === look.staff;
       button.classList.toggle('on', on);
       button.setAttribute('aria-pressed', String(on));
+      const relic = STAFF_RELICS[id];
+      button.disabled = relic !== undefined && !relics.has(relic);
     }
     const empty = Boolean(character && !own && !holdsStaff(character));
     staffGrid.classList.toggle('muted', own || empty);
@@ -757,9 +759,12 @@ export function createMenu(options: MenuOptions): Menu {
     hide,
     setRelics(ids) {
       relics = new Set(ids);
-      // A Relic that is no longer owned (restored to another guest) drops its aura.
+      // Drop cosmetics that require a Relic this profile no longer owns.
       const look = options.look();
-      if (look.aura !== 'none' && !relics.has(look.aura)) options.setLook({ ...look, aura: 'none' });
+      const aura = look.aura === 'none' || relics.has(look.aura) ? look.aura : 'none';
+      const staffRelic = STAFF_RELICS[look.staff];
+      const staff = staffRelic && !relics.has(staffRelic) ? DEFAULT_STAFF : look.staff;
+      if (aura !== look.aura || staff !== look.staff) options.setLook({ ...look, aura, staff });
       if (open) {
         paintLook();
         paintItems();

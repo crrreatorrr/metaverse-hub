@@ -1304,6 +1304,11 @@ button:disabled {
   text-align: center;
 }
 
+.staff-card:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .staff-icon {
   display: grid;
   place-items: center;
