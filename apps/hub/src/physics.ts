@@ -50,6 +50,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
   const triPoint = new Vector3();
   const capsulePoint = new Vector3();
   const delta = new Vector3();
+  const previousPosition = new Vector3();
   let grounded = true;
   let facingYaw = 0;
 
@@ -66,6 +67,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     else velocity.y += dt * GRAVITY;
     velocity.y = Math.max(velocity.y, MOVEMENT.terminal);
 
+    previousPosition.copy(position);
     position.addScaledVector(velocity, dt);
 
     const mag = Math.hypot(input.forward, input.strafe);
@@ -91,15 +93,33 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     tempBox.min.addScalar(-CAPSULE_RADIUS);
     tempBox.max.addScalar(CAPSULE_RADIUS);
 
+    let floorContact = false;
+    let ceilingContact = false;
     bvh.shapecast({
       intersectsBounds: (box) => (box.intersectsBox(tempBox) ? INTERSECTED : NOT_INTERSECTED),
       intersectsTriangle: (tri) => {
         const distance = tri.closestPointToSegment(tempSegment, triPoint, capsulePoint);
         if (distance < CAPSULE_RADIUS) {
-          const depth = CAPSULE_RADIUS - distance;
+          let depth = CAPSULE_RADIUS - distance;
           const direction = capsulePoint.sub(triPoint);
-          if (direction.lengthSq() < 1e-12) direction.set(0, 1, 0);
-          else direction.normalize();
+          if (direction.lengthSq() < 1e-12) {
+            tri.getNormal(direction);
+            // When the segment crosses a face, separate to the side it came from.
+            capsulePoint.copy(previousPosition).sub(triPoint);
+            capsulePoint.y -= CAPSULE_LENGTH / 2;
+            if (direction.dot(capsulePoint) < 0) direction.negate();
+          } else direction.normalize();
+          // Classify each contact before adding its correction. A large wall
+          // correction must never hide a smaller floor or ceiling correction.
+          if (direction.y >= 0.45) floorContact = true;
+          else if (direction.y <= -0.45) ceilingContact = true;
+          else {
+            direction.y = 0;
+            const horizontal = direction.length();
+            if (horizontal < 1e-8) return false;
+            direction.divideScalar(horizontal);
+            depth /= horizontal;
+          }
           tempSegment.start.addScaledVector(direction, depth);
           tempSegment.end.addScaledVector(direction, depth);
         }
@@ -108,29 +128,15 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     });
 
     delta.subVectors(tempSegment.start, position);
-    // A steep contact (wall, curb, pedestal) must not lift the capsule.
-    // The rounded bottom otherwise walks up any vertical face.
-    const separated = delta.length();
-    if (separated > 1e-8 && delta.y / separated < 0.45) delta.y = 0;
     const len = delta.length();
-    const rising = velocity.y > 0.2;
-    grounded = !rising && delta.y > Math.abs(dt * velocity.y * 0.25);
-    if (len > 1e-5) {
-      const offset = len - 1e-5;
-      delta.multiplyScalar(offset / len);
-      position.add(delta);
-      if (grounded) velocity.set(0, 0, 0);
-      else if (!rising) {
-        delta.multiplyScalar(1 / Math.max(offset, 1e-8));
-        velocity.addScaledVector(delta, -delta.dot(velocity));
-      }
-    } else if (grounded) {
-      velocity.set(0, 0, 0);
-    }
+    if (len > 1e-5) position.addScaledVector(delta, (len - 1e-5) / len);
+    grounded = floorContact && velocity.y <= 0;
+    if (grounded || (ceilingContact && velocity.y > 0)) velocity.y = 0;
   }
 
   function step(dt: number, input: MoveInput, speeds: MoveSpeeds): void {
     const frame = Math.min(Math.max(dt, 0), 0.05);
+    if (frame === 0) return;
     if (input.jump && grounded) {
       velocity.y = JUMP_VELOCITY;
       grounded = false;

@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { BoxGeometry } from 'three';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
@@ -43,3 +46,32 @@ for (let direction = 0; direction < 1; direction++) {
 }
 collider.geometry.dispose();
 console.log('locked movement and live plaza capsule ok', { restY, jump: peak - restY });
+
+// Sprint into a wall, then jump through the low passage at several frame rates.
+const ceiling = 2.48;
+const wall = 2;
+const pieces = [
+  new BoxGeometry(20, 1, 20).translate(0, -0.5, 0),
+  new BoxGeometry(10, 0.2, 10).translate(0, ceiling + 0.1, 0),
+  new BoxGeometry(1, 4, 20).translate(wall + 0.5, 2, 0),
+];
+const passage = mergeGeometries(pieces);
+for (const geometry of pieces) geometry.dispose();
+const indoors = createPlayerController(new MeshBVH(passage));
+for (const hz of [20, 60, 120]) {
+  const dt = 1 / hz;
+  indoors.spawn(0, STAND_Y, 0);
+  const towardWall = { ...idle, strafe: 1, sprint: true };
+  for (let i = 0; i < hz; i++) indoors.step(dt, towardWall, speeds);
+  assert.ok(Math.abs(indoors.position.x - (wall - CAPSULE_RADIUS)) < 0.01, `wall contact at ${hz} Hz`);
+  assert.ok(Math.abs(indoors.position.y - STAND_Y) < 0.01, `wall does not lift capsule at ${hz} Hz`);
+  let maxTop = 0;
+  for (let i = 0; i < hz; i++) {
+    indoors.step(dt, { ...idle, strafe: -0.25, jump: i === 0 }, speeds);
+    maxTop = Math.max(maxTop, indoors.position.y + CAPSULE_RADIUS);
+  }
+  assert.ok(maxTop > ceiling - 0.1 && maxTop <= ceiling + 0.001, `jump meets the ceiling at ${hz} Hz: ${maxTop}`);
+  assert.ok(indoors.grounded && Math.abs(indoors.position.y - STAND_Y) < 0.01, `jump lands at ${hz} Hz`);
+}
+passage.dispose();
+console.log('capsule wall, ceiling, and landing contacts ok at 20/60/120 Hz');
