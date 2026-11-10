@@ -253,6 +253,7 @@ assert.ok(settled < afterCeiling, 'the tuck settles into anticipation');
 assert.equal(coarseFlight.update({ dt: 0.05, airborne: true }, -2.8), settled);
 coarseFlight.reset();
 coarseFlight.update({ dt: 0.05, airborne: true, remote: true, takeoff: true }, 4);
+assert.equal(coarseFlight.needsRecovery, false, 'a landing during upright anticipation blends from the current pose');
 const beforeRemoteLanding = coarseFlight.update({ dt: 0.0655, airborne: true, remote: true }, -2);
 assert.ok(beforeRemoteLanding < 0.55 && coarseFlight.needsRecovery, 'an uneven remote frame needs recovery even before mid-turn');
 coarseFlight.update({ dt: 0.05, airborne: false, remote: true }, 0);

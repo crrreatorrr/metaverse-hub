@@ -4,6 +4,8 @@ import { MOVEMENT } from '../core/movement';
 const TURN_SECONDS = 0.23;
 const ABORT_SECONDS = 0.12;
 const ANTICIPATION_SECONDS = TURN_SECONDS * 0.18;
+// The authored rotation begins after the anticipation poses.
+const TUCK_SECONDS = TURN_SECONDS * 0.34;
 
 export interface FlightTiming {
   airborne: boolean;
@@ -52,6 +54,6 @@ export function createFlightTurn() {
     update,
     reset,
     get launched() { return sawLaunch; },
-    get needsRecovery() { return sawLaunch && !interrupted && elapsed < TURN_SECONDS; },
+    get needsRecovery() { return !interrupted && elapsed > TUCK_SECONDS && elapsed < TURN_SECONDS; },
   };
 }
