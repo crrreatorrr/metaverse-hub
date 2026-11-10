@@ -10,8 +10,8 @@ interface BootProbe {
 }
 
 /** Keep the rendered boots above the capsule floor after the mixer blends its poses. */
-export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object3D) {
-  if (rig.userData.boot_support !== true) return null;
+export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object3D, nativeFeet = false) {
+  if (rig.userData.boot_support !== true && !nativeFeet) return null;
   const boots: BootProbe[] = [];
   rig.traverse((object) => {
     const mesh = object as SkinnedMesh;
@@ -30,7 +30,7 @@ export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object
         if (weights.getComponent(i, j) > weights.getComponent(i, dominant)) dominant = j;
       }
       const bone = mesh.skeleton.bones[joints.getComponent(i, dominant)];
-      if (!bone || !/^(Left|Right)(Leg|Foot|ToeBase)$/.test(bone.name)) continue;
+      if (!bone || !/^(?:(?:mixamorig:?)?(?:Left|Right)(?:Leg|Foot|ToeBase)|[LR]_(?:Foot|ToeBase))$/.test(bone.name)) continue;
       vertices.push(i);
       rest.push(positions.getX(i), positions.getY(i), positions.getZ(i));
       for (let j = 0; j < 4; j += 1) {

@@ -99,6 +99,61 @@ function checkBootClearance(root: Object3D, clips: readonly AnimationClip[], fit
   mixer.uncacheRoot(root);
 }
 
+/** Exercise the production support against native bones after Three sanitizes their names. */
+function checkNativeSupport(id: string, root: Object3D, clips: readonly AnimationClip[]): void {
+  const avatar = new Object3D();
+  const pivot = new Object3D();
+  root.updateMatrixWorld(true);
+  const restFloor = new Box3().setFromObject(root, true).min.y;
+  avatar.position.set(-2, 0.86, 3);
+  avatar.rotation.y = -0.4;
+  avatar.add(pivot);
+  pivot.add(root);
+  root.position.y = -restFloor;
+  const support = createBootSupport(root, pivot, avatar, true);
+  assert.ok(support, 'native creature supplies foot probes');
+  const feet: { mesh: SkinnedMesh; indices: number[] }[] = [];
+  root.traverse((object) => {
+    const mesh = object as SkinnedMesh;
+    if (!mesh.isSkinnedMesh) return;
+    const joints = mesh.geometry.getAttribute('skinIndex');
+    const weights = mesh.geometry.getAttribute('skinWeight');
+    const indices: number[] = [];
+    for (let i = 0; i < joints.count; i++) {
+      let footWeight = 0;
+      for (let j = 0; j < weights.itemSize; j++) {
+        const name = mesh.skeleton.bones[joints.getComponent(i, j)]?.name ?? '';
+        if (/foot|toe/i.test(name)) footWeight += weights.getComponent(i, j);
+      }
+      if (footWeight >= 0.55) indices.push(i);
+    }
+    if (indices.length) feet.push({ mesh, indices });
+  });
+  assert.ok(feet.length);
+  const mixer = new AnimationMixer(root);
+  let previous = mixer.clipAction(clip(clips, 'idle')).play();
+  const point = new Vector3();
+  for (const name of ['run', 'idle', 'jump', 'run', 'idle']) {
+    const next = mixer.clipAction(clip(clips, name)).reset().setEffectiveWeight(1).play();
+    previous.crossFadeTo(next, 0.2, false);
+    for (let frame = 0; frame < 30; frame++) {
+      mixer.update(1 / 60);
+      support(1 / 60, true);
+      if (frame < 6) continue;
+      avatar.updateMatrixWorld(true);
+      for (const { mesh, indices } of feet) {
+        for (const index of indices) {
+          mesh.getVertexPosition(index, point).applyMatrix4(mesh.matrixWorld);
+          assert.ok(point.y >= avatar.position.y - 0.001, `${id} foot ${point.y-avatar.position.y} clips during ${name} at frame ${frame}`);
+        }
+      }
+    }
+    previous = next;
+  }
+  mixer.stopAllAction();
+  mixer.uncacheRoot(root);
+}
+
 async function main(): Promise<void> {
   const wizard = await loadGLB(`${PUBLIC}world/v2/avatar/wizard.glb`);
 
@@ -229,6 +284,7 @@ async function main(): Promise<void> {
     const clips = buildLocomotion(rig, null);
     clip(clips, 'idle');
     for (const name of ['walk', 'run']) assert.ok(groundSpeedOf(clip(clips, name)) > 0, `${character.id} ${name} has a planted-foot stride`);
+    if (character.id !== 'soldier') checkNativeSupport(character.id, SkeletonUtils.clone(rig.scene), clips);
   }
   {
     const dragon = CHARACTERS.find((entry) => entry.id === 'dragon');

@@ -196,7 +196,7 @@ export function createAvatarRig(): AvatarRig {
         flightTurn.reset();
         body.add(next);
         lean.position.y = -STAND_Y;
-        bootSupport = createBootSupport(next, lean, group);
+        bootSupport = createBootSupport(next, lean, group, walksWithRun(character));
         retime();
         if (pose === 'air' && !actions.air) pose = 'idle';
         poseAction(pose).play();
