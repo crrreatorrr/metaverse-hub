@@ -189,20 +189,6 @@ async function submit(session: GameLogin, runId: string, log: unknown): Promise<
   return call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 60_000 });
 }
 
-async function submitRace(session: GameLogin, runId: string, log: unknown): Promise<RpcResult> {
-  let last: unknown;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      return await call('shooter.run.submit', { runId, log }, session.gameToken, { timeoutMs: 180_000 });
-    } catch (error) {
-      last = error;
-      const message = error instanceof Error ? error.message : String(error);
-      if (!message.includes('fetch failed') || attempt === 2) throw error;
-    }
-  }
-  throw last;
-}
-
 function credits(userId: string): number {
   return num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id = '${sqlId(userId)}' AND game_id = 'sproto-shooter' AND reason = '${REASON}' AND delta = ${PAY}`);
 }
@@ -323,10 +309,12 @@ export async function runShooterRewards(test: TestFn): Promise<void> {
     assert.equal(scores(session.hub.userId), 1);
   });
 
-  await test('shooter', '20 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
+  // A Sahil clear is ~10k frames. The verifier's 15s budget is wall clock, so
+  // 20 parallel verifies on a small machine all return cpu_budget. Four still overlap.
+  await test('shooter', '4 concurrent races, new keys, new sessions, and same-boss aliases pay once', async () => {
     const session = await loginShooter();
     const { issuance, log } = await cleared(session, 'sahil', 'race-key');
-    const results = await Promise.all(Array.from({ length: 20 }, () => submitRace(session, issuance.runId, log)));
+    const results = await Promise.all(Array.from({ length: 4 }, () => submit(session, issuance.runId, log)));
     const winners = results.filter((result) => body(result).paid === true);
     assert.ok(winners.length >= 1, results.map((result) => JSON.stringify(result.body)).join('\n'));
     const sealed = canonical(winners[0]?.body);

@@ -311,13 +311,30 @@ export async function call(
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   else params.set('http_key', HTTP_KEY);
-  const timeout = opts?.signal ?? AbortSignal.timeout(opts?.timeoutMs ?? 20_000);
-  const response = await fetch(`${BASE}/v2/rpc/${encodeURIComponent(name)}?${params}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal: timeout,
-  });
+  const send = async (): Promise<Response> => {
+    const timeout = opts?.signal ?? AbortSignal.timeout(opts?.timeoutMs ?? 20_000);
+    try {
+      return await fetch(`${BASE}/v2/rpc/${encodeURIComponent(name)}?${params}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: timeout,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const cause = error instanceof Error && error.cause instanceof Error ? error.cause.message : '';
+      throw new Error(cause ? `${message}: ${cause}` : message);
+    }
+  };
+  let response: Response;
+  try {
+    response = await send();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    // Nakama closes an idle keep-alive socket. The request was not read.
+    if (!message.includes('fetch failed')) throw error;
+    response = await send();
+  }
   const text = await response.text();
   let parsed: RpcBody = {};
   if (text) {
