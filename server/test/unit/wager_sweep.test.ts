@@ -116,6 +116,10 @@ const AGE = /interval '1200 seconds'/;
 // The lazy expiry on a new Fighter pair stays.
 {
   const mod = loadModule();
+  // This fixture exercises enabled wagers; default-off coverage lives in duel_wager_flag.test.ts.
+  mod.nk.onSql('FROM game.server_flags', (args) => args[0] === 'sproto_duel_wager'
+    ? [{ result: JSON.stringify({ state: 'on', allowlist: [], percent: 0 }) }]
+    : []);
   const sim = String(mod.global.SPROTO_SIM_VERSION ?? '');
   const boot = expireCalls(mod).length;
   const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
