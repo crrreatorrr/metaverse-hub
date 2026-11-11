@@ -40,6 +40,7 @@ import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalD
 
 import { createEngine } from './engine';
 import { createCameraFollow } from './camera-follow';
+import { createCameraArm, createCameraPitch, createCameraPreview, createCameraTarget } from './camera-motion';
 import { PAD, PAD_TUNING, createPadReader, loadMoveStick, padPrompt, rumble, saveMoveStick, stickClicks, type MoveStick, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
@@ -218,6 +219,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let padBlocked = true;
   let yaw = initial.yaw;
   const cameraFollow = createCameraFollow();
+  const cameraPitch = createCameraPitch();
+  const cameraTarget = createCameraTarget();
+  const cameraArm = createCameraArm();
+  const cameraPreview = createCameraPreview();
   /** Yaw the body shows: eases toward the controller's facing instead of snapping. */
   let bodyYaw = initial.yaw;
   /** Seconds off the ground, so a step down a curb does not flash the jump pose. */
@@ -238,11 +243,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let guestLabel = 'Guest';
   /** 0 = play camera, 1 = menu preview in front of the avatar. */
   let preview = 0;
-  let previewSpin = 0;
   const savedView = { yaw: 0, pitch: 0 };
   const timer = new Timer();
   timer.connect(document);
   const lookTarget = new Vector3();
+  const playerLookTarget = new Vector3();
   const desiredPos = new Vector3();
   const rayDir = new Vector3();
   const camPos = new Vector3();
@@ -347,16 +352,17 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (chat.open) chat.hide();
       savedView.yaw = yaw;
       savedView.pitch = pitch;
-      previewSpin = 0;
+      cameraPreview.open(player.facingYaw);
     },
     onClose() {
       keys.clear();
       yaw = savedView.yaw;
       pitch = savedView.pitch;
       cameraFollow.reset();
+      cameraPitch.reset();
     },
     onSpin(delta) {
-      previewSpin += delta;
+      cameraPreview.spin(delta);
     },
     moveStick: () => moveStick,
     setMoveStick(next) {
@@ -441,6 +447,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   window.addEventListener('blur', () => {
     keys.clear();
     dragging = false;
+    cameraFollow.reset();
+    cameraPitch.reset();
   });
 
   const canvas = world.renderer.domElement;
@@ -467,11 +475,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   world.renderer.setAnimationLoop((timestamp) => {
     timer.update(timestamp);
     const dt = Math.min(timer.getDelta(), 0.05);
-    preview = MathUtils.damp(preview, menu.open ? 1 : 0, 9, dt);
-    if (!menu.open && preview < 0.002) preview = 0;
+    preview = cameraPreview.step(dt, menu.open);
     if (!menu.open) orbitCamera(dt);
     const pads = navigator.getGamepads?.() ?? [];
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
+    if (controlsBlocked()) cameraPitch.reset();
+    else pitch += cameraPitch.step(dt, MOVEMENT.pitchMin - pitch, MOVEMENT.pitchMax - pitch);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const inputAmount = Math.hypot(input.forward, input.strafe);
@@ -513,6 +522,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       dwell = initialDwell();
       yaw = warp.yaw;
       cameraFollow.reset();
+      cameraPitch.reset();
+      cameraTarget.reset();
+      cameraArm.reset();
+      cameraPreview.reset();
+      preview = 0;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
       planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
@@ -520,7 +534,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       airTime = 0;
       world.avatar.rotation.y = -bodyYaw;
     }
-    if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
+    if (!new URLSearchParams(window.location.search).get('shot')) placeCamera(dt);
     placeOverhead(dt);
     fadeLabels();
     updateHint();
@@ -573,9 +587,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   function turnCamera(horizontal: number, vertical: number): void {
     if (horizontal === 0 && vertical === 0) return;
-    yaw += horizontal;
-    pitch = MathUtils.clamp(pitch + vertical, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
     cameraFollow.manualLook(horizontal);
+    cameraPitch.queue(vertical);
   }
 
   function readInput(padMove: PadMove = NO_PAD_MOVE): MoveInput {
@@ -657,7 +670,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       }
       if (root && frame.nav) padFocus.move(root, frame.nav);
       if (root && frame.pressed(PAD.A)) padFocus.activate(root);
-      previewSpin += frame.look.x * PAD_TUNING.previewSpinRate * dt;
+      cameraPreview.spin(frame.look.x * PAD_TUNING.previewSpinRate * dt);
       return NO_PAD_MOVE;
     }
 
@@ -685,7 +698,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     }
     const clicks = stickClicks(moveStick);
     if (frame.pressed(clicks.look)) {
-      pitch = MOVEMENT.initialPitch;
+      cameraPitch.recenter(MOVEMENT.initialPitch - pitch);
       cameraFollow.recenter();
     }
     const moving = frame.move.x !== 0 || frame.move.y !== 0;
@@ -711,56 +724,62 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   /**
    * Spring arm from `look` toward yaw/pitch, pulled in when the BVH is in the
-   * way. Writes into `out`.
+   * way. Writes into `out` and returns the unobstructed fraction of the view.
    */
-  function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number, out: Vector3): Vector3 {
+  function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number, out: Vector3, dt: number): number {
     const cp = Math.cos(armPitch);
     desiredPos.set(
       target.x - Math.sin(armYaw) * arm * cp,
       target.y + Math.sin(armPitch) * arm,
       target.z + Math.cos(armYaw) * arm * cp,
     );
-    rayDir.subVectors(desiredPos, target);
+    // Collision starts at the actual player, so a lagging focus point cannot cut through a corner.
+    rayDir.subVectors(desiredPos, playerLookTarget);
     const len = rayDir.length();
     out.copy(desiredPos);
     if (len > 0.001) {
       rayDir.multiplyScalar(1 / len);
-      ray.origin.copy(target);
+      ray.origin.copy(playerLookTarget);
       ray.direction.copy(rayDir);
       const hit = world.collider.bvh.raycastFirst(ray, DoubleSide);
-      if (hit && hit.distance < len && hit.distance > 0.05) {
-        out.copy(target).addScaledVector(rayDir, Math.max(MOVEMENT.armMin, hit.distance - MOVEMENT.armOffset));
-      }
+      const clearance = hit && hit.distance < len ? Math.max(0.05, hit.distance - MOVEMENT.armOffset) / len : 1;
+      const fraction = cameraArm.step(dt, clearance);
+      out.copy(playerLookTarget).addScaledVector(rayDir, len * fraction);
+      return fraction;
     }
-    return out;
+    return 1;
   }
 
   /**
    * Third-person spring arm. Mouse yaw/pitch orbit the avatar; the BVH keeps the camera out of walls.
    * With the menu open the camera swings in front of the avatar and the view shifts right of the panel.
    */
-  function placeCamera(): void {
-    const target = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
+  function placeCamera(dt: number): void {
+    playerLookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
+    const target = lookTarget.copy(cameraTarget.step(dt, playerLookTarget));
+    let focusFraction: number;
     if (preview > 0) {
       // Swing round the avatar on the arm (angles, not positions), so the camera never cuts through the body.
       const height = bodyHeight();
       const feet = player.position.y - STAND_Y;
       previewLook.set(player.position.x, feet + height * 0.55, player.position.z);
       target.lerp(previewLook, preview);
-      const front = player.facingYaw + Math.PI + previewSpin;
-      const turn = Math.atan2(Math.sin(front - yaw), Math.cos(front - yaw));
-      armFrom(
+      focusFraction = armFrom(
         target,
-        yaw + turn * preview,
+        cameraPreview.yaw(yaw),
         MathUtils.lerp(pitch, 0.08, preview),
         MathUtils.lerp(CAMERA_ARM, 2.2 + height * 1.25, preview),
         camPos,
+        dt,
       );
     } else {
-      armFrom(target, yaw, pitch, CAMERA_ARM, camPos);
+      focusFraction = armFrom(target, yaw, pitch, CAMERA_ARM, camPos, dt);
     }
     world.camera.position.copy(camPos);
     world.camera.position.y = Math.max(world.camera.position.y, content.cameraFloor(world.camera.position));
+    // Compress focus lag with the arm as well: a nearby wall must never put the focus
+    // behind the camera and flip the view toward the player.
+    target.lerpVectors(playerLookTarget, target, focusFraction);
     world.camera.lookAt(target);
     const width = window.innerWidth;
     const height = window.innerHeight;
