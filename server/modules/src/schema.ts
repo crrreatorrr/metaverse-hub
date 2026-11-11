@@ -892,7 +892,7 @@ namespace HubSchema {
       CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)
     )`,
 
-    // Prices come from the CSVs. Prune then upsert. A later rebalance is a new migration.
+    // Use the original catalog so migration 0005 retains its applied checksum.
     HubShop.pruneSql(),
     HubShop.seedSql(),
 
@@ -3573,6 +3573,14 @@ namespace HubSchema {
          $own$`,
       ],
     },
+    {
+      id: "0050_pb_campaign_pistol_price",
+      statements: [
+        `UPDATE game.shop_price
+         SET price = 2, sell_price = 1
+         WHERE game = 'peoples-bitcoin' AND shop_id = 'shop_terminal' AND item_id = 'gun_campaign_pistol'`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3705,7 +3713,16 @@ namespace HubSchema {
     REGISTERED.push({ id: m.id, statements: m.statements.slice() });
   }
 
-  /** Every migration (hub + registered), sorted by numeric prefix. Throws on a duplicate id or number. */
+  // These independently merged migrations both shipped as 0050. Preserve their
+  // full identities, statement checksums and ledger timestamps. Their bodies are
+  // independent (PB shop price; Shooter queue structures). This is the sole
+  // historical allocation exception, not permission to reuse a migration number.
+  function historical0050Pair(a: string, b: string): boolean {
+    return (a === "0050_pb_campaign_pistol_price" && b === "0050_shooter_verification_queue")
+      || (b === "0050_pb_campaign_pistol_price" && a === "0050_shooter_verification_queue");
+  }
+
+  /** Sorted by number, then full id. Only the two released 0050 identities may share a number. */
   export function all(): { id: string; statements: string[] }[] {
     var list = MIGRATIONS.concat(REGISTERED);
     var ids: { [id: string]: boolean } = {};
@@ -3716,12 +3733,12 @@ namespace HubSchema {
       if (ids[id]) throw new Error("duplicate schema migration id: " + id);
       ids[id] = true;
       var n = migrationNumber(id);
-      if (numbers[String(n)]) throw new Error("duplicate schema migration number: " + id + " and " + numbers[String(n)]);
+      if (numbers[String(n)] && !historical0050Pair(id, numbers[String(n)])) throw new Error("duplicate schema migration number: " + id + " and " + numbers[String(n)]);
       numbers[String(n)] = id;
       indexed.push({ n: n, i: i, m: list[i] });
     }
     indexed.sort(function (a, b) {
-      return a.n - b.n || a.i - b.i;
+      return a.n - b.n || (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0);
     });
     var out: { id: string; statements: string[] }[] = [];
     for (var j = 0; j < indexed.length; j++) out.push(indexed[j].m);
