@@ -41,11 +41,11 @@ const CONFIG = `UPDATE game.shooter_verification_admission SET new_runs_enabled=
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1099511627776,max_account_checkpoint_bytes=1073741824,lease_seconds=60,attempt_seconds=120,attempt_limit=10,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096;
  UPDATE game.shooter_verification_gateway SET enabled=true,global_attempts_per_minute=1000000,account_attempts_per_minute=100000,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
  UPDATE game.shooter_verification_payment_config SET payments_enabled=false`;
-function isolate(): void {
+export function isolate(): void {
   psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');
     UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined'); ${CONFIG}`);
 }
-function enable(): void { psql('UPDATE game.shooter_verification_payment_config SET payments_enabled=true'); }
+export function enable(): void { psql('UPDATE game.shooter_verification_payment_config SET payments_enabled=true'); }
 async function worker() {
   const login = await guest(); const workerId = `pay-${randomUUID()}`; const token = randomBytes(32).toString('base64url');
   const keyId = 'one', hash = createHash('sha256').update(`shooter-worker-token-v1\n${token}`).digest('hex');
@@ -67,7 +67,7 @@ function replay(work: Obj): Obj {
 type Submission = { worker: Worker; requestId: string; body: Obj; acknowledgment: Obj; returned: Obj };
 type Fixture = { login: GameLogin; run: string; tick: number; expected: Obj; worker: Worker; last: Submission; submissions: Submission[] };
 type Options = { login?: GameLogin; tail?: number; day?: string; beforeSubmit?: (w: Worker, login: GameLogin) => void; stopAfterTerminal?: boolean };
-async function fixture(name = 'broccoli-success-7', options: Options = {}): Promise<Fixture> {
+export async function fixture(name = 'broccoli-success-7', options: Options = {}): Promise<Fixture> {
   const sample = frozen(name), original = obj(sample.issuance);
   const login = options.login || await openGame((await guest()).token, 'sproto-shooter');
   const run = randomUUID(), w = await worker();
@@ -103,14 +103,14 @@ async function fixture(name = 'broccoli-success-7', options: Options = {}): Prom
   }
   assert.ok(submissions.length); return { login, run, tick: n + tail, expected: obj(sample.expected), worker: w, last: submissions[submissions.length - 1]!, submissions };
 }
-async function retry(f: Fixture): Promise<Obj> {
+export async function retry(f: Fixture): Promise<Obj> {
   return rpc(f.worker, 'result', f.last.body, f.last.requestId);
 }
-function payment(f: Fixture): Obj {
+export function payment(f: Fixture): Obj {
   const raw = psql(`SELECT COALESCE(payment_ack,'{}')::text FROM game.shooter_verification_run WHERE run_id='${f.run}'`);
   return obj(JSON.parse(raw));
 }
-function receipt(f: Fixture): Obj | null {
+export function receipt(f: Fixture): Obj | null {
   const raw = psql(`SELECT response::text FROM game.shooter_receipt WHERE run_id='${f.run}'`); return raw ? obj(JSON.parse(raw)) : null;
 }
 function financialSnapshot(user: string): string {

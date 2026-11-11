@@ -310,6 +310,7 @@ function InitModule(
   initializer.registerRpc("shooter.internal.result", rpcShooterInternalResult);
   initializer.registerRpc("shooter.run.append", rpcShooterRunAppend);
   initializer.registerRpc("shooter.run.status", rpcShooterRunStatus);
+  initializer.registerRpc("shooter.run.finish", rpcShooterRunFinish);
   initializer.registerMatch("sproto_shooter_free", { matchInit: sprotoShooterFreeInit, matchJoinAttempt: sprotoShooterFreeJoinAttempt, matchJoin: sprotoShooterFreeJoin, matchLeave: sprotoShooterFreeLeave, matchLoop: sprotoShooterFreeLoop, matchTerminate: sprotoShooterFreeTerminate, matchSignal: sprotoShooterFreeSignal });
   initializer.registerRpc("shooter.version", rpcShooterVersion);
   initializer.registerRpc("shooter.room_create", rpcShooterRoomCreate);
