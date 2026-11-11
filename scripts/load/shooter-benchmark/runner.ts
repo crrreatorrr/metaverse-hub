@@ -99,8 +99,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
       const phaseWork: Promise<void>[] = [], phaseStart = performance.now();
       for (let i = 0; i < prepared.length; i++) {
         const target = phaseStart + i * phase.arrivalIntervalMs;
-        const waitMs = target - performance.now();
-        if (waitMs > 0) await sleep(waitMs, signal);
+        while (performance.now() < target) await sleep(Math.max(1, Math.ceil(target - performance.now())), signal);
         const actual = performance.now();
         arrivals.push({ phase: phase.kind, wave: prepared[i].wave, plannedElapsedMs: target - start, actualElapsedMs: actual - start, lagMs: Math.max(0, actual - target) });
         const { pending, bindings } = prepared[i];

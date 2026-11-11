@@ -6,6 +6,9 @@ on:
       - scripts/load/shooter-benchmark/**
       - docs/shooter-verification/benchmark-method.md
       - .github/workflows/shooter-verification-benchmark.yml
+concurrency:
+  group: shooter-benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 permissions:
   contents: read
 jobs:
