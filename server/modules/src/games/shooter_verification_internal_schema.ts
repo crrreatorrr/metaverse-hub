@@ -5,15 +5,49 @@ HubSchema.register({
   statements: [
     `CREATE TABLE IF NOT EXISTS game.shooter_verification_gateway (
       singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), enabled boolean NOT NULL DEFAULT false,
+      global_attempts_per_minute integer CHECK(global_attempts_per_minute BETWEEN 1 AND 1000000),
+      account_attempts_per_minute integer CHECK(account_attempts_per_minute BETWEEN 1 AND 100000),
+      rate_window timestamptz, rate_attempts integer NOT NULL DEFAULT 0 CHECK(rate_attempts>=0),
       max_requests bigint CHECK(max_requests BETWEEN 1 AND 10000000),
       max_principal_requests bigint CHECK(max_principal_requests BETWEEN 1 AND 1000000),
       max_receipt_bytes bigint CHECK(max_receipt_bytes BETWEEN 20971520 AND 1099511627776),
       max_principal_receipt_bytes bigint CHECK(max_principal_receipt_bytes BETWEEN 20971520 AND 1099511627776),
       retained_requests bigint NOT NULL DEFAULT 0 CHECK(retained_requests>=0),
       reserved_receipt_bytes bigint NOT NULL DEFAULT 0 CHECK(reserved_receipt_bytes>=0),
-      CHECK(NOT enabled OR (max_requests IS NOT NULL AND max_principal_requests IS NOT NULL AND max_receipt_bytes IS NOT NULL AND max_principal_receipt_bytes IS NOT NULL))
+      CHECK(NOT enabled OR (global_attempts_per_minute IS NOT NULL AND account_attempts_per_minute IS NOT NULL AND max_requests IS NOT NULL AND max_principal_requests IS NOT NULL AND max_receipt_bytes IS NOT NULL AND max_principal_receipt_bytes IS NOT NULL))
     )`,
     "INSERT INTO game.shooter_verification_gateway(singleton) VALUES(true) ON CONFLICT DO NOTHING",
+    `CREATE TABLE IF NOT EXISTS game.shooter_verification_gateway_rate (
+      account_id uuid PRIMARY KEY, rate_window timestamptz NOT NULL,
+      attempts integer NOT NULL CHECK(attempts>=0)
+    )`,
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_gateway_preflight(a uuid)
+      RETURNS jsonb LANGUAGE plpgsql AS $fn$
+      DECLARE cfg game.shooter_verification_gateway%ROWTYPE; rate game.shooter_verification_gateway_rate%ROWTYPE; win timestamptz;
+      BEGIN
+        -- No row is created for arbitrary account IDs. Body/token are not parsed.
+        IF NOT EXISTS(SELECT 1 FROM game.shooter_verification_principal WHERE account_id=a) THEN
+          RETURN jsonb_build_object('state','authorization_denied','reason','unauthorized'); END IF;
+        SELECT * INTO cfg FROM game.shooter_verification_gateway WHERE singleton FOR UPDATE;
+        IF NOT FOUND OR NOT cfg.enabled OR cfg.global_attempts_per_minute IS NULL OR cfg.account_attempts_per_minute IS NULL THEN
+          RETURN jsonb_build_object('state','pending_retryable','reason','gateway_disabled'); END IF;
+        win:=clock_timestamp();
+        IF cfg.rate_window IS NULL OR cfg.rate_window+interval '1 minute'<=win THEN
+          UPDATE game.shooter_verification_gateway SET rate_window=win,rate_attempts=0 WHERE singleton;
+          cfg.rate_attempts:=0; cfg.rate_window:=win;
+        END IF;
+        INSERT INTO game.shooter_verification_gateway_rate(account_id,rate_window,attempts) VALUES(a,win,0) ON CONFLICT DO NOTHING;
+        SELECT * INTO rate FROM game.shooter_verification_gateway_rate WHERE account_id=a FOR UPDATE;
+        IF rate.rate_window+interval '1 minute'<=win THEN
+          UPDATE game.shooter_verification_gateway_rate SET rate_window=win,attempts=0 WHERE account_id=a;
+          rate.attempts:=0; rate.rate_window:=win;
+        END IF;
+        IF cfg.rate_attempts>=cfg.global_attempts_per_minute OR rate.attempts>=cfg.account_attempts_per_minute THEN
+          RETURN jsonb_build_object('state','pending_retryable','reason','rate_limited','retryAt',CASE WHEN cfg.rate_attempts>=cfg.global_attempts_per_minute THEN cfg.rate_window+interval '1 minute' ELSE rate.rate_window+interval '1 minute' END); END IF;
+        UPDATE game.shooter_verification_gateway SET rate_attempts=rate_attempts+1 WHERE singleton;
+        UPDATE game.shooter_verification_gateway_rate SET attempts=attempts+1 WHERE account_id=a;
+        RETURN jsonb_build_object('state','ready');
+      END; $fn$`,
     `CREATE TABLE IF NOT EXISTS game.shooter_verification_worker (
       worker_id text PRIMARY KEY CHECK(worker_id ~ '^[A-Za-z0-9_.:@|-]{1,80}$'),
       account_id uuid NOT NULL, UNIQUE(worker_id,account_id)

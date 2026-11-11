@@ -72,10 +72,8 @@ namespace ShooterVerificationInternal {
   export function call(ctx: nkruntime.Context,_logger: nkruntime.Logger,nk: nkruntime.Nakama,payload: string,op: string): string {
     if (!ctx.userId || !UUID.test(ctx.userId)) return fail("authorization_denied","unauthorized");
     // Account allowlist BEFORE JSON parse; not an authorization substitute.
-    var pre=ShooterRewards.queryJson(nk,`SELECT jsonb_build_object('ready',EXISTS(SELECT 1 FROM game.shooter_verification_principal WHERE account_id=$1::uuid),
-      'enabled',(SELECT enabled FROM game.shooter_verification_gateway WHERE singleton))::text AS result`,[ctx.userId]);
-    if (!pre.ready) return fail("authorization_denied","unauthorized");
-    if (!pre.enabled) return fail("pending_retryable","gateway_disabled");
+    var pre=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_gateway_preflight($1::uuid)::text AS result",[ctx.userId]);
+    if (pre.state!=="ready") return JSON.stringify(pre);
     var max=op==="result"?20971520:4096;
     if (!payload || payload.length>max || nk.stringToBinary(payload).byteLength>max) return fail("invalid","oversized");
     var parsed: unknown;

@@ -10,7 +10,7 @@ type Row = Record<string,unknown>;
 const SHA='797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
 const ROOT=new URL('../../../services/shooter-verifier/artifacts/'+SHA+'/',import.meta.url);
 const q=(s:string)=>"'"+s.replace(/'/g,"''")+"'";
-const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
+const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,global_attempts_per_minute=100000,account_attempts_per_minute=10000,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
  UPDATE game.shooter_verification_admission SET new_runs_enabled=true,max_global_runs=1000,max_account_runs=100,max_global_bytes=1099511627776,max_account_bytes=1073741824,max_global_batches=1000000,max_account_batches=100000,global_appends_per_minute=100000,account_appends_per_minute=10000;
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1073741824,max_account_checkpoint_bytes=67108864,lease_seconds=30,attempt_seconds=120,attempt_limit=3,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096`;
 function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined');${CONFIG}`); }
@@ -90,7 +90,7 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     isolate();const p=await principal(),run=await fixture();
     const text=execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/live-gateway.mjs',import.meta.url))],{
       input:JSON.stringify({url:process.env.NAKAMA_URL||'http://127.0.0.1:7350',workerId:p.workerId,keyId:p.keyId,token:p.token,accountToken:p.account.token,requestId:crypto.randomUUID()}),
-      encoding:'utf8',timeout:60000,maxBuffer:1024*1024,
+      encoding:'utf8',timeout:60000,maxBuffer:1024*1024,env:{NODE_ENV:'test'},
     });
     const result=JSON.parse(text) as Row;
     assert.deepEqual(result,{runId:run,kind:'replayed',verified:8,status:'verified',submitState:'pending_retryable',submitReason:'result_commit_unavailable'});
@@ -140,6 +140,20 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     assert.equal((await rpc(p,'claim')).reason,'gateway_capacity');assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),1);
     assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),20971520);
     psql(`DO $x$ BEGIN BEGIN DELETE FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'; RAISE EXCEPTION 'expected refusal'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'shooter_gateway_receipt_immutable' THEN RAISE; END IF; END; END; $x$`);
+  });
+  await test('shooter-internal','malformed and wrong-token attempts consume durable global/account budget before large parsing',async()=>{
+    isolate();const p=await principal();
+    psql(`UPDATE game.shooter_verification_gateway SET global_attempts_per_minute=100000,account_attempts_per_minute=2;
+      DELETE FROM game.shooter_verification_gateway_rate WHERE account_id='${p.account.userId}'`);
+    assert.equal(((await call('shooter.internal.result',{...env(p),body:{amount:20}},p.account.token)).body as Row).reason,'malformed');
+    assert.equal(((await call('shooter.internal.claim',{...env(p),token:'x'.repeat(43)},p.account.token)).body as Row).state,'authorization_denied');
+    assert.equal(((await call('shooter.internal.result',{huge:'x'.repeat(21000000)},p.account.token)).body as Row).reason,'rate_limited');
+    assert.equal(num(`SELECT attempts FROM game.shooter_verification_gateway_rate WHERE account_id='${p.account.userId}'`),2);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),0);
+    // Global saturation also stops a different authorized account before parsing.
+    const other=await principal();psql('UPDATE game.shooter_verification_gateway SET global_attempts_per_minute=1,rate_window=clock_timestamp(),rate_attempts=1');
+    assert.equal((await rpc(other,'claim')).reason,'rate_limited');
+    assert.equal(num(`SELECT attempts FROM game.shooter_verification_gateway_rate WHERE account_id='${other.account.userId}'`),0);
   });
   await test('shooter-internal','key expiry during downstream lock wait rolls back claim, attempt and receipt',async()=>{
     isolate();const p=await principal(),run=await fixture();

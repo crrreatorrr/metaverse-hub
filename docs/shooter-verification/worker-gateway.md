@@ -22,7 +22,7 @@ Server-owned `game.shooter_verification_principal` binds account UUID, worker ID
 key ID, SHA-256 of `shooter-worker-token-v1\n` plus a cryptographically random
 32-byte base64url token, explicit scopes, not-before, expiry and revocation.
 Only its hash is stored; raw tokens never enter SQL or logs. Dedicated account
-allowlist lookup precedes large JSON parsing. After envelope validation, a cheap
+allowlist lookup and durable global/account60-second attempt-window admission precede large JSON parsing. Every admitted attempt is charged, including malformed bodies, wrong credentials, conflicting retries and duplicates; key rotation cannot reset the owning account rate window. Unknown accounts create no rate-counter row. Explicit finite attempt limits are required before enabling the gateway; temporary saturation reports rate_limited with a retry time. After envelope validation, a cheap
 hash/scope preflight precedes checkpoint traversal. Neither preflight confers
 mutation authority.
 
@@ -59,6 +59,8 @@ results at most20MiB before JSON parse, plus bounded depth/nodes/arrays/strings.
 Private checkpoint validation here is deliberately transport/schema-level; PR11
 must validate complete critical state, hashes, versions and monotonic counters.
 
+The Node claim helper requires a caller-supplied request ID; it refuses a missing ID before any HTTP request. The coordinator must durably save that ID before sending and reuse it after timeouts/lost responses, including credential rotation. Never generate a replacement claim ID merely because a response was lost. Explicitly retained IDs are also recommended for renew/retry/result retries.
+
 Request digest is SHA256(operation + newline + stable sorted-key JSON body),
 excluding credential/request ID. Request IDs are namespaced by logical worker ID, independently of rotating key IDs within its fixed owning account; the original issuing account/key remain immutable audit fields. A currently authorized replacement key for that same worker can recover the original receipt after old-key revocation. Identical authorized request IDs return the
 original immutable receipt; conflicting operation/body rejects. Claim and its
@@ -72,7 +74,7 @@ rolling back the attempted claim.
 Stored full acknowledgments may retain a16MiB checkpoint and batch. Each receipt
 reserves a conservative **20MiB** globally and per principal before mutation,
 regardless of actual acknowledgment size; SQL checks its actual JSONB UTF8 text
-size before commit. Explicit finite count **and byte** limits must all exist to
+size before commit. Explicit finite attempt-rate, retained-count **and byte** limits must all exist to
 enable the gateway. Reservations are not measured physical database/RAM usage or
 hosting capacity. Even renewals and pending responses consume a receipt slot;
 new issuance/benchmarks must account for this deliberately conservative tradeoff.
