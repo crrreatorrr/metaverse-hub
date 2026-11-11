@@ -158,8 +158,21 @@ does not choose new financial semantics.
 
 ## Public activation checklist (all gates required)
 
-- [ ] Resolve the observed result-RPC timeout with exact-head correctness and
-  primary client-under-load evidence; retain earlier failed reports.
+- [x] Record recovery from the observed result-RPC stall with exact-head
+  correctness and primary client-under-load evidence. PR170 merged as
+  `9d4c01f33a396bdbe7960ad863672b1938be7539`, preserving tested
+  `c8e4a786b19043f3f291a714fdf001451cd1630e`.
+  Its [primary run](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43080109685)
+  fully verified the actual 60-frame DOM prefix and all 129,314 submitted protocol
+  frames (19 full sources plus one planned abandonment), paying seven. Four
+  result requests hit the unchanged timeout and recovered; this is not a claim
+  of zero transient failures. The [six E2E lanes](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43080109420)
+  passed, including the trusted-server full 9,634-frame Game trace/hash
+  `3163be0c`/paid20. Earlier failures stay recorded; no intended-host capacity or
+  human-control-feel conclusion follows. Broad CI was still pending when recorded.
+- [ ] Validate result latency and durable retry behavior on the authorized
+  intended host under the approved workload; c8 still had four recovered request
+  timeouts.
 - [ ] Record authorized intended host/region/specifications, load placement,
   baseline/candidate measurements and supported workload envelope (PR21).
 - [ ] Approve measured cadence/slices/concurrency/admission/resource reservations,

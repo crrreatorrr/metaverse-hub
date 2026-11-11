@@ -29,6 +29,7 @@ credentials, bought hosting or enabled public reward cohorts/flags. The original
 | Approved client-test pin | Hub [165](https://github.com/crrreatorrr/metaverse-hub/pull/165), merge `c582e4af1cee4b8430d19a294b00418c699505a7`, preserving `325bad0`; changes only browser checkout from `91bd4d7` to approved `01087a45`, not private replay authority |
 | 19 worker operations | Hub [160](https://github.com/crrreatorrr/metaverse-hub/pull/160), merge `7db01566ea5c3fb7897c4f3ed4b26edf831f00e5`, preserving `19f7a73`; default off |
 | 20 reproducible benchmark tooling | Hub [161](https://github.com/crrreatorrr/metaverse-hub/pull/161), normal merge `f97679a76d8bb465825ee196c03f0d7dec512c39`, preserving tested `f12fc3ab`; CI advisory only, failed primary-client proof retained |
+| Result-submission followup and combined baseline | Hub [170](https://github.com/crrreatorrr/metaverse-hub/pull/170), normal merge `9d4c01f33a396bdbe7960ad863672b1938be7539`, preserving tested `c8e4a786`; scoped evidence below, not intended-host capacity |
 
 Hub [154](https://github.com/crrreatorrr/metaverse-hub/pull/154) preserves the two
 historical 0050 migration identities. Hub [158](https://github.com/crrreatorrr/metaverse-hub/pull/158)
@@ -315,6 +316,33 @@ active SIGTERM in this fixture, permanent shadow semantics, target capacity,
 alert thresholds or public activation. Earlier primary/benchmark failures and
 their exact-head limitations remain unchanged. See the linked preparation for
 the report method and remaining gates; PR21 and PR22 remain incomplete.
+
+PR170's final combined candidate was
+`c8e4a786b19043f3f291a714fdf001451cd1630e`, including the latest feedback/SDK
+baseline and additive migration `0059`. The
+[five backend profiles](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43080109220)
+passed their harness checks. Bounded V8 retry/cold-warm/sustained profiles verified
+all 129314/258628/387942 accepted frames across 20/40/60 actors, paid 7/14/21,
+and recorded zero instrumentation failures. Full-source counts were 19/38/57;
+the remaining 1/2/3 actors were declared 120-frame abandonments. Legacy workload
+degradation remains: full/segmented modes verified only 15902/29631 frames and
+paid three each, with 11 CPU timeouts / seven CPU timeouts plus four transport
+failures. Passing harnesses do not convert those refusals into successful runs.
+
+The [c8 primary client-under-load run](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43080109685)
+passed with all 60 actual DOM frames recorded/submitted/accepted/verified and a
+finish acknowledgment, alongside all 129314 protocol frames and seven payments.
+The prefix was valid but nonpayable. Four result requests timed out at the
+unchanged deadline and recovered through the existing durable-proof/retry path;
+zero observer instrumentation failures and no censored protocol actors were
+recorded. The [six combined-baseline E2E lanes](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43080109420)
+also passed. Actual Game A captured 130 public native ticks/hash `721ea8b0`;
+trusted-server C completed all 9634/hash `3163be0c`/paid 20 in 818641ms with 2075
+native RAF callbacks. This is software-renderer correctness, not 60Hz or capacity.
+Focused checks, verify and both simulator guards passed; c8 broad CI remained
+pending at this record. Earlier candidate successes and failed reports remain
+scoped to their own heads and are not relabeled. These parent proofs do not substitute
+for PR174's core-drill rerun after main integration or satisfy external PR21/22 gates.
 
 The retained private executable remains source
 `05f7a0a245af921fc65a99588564175c19658e38`, SHA256
