@@ -133,6 +133,30 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal((await finish(another,run)).reason,'unknown_run');
     assert.equal(psql(`SELECT seal_ack IS NULL FROM game.shooter_verification_run WHERE run_id='${run}'`),'t');
   });
+  await test('shooter-lifecycle','input deadline expiry releases the active slot without deleting accepted evidence',async()=>{
+    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    // Synthetic clock-age fixture uses one transaction timestamp for the exact
+    // historical45min constraint; authorization still uses actual current time.
+    psql(`UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${run}'`);
+    const next=await issue(s); assert.equal(next.state,'issued'); assert.notEqual(next.runId,run);
+    const old=await status(s,run); assert.equal(old.state,'expired'); assert.equal(old.authorization,'upload_expired');
+    assert.equal(psql(`SELECT session_invalidated_reason IS NULL FROM game.shooter_verification_run WHERE run_id='${run}'`),'t','input expiry is not session revocation');
+    assert.equal((await append(s,run)).reason,'upload_expired');
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${run}'`),1);
+    await drain(run); assert.equal(object((await status(s,run)).terminal).outcome,'incomplete');
+  });
+  await test('shooter-lifecycle','expiry preserves quarantined work and its support reason while releasing admission',async()=>{
+    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    const job=randomUUID();
+    psql(`INSERT INTO game.shooter_verification_job(job_id,run_id,sequence_from,sequence_to,tick0,tick_end,expected_revision,input_sha256,state,max_attempts)
+      VALUES('${job}','${run}',0,0,0,1,0,'${'a'.repeat(64)}','quarantined',1);
+      UPDATE game.shooter_verification_run SET lifecycle='quarantined',operational_reason='attempts_exhausted' WHERE run_id='${run}';
+      UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${run}'`);
+    assert.equal((await issue(s)).state,'issued');
+    const old=await status(s,run); assert.equal(old.state,'expired'); assert.equal(object(old.operational).supportRequired,true);
+    assert.equal(old.terminal,null); assert.equal(psql(`SELECT state FROM game.shooter_verification_job WHERE job_id='${job}'`),'quarantined');
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${run}'`),1);
+  });
   await test('shooter-lifecycle','stale canonical UTC day is rejected without orphan issuance',async()=>{
     isolate(); const s=await login(); enroll(s); const run=randomUUID();
     const stale=sim('return SprotoShooterSim.buildIssuance(v).issuance;',{accountId:s.hub.userId,sessionId:s.sessionId,runId:run,day:'2000-01-01',canonicalBoss:'sahil',seed:7});

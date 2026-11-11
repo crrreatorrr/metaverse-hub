@@ -32,14 +32,19 @@ HubSchema.register({
       FOR EACH ROW EXECUTE FUNCTION game.shooter_verification_lifecycle_immutable()`,
     // Session -> run is a subset of append/payment ordering. Never acquire a
     // quota, economy or scheduler lock from here. Retained quotas are not freed.
-    `CREATE OR REPLACE FUNCTION game.shooter_verification_touch(p_user uuid,p_run text)
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_touch(p_user uuid,p_run text,p_nowait boolean DEFAULT false)
       RETURNS void LANGUAGE plpgsql AS $fn$
       DECLARE r game.shooter_verification_run%ROWTYPE; s game.game_session%ROWTYPE; sid uuid; t timestamptz; why text;
       BEGIN
         SELECT session_id INTO sid FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user;
         IF NOT FOUND THEN RETURN; END IF;
-        SELECT * INTO s FROM game.game_session WHERE session_id=sid AND user_id=p_user FOR UPDATE;
-        SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user FOR UPDATE;
+        IF p_nowait THEN
+          SELECT * INTO s FROM game.game_session WHERE session_id=sid AND user_id=p_user FOR UPDATE NOWAIT;
+          SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user FOR UPDATE NOWAIT;
+        ELSE
+          SELECT * INTO s FROM game.game_session WHERE session_id=sid AND user_id=p_user FOR UPDATE;
+          SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user FOR UPDATE;
+        END IF;
         IF NOT FOUND THEN RETURN; END IF;
         t:=clock_timestamp();
         IF s.session_id IS NULL OR s.game_id<>'sproto-shooter' OR s.state='closed' OR s.ticket_redeemed_at IS NULL THEN why:='session_closed';
@@ -82,7 +87,10 @@ HubSchema.register({
             OR (r.lifecycle IN ('sealed','expired') AND r.verified_tick=r.accepted_tick AND r.terminal_tick IS NULL
               AND r.operational_reason IS NULL AND NOT EXISTS(SELECT 1 FROM game.shooter_verification_job j WHERE j.run_id=r.run_id AND j.state IN ('ready','leased','retry_wait','quarantined'))))
           ORDER BY r.session_id,r.run_id LIMIT 16 LOOP
-          PERFORM game.shooter_verification_touch(item.user_id,item.run_id); n:=n+1;
+          BEGIN
+            PERFORM game.shooter_verification_touch(item.user_id,item.run_id,true); n:=n+1;
+          EXCEPTION WHEN lock_not_available THEN NULL;
+          END;
         END LOOP; RETURN n;
       END; $fn$`,
     `CREATE OR REPLACE FUNCTION game.shooter_verification_finish(p_user uuid,p_session uuid,p_run text,p_sequence integer,p_tick integer)
