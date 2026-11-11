@@ -68,8 +68,7 @@ full server-owned private work acknowledgment are stored **in the same SQL
 transaction**, so a lost response cannot claim another job. The projection uses
 legacy canonical issuance, immutable accepted full public batch/digest, exact
 retained manifest and authoritative checkpoint. It never reads a client snapshot.
-A missing original issuance/manifest/predecessor yields operational pending,
-rolling back the attempted claim.
+A missing original issuance/manifest/predecessor or mismatched stored checkpoint SHA yields operational pending. Stored checkpoint integrity uses SHA256 of the exact PostgreSQL JSONB text representation, matching the PR11 writer. Projection failure retains its claimed attempt/fairness turn and releases the exact live fence through durable PR08 database_issue backoff; finite exhaustion quarantines evidence. It never forwards corrupt state or rolls back scheduling forever to starve another account. Credential expiry still rolls back the entire unauthorized mutation.
 
 Stored full acknowledgments may retain a16MiB checkpoint and batch. Each receipt
 reserves a conservative **20MiB** globally and per principal before mutation,
