@@ -86,7 +86,6 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     for (const name of ['job', 'batch', 'run']) assert.equal(num(`SELECT count(*) FROM game.shooter_verification_${name}`), 0);
     const v2Ids = migrationIds().filter((id) => /^[0-9]+_shooter_(verification|verified|v2)_/.test(id));
     const v2SqlIds = v2Ids.map((id) => "'" + id.replace(/'/g, "''") + "'").join(',');
-
     assert.ok(v2Ids.includes(ID));
     // Trusted synthetic historical DB fixture, not a forged client reward.
     // Keep receipt, balance, ledger and idempotency evidence mutually consistent.
@@ -106,16 +105,15 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     const economy = psql(ECONOMY);
     compose(['stop', 'nakama']);
     try {
-      psql(`${legacy}; DROP TABLE IF EXISTS game.shooter_verification_cohort,game.shooter_verification_payment_config,game.shooter_verification_gateway_rate,game.shooter_verification_gateway_receipt,game.shooter_verification_principal,game.shooter_verification_worker,game.shooter_verification_gateway,game.shooter_verification_attempt_result,game.shooter_verification_attempt,game.shooter_verification_scheduler_account,game.shooter_verification_scheduler,game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
+      psql(`${legacy}; DROP FUNCTION IF EXISTS game.shooter_verification_append_payload_v1(uuid,uuid,text,integer,integer,integer,text,jsonb,text); DROP TABLE IF EXISTS
+        game.shooter_verification_payload_retirement,game.shooter_verification_restore_proof,game.shooter_verification_recovery_grant,game.shooter_verification_operator_audit,game.shooter_verification_operator_usage,game.shooter_verification_operator_key,game.shooter_verification_operator,game.shooter_verification_retention_config, game.shooter_verification_cohort,game.shooter_verification_payment_config,game.shooter_verification_gateway_rate,game.shooter_verification_gateway_receipt,game.shooter_verification_principal,game.shooter_verification_worker,game.shooter_verification_gateway,game.shooter_verification_attempt_result,game.shooter_verification_attempt,game.shooter_verification_scheduler_account,game.shooter_verification_scheduler,game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
         DELETE FROM game.schema_migrations WHERE id IN (${v2SqlIds});`);
-
     } finally {
       compose(['up', '-d', 'nakama']);
       await waitReady();
     }
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE run_id='${RUN}' AND user_id='${USER}' AND session_id='${SESSION}'`), 1);
     assert.equal(psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id NOT IN (${v2SqlIds}) ORDER BY id`), ledger);
-
     for (const id of v2Ids) assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${id}'`), fileChecksum(id));
     const applied = psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations ORDER BY id`);
     compose(['restart', 'nakama']);

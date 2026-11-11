@@ -91,6 +91,8 @@ jobs:
           exit 1
       - run: npm run test:dup
         timeout-minutes: 120
+        env:
+          HUB_RECOVERY_FIXTURE: retention-restore
       - run: npm run test:rt
         timeout-minutes: 10
       - name: Coop authoritative match
