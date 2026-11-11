@@ -51,6 +51,7 @@ HubSchema.register({
       reserved_checkpoint_bytes bigint NOT NULL DEFAULT 0 CHECK (reserved_checkpoint_bytes>=0)
     )`,
     "ALTER TABLE game.shooter_verification_run ADD COLUMN IF NOT EXISTS checkpoint_slot_reserved boolean NOT NULL DEFAULT false",
+    "ALTER TABLE game.shooter_verification_run ADD COLUMN IF NOT EXISTS operational_reason text CHECK (operational_reason IN ('attempts_exhausted','predecessor_mismatch'))",
     "ALTER TABLE game.shooter_verification_job ADD COLUMN IF NOT EXISTS initial_revision bigint",
     "ALTER TABLE game.shooter_verification_job ADD COLUMN IF NOT EXISTS continuation_tick integer",
     "ALTER TABLE game.shooter_verification_job ADD COLUMN IF NOT EXISTS attempt_deadline timestamptz",
@@ -158,7 +159,7 @@ HubSchema.register({
             VALUES(j.job_id,j.fencing_token,'lease_expired','lease_expired') ON CONFLICT DO NOTHING;
           IF j.attempts>=j.max_attempts THEN
             UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL,last_error='attempts_exhausted',updated_at=t WHERE job_id=j.job_id;
-            UPDATE game.shooter_verification_run SET lifecycle='quarantined',updated_at=t WHERE run_id=r.run_id;
+            UPDATE game.shooter_verification_run SET lifecycle=CASE WHEN lifecycle IN ('open','sealed','quarantined') THEN 'quarantined' ELSE lifecycle END,operational_reason='attempts_exhausted',updated_at=t WHERE run_id=r.run_id;
           ELSE
             delay_seconds:=LEAST(c.retry_max_seconds,c.retry_base_seconds*power(2,LEAST(j.attempts-1,16)))::integer;
             UPDATE game.shooter_verification_job SET state='retry_wait',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL,last_error='lease_expired',next_attempt_at=t+make_interval(secs=>delay_seconds),updated_at=t WHERE job_id=j.job_id;
@@ -167,7 +168,7 @@ HubSchema.register({
         END IF;
         IF j.job_id IS NOT NULL AND (j.continuation_tick<>r.verified_tick OR j.expected_revision<>r.revision) THEN
           UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL,last_error='predecessor_mismatch',updated_at=t WHERE job_id=j.job_id;
-          UPDATE game.shooter_verification_run SET lifecycle='quarantined',updated_at=t WHERE run_id=r.run_id;
+          UPDATE game.shooter_verification_run SET lifecycle=CASE WHEN lifecycle IN ('open','sealed','quarantined') THEN 'quarantined' ELSE lifecycle END,operational_reason='predecessor_mismatch',updated_at=t WHERE run_id=r.run_id;
           CONTINUE;
         END IF;
         IF (SELECT count(*) FROM game.shooter_verification_job WHERE state='leased' AND lease_until>t)>=c.max_leased
@@ -188,7 +189,7 @@ HubSchema.register({
         END IF;
         IF j.attempts>=j.max_attempts THEN
           UPDATE game.shooter_verification_job SET state='quarantined',last_error='attempts_exhausted',updated_at=t WHERE job_id=j.job_id;
-          UPDATE game.shooter_verification_run SET lifecycle='quarantined',updated_at=t WHERE run_id=r.run_id; CONTINUE;
+          UPDATE game.shooter_verification_run SET lifecycle=CASE WHEN lifecycle IN ('open','sealed','quarantined') THEN 'quarantined' ELSE lifecycle END,operational_reason='attempts_exhausted',updated_at=t WHERE run_id=r.run_id; CONTINUE;
         END IF;
         IF NOT r.checkpoint_slot_reserved THEN
           UPDATE game.shooter_verification_run SET checkpoint_slot_reserved=true WHERE run_id=r.run_id;
@@ -248,7 +249,7 @@ HubSchema.register({
       UPDATE game.shooter_verification_job SET state=CASE WHEN attempts>=max_attempts THEN 'quarantined' ELSE 'retry_wait' END,
         lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL,last_error=p_reason,next_attempt_at=t+make_interval(secs=>delay_seconds),updated_at=t
         WHERE job_id=p_job RETURNING * INTO j;
-      IF j.state='quarantined' THEN UPDATE game.shooter_verification_run SET lifecycle='quarantined',updated_at=t WHERE run_id=j.run_id; END IF;
+      IF j.state='quarantined' THEN UPDATE game.shooter_verification_run SET lifecycle=CASE WHEN lifecycle IN ('open','sealed','quarantined') THEN 'quarantined' ELSE lifecycle END,operational_reason='attempts_exhausted',updated_at=t WHERE run_id=j.run_id; END IF;
       RETURN jsonb_build_object('state','pending_retryable','reason',CASE WHEN j.state='quarantined' THEN 'attempts_exhausted' ELSE p_reason END,'quarantined',j.state='quarantined','nextAttemptAt',j.next_attempt_at);
     END; $fn$`,
   ],

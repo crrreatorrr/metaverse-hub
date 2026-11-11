@@ -123,6 +123,7 @@ namespace ShooterVerification {
       || (body.sequence !== undefined && !integer(body.sequence, 0, 4095))) return failure("invalid", "malformed");
     var result = ShooterRewards.queryJson(nk, `SELECT jsonb_build_object(
       'protocol',2,'runId',r.run_id,'state',r.lifecycle,'revision',r.revision,
+      'operational',CASE WHEN r.operational_reason IN ('attempts_exhausted','predecessor_mismatch') THEN jsonb_build_object('state','pending_retryable','reason',r.operational_reason,'supportRequired',true) ELSE NULL END,
       'received',jsonb_build_object('sequence',r.accepted_sequence,'tick',r.accepted_tick,'bytes',r.accepted_bytes,'actions',r.accepted_actions,'batches',r.accepted_batches),
       'verified',jsonb_build_object('sequence',r.verified_sequence,'tick',r.verified_tick,'simulationTick',r.simulation_tick,'bytes',r.verified_bytes,'batches',r.verified_batches),
       'terminal',CASE WHEN r.terminal_tick IS NULL THEN NULL ELSE jsonb_build_object('tick',r.terminal_tick,'outcome',r.terminal_outcome,'canonicalBoss',old.canonical_boss) END,

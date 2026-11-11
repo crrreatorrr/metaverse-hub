@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { guest, openGame, call, psql, psqlAsync, num, sleep, type GameLogin } from './harness.ts';
+import { guest, openGame, call, psql, psqlAsync, num, sleep, compose, waitReady, type GameLogin } from './harness.ts';
 import { readFileSync } from 'node:fs';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
@@ -16,10 +16,11 @@ function claim(owner: string): Result { return json(`SELECT game.shooter_verific
 function renew(c: Claim, owner: string): Result { return json(`SELECT game.shooter_verification_renew('${c.jobId}','${owner}',${c.fence},${c.expectedRevision})::text`); }
 function retry(c: Claim, owner: string, reason = 'worker_crash'): Result { return json(`SELECT game.shooter_verification_retry('${c.jobId}','${owner}',${c.fence},${c.expectedRevision},'${reason}')::text`); }
 function fence(c: Claim, owner: string): number { return num(`SELECT game.shooter_verification_fence_live('${c.jobId}','${owner}',${c.fence},${c.expectedRevision})::integer`); }
-// Finish fixture chains by quarantining, never deleting immutable input/evidence.
+// Trusted fixture teardown excludes synthetic runs from later cases. This is
+// not the runtime operational-failure policy: no input or evidence is deleted.
 function isolate(): void {
   psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');
-    UPDATE game.shooter_verification_run SET lifecycle='quarantined' WHERE lifecycle IN ('open','sealed','expired','terminal'); ${CONFIG}; ${ADMISSION}`);
+    UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined'); ${CONFIG}; ${ADMISSION}`);
 }
 async function fixture(n = 1, reuse?: GameLogin): Promise<{ run: string; user: string; login: GameLogin }> {
   const login = reuse || await (async () => { const g = await guest(); return openGame(g.token, 'sproto-shooter'); })();
@@ -151,6 +152,65 @@ export async function runShooterVerificationLeases(test: TestFn): Promise<void> 
     await hold;
     assert.equal((JSON.parse(result) as Result).state, 'stale');
     assert.equal(fence(c, 'locked'), 0);
+  });
+
+
+  await test('shooter-leases', 'old expired work can quarantine without reacquiring a newer open account slot', async () => {
+    for (const reason of ['attempts_exhausted', 'predecessor_mismatch']) {
+      isolate();
+      psql(`UPDATE game.shooter_verification_scheduler SET attempt_limit=${reason === 'attempts_exhausted' ? 1 : 3}`);
+      const old = await fixture();
+      psql(`UPDATE game.shooter_verification_run SET lifecycle='expired' WHERE run_id='${old.run}'`);
+      const current = await fixture(1, old.login);
+      const c = claim('old-history').claim!; assert.equal(c.runId, old.run);
+      if (reason === 'attempts_exhausted') {
+        assert.equal(retry(c, 'old-history').quarantined, true);
+      } else {
+        retry(c, 'old-history');
+        psql(`UPDATE game.shooter_verification_run SET revision=1 WHERE run_id='${old.run}';
+          UPDATE game.shooter_verification_job SET next_attempt_at=clock_timestamp()-interval '1 second' WHERE job_id='${c.jobId}'`);
+        claim('mismatch');
+      }
+      assert.equal(psql(`SELECT lifecycle||':'||operational_reason FROM game.shooter_verification_run WHERE run_id='${old.run}'`), `expired:${reason}`);
+      assert.equal(psql(`SELECT state FROM game.shooter_verification_job WHERE job_id='${c.jobId}'`), 'quarantined');
+      assert.equal(claim('current-valid').claim!.runId, current.run);
+      const status = (await call('shooter.run.status', { runId: old.run }, old.login.hub.token)).body as { operational: unknown };
+      assert.deepEqual(status.operational, { state: 'pending_retryable', reason, supportRequired: true });
+      assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${old.run}'`), 1);
+    }
+  });
+
+  await test('shooter-leases', 'distinct accounts race the last global lease job attempt and checkpoint capacity atomically', async () => {
+    for (const resource of ['lease', 'job', 'attempt', 'checkpoint']) {
+      isolate(); const a = await fixture(); const b = await fixture();
+      if (resource === 'lease') psql('UPDATE game.shooter_verification_scheduler SET max_leased=1');
+      if (resource === 'job') psql('UPDATE game.shooter_verification_scheduler SET max_jobs=retained_jobs+1');
+      if (resource === 'attempt') psql('UPDATE game.shooter_verification_scheduler SET max_attempts_retained=retained_attempts+1');
+      if (resource === 'checkpoint') psql('UPDATE game.shooter_verification_scheduler SET max_checkpoint_bytes=reserved_checkpoint_bytes+16777216');
+      const before = psql("SELECT retained_jobs||':'||retained_attempts||':'||reserved_checkpoint_bytes FROM game.shooter_verification_scheduler").split(':').map(Number);
+      const results = await Promise.all(['capacity-a', 'capacity-b'].map((o) => psqlAsync(`SELECT game.shooter_verification_claim('${o}')::text`).then((s) => JSON.parse(s) as Result)));
+      assert.equal(results.filter((r) => r.state === 'leased').length, 1, resource);
+      const after = psql("SELECT retained_jobs||':'||retained_attempts||':'||reserved_checkpoint_bytes FROM game.shooter_verification_scheduler").split(':').map(Number);
+      assert.deepEqual(after, [before[0]! + 1, before[1]! + 1, before[2]! + 16777216]);
+      for (const f of [a, b]) assert.equal(psql(`SELECT accepted_tick||':'||accepted_bytes FROM game.shooter_verification_run WHERE run_id='${f.run}'`), '1:16');
+    }
+  });
+
+  await test('shooter-leases', 'populated restart retains configuration counters immutable attempts and backoff state', async () => {
+    isolate(); psql('UPDATE game.shooter_verification_scheduler SET lease_seconds=30,attempt_seconds=60');
+    await fixture(); const active = claim('restart-live').claim!;
+    await fixture(); const waiting = claim('restart-wait').claim!; retry(waiting, 'restart-wait');
+    const snapshot = () => psql(`SELECT jsonb_build_object(
+      'config',(SELECT to_jsonb(c) FROM game.shooter_verification_scheduler c),
+      'accounts',(SELECT jsonb_agg(to_jsonb(a) ORDER BY user_id) FROM game.shooter_verification_scheduler_account a),
+      'jobs',(SELECT jsonb_agg(to_jsonb(j) ORDER BY job_id) FROM game.shooter_verification_job j),
+      'attempts',(SELECT jsonb_agg(to_jsonb(a) ORDER BY job_id,fencing_token) FROM game.shooter_verification_attempt a),
+      'results',(SELECT jsonb_agg(to_jsonb(a) ORDER BY job_id,fencing_token) FROM game.shooter_verification_attempt_result a))::text`);
+    const before = snapshot();
+    compose(['restart', 'nakama']); await waitReady();
+    assert.equal(snapshot(), before, 'boot cannot reset queue or quota history');
+    assert.equal(fence(active, 'restart-live'), 1);
+    assert.equal(psql(`SELECT state FROM game.shooter_verification_job WHERE job_id='${waiting.jobId}'`), 'retry_wait');
   });
 
 }
