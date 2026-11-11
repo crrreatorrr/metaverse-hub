@@ -1,6 +1,5 @@
 {
   "schema": 1,
-  "status": "harness_skeleton_not_executed",
   "corpusSourceCommit": "05f7a0a245af921fc65a99588564175c19658e38",
   "authority": "Legacy observations are not v2 first-terminal expectations; retained approved incremental replay establishes those independently.",
   "approvedManifest": {
@@ -263,5 +262,6 @@
       "legacyInputEnvelopeSha256": "92f6851afaf4016a8362c8e17dd38f767904ad93c64cb321f74166a3af6fa15a"
     }
   ],
-  "inputHashMeaning": "Fixture/input-envelope hashes identify the original frozen legacy corpus. They are not protocol-v2 append digests; derive each append digest from its actual canonical rebound v2 body."
+  "inputHashMeaning": "Fixture/input-envelope hashes identify the original frozen legacy corpus. They are not protocol-v2 append digests; derive each append digest from its actual canonical rebound v2 body.",
+  "artifactKind": "reviewed_corpus_fixture_index"
 }
