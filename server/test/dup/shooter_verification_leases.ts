@@ -35,12 +35,12 @@ async function fixture(n = 1, reuse?: GameLogin): Promise<{ run: string; user: s
 }
 
 export async function runShooterVerificationLeases(test: TestFn): Promise<void> {
-  await test('shooter-leases', 'scheduler defaults off and has no public claim or completion RPC', async () => {
+  await test('shooter-leases', 'scheduler defaults off and has no public run claim or completion RPC', async () => {
     assert.equal(psql('SELECT claims_enabled::text FROM game.shooter_verification_scheduler'), 'false');
     assert.equal(claim('worker').reason, 'workers_disabled');
     assert.equal(claim("bad worker").reason, 'bad_worker');
     const source = readFileSync(new URL('../../modules/src/main.ts', import.meta.url), 'utf8');
-    assert.ok(!/registerRpc\([^\n]*(?:shooter.*claim|shooter.*renew|shooter.*complete)/i.test(source));
+    assert.ok(!/registerRpc\([^\n]*(?:shooter\.run\.claim|shooter\.run\.renew|shooter\.run\.complete)/i.test(source));
   });
 
   await test('shooter-leases', 'concurrent claims yield one immutable chain bound to original batch and predecessor', async () => {

@@ -18,6 +18,7 @@ import { runStoryBoss } from './story-boss.ts';
 import { runShooterRewards } from './shooter_rewards.ts';
 import { runShooterVerificationSchema } from './shooter_verification_schema.ts';
 import { runShooterVerificationIngest } from './shooter_verification_ingest.ts';
+import { runShooterVerificationInternal } from './shooter_verification_internal.ts';
 import { runShooterVerificationLeases } from './shooter_verification_leases.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
@@ -1721,7 +1722,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1752,6 +1753,10 @@ function report(): number {
   if (selected('shooter-leases') && !outcomes.some((item) => item.category === 'shooter-leases' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-leases: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-internal') && !outcomes.some((item) => item.category === 'shooter-internal' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-internal: category produced no pass, failing the suite');
   }
   if (selected('shooter-wager')) {
     const rows = outcomes.filter((item) => item.category === 'shooter-wager');
@@ -2013,6 +2018,7 @@ export async function main(): Promise<void> {
     if (selected('shooter-verification')) await runShooterVerificationSchema(test);
     if (selected('shooter-ingest')) await runShooterVerificationIngest(test);
     if (selected('shooter-leases')) await runShooterVerificationLeases(test);
+    if (selected('shooter-internal')) await runShooterVerificationInternal(test);
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
