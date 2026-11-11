@@ -28,7 +28,7 @@ export class GatewayClient {
     let text;
     try { text = JSON.stringify({ ...this.#auth, requestId, body }); } catch { return operational('bad_gateway_request'); }
     if (Buffer.byteLength(text) > (operation === 'result' ? LIMIT : 4096)) return operational('request_oversized');
-    const url = new URL(this.url); url.pathname += `/v2/rpc/shooter.internal.${operation}`; url.search = 'unwrap=true';
+    const url = new URL(this.url); url.pathname = url.pathname.replace(/\/$/, '') + `/v2/rpc/shooter.internal.${operation}`; url.search = 'unwrap=true';
     try {
       const response = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs),
         headers: { Authorization: `Bearer ${this.#accountToken}`, 'Content-Type': 'application/json' }, body: text });
