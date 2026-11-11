@@ -88,7 +88,8 @@ HubSchema.register({
       IF run.lifecycle<>'terminal' OR run.terminal_tick IS NULL OR run.terminal_result IS NULL
         OR run.terminal_accepted_tick IS NULL OR run.verified_tick<>run.terminal_accepted_tick THEN
         RETURN jsonb_build_object('state','pending_retryable','reason','verification_pending'); END IF;
-      IF NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result done
+      IF run.checkpoint_sha256 IS DISTINCT FROM encode(sha256(convert_to(run.checkpoint_json::text,'UTF8')),'hex')
+        OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result done
         JOIN game.shooter_verification_job job ON job.job_id=done.job_id
         WHERE job.run_id=target AND job.state='completed' AND done.state='completed'
           AND done.fencing_token=job.fencing_token AND done.result_revision=run.revision
