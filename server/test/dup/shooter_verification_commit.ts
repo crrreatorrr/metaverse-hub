@@ -129,6 +129,7 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
       (r) => { obj(r.privateCheckpoint).v = 99; },
       (r) => { const cp = obj(r.privateCheckpoint); obj(obj(cp.snapshot).state).version = 99; rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { obj(r.privateCheckpoint).privateHash = '00000000'; },
+      (r) => { const cp = obj(r.privateCheckpoint); obj(obj(obj(cp.snapshot).state).tuning).godMode = true; rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); const s = obj(obj(cp.snapshot).state); obj(obj(s.players)[String(s.localPlayerId)]).dead = 'yes'; rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); obj(obj(cp.snapshot).state).oversizedString = 'a'.repeat(16385); rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); obj(cp.accounting).verifiedFrames = 9; rehash(cp); },

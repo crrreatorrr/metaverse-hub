@@ -57,6 +57,18 @@ namespace ShooterVerificationCommit {
     });
     ["enemies", "allies", "projectiles", "pickups", "hazards"].forEach(function(k) { array(s[k]).forEach(entity); });
   }
+  function replaySafe(s: ObjectValue): void {
+    var tuning = object(s.tuning);
+    if (tuning.godMode || tuning.infiniteAmmo || tuning.freezeEnemies || tuning.unlockAllRecipes
+      || tuning.enemyHpMult !== 1 || tuning.enemyDmgMult !== 1 || s.testMode || s.bossFight) throw new Error("checkpoint_state");
+    var player = object(object(s.players)[String(s.localPlayerId)]);
+    function gun(v: Value): void {
+      if (!v) return; var g = object(v);
+      if (["start", "world", "boss", "drop"].indexOf(text(g.source)) < 0) throw new Error("checkpoint_inventory");
+    }
+    array(player.guns).forEach(gun);
+    array(s.pickups).forEach(function(v) { gun(object(v).gun); });
+  }
   function bounded(v: Value, depth: number, budget: { nodes: number }, stringLimit = 2097152): void {
     if (++budget.nodes > 1000000 || depth > 64) throw new Error("checkpoint_bounds");
     if (typeof v === "number" && !isFinite(v)) throw new Error("checkpoint_bounds");
@@ -80,7 +92,7 @@ namespace ShooterVerificationCommit {
       var issuance = object(c.issuance); var snap = object(c.snapshot);
       exact(snap, ["v", "manifest", "binding", "state", "campaignCheckpoints", "parts", "counters", "privateHash"]);
       bounded(snap, 0, { nodes: 0 }, 16384);
-      if (snap.v !== 1) return false; hash(snap); state(snap.state, issuance);
+      if (snap.v !== 1) return false; hash(snap); state(snap.state, issuance); replaySafe(object(snap.state));
       var manifest = object(body.manifest); var inner = object(snap.manifest);
       exact(inner, ["artifact", "sourceCommit", "sha256", "contentFingerprint", "protocol"]);
       Object.keys(inner).forEach(function(k) { if (inner[k] !== manifest[k]) throw new Error("checkpoint_manifest"); });
