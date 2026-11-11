@@ -7,11 +7,11 @@ namespace ShooterVerificationCleanup {
     return "{"+Object.keys(o).sort().map(function(k){return JSON.stringify(k)+":"+stable(o[k]);}).join(",")+"}";
   }
   export function operate(ctx:nkruntime.Context,nk:nkruntime.Nakama,payload:string,operation:string):string {
-    if (!ctx.userId || !/^[0-9a-f-]{36}$/.test(ctx.userId)) return JSON.stringify({state:"authorization_denied"});
+    if (!ctx.userId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(ctx.userId)) return JSON.stringify({state:"authorization_denied"});
     if (["inspect","reap","requeue","certify","retire"].indexOf(operation)<0 || !payload || payload.length>4096 || nk.stringToBinary(payload).byteLength>4096) return JSON.stringify({state:"invalid",reason:"malformed"});
     try {
       var b=JSON.parse(payload) as {[key:string]:unknown};
-      if (Object.keys(b).length!==5 || ["body","keyId","operatorId","requestId","token"].some(function(k){return !Object.prototype.hasOwnProperty.call(b,k);}) || typeof b.operatorId!=="string" || typeof b.keyId!=="string" || typeof b.requestId!=="string"
+      if (!b || typeof b!=="object" || Array.isArray(b) || Object.keys(b).length!==5 || ["body","keyId","operatorId","requestId","token"].some(function(k){return !Object.prototype.hasOwnProperty.call(b,k);}) || typeof b.operatorId!=="string" || typeof b.keyId!=="string" || typeof b.requestId!=="string"
         || !/^[A-Za-z0-9_.:@|-]{1,80}$/.test(b.operatorId) || !/^[A-Za-z0-9_.:@|-]{1,80}$/.test(b.keyId) || !/^[A-Za-z0-9_.:@|-]{1,80}$/.test(b.requestId)
         || typeof b.token!=="string" || !/^[A-Za-z0-9_-]{43}$/.test(b.token) || !b.body || typeof b.body!=="object" || Array.isArray(b.body)) return JSON.stringify({state:"invalid",reason:"malformed"});
       var result=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_maintain($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::jsonb)::text AS result",
@@ -198,6 +198,8 @@ HubSchema.register({
         IF principal.revoked_at IS NOT NULL OR principal.not_before>t OR principal.expires_at<=t OR NOT operation=ANY(principal.scopes)
           OR NOT game.shooter_verification_hash_equal(principal.token_sha256,token_hash) THEN RETURN jsonb_build_object('state','authorization_denied','reason','operator_authorization'); END IF;
         SELECT * INTO cfg FROM game.shooter_verification_retention_config WHERE singleton FOR UPDATE;
+        t:=clock_timestamp();
+        IF principal.expires_at<=t OR principal.not_before>t THEN RETURN jsonb_build_object('state','authorization_denied','reason','operator_authorization'); END IF;
         IF NOT cfg.enabled THEN RETURN jsonb_build_object('state','pending_retryable','reason','retention_disabled'); END IF;
         IF operation NOT IN('inspect','reap','requeue','certify','retire') OR rid IS NULL OR rid!~'^[A-Za-z0-9_.:@|-]{1,80}$'
           OR digest IS NULL OR digest!~'^[0-9a-f]{64}$' OR body IS NULL OR jsonb_typeof(body)<>'object' OR octet_length(body::text)>4096 THEN
@@ -266,7 +268,8 @@ HubSchema.register({
                 OR (body->>'expectedTick')::int IS DISTINCT FROM r.verified_tick OR r.verified_tick>=j.tick_end THEN
                 RETURN jsonb_build_object('state','pending_retryable','reason','predecessor_conflict'); END IF;
               IF extra NOT BETWEEN 1 AND 8 OR j.recovery_grants>=4 OR j.recovery_budget+extra>32 THEN RETURN jsonb_build_object('state','pending_retryable','reason','recovery_budget_exhausted'); END IF;
-              IF r.checkpoint_json IS NOT NULL AND r.checkpoint_sha256 IS DISTINCT FROM encode(sha256(convert_to(r.checkpoint_json::text,'UTF8')),'hex') THEN RETURN jsonb_build_object('state','pending_retryable','reason','checkpoint_unavailable'); END IF;
+              IF r.checkpoint_json IS NOT NULL AND (r.checkpoint_sha256 IS DISTINCT FROM encode(sha256(convert_to(r.checkpoint_json::text,'UTF8')),'hex')
+                OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result a JOIN game.shooter_verification_job x USING(job_id) WHERE x.run_id=r.run_id AND a.result_revision=r.revision AND a.checkpoint_sha256=r.checkpoint_sha256 AND a.acknowledgment IS NOT NULL)) THEN RETURN jsonb_build_object('state','pending_retryable','reason','checkpoint_unavailable'); END IF;
               INSERT INTO game.shooter_verification_recovery_grant(job_id,grant_number,extra_attempts,budget_after,attempts_at_grant,fence_at_grant,revision_at_grant,audit_id,granted_at)
                 VALUES(j.job_id,j.recovery_grants+1,extra,j.recovery_budget+extra,j.attempts,j.fencing_token,r.revision,aid,t);
               UPDATE game.shooter_verification_job SET recovery_budget=recovery_budget+extra,recovery_grants=recovery_grants+1,state='ready',next_attempt_at=t,last_error=NULL,updated_at=t WHERE job_id=j.job_id;
@@ -296,6 +299,8 @@ HubSchema.register({
                   OR proof.revision>r.revision OR proof.verified_tick<b.tick0+b.frame_count OR r.verified_tick<b.tick0+b.frame_count
                   OR b.accepted_at+make_interval(secs=>cfg.minimum_retention_seconds)>t OR r.checkpoint_json IS NULL
                   OR r.checkpoint_sha256 IS DISTINCT FROM encode(sha256(convert_to(r.checkpoint_json::text,'UTF8')),'hex')
+                  OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result current_proof JOIN game.shooter_verification_job current_job USING(job_id)
+                    WHERE current_job.run_id=r.run_id AND current_proof.result_revision=r.revision AND current_proof.checkpoint_sha256=r.checkpoint_sha256 AND current_proof.acknowledgment IS NOT NULL)
                   OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result a JOIN game.shooter_verification_job x USING(job_id)
                     WHERE x.run_id=r.run_id AND x.sequence_from=b.sequence AND x.sequence_to=b.sequence AND x.tick_end=b.tick0+b.frame_count
                       AND a.state='completed' AND a.resolved_tick=b.tick0+b.frame_count AND a.checkpoint_sha256 IS NOT NULL AND a.acknowledgment IS NOT NULL) THEN
