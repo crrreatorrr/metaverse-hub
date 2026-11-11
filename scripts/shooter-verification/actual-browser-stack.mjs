@@ -161,8 +161,13 @@ try {
       const original = crypto.randomUUID.bind(crypto);
       crypto.randomUUID = () => { crypto.randomUUID = original; return key; };
     }, key) });
-    await c.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().phase === 'ended', null, { timeout: 2100000 });
+    await c.page.waitForFunction(() => {
+      const game = window.__game, flow = game.rewardedCampaign.snapshot();
+      return flow.phase === 'ended' || !!game.canonicalRewardFailure || game.crash.halted || game.crash.total > 0
+        || ['error', 'cancelled', 'unranked'].includes(flow.phase) || !flow.active;
+    }, null, { timeout: 2100000 });
     const state = await safeSnapshot(c.page);
+    assert.equal(state.snapshot.phase, 'ended', 'full trace ended normally; permanent failure never waits out the long deadline');
     assert.equal(state.snapshot.runId, actor.runId); assert.equal(state.captured.n, 9634);
     assert.equal(hash(state.captured.frames), hash(actor.trace.frames));
     assert.equal(hash(JSON.stringify(state.captured.actions)), hash(JSON.stringify(actor.trace.actions)));
