@@ -204,11 +204,6 @@ HubSchema.register({
         IF operation NOT IN('inspect','reap','requeue','certify','retire') OR rid IS NULL OR rid!~'^[A-Za-z0-9_.:@|-]{1,80}$'
           OR digest IS NULL OR digest!~'^[0-9a-f]{64}$' OR body IS NULL OR jsonb_typeof(body)<>'object' OR octet_length(body::text)>4096 THEN
           RETURN jsonb_build_object('state','invalid','reason','malformed'); END IF;
-        SELECT * INTO old FROM game.shooter_verification_operator_audit WHERE operator_id=op_id AND request_id=rid;
-        IF FOUND THEN
-          IF old.operation<>operation OR old.request_sha256<>digest THEN RETURN jsonb_build_object('state','invalid','reason','request_conflict'); END IF;
-          RETURN old.acknowledgment;
-        END IF;
         INSERT INTO game.shooter_verification_operator_usage(operator_id) VALUES(op_id) ON CONFLICT DO NOTHING;
         SELECT * INTO usage FROM game.shooter_verification_operator_usage WHERE operator_id=op_id FOR UPDATE;
         t:=clock_timestamp();
@@ -217,6 +212,11 @@ HubSchema.register({
         IF cfg.rate_count>=cfg.operations_per_minute OR usage.rate_count>=cfg.operator_operations_per_minute THEN RETURN jsonb_build_object('state','pending_retryable','reason','operator_rate_limited'); END IF;
         UPDATE game.shooter_verification_retention_config SET rate_window=cfg.rate_window,rate_count=cfg.rate_count+1 WHERE singleton;
         UPDATE game.shooter_verification_operator_usage SET rate_window=usage.rate_window,rate_count=usage.rate_count+1 WHERE operator_id=op_id;
+        SELECT * INTO old FROM game.shooter_verification_operator_audit WHERE operator_id=op_id AND request_id=rid;
+        IF FOUND THEN
+          IF old.operation<>operation OR old.request_sha256<>digest THEN RETURN jsonb_build_object('state','invalid','reason','request_conflict'); END IF;
+          RETURN old.acknowledgment;
+        END IF;
         IF cfg.retained_operations>=cfg.max_operations OR usage.retained_operations>=cfg.max_operator_operations
           OR cfg.reserved_audit_bytes+65536>cfg.max_audit_bytes OR usage.reserved_audit_bytes+65536>cfg.max_operator_audit_bytes THEN
           RETURN jsonb_build_object('state','pending_retryable','reason','operator_capacity'); END IF;
