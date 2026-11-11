@@ -200,7 +200,7 @@
     },
     "actors": {
       "type": "array",
-      "minItems": 20,
+      "minItems": 0,
       "items": {
         "$ref": "#/$defs/actor"
       }
@@ -339,6 +339,26 @@
           },
           "approvalReference": {
             "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "summary": {
+            "properties": {
+              "harnessStatus": {
+                "const": "complete"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "actors": {
+            "minItems": 20
           }
         }
       }

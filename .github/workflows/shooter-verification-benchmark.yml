@@ -69,7 +69,7 @@ jobs:
       - name: Explicit finite fixture config and scoped principal
         run: |
           npx tsx scripts/load/shooter-benchmark/ci.ts prepare
-          sudo chown -R 1000:1000 "$SHOOTER_OPS_CI_DIRECTORY"
+          sudo chown -R 1000:1000 "$SHOOTER_OPS_CI_DIRECTORY/socket" "$SHOOTER_OPS_CI_DIRECTORY/journal" "$SHOOTER_OPS_CI_DIRECTORY/shooter-worker.json"
       - name: Actual fenced coordinator and network-isolated replay containers
         run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification up -d --build replay coordinator
       - name: Full twenty independent authenticated actors with Hub and free PvP observers
