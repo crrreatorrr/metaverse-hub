@@ -1,6 +1,6 @@
 CI-only microbenchmark, not a production RPC, deployment or capacity test.
 
-The workflow uses Go1.27.1 and Goja `v0.0.0-20260906210903-70ad66ec7ce4`, the direct version in the official Nakama3.41.0 `go.mod`. The initial two Goja checksums were read from `sum.golang.org`; Actions resolves indirect dependencies with `go mod tidy` and retains the resulting public module metadata only.
+The workflow uses Go1.27.1 and Goja `v0.0.0-20260906210903-70ad66ec7ce4`, the direct version in the official Nakama3.41.0 `go.mod`. The Goja checksums were verified against `sum.golang.org`; indirect requirements and checksums were resolved by Actions and are checked in. Actions downloads that locked graph and builds with `-mod=readonly`, retaining only public module metadata.
 
 The driver extracts the exact current production `stable` and `fnv` functions without modifying their source. Every hash sample must equal both original Goja output and the original function evaluated independently in V8. Canonical strings must also agree by SHA256. Inputs include all65,536 UTF16 code units, unpaired surrogates, astral/combining/NUL strings, canonical key-order edge cases and the approved full24,000-frame trace's actual22,000-frame private predecessor envelope/snapshot.
 

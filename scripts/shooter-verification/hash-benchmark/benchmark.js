@@ -23,7 +23,7 @@ function hashBenchmarkJSON(encodedCase) {
     serialization = { coldMs: __benchNow() - before, warmMs: [] };
     for (var n = 0; n < 2; n++) {
       before = __benchNow(); var again = stable(input.value); serialization.warmMs.push(__benchNow() - before);
-      if (again !== canonical) throw new Error('benchmark_parity');
+      if (again !== canonical) throw new Error('benchmark_parity_serialization');
     }
     canonicalSHA = __benchSHA(canonical);
   } else canonical = input.value;
@@ -31,15 +31,15 @@ function hashBenchmarkJSON(encodedCase) {
   for (var j = 0; j < functions.length; j++) {
     before = __benchNow(); var hash = functions[j](canonical); var coldMs = __benchNow() - before;
     if (expected === null) expected = hash;
-    if (hash !== expected || hash !== input.expectedHash) throw new Error('benchmark_parity');
+    if (hash !== expected || hash !== input.expectedHash) throw new Error('benchmark_parity_fnv');
     var row = { variant: names[j], hash: hash, coldMs: coldMs, warmMs: [] };
     for (n = 0; n < 2; n++) {
       before = __benchNow(); var warmHash = functions[j](canonical); row.warmMs.push(__benchNow() - before);
-      if (warmHash !== expected) throw new Error('benchmark_parity');
+      if (warmHash !== expected) throw new Error('benchmark_parity_fnv');
     }
     rows.push(row);
   }
-  if (canonicalSHA !== input.expectedCanonicalSHA) throw new Error('benchmark_parity');
+  if (canonicalSHA !== input.expectedCanonicalSHA) throw new Error('benchmark_parity_canonical');
   return JSON.stringify({ name: input.name, kind: input.kind, codeUnits: canonical.length, canonicalSHA: canonicalSHA, serialization: serialization, variants: rows });
 }
 globalThis.hashBenchmarkJSON = hashBenchmarkJSON;
