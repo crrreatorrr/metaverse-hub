@@ -1,0 +1,17 @@
+services:
+  verifier-test:
+    build:
+      context: ../..
+      dockerfile: services/shooter-verifier/Dockerfile
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 512m
+    cpus: 2
+    ulimits:
+      nofile: { soft: 64, hard: 64 }
+      core: 0
+    environment: []
+    tmpfs: ["/tmp:size=16m,noexec,nosuid,nodev"]
