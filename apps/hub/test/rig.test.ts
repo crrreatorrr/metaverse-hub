@@ -293,14 +293,45 @@ async function main(): Promise<void> {
     for (const name of ['idle', 'walk', 'run', 'fly', 'fireball']) clip(rig.animations, name);
   }
 
-  // The Pepe rigs carry their own clips, with stride rates inside the hub's playback range.
+  // The Pepe rigs carry their own gaits and a jump scrubbed by the avatar controller.
   for (const character of CHARACTERS.filter((entry) => entry.id.startsWith('pepe'))) {
     const rig = await loadGLB(`${PUBLIC}${character.asset}`);
-    clip(rig.animations, 'idle');
     const fit = characterHeight(character) / restHeight(rig.scene);
+    assert.equal(rig.scene.userData.boot_support, true, `${character.id} corrects boot clearance during blends`);
     for (const [name, speed] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
       const plantedSpeed = fit * measureGroundSpeed(rig.scene, clip(rig.animations, name));
       assert.ok(speed / plantedSpeed < 2.5, `${character.id} ${name} can match controller speed`);
+    }
+    const mixer = new AnimationMixer(rig.scene);
+    const toes = ['Left', 'Right'].map(side => rig.scene.getObjectByName(`mixamorig${side}ToeBase`)!);
+    const hand = rig.scene.getObjectByName('mixamorigLeftHand')!;
+    const restHand = hand.getWorldQuaternion(new Quaternion()).invert();
+    const worldHand = new Quaternion();
+    const point = new Vector3();
+    const up = new Vector3(0, 1, 0);
+    for (const name of ['idle', 'jog', 'dash', 'jump']) {
+      const motion = clip(rig.animations, name);
+      const action = mixer.clipAction(motion).play();
+      if (name === 'jump') {
+        for (const toe of toes) {
+          const heightAt = (phase: number) => {
+            mixer.setTime(motion.duration * phase);
+            return toe.getWorldPosition(point).y * fit;
+          };
+          const apex = heightAt(0.5);
+          assert.ok(apex - Math.max(heightAt(0.15), heightAt(0.85)) > 0.08,
+            `${character.id} tucks both feet at the jump apex`);
+        }
+      }
+      if (character.id === 'pepe-tux') {
+        for (let i = 0; i < 24; i += 1) {
+          mixer.setTime(motion.duration * i / 24);
+          hand.getWorldQuaternion(worldHand).multiply(restHand);
+          assert.ok(point.copy(up).applyQuaternion(worldHand).angleTo(up) < 0.06,
+            `Pepe Tux keeps his glass upright in ${name}`);
+        }
+      }
+      action.stop();
     }
   }
   for (const file of ['pet_pepe_bull', 'pet_pepe_bull-lod1']) {
