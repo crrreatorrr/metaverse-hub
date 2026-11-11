@@ -10,7 +10,7 @@ try {
   const result=await client.replayClaim(ack,pool);
   const submitted=result.kind==='replayed'?await client.result(ack.work.manifest,result):null;
   process.stdout.write(JSON.stringify({runId:ack.claim?.runId,kind:result.kind,verified:result.publicResult?.verifiedInputTick,
-    status:result.publicResult?.status,submitState:submitted?.state,submitReason:submitted?.reason}));
+    status:result.publicResult?.status,checkpointBytes:result.privateCheckpoint?Buffer.byteLength(JSON.stringify(result.privateCheckpoint)):0,receivedCheckpointBytes:ack.work?.checkpoint?Buffer.byteLength(JSON.stringify(ack.work.checkpoint)):0,submitState:submitted?.state,submitReason:submitted?.reason}));
 } catch {
   process.stdout.write(JSON.stringify({failure:'test_gateway_failure'}));process.exitCode=1;
 } finally {pool.close();}

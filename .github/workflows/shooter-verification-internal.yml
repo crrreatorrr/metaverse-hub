@@ -10,6 +10,8 @@ on:
       - services/shooter-verifier/src/gateway-client.mjs
       - services/shooter-verifier/test/gateway-client.test.mjs
       - services/shooter-verifier/test/live-gateway.mjs
+      - services/shooter-verifier/test/late-checkpoint.mjs
+      - services/shooter-verifier/test/obama-success-7.json
       - .github/workflows/shooter-verification-internal.yml
 permissions:
   contents: read
@@ -37,6 +39,7 @@ jobs:
         run: |
           set -eu
           sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
           sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
           for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
             echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"

@@ -119,3 +119,25 @@ refusal. Node tests exercise exact credentials, literal-loopback policy, redirec
 self-signed TLS refusal, response bounds and deadlines. All execution is in
 GitHub Actions; no production credentials or deployment are authorized. Public
 activation, provenance, hosting capacity and live-session settlement gates remain.
+
+The exact Nakama3.41 transport defaults to256KiB HTTP requests, which is below
+late measured checkpoints. CI alone sets `NAKAMA_TEST_MAX_REQUEST_BYTES=23068672`
+in its ephemeral `server/.env`; the local-stack default remains262144 and restart
+helpers preserve that test-only env setting. This finite22MiB outer bound lets
+tests exercise the stricter20MiB internal RPC bound. No production configuration
+is changed. Activation requires separately approved private routing and transport
+size configuration, with tighter public route bounds; raising a global public
+Nakama limit is not authorized by these tests. A full frozen24,000-frame Obama
+fixture produces a late22,000-frame complete predecessor and network-replays the
+entire remaining suffix, measuring actual checkpoint request/response bytes.
+
+The shared-host Node-client integration test proves protocol/credential separation
+and bounded child-process replay, not network-namespace/read-only isolation. Its
+local ReplayPool children share the host network/filesystem. A production pool
+adapter must preserve the separately offline, read-only PR09 container contract;
+no production adapter/service wiring is installed here.
+
+The copied `services/shooter-verifier/test/obama-success-7.json` is byte-for-byte
+source05f's frozen fixture (fileSHA256290305879564ca056728554accb52d3469f1185bd2b3c68574929635767b5e77).
+Its original generator provenance is retained. Only test-time issuance bindings
+are regenerated for ephemeral account/session UUIDs, retaining exact input bytes.
