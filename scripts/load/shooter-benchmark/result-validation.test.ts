@@ -16,3 +16,10 @@ assert.throws(() => validateResult({ ...report, measurements: { ...metrics, gc: 
 assert.throws(() => validateResult({ ...report, evidence: { accountToken: 'secret' } }), /private field/);
 assert.throws(() => validateResult({ ...report, actors: [actors[0], ...actors.slice(1).map(a => ({ ...a, accountBindingHash: actors[0].accountBindingHash }))] }), /reused/);
 console.log('result accounting/provenance/privacy canaries passed; no capacity evidence');
+
+const earlyPaid = actors.map((row, i) => i ? row : { ...row, status: 'unsupported' as const, submittedFrames: 120, acceptedTick: 120, verifiedTick: 120, durablyVerified: true, everObservedEligible: true, observedPaid: true });
+const earlySummary = { ...report.summary, ...summarizeActors(earlyPaid) };
+const latency = { value: { p50: 5, p95: 5, p99: 5, max: 5 }, unit: 'ms', observer: 'test_only_observed_receipt', sampleCount: 1, unavailableReason: null,
+  denominators: { eligible: 1, observedPaid: 1, successfulPaid: 0, eligibleUnpaid: 0, eligibleCensored: 0 } };
+validateResult({ ...report, actors: earlyPaid, summary: earlySummary, measurements: { ...metrics, rewardDelay: latency } });
+assert.throws(() => validateResult({ ...report, actors: earlyPaid, summary: earlySummary, measurements: { ...metrics, rewardDelay: { ...latency, denominators: { ...latency.denominators, observedPaid: 0 } } } }), /observedPaid denominator/);

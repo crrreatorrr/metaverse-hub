@@ -38,6 +38,7 @@ export async function startBrowserBackground(root: string) {
   const start = performance.now(), background = new BackgroundTraffic('http://127.0.0.1:7350', `browser-${process.env.GITHUB_RUN_ID}`);
   const samples: CgroupSample[] = [], metrics: Record<string, unknown>[] = [];
   const observations: { elapsedMs: number; category: 'observed' | 'sut_unavailable' | 'instrumentation_failure' | 'censored'; reason: string | null; context: Record<string, unknown> }[] = [];
+  const pendingComponents = new Set<string>();
   const sampleSignal = AbortSignal.any([global.signal, observationStop.signal]);
   async function server(signal: AbortSignal): Promise<void> {
     const [rows, output] = await Promise.all([
@@ -53,17 +54,19 @@ export async function startBrowserBackground(root: string) {
   }
   const observing = (async () => {
     while (!sampleSignal.aborted) {
+      const sampleStartedMonoMs = performance.now();
       const one = AbortSignal.any([sampleSignal, AbortSignal.timeout(5000)]);
       let category: typeof observations[number]['category'] = 'observed', reason: string | null = null;
       try {
         // Parallel reads cannot leave sequential slots outside the5s budget.
-        const replies = await bounded(Promise.allSettled([server(one), background.observe(one)]), 5000);
+        const component = async (name: string, read: () => Promise<void>) => { pendingComponents.add(name); try { await read(); } finally { pendingComponents.delete(name); } };
+        const replies = await bounded(Promise.allSettled([component('server', () => server(one)), component('background', () => background.observe(one))]), 5000);
         for (const reply of replies) if (reply.status === 'rejected') throw reply.reason;
       } catch (error) {
         category = sampleSignal.aborted ? 'censored' : error instanceof SutUnavailable ? 'sut_unavailable' : 'instrumentation_failure';
         reason = sampleSignal.aborted ? 'measurement_window_closed' : one.aborted ? 'observer_sample_deadline' : error instanceof SutUnavailable || error instanceof InstrumentationFailure ? error.reason : 'browser_background_read_exception';
       }
-      if (!closed) observations.push({ elapsedMs: performance.now() - start, category, reason, context: background.observationContext() });
+      if (!closed) observations.push({ elapsedMs: performance.now() - start, category, reason, context: { pendingComponents: [...pendingComponents], sampleStartedMonoMs, finishedMonoMs: performance.now(), readElapsedMs: performance.now() - sampleStartedMonoMs, readBudgetMs: 5000, background: background.observationContext() } });
       if (observations.length >= 2000) { global.abort(); break; }
       await delay(1000, sampleSignal);
     }

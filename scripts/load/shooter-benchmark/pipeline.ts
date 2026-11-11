@@ -3,6 +3,7 @@
 import { performance } from 'node:perf_hooks';
 import { call, guest, openGame, psqlAsync } from '../../../server/test/dup/harness.ts';
 import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
+import { WorkerLifecycleFailure } from './worker-lifecycle.mjs';
 import { ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, positiveEligibilityProof, type Assignment, type Phase, type Plan } from './contracts.ts';
@@ -18,6 +19,10 @@ export interface ActorObservation {
   runBindingHash: string;
   submittedFrames: number;
   sourceFrames: number;
+  scheduledDispatchMonoMs: number;
+  startedMonoMs: number;
+  firstRequestMonoMs: number | null;
+  completedMonoMs: number | null;
   appendAttempts: number;
   receivedWallMs: number | null;
   verifiedWallMs: number | null;
@@ -37,21 +42,24 @@ export class PublicPipeline implements CampaignAdapter {
   private readonly background: BackgroundTraffic;
   private readonly budget: ByteBudget;
   private observing = false;
+  private firstExecuteReady: Promise<void> | null = null;
   private readonly observingComponents = new Set<string>();
   private readonly inputReleases = new Map<string, () => void>();
   private readonly activeExecutions = new Set<string>();
   private readonly runIds = new Set<string>();
-  constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>, private lifecycle?: { prepareCold(signal: AbortSignal): Promise<Record<string, unknown>>; assertWarm(signal: AbortSignal): Promise<Record<string, unknown>>; observe(signal: AbortSignal): Promise<Record<string, unknown>> }) {
+  constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>, private lifecycle?: { prepareCold(signal: AbortSignal): Promise<Record<string, unknown>>; assertWarm(signal: AbortSignal): Promise<Record<string, unknown>>; observe(signal: AbortSignal): Promise<Record<string, unknown>> }, private onFirstExecute?: (signal: AbortSignal) => Promise<void> | void) {
     this.background = new BackgroundTraffic(base, plan.seed);
     this.budget = new ByteBudget(plan.maxQueuedBytes);
   }
   async phaseLifecycle(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (!this.lifecycle) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
-    return phase.kind === 'cold_burst' ? this.lifecycle.prepareCold(signal) : this.lifecycle.assertWarm(signal);
+    try { return await (phase.kind === 'cold_burst' ? this.lifecycle.prepareCold(signal) : this.lifecycle.assertWarm(signal)); }
+    catch (error) { if (error instanceof WorkerLifecycleFailure) throw new InstrumentationFailure(error.reason); throw error; }
   }
   async phaseLifecycleComplete(_phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>> {
     if (!this.lifecycle) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
-    return this.lifecycle.observe(signal);
+    try { return await this.lifecycle.observe(signal); }
+    catch (error) { if (error instanceof WorkerLifecycleFailure) throw new InstrumentationFailure(error.reason); throw error; }
   }
   async prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding> {
     const estimate = sourceInputReservation(assignment.frames, assignment.actions);
@@ -74,12 +82,16 @@ export class PublicPipeline implements CampaignAdapter {
     } catch (error) { prepared.release(); throw error; }
   }
   async execute(binding: Binding, assignment: Assignment, phase: Phase, signal: AbortSignal, progress: (value: SubmissionProgress) => void): Promise<Execution> {
+    const scheduledDispatchMonoMs = performance.now();
     const prepared = this.actors.get(binding.runBindingHash);
     if (!prepared) throw new Error('unknown actual actor');
     const { actor, wave } = prepared;
     this.activeExecutions.add(binding.runBindingHash);
     let releaseWire = () => {};
     try {
+    this.firstExecuteReady ??= Promise.resolve().then(() => this.onFirstExecute?.(signal));
+    await this.firstExecuteReady;
+    if (signal.aborted) throw new Error('aborted');
     const wireBound = wireInputReservation(assignment.frames, assignment.actions);
     releaseWire = this.budget.reserve(wireBound);
     const start = performance.now(), batches = reboundBatches(actor);
@@ -88,7 +100,7 @@ export class PublicPipeline implements CampaignAdapter {
     const original = batches[0], n = assignment.behavior === 'abandon' ? Math.min(120, original.n) : original.n;
     const batch = n === original.n ? original : { ...original, n, frames: original.frames.slice(0, n * 16), actions: original.actions.filter(a => a[0] < n) };
     if (Buffer.byteLength(JSON.stringify(batch)) > wireBound) throw new Error('actual append exceeds wire reservation');
-    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
+    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, scheduledDispatchMonoMs, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
     this.observations.set(binding.runBindingHash, observation);
     const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0, durablyVerified: false, payable: false, everObservedEligible: false, observedPaid: false };
     progress(submission);
@@ -97,6 +109,7 @@ export class PublicPipeline implements CampaignAdapter {
     const attempts = phase.kind === 'retry_storm' ? this.plan.requestRetryLimit + 1 : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
       observation.appendAttempts++;
+      observation.firstRequestMonoMs ??= performance.now();
       const ack = object((await call('shooter.run.append', batch, actor.login.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
       if (signal.aborted) throw new Error('aborted');
       if (ack.state !== 'received' || ack.digest !== appendDigest(batch) || Number(ack.acceptedTick) !== n) throw new Error('actual append acknowledgment mismatch');
@@ -140,7 +153,7 @@ export class PublicPipeline implements CampaignAdapter {
       }
       await delay(500, signal);
     }
-    } finally { this.activeExecutions.delete(binding.runBindingHash); releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
+    } finally { const retained = this.observations.get(binding.runBindingHash); if (retained) retained.completedMonoMs = performance.now(); this.activeExecutions.delete(binding.runBindingHash); releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
   }
   private async finishBarrier(wave: number, signal: AbortSignal): Promise<void> {
     let gate = this.gates.get(wave);

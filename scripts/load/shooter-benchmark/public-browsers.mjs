@@ -40,7 +40,7 @@ function captureSummary(rows, runId, decodeFrames) {
 }
 // Observe known service outcomes without making helper.start's active-only
 // wait turn a genuine denial into an unexplained browser timeout.
-async function startMeasuredRun(handle, boss, signal) {
+async function startMeasuredRun(handle, boss, signal, operation) {
   let failure = null, requestFailed = false;
   const reads = [];
   const onResponse = response => {
@@ -65,16 +65,22 @@ async function startMeasuredRun(handle, boss, signal) {
   handle.page.on('requestfailed', onRequestFailed);
   handle.page.on('response', onResponse);
   try {
+    operation('reward_dialog_click');
     await bounded(handle.page.locator('[data-go="rewarded"]').click(), signal);
+    operation('boss_select');
     await bounded(handle.page.locator('[data-reward-boss]').selectOption(boss), signal);
+    operation('reward_start_click');
     await bounded(handle.page.locator('[data-reward-start]').click(), signal);
+    operation('await_start_completion');
     await bounded(handle.page.waitForFunction(() => {
       const flow = window.__game.rewardedCampaign;
       return flow.active || !flow.startBusy;
     }), signal);
+    operation('read_start_projection');
     const result = await bounded(handle.page.evaluate(() => ({ snapshot: window.__game.rewardedCampaign.snapshot(),
       errorCode: window.__game.rewardedCampaign.current?.errorCode || null })), signal);
     if (result.snapshot.active) return result.snapshot;
+    operation('read_service_outcome');
     await bounded(Promise.all(reads), signal);
     if (failure) throw outcomeError(failure);
     const local = clientStartOutcome(result.errorCode, { requestFailed });
@@ -85,23 +91,32 @@ async function startMeasuredRun(handle, boss, signal) {
 
 // Freeze gameplay through native browser release and actual reward status DOM.
 // No Game/input/state/clock mutation. Back requests the normal final-tail finish.
-async function stopPrefix(handle, signal) {
+async function stopPrefix(handle, signal, operation) {
+  operation('stop_key_up_W');
   await bounded(handle.page.keyboard.up('KeyW'), signal);
+  operation('stop_mouse_up_0');
   await bounded(handle.page.mouse.up(), signal);
+  operation('stop_native_exit');
   await bounded(handle.page.evaluate(() => document.exitPointerLock()), signal);
+  operation('stop_wait_unlock');
   await bounded(handle.page.waitForFunction(() => document.pointerLockElement === null), signal);
+  operation('stop_status_panel_check');
   if (!await bounded(handle.page.locator('[data-reward-panel]').count(), signal)) {
+    operation('stop_status_click');
     await bounded(handle.page.locator('[data-reward-status]').click(), signal);
   }
+  operation('stop_wait_paused');
   await bounded(handle.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().paused), signal);
+  operation('stop_read_frozen');
   const frozen = await bounded(handle.readSnapshot(), signal);
   assert(frozen.active && frozen.paused && !frozen.recording, 'browser_final_pause_not_observed');
+  operation('stop_back_click');
   await bounded(handle.page.locator('[data-reward-action="back"]').click(), signal);
   return frozen;
 }
-export async function runPublicBrowserCohort({ browser, url, actors, readOwnerStatus, decodeFrames, signal,
+async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, decodeFrames, signal, preparedHandle = null, onRecordingStarted = null,
   maxDurationMs = 900000, prefixTicks = 120, maxRecordingMs = 30000, paymentObservationMs = 120000,
-  viewport = { width: 640, height: 480 } }) {
+  viewport = { width: 640, height: 480 } }, expectedActors) {
   assert(process.env.GITHUB_ACTIONS === 'true' && process.env.HUB_SHOOTER_FIXTURE === 'benchmark', 'explicit_disposable_browser_benchmark_required');
   const target = new URL(url);
   assert(target.protocol === 'http:' && ['127.0.0.1', 'localhost'].includes(target.hostname) && !target.username && !target.password && !target.hash && !target.search, 'local_production_page_required');
@@ -109,12 +124,15 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
     && Number.isSafeInteger(prefixTicks) && prefixTicks > 0 && prefixTicks <= 3600
     && Number.isSafeInteger(maxRecordingMs) && maxRecordingMs > 0 && maxRecordingMs <= maxDurationMs
     && Number.isSafeInteger(paymentObservationMs) && paymentObservationMs > 0 && paymentObservationMs <= 120000, 'bounded_browser_profile_required');
-  assert(Array.isArray(actors) && actors.length === 20 && typeof readOwnerStatus === 'function' && typeof decodeFrames === 'function', 'twenty_actual_browser_actors_required');
-  for (const field of ['accountBindingHash', 'sessionBindingHash']) assert(actors.every(a => SHA.test(a[field])) && new Set(actors.map(a => a[field])).size === 20, 'independent_actual_browser_bindings_required');
+  assert(Array.isArray(actors) && actors.length === expectedActors && typeof readOwnerStatus === 'function' && typeof decodeFrames === 'function', expectedActors === 20 ? 'twenty_actual_browser_actors_required' : 'one_actual_browser_actor_required');
+  for (const field of ['accountBindingHash', 'sessionBindingHash']) assert(actors.every(a => SHA.test(a[field])) && new Set(actors.map(a => a[field])).size === expectedActors, 'independent_actual_browser_bindings_required');
   for (const actor of actors) assert(actor.session && actor.accountBindingHash === hash(actor.session.playerId) && actor.sessionBindingHash === hash(actor.session.sid), 'browser_session_binding_mismatch');
-  assert(browser.contexts().length === 0, 'dedicated_benchmark_browser_required');
+  if (expectedActors === 20) assert(preparedHandle === null && onRecordingStarted === null && browser.contexts().length === 0, 'dedicated_benchmark_browser_required');
+  else assert(expectedActors === 1 && preparedHandle?.context && browser.contexts().length === 1
+    && browser.contexts()[0] === preparedHandle.context, 'one_prepared_browser_context_required');
+  assert(onRecordingStarted === null || (expectedActors === 1 && typeof onRecordingStarted === 'function'), 'invalid_readonly_recording_observer');
   const scope = AbortSignal.any([signal ?? new AbortController().signal, AbortSignal.timeout(maxDurationMs)]), start = performance.now();
-  const actualBrowserVersion = browser.version(), results = new Array(20), rawFrameRecords = [], runIds = new Set();
+  const actualBrowserVersion = browser.version(), results = new Array(expectedActors), rawFrameRecords = [], runIds = new Set();
   await Promise.all(actors.map(async (actor, i) => {
     const row = { actor: i, accountBindingHash: actor.accountBindingHash, sessionBindingHash: actor.sessionBindingHash,
       runBindingHash: null, boss: actor.boss, seed: null, stage: 'boot', status: 'not_started', rawReason: null, stopReason: null,
@@ -122,9 +140,11 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
       submittedFrames: null, submittedInputSha256: null, acceptedTick: null, verifiedTick: null, liveCursorResamples: 0,
       finalPausedProof: false, finalCoherentProof: false, finishRequested: false, finishAckObserved: false, serverClosed: false,
       everObservedEligible: false, eligibilityState: 'unknown', eligibilityEvidence: null, paymentObservation: 'not_observed', observedPaid: false, paid: false, paymentCensored: false,
-      milestones: {}, controlObservations: { total: 0, visible: 0, focused: 0, pointerLocked: 0, inputEnabled: 0 }, clientFrames: { value: null, sampleCount: 0, unavailableReason: 'not observed' } };
+      milestones: {}, nativeControlsRecordedBaseline: null, positiveRecordingObserved: { firstMonoMs: null, lastMonoMs: null, samples: 0, sampleMonoMs: [], sampleLimit: 256, truncated: false, clockDomain: 'node_performance_monotonic', meaning: 'time of readonly post-controls positive recording snapshot, not first-frame event time' }, controlObservations: { total: 0, visible: 0, focused: 0, pointerLocked: 0, inputEnabled: 0 }, clientFrames: { value: null, sampleCount: 0, unavailableReason: 'not observed' } };
     results[i] = row;
+    let readyNotified = false;
     let handle = null, observerInstalled = false, runId = null, frozenTick = null;
+    const operation = name => { row.stage = name; row.operation = { name, startedMonoMs: performance.now() }; };
     const mark = name => { row.milestones[name] ??= performance.now() - start; };
     function observe(snapshot, status, rows, strict) {
       boundOwnerStatus(status, runId);
@@ -138,6 +158,15 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
       // Live status/capture/DOM samples have different observation times. Only
       // the explicitly frozen final count supplies a strict common upper bound.
       Object.assign(row, capture, { recordedFrames: recorded, acceptedTick: received, verifiedTick: verified });
+      if (row.milestones.domControlsStartedMs !== undefined && Number.isSafeInteger(row.nativeControlsRecordedBaseline)
+        && recorded > row.nativeControlsRecordedBaseline && recorded > 0 && snapshot.active && snapshot.recording && !snapshot.paused) {
+        const now = performance.now(), evidence = row.positiveRecordingObserved;
+        evidence.firstMonoMs ??= now; evidence.lastMonoMs = now; evidence.samples++;
+        if (evidence.sampleMonoMs.length < evidence.sampleLimit) evidence.sampleMonoMs.push(now); else evidence.truncated = true;
+        if (!readyNotified && onRecordingStarted) {
+          readyNotified = true; onRecordingStarted({ observedMonoMs: now, recordedFrames: recorded, runBindingHash: row.runBindingHash });
+        }
+      }
       if (received > 0) mark('firstAcceptedObservedMs');
       if (verified > 0) mark('firstVerifiedObservedMs');
       if (Number.isSafeInteger(status.issuanceAck?.issuance?.seed)) row.seed = status.issuanceAck.issuance.seed;
@@ -151,31 +180,46 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
     }
     try {
       mark('actorStartedMs');
-      const creation = initActualRewardPage({ browser, url, session: actor.session, contextOptions: { viewport }, timeoutMs: 90000 });
-      creation.then(value => { if (scope.aborted) void value.close().catch(() => {}); }, () => {});
-      handle = await bounded(creation, scope);
+      if (preparedHandle) handle = preparedHandle;
+      else {
+        const creation = initActualRewardPage({ browser, url, session: actor.session, contextOptions: { viewport }, timeoutMs: 90000 });
+        creation.then(value => { if (scope.aborted) void value.close().catch(() => {}); }, () => {});
+        handle = await bounded(creation, scope);
+      }
+      operation('observer_install');
       await bounded(handle.page.evaluate(installBrowserFrameObserver, { maxSamples: MAX_FRAME_SAMPLES }), scope); observerInstalled = true;
-      const flow = await startMeasuredRun(handle, actor.boss, scope);
+      const flow = await startMeasuredRun(handle, actor.boss, scope, operation);
       assert(typeof flow.runId === 'string' && !runIds.has(flow.runId), 'browser_run_binding_not_independent'); runIds.add(flow.runId); runId = flow.runId;
       row.runBindingHash = hash(runId); mark('issuedObservedMs');
       row.stage = 'dom_controls';
       if (flow.phase === 'playing' && flow.recording) {
         // Native gesture/keyboard edges after install; install intentionally
         // clears held title inputs. Never fabricate commands from these inputs.
+        operation('arena_geometry_read');
         const box = await bounded(handle.page.locator('#view canvas').boundingBox(), scope);
         assert(box, 'browser_canvas_missing');
+        operation('native_lock_check');
         const locked = await bounded(handle.page.evaluate(() => document.pointerLockElement !== null), scope);
-        if (!locked) await bounded(handle.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2), scope);
+        if (!locked) { operation('arena_native_click'); await bounded(handle.page.mouse.click(box.x + box.width / 2, box.y + box.height / 2), scope); }
+        operation('await_native_lock');
         await bounded(handle.page.waitForFunction(() => document.pointerLockElement !== null && window.__game.input.locked), scope);
+        operation('keyboard_down_W');
         await bounded(handle.page.keyboard.down('KeyW'), scope);
+        operation('mouse_down_0');
         await bounded(handle.page.mouse.down(), scope); mark('domControlsStartedMs');
+        operation('post_controls_recorded_baseline');
+        const baseline = await bounded(handle.readSnapshot(), scope);
+        row.nativeControlsRecordedBaseline = baseline.recordedTick;
       }
       row.stage = 'recording';
       const activeStart = performance.now();
       for (;;) {
+        operation('record_owner_status');
         const status = await bounded(readOwnerStatus(i, runId, scope), scope);
         recordPaymentFacts(row, status, runId, performance.now() - start);
+        operation('record_capture_readback');
         const rows = handle.capturedAppends();
+        operation('record_dom_projection');
         const observed = await bounded(handle.page.evaluate(() => ({ snapshot: window.__game.rewardedCampaign.snapshot(),
           visible: document.visibilityState === 'visible', focused: document.hasFocus(),
           pointerLocked: document.pointerLockElement !== null, inputEnabled: window.__game.input.enabled })), scope);
@@ -190,16 +234,19 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
         await pause(500, scope);
       }
       row.stage = 'planned_dom_stop';
-      const frozen = await stopPrefix(handle, scope); frozenTick = frozen.recordedTick;
+      const frozen = await stopPrefix(handle, scope, operation); frozenTick = frozen.recordedTick;
       row.stage = 'finish_and_verify';
       row.recordedFrames = frozenTick; row.finalPausedProof = true; row.finishRequested = true; mark('finalPausedObservedMs');
       // The count was sampled while paused BEFORE Back; UI may prune a resolved
       // run afterwards, so never replace this immutable count with a later0.
       for (;;) {
+        operation('drain_owner_status');
         const status = await bounded(readOwnerStatus(i, runId, scope), scope);
         recordPaymentFacts(row, status, runId, performance.now() - start);
         // Flush prior CDP request notifications before reading capture.
+        operation('drain_cdp_readback');
         await bounded(handle.readSnapshot(), scope);
+        operation('drain_capture_readback');
         const rows = handle.capturedAppends();
         observe(frozen, status, rows, true);
         const complete = row.acceptedTick === frozenTick && row.verifiedTick === frozenTick && row.submittedFrames === frozenTick;
@@ -217,6 +264,7 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
         await pause(500, scope);
       }
     } catch (error) {
+      row.failedOperation = row.operation ? { ...row.operation } : { name: row.stage, startedMonoMs: null };
       const known = error?.message === 'known_service_outcome' && serviceOutcome({ state: error.outcome?.serviceState, reason: error.outcome?.rawReason });
       if (known) { row.status = known.status; row.rawReason = known.rawReason; }
       else { row.status = scope.aborted ? 'censored' : error?.message === 'owner_status_unavailable' ? 'operational_failure' : 'instrumentation_failure';
@@ -246,10 +294,15 @@ export async function runPublicBrowserCohort({ browser, url, actors, readOwnerSt
     }
   }));
   if (scope.aborted) await bounded(browser.close(), AbortSignal.timeout(5000)).catch(() => {});
-  return { authority: 'ci_advisory', profile: 'twenty_public_browser_bounded_prefix', productionCapacityConclusion: null,
+  return { authority: 'ci_advisory', profile: expectedActors === 20 ? 'twenty_public_browser_bounded_prefix' : 'single_dom_client_under_twenty_protocol_load', productionCapacityConclusion: null,
     actualBrowserVersion, viewport, maxDurationMs, prefixTicks, maxRecordingMs, paymentObservationMs, elapsedMs: performance.now() - start,
     limits: 'Public-prefix DOM profile; not full9634/full24000 traces, sustained capacity, browser attestation or human control feel. Recorded-byte hash remains unknown; only actual submitted wire is hashed.',
-    evidenceLimits: { contexts: 20, perContextAppendCaptureBytes: 4194304, maximumUniqueBatchesPerContext: 256, maximumFrameSamplesPerContext: MAX_FRAME_SAMPLES, totalReportAndFrameArtifactBytes: 8388608 },
+    evidenceLimits: { contexts: expectedActors, perContextAppendCaptureBytes: 4194304, maximumUniqueBatchesPerContext: 256, maximumFrameSamplesPerContext: MAX_FRAME_SAMPLES, totalReportAndFrameArtifactBytes: 8388608 },
     actors: results, summary: { ...browserActorCounts(results),
       harnessStatus: results.some(r => r.status === 'instrumentation_failure') ? 'failed' : scope.aborted ? 'interrupted' : 'complete' }, rawFrameRecords };
 }
+
+// The original stress wrapper keeps its exact20 distinct identities/contexts
+// contract. The primary profile cannot silently pass a1-actor result as20.
+export function runPublicBrowserCohort(options) { return runBrowserPopulation(options, 20); }
+export function runSinglePublicBrowser(options) { return runBrowserPopulation(options, 1); }

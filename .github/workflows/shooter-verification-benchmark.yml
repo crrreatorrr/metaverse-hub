@@ -34,6 +34,8 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/result-validation.test.ts
           npx tsx scripts/load/shooter-benchmark/coverage.test.ts
           npx tsx scripts/load/shooter-benchmark/control.test.ts
+          npx tsx scripts/load/shooter-benchmark/client-gate.test.ts
+          npx tsx scripts/load/shooter-benchmark/client-validation.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
           node --test scripts/load/shooter-benchmark/worker-lifecycle.test.mjs
@@ -93,7 +95,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: shooter-ci-advisory-benchmark-${{ matrix.command }}
-          path: /tmp/shooter-benchmark-${{ github.run_id }}/benchmark-report.json
+          path: |
+            /tmp/shooter-benchmark-${{ github.run_id }}/benchmark-report.json
+            /tmp/shooter-benchmark-${{ github.run_id }}/benchmark-failure.json
           if-no-files-found: warn
       - name: Stop and delete disposable stack
         if: always()

@@ -41,7 +41,8 @@
     "profile": {
       "enum": [
         "trusted_fixture_time_aged",
-        "public_browser_real_time"
+        "public_browser_real_time",
+        "trusted_fixture_seeded_legacy"
       ]
     },
     "mode": {

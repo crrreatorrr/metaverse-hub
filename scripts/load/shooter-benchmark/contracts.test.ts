@@ -129,3 +129,26 @@ assert.equal(FIXTURE_RESERVED_BYTES, 4294967296);
 assert.doesNotThrow(() => assertFixtureCohortFits(20, 3));
 assert.throws(() => assertFixtureCohortFits(20, 3, 64, 2147483648), /durable admission reservation/);
 assert.throws(() => assertFixtureCohortFits(20, 4), /durable admission reservation/);
+
+const closingObservation = await runPlan({ ...plan, maxDurationMs: 15, phases: [{ kind: 'finish_burst', waves: 1, arrivalIntervalMs: 0 }] }, {
+  ...adapter, async observe() { return new Promise(() => undefined); }, async execute() { return new Promise(() => undefined); },
+});
+assert.equal(closingObservation.summary.observerAttempts, 1);
+assert.equal(closingObservation.summary.observerCensored, 1);
+assert.equal(closingObservation.summary.observerSuccessful, 0);
+assert.equal(closingObservation.summary.observerUnavailable, 0);
+assert.equal(closingObservation.summary.observerInstrumentationFailures, 0);
+assert.equal(closingObservation.observations[0].rawReason, 'measurement_window_closed');
+assert.equal(closingObservation.harnessStatus, 'interrupted');
+
+const { FIXTURE_CP_RESERVED_BYTES } = await import('./fixture-config.ts');
+assert.equal(FIXTURE_CP_RESERVED_BYTES, 1073741824);
+assert.doesNotThrow(() => assertFixtureCohortFits(20, 2));
+assert.throws(() => assertFixtureCohortFits(20, 2, 64, FIXTURE_RESERVED_BYTES, 536870912), /durable admission reservation/);
+assert.throws(() => assertFixtureCohortFits(20, 3, 64, FIXTURE_RESERVED_BYTES, 536870912), /durable admission reservation/);
+
+const { assertFixtureRemainingCapacity } = await import('./fixture-config.ts');
+const fixtureCapacity = { maxRuns: 64, retainedRuns: 20, maxInputBytes: FIXTURE_RESERVED_BYTES, reservedInputBytes: 20 * 67108864, maxCheckpointBytes: FIXTURE_CP_RESERVED_BYTES, reservedCheckpointBytes: 20 * 16777216 };
+assert.doesNotThrow(() => assertFixtureRemainingCapacity(fixtureCapacity, 40));
+assert.throws(() => assertFixtureRemainingCapacity({ ...fixtureCapacity, reservedCheckpointBytes: 31 * 16777216 }, 40), /remaining durable reservation/);
+assert.throws(() => assertFixtureRemainingCapacity({ ...fixtureCapacity, reservedInputBytes: 31 * 67108864 }, 40), /remaining durable reservation/);

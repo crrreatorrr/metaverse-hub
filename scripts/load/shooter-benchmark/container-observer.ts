@@ -57,9 +57,10 @@ export async function observeContainer(role: ServerRole, containerId: string): P
     return { role, observedAt, cpuUsageMicros: null, cpuUserMicros: null, cpuSystemMicros: null, throttledMicros: null, memoryCurrentBytes: null, memoryPeakBytes: null, oomKills: null, pidCurrent: null, pidsDenied: null, unavailableReason: 'bounded_container_observer_failed' };
   }
 }
-export function cpuDelta(before: CgroupSample, after: CgroupSample): { cpuSeconds: number | null; wallSeconds: number; unavailableReason: string | null } {
+export function cpuDelta(before: CgroupSample, after: CgroupSample, knownEpochChange = false): { cpuSeconds: number | null; wallSeconds: number; unavailableReason: string | null } {
   const wallSeconds = (Date.parse(after.observedAt) - Date.parse(before.observedAt)) / 1000;
   if (before.role !== after.role || !Number.isFinite(wallSeconds) || wallSeconds < 0) throw new Error('incomparable server samples');
+  if (knownEpochChange) return { cpuSeconds: null, wallSeconds, unavailableReason: 'controlled restart changes cgroup counter epoch; raw samples retained without cross-epoch subtraction' };
   if (before.cpuUsageMicros === null || after.cpuUsageMicros === null) return { cpuSeconds: null, wallSeconds, unavailableReason: 'CPU counter unavailable' };
   if (after.cpuUsageMicros < before.cpuUsageMicros) return { cpuSeconds: null, wallSeconds, unavailableReason: 'counter reset or container restart' };
   return { cpuSeconds: (after.cpuUsageMicros - before.cpuUsageMicros) / 1000000, wallSeconds, unavailableReason: null };

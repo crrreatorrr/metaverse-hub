@@ -1,3 +1,4 @@
+export const LEGACY_SEGMENT_FRAMES = 1024; // Fixed CI comparison parameter, not an operating recommendation.
 // Tracks materialized UTF8 input/request bytes, separately from process RSS and
 // server quotas. A repeated same-body retry reuses its existing reservation.
 export class ByteBudget {
@@ -26,7 +27,7 @@ export function phaseInputReservation(assignments: readonly { frames: number; ac
   if (!Number.isSafeInteger(waves) || waves < 0 || waves > 6) throw new Error('invalid preparation wave count');
   // Entire phase prepares before launch. Allow retained source inputs AND the
   // complete request representation (legacy chunks may each add an envelope).
-  return waves * assignments.reduce((sum, a) => sum + 2 * sourceInputReservation(a.frames, a.actions) + Math.ceil(a.frames / 4096) * 2048, 0);
+  return waves * assignments.reduce((sum, a) => sum + 2 * sourceInputReservation(a.frames, a.actions) + Math.ceil(a.frames / LEGACY_SEGMENT_FRAMES) * 2048, 0);
 }
 export function wireInputReservation(frames: number, actions: number): number {
   // The2KiB allowance covers exact bounded run/account/session binding and JSON

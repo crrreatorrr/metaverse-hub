@@ -1,6 +1,10 @@
 import { summarizeActors, type ActorResult, type Measurement } from './contracts.ts';
 const SHA = /^[a-f0-9]{64}$/;
-function check(value: unknown, reason: string): asserts value { if (!value) throw new Error(`invalid benchmark report: ${reason}`); }
+export class ResultValidationFailure extends Error {
+  readonly reason: string;
+  constructor(reason: string) { super(`invalid benchmark report: ${reason}`); this.reason = `result_${reason.toLowerCase().replace(/[^a-z0-9]+/g, '_')}`.slice(0, 80); }
+}
+function check(value: unknown, reason: string): asserts value { if (!value) throw new ResultValidationFailure(reason); }
 function object(value: unknown): Record<string, unknown> { check(value && typeof value === 'object' && !Array.isArray(value), 'object required'); return value as Record<string, unknown>; }
 // Semantic companion to results.schema.json. JSON Schema alone cannot establish
 // unique real bindings, reconciled numerators or absence of a CI capacity claim.
@@ -29,6 +33,12 @@ export function validateResult(value: unknown): void {
     const metric = object(measurements[key]) as unknown as Measurement;
     check(typeof metric.unit === 'string' && typeof metric.observer === 'string' && Number.isInteger(metric.sampleCount) && metric.sampleCount >= 0, `metric ${key} provenance`);
     if (metric.value === null) check(typeof metric.unavailableReason === 'string' && metric.unavailableReason.length > 0 && metric.sampleCount === 0, `metric ${key} null reason`);
+  }
+  const reward = object(measurements.rewardDelay);
+  if (Number(reward.sampleCount) > 0 || computed.eligible > 0) {
+    const denominators = object(reward.denominators);
+    for (const [field, expected] of Object.entries({ eligible: computed.eligible, observedPaid: computed.observedPaid, successfulPaid: computed.paid, eligibleUnpaid: computed.eligibleUnpaid, eligibleCensored: computed.eligibleCensored })) check(denominators[field] === expected, `reward delay ${field} denominator`);
+    check(Number(reward.sampleCount) <= computed.observedPaid, 'reward samples exceed observed receipts');
   }
   // Reports are data-only, with a strict output ceiling and no raw checkpoints,
   // inputs or credential fields. Reject before writing/uploading any artifact.

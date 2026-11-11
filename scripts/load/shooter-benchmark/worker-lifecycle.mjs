@@ -159,8 +159,8 @@ export function createWorkerLifecycle({ composeArgs, readHealth, readMetrics, cr
     if (!/^[0-9a-f]{64}$/.test(digest)) fail('worker_lifecycle_credential_observation_failed');
     if (credentialDigest && digest !== credentialDigest) fail('worker_lifecycle_credentials_changed'); credentialDigest ||= digest;
     await journalAbsent(signal, deadline);
-    const names = await docker(['exec', identities.coordinator, 'find', JOURNAL, '-mindepth', '1', '-maxdepth', '1', '-printf', '%f\\0'], signal, deadline);
-    if (names !== 'coordinator.lock\0') fail('worker_lifecycle_unknown_journal_evidence');
+    const names = await docker(['exec', identities.coordinator, 'find', JOURNAL, '-mindepth', '1', '-maxdepth', '1', '-printf', '\\0%f\\0'], signal, deadline);
+    if (names !== '\0coordinator.lock\0') fail('worker_lifecycle_unknown_journal_evidence');
     const script = "import{UnixReplayClient}from'/app/services/shooter-verifier/ops/unix-client.mjs';let metrics;const health=await new UnixReplayClient({timeoutMs:1000,onMetrics:v=>{metrics=v}}).health();process.stdout.write(JSON.stringify({health,metrics}));";
     let raw;try { raw = JSON.parse(await docker(['exec', identities.replay, 'node', '--input-type=module', '-e', script], signal, deadline)); } catch { fail('worker_lifecycle_daemon_observation_failed'); }
     const daemon = safeDaemon(raw);

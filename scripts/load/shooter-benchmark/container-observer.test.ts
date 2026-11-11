@@ -13,3 +13,8 @@ const { parseLimits } = await import('./container-observer.ts');
 assert.deepEqual(parseLimits('verifier', 'cpu.max=200000 100000\ncpuset.cpus.effective=0-3\nmemory.max=536870912\npids.max=32'), { role: 'verifier', cpuMax: '200000 100000', cpuset: '0-3', memoryMax: '536870912', pidsMax: '32', unavailableReason: null });
 assert.equal(parseLimits('nakama', '').unavailableReason, 'per_role_cgroup_v2_limits_unavailable');
 console.log('server CPU observer parser tests passed; actual container telemetry still requires integration lane');
+
+const epochBefore = { ...before, role: 'coordinator' as const };
+const epochAfter = { ...epochBefore, observedAt: '2026-01-01T00:00:05Z', cpuUsageMicros: 3000000 };
+assert.equal(cpuDelta(epochBefore, epochAfter, true).cpuSeconds, null, 'known restart cannot be hidden by a later larger counter');
+assert.match(cpuDelta(epochBefore, epochAfter, true).unavailableReason || '', /epoch/);

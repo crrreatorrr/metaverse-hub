@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { phaseInputReservation } from './budget.ts';
 
 export type Mode = 'legacy_full_goja' | 'legacy_segmented_goja' | 'bounded_v8_same_host' | 'bounded_v8_remote';
-export type Profile = 'trusted_fixture_time_aged' | 'public_browser_real_time';
+export type Profile = 'trusted_fixture_time_aged' | 'trusted_fixture_seeded_legacy' | 'public_browser_real_time';
 export interface CorpusCase {
   id: string;
   boss: string;
@@ -113,7 +113,7 @@ export function makePlan(corpus: Corpus, corpusBytes: Uint8Array, seed: string, 
     return { actor, caseId: c.id, caseSha256: c.fixtureSha256, inputSha256: c.legacyInputEnvelopeSha256, boss: c.boss, seed: c.seed, frames: c.frames, actions: c.actions, behavior: actor === 19 ? 'abandon' : 'complete' };
   });
   const plan: Plan = {
-    schemaVersion: 1, authority: 'ci_advisory', profile: 'trusted_fixture_time_aged', mode, seed,
+    schemaVersion: 1, authority: 'ci_advisory', profile: mode === 'legacy_full_goja' || mode === 'legacy_segmented_goja' ? 'trusted_fixture_seeded_legacy' : 'trusted_fixture_time_aged', mode, seed,
     actorsPerWave: 20, maxDurationMs: 900000, maxQueuedBytes: 64 * 1024 * 1024,
     requestRetryLimit: 3, legacyReplayBudgetMs: 15000, assignments,
     phases: [

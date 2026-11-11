@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
 import { call, guest, openGame, psqlAsync, type GameLogin } from '../../../server/test/dup/harness.ts';
 import { buildCanonicalFixtureIssuance, loadFrozenTrace, type FrozenTrace } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
-import { ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
+import { LEGACY_SEGMENT_FRAMES, ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { legacyFailureClass, validLegacyPaidReceipt } from './legacy-policy.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, type Assignment, type Phase, type Plan } from './contracts.ts';
@@ -58,8 +58,8 @@ export class LegacyPipeline implements CampaignAdapter {
     const actor = this.actors.get(binding.runBindingHash); if (!actor) throw new Error('unknown legacy actor');
     this.activeExecutions.add(binding.runBindingHash);
     const start = performance.now(), target = assignment.behavior === 'abandon' ? Math.min(120, actor.trace.definition.frames) : actor.trace.definition.frames;
-    const segmentFrames = this.mode === 'legacy_full_goja' ? target : 4096;
-    const observation: LegacyObservation = { runBindingHash: binding.runBindingHash, wallMs: 0, requestedFrames: 0, checkpointTicks: [], rawReasons: [], receiptObservedPaid: false, fullSourceSubmitted: false, eligibilityObserved: 'unknown', paidTiming: null, sourceFrames: assignment.frames, submittedFrames: 0, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
+    const segmentFrames = this.mode === 'legacy_full_goja' ? target : LEGACY_SEGMENT_FRAMES;
+    const observation: LegacyObservation = { runBindingHash: binding.runBindingHash, wallMs: 0, requestedFrames: 0, checkpointTicks: [], rawReasons: [], receiptObservedPaid: false, fullSourceSubmitted: false, eligibilityObserved: 'unknown', paidTiming: null, sourceFrames: assignment.frames, scheduledDispatchMonoMs: start, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, submittedFrames: 0, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
     this.observations.set(binding.runBindingHash, observation);
     const submitted: object[] = [], wireReleases: (() => void)[] = [];
     try {
@@ -75,6 +75,7 @@ export class LegacyPipeline implements CampaignAdapter {
       if (Buffer.byteLength(JSON.stringify({ runId: actor.runId, log })) > wireBound) throw new InstrumentationFailure('legacy_request_exceeds_wire_reservation');
       submitted.push(log); state.submittedFrames = tick + n; state.submittedInputSha256 = sha256(JSON.stringify(submitted)); state.submittedHashMeaning = 'sha256_of_ordered_actual_v1_log_envelopes'; state.durablyVerified = state.verifiedTick === state.submittedFrames; progress({ ...state });
       observation.requestedFrames += n; observation.submittedFrames = state.submittedFrames; observation.appendAttempts++; observation.fullSourceSubmitted = state.submittedFrames === actor.trace.definition.frames;
+      observation.firstRequestMonoMs ??= performance.now();
       let response;
       try { response = await call('shooter.run.submit', { runId: actor.runId, log }, actor.login.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }); }
       catch { observation.wallMs = performance.now() - start; throw new OperationFailure('legacy_rpc_transport_timeout_or_failure'); }
@@ -107,7 +108,7 @@ export class LegacyPipeline implements CampaignAdapter {
       return { status: body.paid === true ? 'paid' : assignment.behavior === 'abandon' ? 'abandoned' : 'verified_nonpayable', rawReason: lastReason, durablyVerified: true, payable: body.paid === true, paid: body.paid === true };
     }
     return { status: assignment.behavior === 'abandon' ? 'abandoned' : 'verified_nonpayable', rawReason: lastReason, durablyVerified: true, payable: false, paid: false };
-    } finally { this.activeExecutions.delete(binding.runBindingHash); for (const release of wireReleases) release(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
+    } finally { observation.completedMonoMs = performance.now(); this.activeExecutions.delete(binding.runBindingHash); for (const release of wireReleases) release(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
   }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
   async stopBackground(): Promise<void> { for (const [key, release] of this.inputReleases) if (!this.activeExecutions.has(key)) { release(); this.inputReleases.delete(key); } this.actors.clear(); await this.background.stop(); }
