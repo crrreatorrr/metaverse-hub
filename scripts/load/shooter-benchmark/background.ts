@@ -3,9 +3,13 @@
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
-import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
+import { guest, openGame, type GameLogin } from '../../../server/test/dup/harness.ts';
+import { benchmarkRpc as call } from './rpc.ts';
 import { sha256 } from './contracts.ts';
 import { oneShotCoverage } from './coverage.ts';
+import { FixedSlotParticipants, CreateRateBudget, assertOriginalCredential, allowOrdinaryCreateRetry,
+  PVP_REPLACEMENT_LIMIT, PVP_INITIAL_LIMIT, BACKGROUND_PROFILE_MS, NORMAL_ROUND_MS, CREATE_RETRY_BUDGET_MS,
+  CREATE_RETRY_DELAY_MS, ROOM_OPERATION_LIMIT } from './background-policy.ts';
 import { runLifetimeControl } from './control.ts';
 import { SutUnavailable, InstrumentationFailure } from './runner.ts';
 type Encoder = (input: Record<string, unknown>) => Uint8Array;
@@ -15,8 +19,12 @@ function object(value: unknown): Record<string, unknown> {
 }
 interface Live { rt: HubRealtime; match: MatchHandle; timer?: ReturnType<typeof setInterval> }
 interface Seat extends Live { account: string; mail: MatchData[]; seat: number; seq: number; sentTick: number }
-interface Pair { slot: number; createdMonoMs: number; replacement: boolean; matchId: string; token: string; seats: Seat[]; timer?: ReturnType<typeof setInterval> }
+interface Pair { round: number; slot: number; createdMonoMs: number; replacement: boolean; matchId: string; token: string; seats: Seat[]; timer?: ReturnType<typeof setInterval> }
 export interface MatchQuantiles { slot: number; createdMonoMs: number; replacement: boolean; observedMonoMs: number; matchBindingHash: string; observedAt: string; n: number; p50: number; p95: number; max: number; tick: number; phase: string; endReason: string; outcome: string; seatInputs: { applied: number; held: number; neutral: number; late: number }[]; observer: 'shooter.metrics'; }
+interface RoomOperation { slot: number; round: number; operation: 'room_create' | 'room_join'; attempt: number;
+  startedMonoMs: number; finishedMonoMs: number; outcome: 'pending' | 'accepted' | 'rejected' | 'exception';
+  httpStatus: number | null; reason: string | null; retryDelayMs: number; accountBindingHash: string; sessionBindingHash: string; }
+async function openGameFromGuest(): Promise<GameLogin> { return openGame((await guest()).token, 'sproto-shooter'); }
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 async function until<T>(read: () => T | undefined, signal: AbortSignal): Promise<T> {
   const deadline = Date.now() + 10000;
@@ -45,7 +53,12 @@ export class BackgroundTraffic {
   readonly rejectionCounts: Record<string, number> = {};
   readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number; closure: 'sample_complete' | 'sample_deadline' | 'measurement_window_closed'; pendingMetricSlots: number[] }[] = [];
   private replacements = 0;
-  private readonly replacementLimit = 60;
+  private readonly replacementLimit = PVP_REPLACEMENT_LIMIT;
+  private readonly participants = new FixedSlotParticipants<GameLogin>(value => ({ accountId: value.hub.userId, sessionId: value.sessionId }));
+  private readonly createRate = new CreateRateBudget();
+  private readonly roomOperations: RoomOperation[] = [];
+  private readonly rounds: { slot: number; round: number; matchBindingHash: string; createObserved: boolean; joinObserved: boolean; readyObserved: boolean; createdMonoMs: number; readyMonoMs: number | null; leaveStartedMonoMs: number | null; leaveSettledMonoMs: number | null }[] = [];
+  private readonly roundCounts = new Map<number, number>();
   constructor(private base: string, private seed: string) {
     const pin = JSON.parse(readFileSync('server/modules/vendor/shooter-pvp-sim.pin.json', 'utf8'));
     this.pin = pin;
@@ -84,20 +97,81 @@ export class BackgroundTraffic {
   }
   private async pair(signal: AbortSignal, slot: number, replacement = false): Promise<void> {
     if (this.stopping || signal.aborted) throw new Error('background stopped');
-    const a = await openGame((await guest()).token, 'sproto-shooter'), b = await openGame((await guest()).token, 'sproto-shooter');
+    let originals: readonly [GameLogin, GameLogin];
+    try {
+      originals = await this.participants.get(slot, () => openGameFromGuest());
+      for (const login of originals) assertOriginalCredential(login.gameToken, { accountId: login.hub.userId, sessionId: login.sessionId }, Date.now());
+    } catch (error) {
+      const reason = error instanceof Error && /^background_[a-z_]{1,70}$/.test(error.message) ? error.message : 'background_participant_auth_failed';
+      throw new InstrumentationFailure(reason);
+    }
+    const [a, b] = originals;
     if (this.stopping || signal.aborted) throw new Error('background stopped');
-    const created = object((await call('shooter.room_create', {}, a.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
-    if (created.error || created.stake !== 0 || typeof created.matchId !== 'string') throw new Error('free PvP background room unavailable');
-    const joined = object((await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
-    if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
-    if (joined.matchId !== created.matchId) throw new Error('free PvP background join failed');
+    const round = (this.roundCounts.get(slot) ?? 0) + 1; this.roundCounts.set(slot, round);
+    const retryStart = performance.now(); let attempts = 0, created: Record<string, unknown>;
+    for (;;) {
+      if (this.roomOperations.length >= ROOM_OPERATION_LIMIT) throw new InstrumentationFailure('background_room_operation_bound');
+      const event: RoomOperation = { slot, round, operation: 'room_create', attempt: ++attempts,
+        startedMonoMs: performance.now(), finishedMonoMs: 0, outcome: 'pending', httpStatus: null, reason: null, retryDelayMs: 0,
+        accountBindingHash: sha256(a.hub.userId), sessionBindingHash: sha256(a.sessionId) };
+      this.roomOperations.push(event);
+      try {
+        try { this.createRate.note(event.accountBindingHash, performance.now()); }
+        catch { throw new InstrumentationFailure('background_create_rate_budget_exhausted'); }
+        const remaining = replacement ? CREATE_RETRY_BUDGET_MS - (performance.now() - retryStart) : 20000;
+        if (remaining <= 0) throw new InstrumentationFailure('background_rematch_handshake_deadline');
+        const reply = await call('shooter.room_create', {}, a.gameToken,
+          { signal: AbortSignal.any([signal, AbortSignal.timeout(Math.max(1, Math.ceil(remaining)))]) });
+        created = reply.body; event.httpStatus = reply.status;
+        const reason = typeof created.error === 'string' && /^[a-z0-9_]{1,80}$/.test(created.error) ? created.error : created.error ? 'unclassified_room_rejection' : null;
+        event.reason = reason; event.outcome = reason ? 'rejected' : 'accepted';
+        if (reason && replacement && allowOrdinaryCreateRetry(reason, attempts, performance.now() - retryStart)) {
+          event.finishedMonoMs = performance.now();
+          const delayStarted = performance.now(); await wait(CREATE_RETRY_DELAY_MS); event.retryDelayMs = performance.now() - delayStarted; continue;
+        }
+        if (reason) throw new SutUnavailable(`pvp_room_${reason}`);
+        if (reply.status !== 200 || created.stake !== 0 || created.ticketsMinted !== 0 || created.stakes !== false || typeof created.matchId !== 'string' || typeof created.code !== 'string') {
+          event.outcome = 'exception'; event.reason = 'room_create_response_invalid'; throw new InstrumentationFailure(event.reason);
+        }
+        break;
+      } catch (error) {
+        if (event.outcome === 'pending') { event.outcome = 'exception'; event.reason = error instanceof InstrumentationFailure || error instanceof SutUnavailable ? error.reason : 'room_create_operation_failed'; }
+        throw error;
+      } finally { if (!event.finishedMonoMs) event.finishedMonoMs = performance.now(); }
+    }
+    const matchId = created.matchId;
+    if (typeof matchId !== 'string') throw new InstrumentationFailure('background_room_binding_invalid');
+    if (this.rounds.length >= PVP_INITIAL_LIMIT + PVP_REPLACEMENT_LIMIT) throw new InstrumentationFailure('background_round_evidence_bound');
+    const roundProof = { slot, round, matchBindingHash: sha256(matchId), createObserved: true, joinObserved: false, readyObserved: false,
+      createdMonoMs: performance.now(), readyMonoMs: null as number | null, leaveStartedMonoMs: null as number | null, leaveSettledMonoMs: null as number | null };
+    this.rounds.push(roundProof);
+    const joinEvent: RoomOperation = { slot, round, operation: 'room_join', attempt: 1, startedMonoMs: performance.now(), finishedMonoMs: 0,
+      outcome: 'pending', httpStatus: null, reason: null, retryDelayMs: 0, accountBindingHash: sha256(b.hub.userId), sessionBindingHash: sha256(b.sessionId) };
+    if (this.roomOperations.length >= ROOM_OPERATION_LIMIT) throw new InstrumentationFailure('background_room_operation_bound');
+    this.roomOperations.push(joinEvent);
+    try {
+      const reply = await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken,
+        { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) });
+      joinEvent.httpStatus = reply.status;
+      const reason = typeof reply.body.error === 'string' && /^[a-z0-9_]{1,80}$/.test(reply.body.error) ? reply.body.error : reply.body.error ? 'unclassified_room_rejection' : null;
+      joinEvent.reason = reason; joinEvent.outcome = reason ? 'rejected' : 'accepted';
+      if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
+      if (reason) throw new SutUnavailable(`pvp_room_${reason}`);
+      if (reply.status !== 200 || reply.body.matchId !== matchId || reply.body.stake !== 0 || reply.body.ticketsMinted !== 0 || reply.body.stakes !== false) {
+        joinEvent.outcome = 'exception'; joinEvent.reason = 'room_join_response_invalid'; throw new InstrumentationFailure(joinEvent.reason);
+      }
+      roundProof.joinObserved = true;
+    } catch (error) {
+      if (joinEvent.outcome === 'pending') { joinEvent.outcome = 'exception'; joinEvent.reason = error instanceof InstrumentationFailure || error instanceof SutUnavailable ? error.reason : 'room_join_operation_failed'; }
+      throw error;
+    } finally { joinEvent.finishedMonoMs = performance.now(); }
     const seats: Seat[] = [];
     for (const login of [a, b]) {
       const rt = this.socket(login.gameToken), mail: MatchData[] = [];
       const seat: Seat = { rt, match: undefined as unknown as MatchHandle, account: login.hub.userId, mail, seat: -1, seq: 0, sentTick: -1 }; this.live.push(seat);
       await rt.connect();
       if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
-      seat.match = await rt.joinMatch({ matchId: created.matchId });
+      seat.match = await rt.joinMatch({ matchId });
       if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
       seat.match.onMessage(message => {
         if (this.stopping) return;
@@ -111,7 +185,8 @@ export class BackgroundTraffic {
       s.seat = welcome.json<{ seat: number }>().seat; s.match.send(4, { accountId: s.account });
     }
     await until(() => seats[0].mail.find(m => m.opCode === 5 && m.json<{ phase?: string }>().phase === 'live'), signal);
-    const pair: Pair = { slot, createdMonoMs: performance.now(), replacement, matchId: created.matchId, token: a.gameToken, seats }; this.pairs.push(pair);
+    roundProof.readyObserved = true; roundProof.readyMonoMs = performance.now();
+    const pair: Pair = { round, slot, createdMonoMs: performance.now(), replacement, matchId, token: a.gameToken, seats }; this.pairs.push(pair);
     pair.timer = setInterval(() => {
       if (this.stopping || this.lifetimeSignal?.aborted) return;
       for (const s of seats) {
@@ -134,9 +209,18 @@ export class BackgroundTraffic {
     const end = result.json<{ reason?: string; outcome?: string }>();
     this.matchEnds.push({ matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), reason: end.reason ?? 'unspecified', outcome: end.outcome ?? 'unspecified', replacement: this.replacements });
     clearInterval(pair.timer);
-    for (const seat of pair.seats) seat.rt.disconnect();
+    const proof = this.rounds.find(value => value.matchBindingHash === sha256(pair.matchId));
+    if (proof) proof.leaveStartedMonoMs = performance.now();
+    await Promise.all(pair.seats.map(async seat => {
+      try { await seat.match.leave(); } catch { /* ordinary match may already be gone; SDK budget remains10s */ }
+      finally { seat.rt.disconnect(); }
+    }));
+    if (proof) proof.leaveSettledMonoMs = performance.now();
+    this.live = this.live.filter(value => !pair.seats.includes(value as Seat));
+    this.frames = this.frames.filter(value => value !== pair.timer);
     this.pairs = this.pairs.filter(p => p !== pair);
-    if (++this.replacements > this.replacementLimit) throw new InstrumentationFailure('background_replacement_budget_exhausted');
+    if (this.replacements >= this.replacementLimit) throw new InstrumentationFailure('background_replacement_budget_exhausted');
+    this.replacements++;
     await this.pair(signal, pair.slot, true);
     return true;
   }
@@ -159,6 +243,19 @@ export class BackgroundTraffic {
         }
       }));
     return !this.controlFailure && !this.stopping && !signal.aborted;
+  }
+  participantEvidence(): Record<string, unknown> {
+    const slots = this.participants.evidence();
+    return { version: 1, expectedSlots: this.targetMatches, initializedSlots: slots.length,
+      distinctAccounts: new Set(slots.flatMap(value => value.accountBindingHashes)).size,
+      distinctOriginalSessions: new Set(slots.flatMap(value => value.sessionBindingHashes)).size,
+      completedRematches: this.rounds.filter(value => value.round > 1 && value.readyObserved).length,
+      slots, rounds: this.rounds.map(value => ({ ...value })), roomOperations: this.roomOperations.map(value => ({ ...value })),
+      policy: { originalParticipantsPerSlot: 2, refreshOrReauthenticationOnRematch: false,
+        profileMs: BACKGROUND_PROFILE_MS, referenceRoundMs: NORMAL_ROUND_MS, initialMatches: PVP_INITIAL_LIMIT,
+        replacementLimit: PVP_REPLACEMENT_LIMIT, totalRoundLimit: PVP_INITIAL_LIMIT + PVP_REPLACEMENT_LIMIT,
+        meaning: 'Finite reference900s/90s schedule budget; faster legitimate endings still fail at this bound.',
+        credentialProof: 'Original GameLogin claims/expiry checked; public room/socket gates remain authoritative. No DB lease rewrite.' } };
   }
   observationContext(): Record<string, unknown> {
     return { activeSlots: this.pairs.length, replacingSlots: [...this.replacing], pendingMetricSlots: [...this.reading], controlFailure: this.controlFailure };

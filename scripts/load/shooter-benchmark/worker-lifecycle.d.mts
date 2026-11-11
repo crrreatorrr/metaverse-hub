@@ -19,8 +19,15 @@ export interface ReuseEvidence {
   osPageCache: 'unknown';
 }
 export function replayReuseEvidence(before: ReplayCounters, after: ReplayCounters): ReuseEvidence;
+export interface ControlledOfflineEvent {
+  kind: 'started' | 'finished';
+  observedMonoMs: number;
+  completed?: boolean;
+}
+export function observeControlledOffline<T>(callback: ((event: ControlledOfflineEvent) => void) | undefined, operation: () => Promise<T>): Promise<T>;
 export function createWorkerLifecycle(options: {
   composeArgs: readonly string[];
+  onControlledOffline?(event: ControlledOfflineEvent): void;
   readHealth(signal: AbortSignal): Promise<Record<string, unknown>>;
   readMetrics(signal: AbortSignal): Promise<Record<string, unknown>>;
   credentialPath?: '/run/secrets/shooter-worker.json';

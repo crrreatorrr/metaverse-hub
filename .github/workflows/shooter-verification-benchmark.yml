@@ -33,7 +33,11 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/container-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/result-validation.test.ts
           npx tsx scripts/load/shooter-benchmark/coverage.test.ts
+          npx tsx scripts/load/shooter-benchmark/background-policy.test.ts
           npx tsx scripts/load/shooter-benchmark/control.test.ts
+          npx tsx scripts/load/shooter-benchmark/rpc.test.ts
+          npx tsx scripts/load/shooter-benchmark/evidence-codec.test.ts
+          npx tsx scripts/load/shooter-benchmark/finish-barrier.test.ts
           npx tsx scripts/load/shooter-benchmark/client-gate.test.ts
           npx tsx scripts/load/shooter-benchmark/client-validation.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts

@@ -1,8 +1,10 @@
 // Actual public ingress/status adapter. Simulation and result submission belong
 // exclusively to the separately running PR19 coordinator/offline containers.
 import { performance } from 'node:perf_hooks';
-import { call, guest, openGame, psqlAsync } from '../../../server/test/dup/harness.ts';
-import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
+import { guest, openGame, psqlAsync } from '../../../server/test/dup/harness.ts';
+import { prepareTrustedActor, reboundBatches, appendDigest, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
+import { benchmarkRpc as call, BenchmarkRpcFailure } from './rpc.ts';
+import { FinishBarrier } from './finish-barrier.ts';
 import { WorkerLifecycleFailure } from './worker-lifecycle.mjs';
 import { ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { BackgroundTraffic } from './background.ts';
@@ -25,6 +27,7 @@ export interface ActorObservation {
   completedMonoMs: number | null;
   appendAttempts: number;
   receivedWallMs: number | null;
+  uploadWorkWallMs: number | null;
   verifiedWallMs: number | null;
   finishAckWallMs: number | null;
   firstEligiblePendingWallMs: number | null;
@@ -33,12 +36,14 @@ export interface ActorObservation {
   rewardWallMs: number | null;
   paymentCensored: boolean;
   terminalOutcome: string | null;
+  uploadFailureReason: string | null;
+  synchronizedFinish: boolean | null;
 }
 export class PublicPipeline implements CampaignAdapter {
   readonly mode = 'bounded_v8_same_host' as const;
   readonly observations = new Map<string, ActorObservation>();
   private readonly actors = new Map<string, { actor: TrustedActor; wave: number }>();
-  private readonly gates = new Map<number, { count: number; promise: Promise<void>; release: () => void; fail: () => void; timer: ReturnType<typeof setTimeout> }>();
+  private readonly finishSync = new FinishBarrier(20);
   private readonly background: BackgroundTraffic;
   private readonly budget: ByteBudget;
   private observing = false;
@@ -87,7 +92,7 @@ export class PublicPipeline implements CampaignAdapter {
     if (!prepared) throw new Error('unknown actual actor');
     const { actor, wave } = prepared;
     this.activeExecutions.add(binding.runBindingHash);
-    let releaseWire = () => {};
+    let releaseWire = () => {}, finishEntered = false;
     try {
     this.firstExecuteReady ??= Promise.resolve().then(() => this.onFirstExecute?.(signal));
     await this.firstExecuteReady;
@@ -100,29 +105,42 @@ export class PublicPipeline implements CampaignAdapter {
     const original = batches[0], n = assignment.behavior === 'abandon' ? Math.min(120, original.n) : original.n;
     const batch = n === original.n ? original : { ...original, n, frames: original.frames.slice(0, n * 16), actions: original.actions.filter(a => a[0] < n) };
     if (Buffer.byteLength(JSON.stringify(batch)) > wireBound) throw new Error('actual append exceeds wire reservation');
-    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, scheduledDispatchMonoMs, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
+    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, scheduledDispatchMonoMs, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, appendAttempts: 0, receivedWallMs: null, uploadWorkWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null, uploadFailureReason: null, synchronizedFinish: null };
     this.observations.set(binding.runBindingHash, observation);
     const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0, durablyVerified: false, payable: false, everObservedEligible: false, observedPaid: false };
     progress(submission);
     // Lost-response storm discards successful acknowledgments then repeats the
     // exact frozen canonical body (same run/sequence/digest), never a new run.
     const attempts = phase.kind === 'retry_storm' ? this.plan.requestRetryLimit + 1 : 1;
+    try {
     for (let attempt = 0; attempt < attempts; attempt++) {
       observation.appendAttempts++;
       observation.firstRequestMonoMs ??= performance.now();
       const ack = object((await call('shooter.run.append', batch, actor.login.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
       if (signal.aborted) throw new Error('aborted');
       if (ack.state !== 'received' || ack.digest !== appendDigest(batch) || Number(ack.acceptedTick) !== n) throw new Error('actual append acknowledgment mismatch');
-      submission.acceptedTick = n; progress({ ...submission });
+      submission.acceptedTick = n; observation.receivedWallMs ??= performance.now() - start; progress({ ...submission });
     }
-    observation.receivedWallMs = performance.now() - start;
-    await this.finishBarrier(wave, signal);
-    await finishActor(actor, batch.sequence, n);
+    } catch (error) {
+      observation.uploadFailureReason = signal.aborted ? 'upload_cancelled_on_run_close' : error instanceof BenchmarkRpcFailure ? error.reason : 'actual_upload_attempt_failed';
+      if (!signal.aborted) this.finishSync.fail(wave, binding.runBindingHash);
+      if (submission.acceptedTick !== n || signal.aborted) throw new InstrumentationFailure('actual_upload_synchronization_failed');
+      // A prior identical ACK proves this exact input is accepted. Preserve the
+      // failed retry fact, release peers, and safely finish/drain this known run.
+    }
+    observation.uploadWorkWallMs = performance.now() - start;
+    const finishRelease = await this.finishSync.arrive(wave, binding.runBindingHash, signal);
+    finishEntered = true; observation.synchronizedFinish = finishRelease.synchronized;
+    if (signal.aborted) throw new Error('aborted');
+    const finished = (await call('shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence: batch.sequence, lastTick: n }, actor.login.gameToken, { signal })).body;
+    if (finished.state !== 'sealed' || finished.runId !== actor.runId || finished.lastSequence !== batch.sequence || finished.lastTick !== n) throw new InstrumentationFailure('actual_finish_ack_mismatch');
     if (signal.aborted) throw new Error('aborted');
     observation.finishAckWallMs = performance.now() - start;
     for (;;) {
       if (signal.aborted) throw new Error('aborted');
-      const status = await observeActor(actor), verified = object(status.verified), terminal = status.terminal ? object(status.terminal) : null, payment = object(status.payment);
+      const status = (await call('shooter.run.status', { runId: actor.runId }, actor.login.hub.token, { signal })).body;
+      if (status.protocol !== 2 || status.runId !== actor.runId) throw new InstrumentationFailure('actual_owner_status_binding');
+      const verified = object(status.verified), terminal = status.terminal ? object(status.terminal) : null, payment = object(status.payment);
       if (signal.aborted) throw new Error('aborted');
       submission.verifiedTick = Number(verified.tick);
       const durable = submission.verifiedTick === n;
@@ -153,25 +171,10 @@ export class PublicPipeline implements CampaignAdapter {
       }
       await delay(500, signal);
     }
-    } finally { const retained = this.observations.get(binding.runBindingHash); if (retained) retained.completedMonoMs = performance.now(); this.activeExecutions.delete(binding.runBindingHash); releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
-  }
-  private async finishBarrier(wave: number, signal: AbortSignal): Promise<void> {
-    let gate = this.gates.get(wave);
-    if (!gate) {
-      let release!: () => void, fail!: () => void;
-      const promise = new Promise<void>((resolve, reject) => { release = resolve; fail = () => reject(new OperationFailure('finish_barrier_timeout')); });
-      const timer = setTimeout(() => fail(), 10000);
-      gate = { count: 0, promise, release, fail, timer }; this.gates.set(wave, gate);
-    }
-    gate.count++;
-    if (gate.count === 20) { clearTimeout(gate.timer); gate.release(); }
-    const abort = () => { clearTimeout(gate!.timer); gate!.fail(); };
-    signal.addEventListener('abort', abort, { once: true });
-    try { if (signal.aborted) abort(); await gate.promise; }
-    finally { signal.removeEventListener('abort', abort); }
+    } catch (error) { if (!finishEntered && !signal.aborted) this.finishSync.fail(wave, binding.runBindingHash); throw error; } finally { const retained = this.observations.get(binding.runBindingHash); if (retained) retained.completedMonoMs = performance.now(); this.activeExecutions.delete(binding.runBindingHash); releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
   }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
-  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); for (const [key, release] of this.inputReleases) if (!this.activeExecutions.has(key)) { release(); this.inputReleases.delete(key); } this.actors.clear(); await this.background.stop(); }
+  async stopBackground(): Promise<void> { for (const [key, release] of this.inputReleases) if (!this.activeExecutions.has(key)) { release(); this.inputReleases.delete(key); } this.actors.clear(); await this.background.stop(); }
   async observe(signal: AbortSignal): Promise<void> {
     if (this.observing) throw new InstrumentationFailure('previous_pipeline_observation_active');
     this.observing = true;
@@ -196,6 +199,8 @@ export class PublicPipeline implements CampaignAdapter {
     return JSON.parse(text) as Record<string, unknown>[];
   }
   matchMetrics() { return this.background.matchObservations; }
+  coordinationFailures() { return this.finishSync.failures(); }
+  backgroundParticipants() { return this.background.participantEvidence(); }
   backgroundMetricReads() { return this.background.metricReads; }
   matchEnds() { return this.background.matchEnds; }
   inputBudget() { return this.budget.observation(); }

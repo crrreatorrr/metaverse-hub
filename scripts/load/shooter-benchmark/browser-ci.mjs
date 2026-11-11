@@ -10,6 +10,7 @@ import { call, guest, openGame, psql, waitReady, sqlId } from '../../../server/t
 import { integrationManifest } from '../../../server/test/dup/shooter_verification_e2e_fixtures.ts';
 import { startBrowserBackground } from './browser-background.ts';
 import { hostObservation } from './observers.ts';
+import { benchmarkRpc } from './rpc.ts';
 import { boundOwnerStatus, serviceOutcome, outcomeError } from './browser-accounting.mjs';
 import { runPublicBrowserCohort } from './public-browsers.mjs';
 const exec = promisify(execFile), hash = value => createHash('sha256').update(value).digest('hex');
@@ -86,7 +87,7 @@ try {
     maxDurationMs: 900000, prefixTicks: 120, maxRecordingMs: 30000, paymentObservationMs: 120000,
     viewport: { width: 640, height: 480 },
     readOwnerStatus: async (i, runId, signal) => {
-      const response = await call('shooter.run.status', { runId }, tokens[i], { signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]) });
+      const response = await benchmarkRpc('shooter.run.status', { runId }, tokens[i], { signal: AbortSignal.any([signal, AbortSignal.timeout(10000)]) });
       if ([429, 503].includes(response.status)) throw outcomeError({ state: 'pending_retryable', reason: `http_${response.status}` });
       if (!response.body.received && serviceOutcome(response.body)) throw outcomeError(response.body);
       if (response.status !== 200) throw new Error('owner_status_unavailable');

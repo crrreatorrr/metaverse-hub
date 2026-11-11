@@ -10,6 +10,7 @@ import { performance } from 'node:perf_hooks';
 import { call, guest, openGame, psql, sqlId } from '../../../server/test/dup/harness.ts';
 import { initActualRewardPage } from '../../shooter-verification/real-browser-helper.mjs';
 import { runSinglePublicBrowser } from './public-browsers.mjs';
+import { benchmarkRpc } from './rpc.ts';
 import { boundOwnerStatus, serviceOutcome, outcomeError } from './browser-accounting.mjs';
 const exec = promisify(execFile), hash = value => createHash('sha256').update(value).digest('hex');
 const APPROVED = '01087a4533a9475bcd9a0a4b2547833ab6a663f4';
@@ -108,7 +109,7 @@ export async function prepareSingleDomClient({ root }) {
           const startedMonoMs = performance.now(), before = await cpuSnapshot(browser);
           const population = await runSinglePublicBrowser({ browser, url, actors: [actor], preparedHandle: handle,
             readOwnerStatus: async (_i, runId, oneSignal) => {
-              const response = await call('shooter.run.status', { runId }, login.gameToken, { signal: AbortSignal.any([oneSignal, AbortSignal.timeout(10000)]) });
+              const response = await benchmarkRpc('shooter.run.status', { runId }, login.gameToken, { signal: AbortSignal.any([oneSignal, AbortSignal.timeout(10000)]) });
               if ([429, 503].includes(response.status)) throw outcomeError({ state: 'pending_retryable', reason: `http_${response.status}` });
               if (!response.body.received && serviceOutcome(response.body)) throw outcomeError(response.body);
               if (response.status !== 200) throw new Error('owner_status_unavailable');

@@ -3,12 +3,13 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { performance } from 'node:perf_hooks';
-import { call, guest, openGame, psqlAsync, type GameLogin } from '../../../server/test/dup/harness.ts';
+import { guest, openGame, psqlAsync, type GameLogin } from '../../../server/test/dup/harness.ts';
 import { buildCanonicalFixtureIssuance, loadFrozenTrace, type FrozenTrace } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
 import { LEGACY_SEGMENT_FRAMES, ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { legacyFailureClass, validLegacyPaidReceipt } from './legacy-policy.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, type Assignment, type Phase, type Plan } from './contracts.ts';
+import { benchmarkRpc as call, BenchmarkRpcFailure } from './rpc.ts';
 import type { ActorObservation } from './pipeline.ts';
 import { OperationFailure, InstrumentationFailure, type Binding, type CampaignAdapter, type Execution, type SubmissionProgress } from './runner.ts';
 interface LegacyActor { login: GameLogin; runId: string; issuance: Record<string, unknown>; trace: FrozenTrace }
@@ -59,7 +60,7 @@ export class LegacyPipeline implements CampaignAdapter {
     this.activeExecutions.add(binding.runBindingHash);
     const start = performance.now(), target = assignment.behavior === 'abandon' ? Math.min(120, actor.trace.definition.frames) : actor.trace.definition.frames;
     const segmentFrames = this.mode === 'legacy_full_goja' ? target : LEGACY_SEGMENT_FRAMES;
-    const observation: LegacyObservation = { runBindingHash: binding.runBindingHash, wallMs: 0, requestedFrames: 0, checkpointTicks: [], rawReasons: [], receiptObservedPaid: false, fullSourceSubmitted: false, eligibilityObserved: 'unknown', paidTiming: null, sourceFrames: assignment.frames, scheduledDispatchMonoMs: start, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, submittedFrames: 0, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
+    const observation: LegacyObservation = { runBindingHash: binding.runBindingHash, wallMs: 0, requestedFrames: 0, checkpointTicks: [], rawReasons: [], receiptObservedPaid: false, fullSourceSubmitted: false, eligibilityObserved: 'unknown', paidTiming: null, sourceFrames: assignment.frames, scheduledDispatchMonoMs: start, startedMonoMs: start, firstRequestMonoMs: null, completedMonoMs: null, submittedFrames: 0, appendAttempts: 0, receivedWallMs: null, uploadWorkWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null, uploadFailureReason: null, synchronizedFinish: null };
     this.observations.set(binding.runBindingHash, observation);
     const submitted: object[] = [], wireReleases: (() => void)[] = [];
     try {
@@ -78,7 +79,7 @@ export class LegacyPipeline implements CampaignAdapter {
       observation.firstRequestMonoMs ??= performance.now();
       let response;
       try { response = await call('shooter.run.submit', { runId: actor.runId, log }, actor.login.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) }); }
-      catch { observation.wallMs = performance.now() - start; throw new OperationFailure('legacy_rpc_transport_timeout_or_failure'); }
+      catch (error) { observation.wallMs = performance.now() - start; if (error instanceof BenchmarkRpcFailure && !['rpc_transport_failure','rpc_response_read_failure'].includes(error.reason)) throw new InstrumentationFailure('legacy_' + error.reason); throw new OperationFailure('legacy_rpc_transport_timeout_or_failure'); }
       const body = object(response.body);
       const responseReason = body.reason ?? body.error;
       lastReason = typeof responseReason === 'string' && /^[a-z0-9_:.|-]{1,80}$/.test(responseReason) ? responseReason : `rpc_http_${response.status}`;
@@ -129,5 +130,6 @@ export class LegacyPipeline implements CampaignAdapter {
   backgroundCoverage() { return this.background.coverage; }
   backgroundTransitions() { return this.background.controlTransitions; }
   backgroundRejections() { return this.background.rejectionCounts; }
+  backgroundParticipants() { return this.background.participantEvidence(); }
   backgroundMetricReads() { return this.background.metricReads; }
 }

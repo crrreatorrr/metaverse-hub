@@ -152,3 +152,11 @@ const fixtureCapacity = { maxRuns: 64, retainedRuns: 20, maxInputBytes: FIXTURE_
 assert.doesNotThrow(() => assertFixtureRemainingCapacity(fixtureCapacity, 40));
 assert.throws(() => assertFixtureRemainingCapacity({ ...fixtureCapacity, reservedCheckpointBytes: 31 * 16777216 }, 40), /remaining durable reservation/);
 assert.throws(() => assertFixtureRemainingCapacity({ ...fixtureCapacity, reservedInputBytes: 31 * 67108864 }, 40), /remaining durable reservation/);
+
+const lostSynchronization = await runPlan({ ...plan, phases: [{ kind: 'finish_burst', waves: 1, arrivalIntervalMs: 0 }] }, { ...adapter,
+  coordinationFailures() { return [{ wave: 0, reason: 'wave_upload_synchronization_lost', acknowledgedActors: 19, expectedActors: 20 }]; },
+});
+assert.equal(lostSynchronization.harnessStatus, 'failed');
+assert.equal(lostSynchronization.actors.length, 20);
+assert.equal(lostSynchronization.coordinationFailures.length, 1);
+assert.equal(lostSynchronization.harnessFailures.at(-1)?.rawReason, 'wave_upload_synchronization_lost');

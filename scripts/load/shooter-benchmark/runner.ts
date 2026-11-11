@@ -11,6 +11,12 @@ export class InstrumentationFailure extends Error {
   constructor(readonly reason: string) { super('benchmark instrumentation failed'); if (!/^[a-z0-9_:.|-]{1,80}$/.test(reason)) throw new Error('unsafe instrumentation reason'); }
 }
 export class SutUnavailable extends OperationFailure {}
+export class CoordinatorMetricsUnavailable extends SutUnavailable {
+  constructor(readonly sourceSampleWallMs: number) {
+    super('coordinator_metrics_read_unavailable');
+    if (!Number.isFinite(sourceSampleWallMs) || sourceSampleWallMs < 0) throw new Error('invalid coordinator sample clock');
+  }
+}
 export interface Binding {
   // Derive these from actual independently authenticated server IDs.
   accountBindingHash: string;
@@ -36,6 +42,7 @@ export interface CampaignAdapter {
   stopBackground(): Promise<void>;
   observe(signal: AbortSignal): Promise<void>;
   observationContext?(): Record<string, unknown>;
+  coordinationFailures?(): Record<string, unknown>[];
   phaseLifecycle?(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>>;
   phaseLifecycleComplete?(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>>;
 }
@@ -46,11 +53,12 @@ export interface RunResult {
   startedMonoMs: number;
   harnessStatus: 'complete' | 'failed' | 'interrupted';
   assignmentSha256: string;
-  observations: { elapsedMs: number; ok: boolean; category: 'observed' | 'sut_unavailable' | 'instrumentation_failure' | 'censored'; rawReason: string | null; context: Record<string, unknown> | null }[];
+  observations: { elapsedMs: number; ok: boolean; category: 'observed' | 'sut_unavailable' | 'instrumentation_failure' | 'censored'; rawReason: string | null; sourceSampleWallMs: number | null; context: Record<string, unknown> | null }[];
   arrivals: { phase: Phase['kind']; wave: number; plannedElapsedMs: number; actualElapsedMs: number; lagMs: number }[];
   phaseLifecycles: { phase: Phase['kind']; evidence: Record<string, unknown> }[];
   observerFailures: number;
   instrumentationObserverFailures: number;
+  coordinationFailures: Record<string, unknown>[];
   harnessFailures: { phase: string; operation: string; rawReason: string }[];
 }
 const sleep = (ms: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
@@ -92,17 +100,19 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
   // Each read has a separate5s bound; no growing timer/promise backlog.
   const observationLoop = (async () => {
     while (!observationSignal.aborted) {
+      let sourceSampleWallMs: number | null = null;
       let ok = true, category: RunResult['observations'][number]['category'] = 'observed', rawReason: string | null = null;
       const sampleSignal = AbortSignal.any([observationSignal, AbortSignal.timeout(5000)]);
       try { await bounded(adapter.observe(sampleSignal), sampleSignal); }
       catch (error) {
-        if (observationSignal.aborted) { observations.push({ elapsedMs: performance.now() - start, ok: false, category: 'censored', rawReason: 'measurement_window_closed', context: adapter.observationContext?.() ?? null }); break; }
+        if (observationSignal.aborted) { observations.push({ elapsedMs: performance.now() - start, ok: false, category: 'censored', rawReason: 'measurement_window_closed', sourceSampleWallMs: null, context: adapter.observationContext?.() ?? null }); break; }
         ok = false; observerFailures++;
+        if (error instanceof CoordinatorMetricsUnavailable) sourceSampleWallMs = error.sourceSampleWallMs;
         category = error instanceof SutUnavailable ? 'sut_unavailable' : 'instrumentation_failure';
         rawReason = sampleSignal.aborted ? 'observer_sample_deadline' : error instanceof OperationFailure || error instanceof InstrumentationFailure ? error.reason : 'unclassified_observer_exception';
         if (category === 'instrumentation_failure') instrumentationObserverFailures++;
       }
-      observations.push({ elapsedMs: performance.now() - start, ok, category, rawReason, context: adapter.observationContext?.() ?? null });
+      observations.push({ elapsedMs: performance.now() - start, ok, category, rawReason, sourceSampleWallMs, context: adapter.observationContext?.() ?? null });
       try { await sleep(1000, observationSignal); } catch { break; }
     }
   })();
@@ -167,7 +177,9 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
     try { await bounded(adapter.stopBackground(), AbortSignal.timeout(5000)); } catch { harnessStatus = 'failed'; }
   }
   for (const actor of actors) if (actor.attempted && actor.status === 'not_started') { actor.status = 'censored'; actor.rawReason = 'harness_interrupted'; }
+  const coordinationFailures = adapter.coordinationFailures?.() ?? [];
+  if (coordinationFailures.length) { harnessStatus = 'failed'; harnessFailures.push({ phase: 'wave', operation: 'synchronized_finish', rawReason: 'wave_upload_synchronization_lost' }); }
   const expected = plan.phases.reduce((n, p) => n + p.waves * 20, 0);
   if (actors.length !== expected || instrumentationObserverFailures) harnessStatus = 'failed';
-  return { actors, summary: { ...summarizeActors(actors), plannedActors: expected, accountedActors: actors.length, unboundActors: expected - actors.length, unstartedActors: expected - actors.filter(a => a.attempted).length, observerAttempts: observations.length, observerSuccessful: observations.filter(o => o.ok).length, observerUnavailable: observations.filter(o => o.category === 'sut_unavailable').length, observerInstrumentationFailures: instrumentationObserverFailures, observerCensored: observations.filter(o => o.category === 'censored').length }, elapsedMs: performance.now() - start, startedMonoMs: start, harnessStatus, assignmentSha256: sha256(JSON.stringify(plan.assignments)), observations, arrivals, phaseLifecycles, observerFailures, instrumentationObserverFailures, harnessFailures };
+  return { actors, summary: { ...summarizeActors(actors), plannedActors: expected, accountedActors: actors.length, unboundActors: expected - actors.length, unstartedActors: expected - actors.filter(a => a.attempted).length, observerAttempts: observations.length, observerSuccessful: observations.filter(o => o.ok).length, observerUnavailable: observations.filter(o => o.category === 'sut_unavailable').length, observerInstrumentationFailures: instrumentationObserverFailures, observerCensored: observations.filter(o => o.category === 'censored').length }, elapsedMs: performance.now() - start, startedMonoMs: start, harnessStatus, assignmentSha256: sha256(JSON.stringify(plan.assignments)), observations, arrivals, phaseLifecycles, observerFailures, instrumentationObserverFailures, harnessFailures, coordinationFailures };
 }

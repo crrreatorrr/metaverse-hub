@@ -118,12 +118,22 @@ export function replayReuseEvidence(before, after) {
   return { operations, coldFirstOperations, reusedOperations: operations - coldFirstOperations, reusedFraction: operations ? (operations - coldFirstOperations) / operations : null,
     naturalRecycles, initialChildPreviouslyUsed: before.completed % 16 !== 0, firstOperation: operations ? (before.completed % 16 ? 'observed_reused_child' : 'first_operation_in_child') : 'not_observed', osPageCache: 'unknown' };
 }
-export function createWorkerLifecycle({ composeArgs, readHealth, readMetrics, credentialPath = CREDENTIAL, journalDirectory = JOURNAL } = {}) {
+// Metadata only: callback times share the runner's process monotonic clock.
+// Failure still closes the observed interval and preserves the original error.
+export async function observeControlledOffline(onControlledOffline, operation) {
+  // A failed metadata sink must not change control execution or its error.
+  const notify = event => { try { onControlledOffline?.(event); } catch { /* absent evidence cannot classify a planned interval */ } };
+  notify({ kind: 'started', observedMonoMs: performance.now() });
+  let completed = false;
+  try { const value = await operation(); completed = true; return value; }
+  finally { notify({ kind: 'finished', observedMonoMs: performance.now(), completed }); }
+}
+export function createWorkerLifecycle({ composeArgs, readHealth, readMetrics, onControlledOffline, credentialPath = CREDENTIAL, journalDirectory = JOURNAL } = {}) {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.HUB_SHOOTER_FIXTURE !== 'benchmark'
     || (process.env.NAKAMA_URL || 'http://127.0.0.1:7350') !== 'http://127.0.0.1:7350'
     || process.env.DOCKER_HOST && process.env.DOCKER_HOST !== `unix://${SOCKET}`
     || !Array.isArray(composeArgs) || JSON.stringify(composeArgs) !== JSON.stringify(COMPOSE)
-    || typeof readHealth !== 'function' || typeof readMetrics !== 'function' || credentialPath !== CREDENTIAL || journalDirectory !== JOURNAL) fail('worker_lifecycle_unsupported_profile');
+    || typeof readHealth !== 'function' || typeof readMetrics !== 'function' || onControlledOffline !== undefined && typeof onControlledOffline !== 'function' || credentialPath !== CREDENTIAL || journalDirectory !== JOURNAL) fail('worker_lifecycle_unsupported_profile');
   let identities, serverEpoch, credentialDigest, configurationDigest, last, active;
   const compose = (args, signal, deadline) => docker(['compose', ...COMPOSE, ...args], signal, deadline);
   async function ids(signal, deadline) {
@@ -200,6 +210,7 @@ export function createWorkerLifecycle({ composeArgs, readHealth, readMetrics, cr
     async prepareCold(signal) {
       if (active) fail('worker_lifecycle_previous_phase_not_observed');
       const before = await settled(signal, performance.now() + OBSERVE_MS);
+      return observeControlledOffline(onControlledOffline, async () => {
       const coordinatorDrainMs = await stop('coordinator', COORDINATOR_DRAIN_MS, signal);
       await journalAbsent(signal, performance.now() + 2000);
       const daemonDrainMs = await stop('replay', DAEMON_DRAIN_MS, signal);
@@ -214,6 +225,7 @@ export function createWorkerLifecycle({ composeArgs, readHealth, readMetrics, cr
         workerInstance: after.workerInstance, workerStartTicks: after.workerStartTicks, workerStartClock: after.workerStartClock, sameContainers: true, sameCredentials: true,
         journalEmpty: true, serverPaymentProofsRetained: true, pendingPaymentProofsApproximate: after.pendingPaymentProofsApproximate, pendingPaymentProofsTruncated: after.pendingPaymentProofsTruncated,
         firstOperation: 'not_yet_observed', osPageCache: 'unknown', configurationSha256: after.configurationSha256 };
+      });
     },
     async assertWarm(signal) {
       if (!last || active || last.completed === 0) fail('worker_lifecycle_warm_without_observed_predecessor');
