@@ -90,6 +90,7 @@ namespace ShooterVerificationInternal {
       AND game.shooter_verification_hash_equal(token_sha256,$4::text)))::text AS result`,[ctx.userId,parsed.workerId,parsed.keyId,hash,op]);
     if (!auth.authorized) return fail("authorization_denied","unauthorized");
     if (!bounded(parsed.body) || !bodyOk(op,parsed.body)) return fail("invalid","malformed");
+    if (op==="result" && !ShooterVerificationCommit.valid(nk,parsed.body)) return fail("pending_retryable","bad_worker_checkpoint");
     var result=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_internal($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::jsonb)::text AS result",
       [ctx.userId,parsed.workerId,parsed.keyId,hash,op,parsed.requestId,nk.sha256Hash(op+"\n"+stable(parsed.body)),JSON.stringify(parsed.body)]);
     return JSON.stringify(result);

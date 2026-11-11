@@ -1,0 +1,51 @@
+name: shooter-verification-commit
+on:
+  pull_request:
+    paths:
+      - server/modules/src/games/shooter_verification_*.ts
+      - server/modules/src/main.ts
+      - server/test/dup/shooter_verification_*.ts
+      - server/test/dup/suite.ts
+      - server/test/games/shooter_verification_internal.test.ts
+      - services/shooter-verifier/src/gateway-client.mjs
+      - services/shooter-verifier/test/gateway-client.test.mjs
+      - .github/workflows/shooter-verification-commit.yml
+permissions:
+  contents: read
+jobs:
+  scoped-auth-and-locks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Throwaway TLS certificate for client refusal test
+        run: openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/test-worker.key -out /tmp/test-worker.crt -days 1 -subj /CN=localhost
+      - name: TLS/redirect/bounds/credential transport tests
+        env:
+          TEST_TLS_KEY: /tmp/test-worker.key
+          TEST_TLS_CERT: /tmp/test-worker.crt
+        run: node --test services/shooter-verifier/test/gateway-client.test.mjs
+      - name: Generate throwaway test-stack credentials
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot fresh ephemeral Nakama/Postgres
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Real atomic checkpoint, continuation, terminal-tail and fenced duplicate matrix
+        run: npm run test:dup
+        env:
+          DUP_ONLY: shooter-verification,shooter-ingest,shooter-leases,shooter-internal,shooter-commit
+      - name: Stop test services
+        if: always()
+        run: docker compose -f server/docker-compose.yml down --volumes

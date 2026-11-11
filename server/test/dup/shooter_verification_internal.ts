@@ -81,16 +81,16 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),3*20971520);
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
   });
-  await test('shooter-internal','result authentication binds digest/fence/manifest; PR10 explicitly does not commit checkpoints or pay',async()=>{
+  await test('shooter-internal','result authentication binds digest/fence/manifest before the PR11 checkpoint hook and never pays',async()=>{
     isolate();const p=await principal(),run=await fixture(),ack=await rpc(p,'claim'),work=ack.work as Row,result=workerResult(work);
     assert.equal((result.publicResult as Row).status,'verified');const body={manifest:work.manifest,result};
-    const first=await rpc(p,'result',body);assert.equal(first.reason,'result_commit_unavailable');assert.equal(first.pendingDependency,'PR11');
-    assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),0);assert.equal(psql(`SELECT checkpoint_json IS NULL FROM game.shooter_verification_run WHERE run_id='${run}'`),'t');
+    const first=await rpc(p,'result',body);assert.equal(first.state,'verified',JSON.stringify(first));
+    assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),1);assert.equal(psql(`SELECT checkpoint_json IS NULL FROM game.shooter_verification_run WHERE run_id='${run}'`),'f');
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
     const bad=structuredClone(body);(bad.result.binding as Row).inputSha256='b'.repeat(64);assert.equal((await rpc(p,'result',bad)).reason,'stale_or_unbound_result');
     const extra={...body,result:{...result,paymentAmount:20}};assert.equal((await rpc(p,'result',extra)).reason,'malformed');
     const claim=ack.claim as Row;await rpc(p,'retry',{jobId:claim.jobId,fence:claim.fence,expectedRevision:claim.expectedRevision,reason:'worker_crash'});
-    assert.equal((await rpc(p,'result',body)).reason,'stale_or_unbound_result');
+    assert.deepEqual(await rpc(p,'result',body),first,'exact committed result recovers its immutable acknowledgment after lease release');
   });
   await test('shooter-internal','count and conservative byte reservations stop overload atomically and keep receipts immutable',async()=>{
     isolate();const p=await principal();await rpc(p,'claim');psql('UPDATE game.shooter_verification_gateway SET max_principal_requests=1,max_principal_receipt_bytes=20971520');
