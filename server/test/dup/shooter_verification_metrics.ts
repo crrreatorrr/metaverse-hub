@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 import { requestDigest } from '../../../services/shooter-verifier/src/gateway-client.mjs';
 import { fixture, isolate, enable, payment, receipt } from './shooter_verification_settlement.ts';
 import { guest, openGame, call, psql, psqlAsync, num, sleep, arm, disarm, installFaultHooks, dropFaultHooks, compose, waitReady, canonical, type Guest } from './harness.ts';
-import { fileChecksum } from './migrations.ts';
+import { fileChecksum, parkLaterMigrations } from './migrations.ts';
 
 type Obj = Record<string, unknown>;
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
@@ -291,7 +291,11 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
     assert.equal(process.env.HUB_OBSERVATIONS_FIXTURE, 'pending-backfill');
     isolate(); const f = await fixture(), before = rows(f), p = proof(f);
     const ledger = psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id<>${q(ID)} ORDER BY id`);
-    assert.equal(psql(`SELECT max(id) FROM game.schema_migrations WHERE id>='0058'`), ID, 'never remove history beneath later migrations');
+    // The guard still holds for the verification family. Independent later migrations (0059 and
+    // after) are set aside for the replay and restored below; see parkLaterMigrations.
+    const later = parkLaterMigrations(ID);
+    const laterSql = later.ids.map(q).join(',') || "''";
+    assert.equal(psql(`SELECT max(id) FROM game.schema_migrations WHERE id>='0058' AND id NOT IN (${laterSql})`), ID, 'never remove history beneath later migrations');
     compose(['stop', 'nakama']);
     try {
       // Trusted historical reconstruction: remove ONLY the unshipped0058
@@ -308,7 +312,9 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
         DROP INDEX game.shooter_verification_receipt_proof_reference;
         DROP INDEX game.shooter_verification_ops_pending;DROP INDEX game.shooter_verification_ops_payment;DROP INDEX game.shooter_verification_ops_quarantined;
         DELETE FROM game.schema_migrations WHERE id=${q(ID)};`);
+      later.remove();
     } finally { compose(['up', '-d', 'nakama']); await waitReady(); }
+    later.restore();
     assert.equal(rows(f), before); assert.deepEqual(references(await rpc(f.worker, 'pending')), [p]);
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_payment_work WHERE worker_id='${f.worker.workerId}' AND run_id='${f.run}'`), 1);
     assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id=${q(ID)}`), fileChecksum(ID));
