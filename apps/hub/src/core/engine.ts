@@ -154,7 +154,8 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
       elapsed += dt;
       for (const fn of animated) fn(elapsed, dt);
       const rigMoving = actors().avatarRig.update(dt, moving, sprint, air, speed);
-      actors().pets.update(dt, actors().rig.position, STAND_Y, sprint);
+      const { pets, rig, avatar } = actors();
+      pets.update(dt, rig.position, STAND_Y, sprint, Math.PI + avatar.rotation.y);
       gems.update(elapsed);
       return rigMoving;
     },
