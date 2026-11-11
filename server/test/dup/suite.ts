@@ -37,6 +37,7 @@ import { runHubGate } from './hub_gate.ts';
 import { runMigrations } from './migrations.ts';
 import { runHold } from './hold.ts';
 import { runPets } from './pets.ts';
+import { runHubExchange } from './hub_exchange.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
 import { runShop } from './shop.ts';
@@ -1728,7 +1729,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 export function report(items: readonly Outcome[] = outcomes): number {
-  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
+  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hub-exchange', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
   console.log('\nDuplication suite');
   let failed = items.filter((item) => item.status === 'fail').length;
   for (const category of categories) {
@@ -2040,6 +2041,7 @@ export async function main(): Promise<void> {
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test);
     if (selected('pets')) await runPets(test);
+    if (selected('hub-exchange')) await runHubExchange(test);
     if (selected('hold')) await runHold(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);

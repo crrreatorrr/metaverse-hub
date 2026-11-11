@@ -32,6 +32,7 @@ import { createPetCollision } from './pet-collision';
 import { createPlanarSpeed } from './planar-speed';
 import { DEFAULT_PET_ID, EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
+import { createExchangeKeys, exchangeErrorText, walletFromAnswer, type BalancesAnswer, type ExchangeAnswer, type WalletState } from '../wallet';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
 import { gate } from '../login';
@@ -379,7 +380,50 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     },
     activePet: () => activePet,
     setActivePet: deployPet,
+    loadWallet,
+    exchangeTickets,
   });
+
+  // Wallet tab (plan B1). Both calls use the hub session; the server decides every amount.
+  const exchangeKeys = createExchangeKeys(() => crypto.randomUUID());
+
+  async function loadWallet(): Promise<WalletState | null> {
+    if (!sessionPromise) return null;
+    try {
+      const session = await sessionPromise;
+      const answer = await session.client.rpc<BalancesAnswer>('tickets.balances', {}, { token: await plazaToken(session) });
+      const state = walletFromAnswer(answer);
+      showVerse(state.verse);
+      return state;
+    } catch (error) {
+      console.warn('[wallet] could not load balances', error);
+      return null;
+    }
+  }
+
+  async function exchangeTickets(game: GameId, tickets: number): Promise<{ ok: true; answer: ExchangeAnswer } | { ok: false; text: string }> {
+    if (!sessionPromise) return { ok: false, text: SERVER_SILENT_TEXT };
+    // The key is kept until the server answers, so a retry after a dropped connection replays this request.
+    const key = exchangeKeys.keyFor(game, tickets);
+    try {
+      const session = await sessionPromise;
+      const answer = await withTimeout(
+        session.client.rpc<ExchangeAnswer>('verse.exchange', { game, tickets, key }, { token: await plazaToken(session) }),
+        LAUNCH_TIMEOUT_MS,
+      );
+      exchangeKeys.settle(game, tickets);
+      showVerse(answer.verse);
+      return { ok: true, answer };
+    } catch (error) {
+      // An error body from the RPC (no HTTP status) is the server's answer: the request is finished.
+      if (error instanceof HubSdkError && error.status === undefined) {
+        exchangeKeys.settle(game, tickets);
+        return { ok: false, text: exchangeErrorText(error.code) };
+      }
+      console.warn('[wallet] exchange did not finish', error);
+      return { ok: false, text: SERVER_SILENT_TEXT };
+    }
+  }
 
   function displayName(): string {
     return look.name || guestLabel;

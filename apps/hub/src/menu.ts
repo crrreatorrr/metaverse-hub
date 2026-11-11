@@ -7,12 +7,14 @@ import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
 import type { MoveStick } from './core/gamepad';
+import type { GameId } from '@metaverse/hub-sdk';
+import { WALLET_OFFLINE_TEXT, WALLET_RATE_LINE, applyExchange, exchangeOffer, offerLabel, type ExchangeAnswer, type WalletState } from './wallet';
 import { HELD_NOTE, HELD_PET_NOTE, grantBadge, isHeld, storePriceLine } from './v2/store-info';
 
-export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets';
+export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets' | 'wallet';
 
 /** Tab order, for the controller's LB / RB. */
-export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'sims', 'pets'];
+export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'sims', 'pets', 'wallet'];
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
   { id: 'items', label: 'Items', key: '1', icon: 'bag' },
@@ -21,6 +23,7 @@ const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon 
   { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
   { id: 'sims', label: 'Sims', key: '5', icon: 'star' },
   { id: 'pets', label: 'Pets', key: '6', icon: 'paw' },
+  { id: 'wallet', label: 'Wallet', key: '7', icon: 'coin' },
 ];
 
 /** Pixel art made with Higgsfield, in `public/world/ui/`. */
@@ -132,6 +135,10 @@ export interface MenuOptions {
   restartSims: () => void;
   /** The act the sims' story is in, for the Sims page. */
   simAct: () => string;
+  /** Tickets per game from the server, or null when the hub server cannot be reached. */
+  loadWallet: () => Promise<WalletState | null>;
+  /** Exchange `tickets` of one game's Tickets for Verse. `text` says why it failed. */
+  exchangeTickets: (game: GameId, tickets: number) => Promise<{ ok: true; answer: ExchangeAnswer } | { ok: false; text: string }>;
 }
 
 export interface Menu {
@@ -441,6 +448,83 @@ export function createMenu(options: MenuOptions): Menu {
   }
   relicsPage.append(relicGrid);
 
+  // ---------- Wallet (Tickets per game, exchanged for Verse here in the plaza)
+  const walletPage = bodies.get('wallet') as HTMLElement;
+  const walletVerse = el('strong', 'menu-verse', 'Verse 0');
+  const walletHead = el('div', 'menu-wallet');
+  const walletHeadText = el('div', 'menu-wallet-text');
+  walletHeadText.append(walletVerse, el('span', 'menu-sub', WALLET_RATE_LINE));
+  walletHead.append(pixelIcon('coin', 'menu-wallet-coin'), walletHeadText);
+  const walletStatus = el('p', 'menu-note wallet-status', '');
+  walletStatus.setAttribute('role', 'status');
+  const walletList = el('ul', 'menu-grid wallet-rows');
+  walletPage.append(
+    el('h3', 'menu-h', 'Wallet'),
+    el('p', 'menu-note', 'Tickets are earned inside a game and stay in that game\'s wallet. Exchange them here for Verse, which belongs to your whole account.'),
+    walletHead,
+    walletStatus,
+    walletList,
+  );
+  let walletState: WalletState | null = null;
+  let walletBusy = false;
+  let walletLoads = 0;
+
+  function paintWallet(): void {
+    walletVerse.textContent = `Verse ${(walletState?.verse ?? verse).toLocaleString('en-US')}`;
+    walletList.replaceChildren();
+    if (!walletState) return;
+    for (const row of walletState.rows) {
+      const offer = exchangeOffer(row.balance, row.verseCapLeft);
+      const card = el('li', `pet-card wallet-row${row.balance > 0 ? ' owned' : ''}`);
+      card.dataset.game = row.game;
+      const icon = el('span', 'pet-icon');
+      icon.append(pixelIcon('coin'));
+      const text = el('div', 'pet-text');
+      text.append(
+        el('strong', '', row.label),
+        el('span', 'pet-from', `${row.balance.toLocaleString('en-US')} Tickets · ${row.verseCapLeft} Verse left today`),
+      );
+      const button = el('button', 'pet-deploy wallet-exchange', offerLabel(offer));
+      button.type = 'button';
+      button.disabled = offer.blocked !== 'none' || walletBusy;
+      button.addEventListener('click', () => {
+        if (walletBusy || offer.blocked !== 'none') return;
+        walletBusy = true;
+        walletStatus.textContent = `Exchanging ${offer.tickets} ${row.label} Tickets…`;
+        paintWallet();
+        void options.exchangeTickets(row.game, offer.tickets).then((result) => {
+          walletBusy = false;
+          if (result.ok) {
+            if (walletState) walletState = applyExchange(walletState, row.game, result.answer);
+            verse = result.answer.verse;
+            paintItems();
+            walletStatus.textContent = `Exchanged ${offer.tickets} Tickets for ${result.answer.gained ?? offer.verse} Verse.`;
+            paintWallet();
+          } else {
+            walletStatus.textContent = result.text;
+            // The server may know something this page does not (another tab, a new day).
+            refreshWallet(true);
+          }
+        });
+      });
+      card.append(icon, text, button);
+      walletList.append(card);
+    }
+  }
+
+  /** Ask the server for balances. `keepStatus` leaves the last message up (after a refusal). */
+  function refreshWallet(keepStatus = false): void {
+    const load = walletLoads += 1;
+    if (!keepStatus) walletStatus.textContent = walletState ? '' : 'Loading your wallets…';
+    void options.loadWallet().then((state) => {
+      if (load !== walletLoads) return;
+      walletState = state;
+      if (!state) walletStatus.textContent = WALLET_OFFLINE_TEXT;
+      else if (!keepStatus) walletStatus.textContent = '';
+      paintWallet();
+    });
+  }
+
   // ---------- Behaviour
   tabBar.addEventListener('click', (event) => {
     const button = (event.target as HTMLElement).closest('button');
@@ -575,6 +659,7 @@ export function createMenu(options: MenuOptions): Menu {
       button.setAttribute('aria-selected', String(on));
     }
     for (const [id, body] of bodies) body.hidden = id !== next;
+    if (next === 'wallet' && open) refreshWallet();
     // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
     if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
   }
@@ -587,8 +672,10 @@ export function createMenu(options: MenuOptions): Menu {
     paintPets();
     paintRelics();
     paintSims();
+    paintWallet();
     if (open) return;
     open = true;
+    if (tab === 'wallet') refreshWallet();
     root.hidden = false;
     options.onOpen();
     (tabButtons.get(tab) ?? close).focus({ preventScroll: true });
@@ -802,7 +889,11 @@ export function createMenu(options: MenuOptions): Menu {
     },
     setVerse(balance) {
       verse = balance;
-      if (open) paintItems();
+      if (walletState) walletState = { ...walletState, verse: balance };
+      if (open) {
+        paintItems();
+        paintWallet();
+      }
     },
     setGuest(label) {
       guest.textContent = label;

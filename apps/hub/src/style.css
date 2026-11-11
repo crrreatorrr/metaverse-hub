@@ -875,10 +875,11 @@ button:disabled {
 
 /* ----- Tabs: chunky pixel buttons with Higgsfield icons. */
 
+/* Two rows of four: the Wallet and Games tabs joined the original six. */
 .menu-tabs {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 8px;
   margin: 12px 4px 14px;
 }
 
@@ -900,8 +901,8 @@ button:disabled {
 }
 
 .menu-tab-icon {
-  width: 52px;
-  height: 52px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   filter: saturate(0.6) brightness(0.8);
 }
@@ -2317,4 +2318,27 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Wallet tab */
+.wallet-row .pet-from {
+  line-height: 1;
+}
+
+.wallet-exchange {
+  max-width: 132px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+}
+
+.wallet-exchange:disabled {
+  color: #8ea2d8;
+  background: var(--navy);
+  cursor: not-allowed;
+}
+
+.wallet-status {
+  min-height: 18px;
+  color: var(--yellow-2);
 }

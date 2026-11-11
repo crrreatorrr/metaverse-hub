@@ -66,10 +66,10 @@ export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
  * Pages the Bar wall cycles through (plan item A4). A page is listed only when a normal,
  * hub-entered session can put rows on it:
  * - `hpos10i_act_time` is out until the server accepts HPOS10I's unranked post (B4).
- * - `verse_by_game_hpos10i` is out until HPOS10I Tickets can be exchanged (B1).
+ * - `verse_by_game_hpos10i` is back: HPOS10I Tickets exchange from the Wallet tab (B1, verse.exchange).
  * The ids stay in `HUB_BOARD_IDS` so the metadata, stubs and tests keep one list.
  */
-export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = ['hpos10i_act_time', 'verse_by_game_hpos10i'];
+export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = ['hpos10i_act_time'];
 export const BAR_BOARD_IDS: readonly HubBoardId[] = HUB_BOARD_IDS.filter((id) => !BAR_DEAD_BOARD_IDS.includes(id));
 
 /** The Classic NOBU layouts sit behind the current ones: a Classic page shows only when it has rows. */
