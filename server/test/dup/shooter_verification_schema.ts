@@ -102,6 +102,15 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     assert.equal(num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id='${USER}' AND delta=20`), 1);
     assert.equal(num(`SELECT balance FROM game.tickets_balance WHERE user_id='${USER}' AND game_id='sproto-shooter'`), 20);
     const ledger = psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id NOT IN (${v2SqlIds}) ORDER BY id`);
+    // Migrations numbered above the verification family (0059 and later) are recorded too, and the
+    // runner refuses to apply an older migration below a recorded newer one. A database from
+    // before the family has none of them, so their ledger rows are removed for the replay, the
+    // boot applies them again after the family, and their original applied_at is put back.
+    const lastV2 = Math.max(...v2Ids.map((id) => Number(id.split('_')[0])));
+    const laterIds = migrationIds().filter((id) => Number(id.split('_')[0]) > lastV2);
+    const laterSqlIds = laterIds.map((id) => "'" + id.replace(/'/g, "''") + "'").join(',');
+    const laterRows = laterIds.map((id) => ({ id, row: psql(`SELECT checksum||'|'||applied_at::text FROM game.schema_migrations WHERE id='${id}'`) }));
+    for (const { id, row } of laterRows) assert.match(row, /^[0-9a-f]{64}\|\d{4}-\d{2}-\d{2} [0-9:.+-]+$/, `${id} is recorded before the replay`);
     const economy = psql(ECONOMY);
     compose(['stop', 'nakama']);
     try {
@@ -109,9 +118,16 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
         game.shooter_verification_payment_work,        game.shooter_verification_payload_retirement,game.shooter_verification_restore_proof,game.shooter_verification_recovery_grant,game.shooter_verification_operator_audit,game.shooter_verification_operator_usage,game.shooter_verification_operator_key,game.shooter_verification_operator,game.shooter_verification_retention_config, game.shooter_verification_cohort,game.shooter_verification_payment_config,game.shooter_verification_gateway_rate,game.shooter_verification_gateway_receipt,game.shooter_verification_principal,game.shooter_verification_worker,game.shooter_verification_gateway,game.shooter_verification_attempt_result,game.shooter_verification_attempt,game.shooter_verification_scheduler_account,game.shooter_verification_scheduler,game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
 
         DELETE FROM game.schema_migrations WHERE id IN (${v2SqlIds});`);
+      if (laterIds.length) psql(`DELETE FROM game.schema_migrations WHERE id IN (${laterSqlIds})`);
     } finally {
       compose(['up', '-d', 'nakama']);
       await waitReady();
+    }
+    for (const { id, row } of laterRows) {
+      const [checksum, appliedAt] = row.split('|') as [string, string];
+      assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${id}'`), checksum, `${id} replays with the same checksum`);
+      assert.equal(checksum, fileChecksum(id), `${id} replay uses unchanged code`);
+      psql(`UPDATE game.schema_migrations SET applied_at=timestamptz '${appliedAt}' WHERE id='${id}' AND checksum='${checksum}'`);
     }
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE run_id='${RUN}' AND user_id='${USER}' AND session_id='${SESSION}'`), 1);
     assert.equal(psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id NOT IN (${v2SqlIds}) ORDER BY id`), ledger);
