@@ -1,0 +1,9 @@
+CI-only microbenchmark, not a production RPC, deployment or capacity test.
+
+The workflow uses Go1.27.1 and Goja `v0.0.0-20260906210903-70ad66ec7ce4`, the direct version in the official Nakama3.41.0 `go.mod`. The initial two Goja checksums were read from `sum.golang.org`; Actions resolves indirect dependencies with `go mod tidy` and retains the resulting public module metadata only.
+
+The driver extracts the exact current production `stable` and `fnv` functions without modifying their source. Every hash sample must equal both original Goja output and the original function evaluated independently in V8. Canonical strings must also agree by SHA256. Inputs include all65,536 UTF16 code units, unpaired surrogates, astral/combining/NUL strings, canonical key-order edge cases and the approved full24,000-frame trace's actual22,000-frame private predecessor envelope/snapshot.
+
+Each case gets a fresh Goja runtime. The first function call and two later calls are measured separately using the Go host's monotonic wall clock. This excludes parse/compile/input preparation and does not represent a cold operating-system process or CPU seconds. Original, cached `Math.imul`/length, and shift-add modulo32 run in a fixed order; shared CI noise and order effects prohibit a speedup or capacity guarantee. A candidate still needs unchanged actual Nakama commit, network, golden and adversarial integration checks before production adoption.
+
+Only a closed report with hashes, sizes, provenance and timings is uploaded. Private inputs stay in bounded memory or a0600 file under a0700 temporary directory removed in `finally`; raw child errors and checkpoints are never printed. The Go executable has a90-second interpreter deadline; its driver has a95-second process deadline. These are isolated diagnostic bounds and change no feature/request deadlines.
