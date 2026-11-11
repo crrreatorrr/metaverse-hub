@@ -218,7 +218,8 @@ export async function runShooterVerificationRetention(test:Test):Promise<void> {
     const before=finance();const cp=psql(`SELECT checkpoint_sha256 FROM game.shooter_verification_run WHERE run_id='${f.run}'`);
     assert.equal(op(p,'retire',{runId:f.run,sequence:0,expectedRevision:3,proofId:randomUUID()}).reason,'retention_proof_required');
     assert.equal(psql(`SELECT payment_state FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'pending');
-    psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${f.login.sessionId}'`);await call('shooter.run.status',{runId:f.run},f.login.hub.token);await paymentRetry(f);
+    psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${f.login.sessionId}'`);await call('shooter.run.status',{runId:f.run},f.login.hub.token);
+    enablePayments();await paymentRetry(f);psql('UPDATE game.shooter_verification_payment_config SET payments_enabled=false');
     assert.equal(psql(`SELECT payment_state FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'authorization_denied');
     assert.equal(finance(),before);assert.equal(psql(`SELECT checkpoint_sha256 FROM game.shooter_verification_run WHERE run_id='${f.run}'`),cp);
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result a JOIN game.shooter_verification_job j USING(job_id) WHERE j.run_id='${f.run}'`),f.submissions.length);
