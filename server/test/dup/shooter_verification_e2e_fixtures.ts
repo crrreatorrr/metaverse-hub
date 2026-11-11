@@ -95,11 +95,15 @@ function buildCanonical(input: Obj): Obj {
     return object(result.issuance);
   } finally { delete builder.input; }
 }
+export function buildCanonicalFixtureIssuance(input: Obj): Obj {
+  fixtureGuard();
+  return buildCanonical(input);
+}
 
 export async function prepareTrustedActor(caseId: string, login: GameLogin, options: { runId?: string; key?: string; ageMs?: number } = {}): Promise<TrustedActor> {
   fixtureGuard();
   const { psql } = await import('./harness.ts');
-  const trace = loadFrozenTrace(caseId), runId = options.runId || randomUUID(), key = options.key || 'e2e:' + runId, ageMs = options.ageMs === undefined ? 0 : options.ageMs;
+  const trace = loadFrozenTrace(caseId), runId = options.runId === undefined ? randomUUID() : options.runId, key = options.key === undefined ? 'e2e:' + runId : options.key, ageMs = options.ageMs === undefined ? 0 : options.ageMs;
   assert.match(login.hub.userId, UUID); assert.match(login.sessionId, UUID); assert.match(runId, UUID);
   assert.match(key, /^[A-Za-z0-9_.:@|-]{1,80}$/);
   assert.ok(Number.isSafeInteger(ageMs) && ageMs >= 0 && ageMs <= 1200000);
