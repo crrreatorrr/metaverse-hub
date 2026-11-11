@@ -48,10 +48,11 @@ HubSchema.register({
         REFERENCES game.shooter_run (run_id, user_id, session_id),
       CONSTRAINT shooter_verification_run_deadline CHECK (upload_deadline > issued_at AND upload_deadline <= issued_at + interval '45 minutes'),
       CONSTRAINT shooter_verification_run_empty CHECK ((accepted_sequence = -1) = (accepted_tick = 0)),
-      CONSTRAINT shooter_verification_run_verified_empty CHECK ((verified_sequence = -1) = (verified_tick = 0)),
+      CONSTRAINT shooter_verification_run_verified_empty CHECK (verified_tick > 0 OR verified_sequence = -1),
       CONSTRAINT shooter_verification_run_seal CHECK ((sealed_sequence IS NULL) = (sealed_tick IS NULL)),
       CONSTRAINT shooter_verification_run_sealed_range CHECK (sealed_sequence IS NULL OR (sealed_sequence = accepted_sequence AND sealed_tick = accepted_tick)),
       CONSTRAINT shooter_verification_run_terminal CHECK ((terminal_tick IS NULL) = (terminal_outcome IS NULL) AND (terminal_tick IS NULL) = (terminal_result IS NULL)),
+      CONSTRAINT shooter_verification_run_terminal_tick CHECK (terminal_tick IS NULL OR terminal_tick = simulation_tick),
       CONSTRAINT shooter_verification_run_checkpoint CHECK ((checkpoint_json IS NULL) = (checkpoint_sha256 IS NULL)),
       CONSTRAINT shooter_verification_run_resolved CHECK (resolved_at IS NULL OR (resolved_at >= issued_at AND lifecycle NOT IN ('open', 'sealed', 'quarantined')))
     )`,
@@ -118,7 +119,7 @@ HubSchema.register({
       CONSTRAINT shooter_verification_job_attempts CHECK (attempts <= max_attempts AND (state <> 'leased' OR (attempts > 0 AND fencing_token > 0))),
       CONSTRAINT shooter_verification_job_ack CHECK ((state = 'completed') = (verified_ack IS NOT NULL))
     )`,
-    "CREATE UNIQUE INDEX IF NOT EXISTS shooter_verification_job_range ON game.shooter_verification_job (run_id, sequence_from, sequence_to)",
+    "CREATE UNIQUE INDEX IF NOT EXISTS shooter_verification_job_range ON game.shooter_verification_job (run_id, sequence_from, sequence_to, tick0, tick_end)",
     "CREATE UNIQUE INDEX IF NOT EXISTS shooter_verification_job_active_chain ON game.shooter_verification_job (run_id) WHERE state IN ('ready', 'leased', 'retry_wait')",
     "CREATE INDEX IF NOT EXISTS shooter_verification_job_claim ON game.shooter_verification_job (next_attempt_at, created_at, run_id) WHERE state IN ('ready', 'retry_wait')",
     "CREATE INDEX IF NOT EXISTS shooter_verification_job_reclaim ON game.shooter_verification_job (lease_until, run_id) WHERE state = 'leased'",

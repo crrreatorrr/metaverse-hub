@@ -13,6 +13,8 @@ for (const bound of ['67108864', '2097152', '162000', '4095', '131072']) assert.
 assert.ok(sql.includes('FOREIGN KEY (run_id, user_id, session_id)'));
 assert.ok(sql.includes('verified_tick BETWEEN 0 AND accepted_tick'));
 assert.ok(sql.includes('simulation_tick BETWEEN 0 AND verified_tick'));
+assert.ok(sql.includes('verified_tick > 0 OR verified_sequence = -1'), 'first partial batch may have no fully verified sequence');
+assert.ok(sql.includes('(run_id, sequence_from, sequence_to, tick0, tick_end)'), 'multiple verifier slices can share an upload batch');
 assert.ok(sql.includes('BEFORE UPDATE OR DELETE'));
 assert.ok(sql.includes("WHERE state IN ('ready', 'leased', 'retry_wait')"));
 assert.ok(sql.includes("authorized_lease_until > accepted_at"));
