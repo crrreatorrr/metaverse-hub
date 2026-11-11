@@ -8,6 +8,7 @@ on:
       - server/test/shooter-full-stack.test.ts
       - server/test/shooter-container-recovery.test.ts
       - server/test/dup/shooter_verification_e2e_operations.ts
+      - server/test/dup/shooter_verification_e2e_oracle.ts
       - scripts/shooter-verification/**
       - server/test/fixtures/shooter-integration-corpus.json
       - .github/workflows/shooter-verification-e2e.yml
