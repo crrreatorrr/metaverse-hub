@@ -846,6 +846,17 @@ export async function runMigrations(test: DupTest): Promise<void> {
     try { assert.throws(() => dropPristineVerificationSchema(), /is configured/); }
     finally { psql('UPDATE game.shooter_verification_gateway SET max_requests=NULL'); }
     assert.equal(migrationSnapshot(), ledger); assert.equal(financialRows(), financial);
+    // An unrelated trigger depends on a family function, not its tables. This
+    // reaches the second DROP and proves its refusal rolls back the first DROP.
+    psql(`CREATE TABLE game.historical_fixture_external_dependency(id integer);
+      CREATE TRIGGER historical_fixture_external_dependency BEFORE UPDATE ON game.historical_fixture_external_dependency
+      FOR EACH ROW EXECUTE FUNCTION game.shooter_verification_retention_immutable()`);
+    try {
+      assert.throws(() => dropPristineVerificationSchema(), /depend/);
+      assert.equal(psql("SELECT to_regclass('game.shooter_verification_cohort')::text"), 'game.shooter_verification_cohort');
+      assert.equal(num("SELECT count(*) FROM pg_trigger WHERE tgrelid='game.shooter_verification_cohort'::regclass AND tgname='shooter_verification_cohort_guard'"), 1);
+      assert.equal(migrationSnapshot(), ledger); assert.equal(financialRows(), financial);
+    } finally { psql('DROP TABLE game.historical_fixture_external_dependency'); }
   });
   await test('migration', '0002 checksum matches schema.ts', async () => {
     const stored = psql(`SELECT checksum FROM game.schema_migrations WHERE id = '0002_baseline'`);
