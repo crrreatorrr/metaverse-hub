@@ -11,6 +11,9 @@ That transaction authenticates the current scoped worker principal and resolves
 the target from its immutable committed result receipt. Caller outcome/amount
 fields and echoed run IDs cannot select the credit. It waits for verification of
 the complete accepted high-water captured by the first terminal, including tails.
+The latest checkpoint revision, cursor and strong hash must match an immutable
+completed attempt/job receipt. Committed issuance must still match legacy
+boss/day/seed and exact run/account/session identity before new credit.
 
 The worker RPC continues returning its original immutable verification
 acknowledgment. It never turns transport success or `terminal_verified` into a
@@ -36,12 +39,20 @@ ranking-placeholder and idempotency initialization; no financial rows change.
 The actual post-lock UTC day selects the shared cap bucket; a bounded retry locks
 the actual bucket if midnight passes during preparation.
 
+Payment does not retain the global gateway scheduling lock while waiting for one
+account's wallet. It rechecks gateway enablement at its final authorization
+boundary; a disable can linearize before or after that read. Payment configuration
+and principal/session locks still serialize the corresponding stop/revoke/close.
+
 There is no grace, replacement session or revival of a recorded denial. Current
 `game_session` has open/closed/expired states: ordinary expiry is
 `session_expired`, while the existing close/invalid-session representation is
 `session_closed`. This code does not invent a separate user-session revocation
 signal or claim to check independent Nakama JWT revocation. Service principal
 revocation/expiry is checked separately and remains an operational payment issue.
+Optional lifecycle facts from 0056 preserve observed original-session expiry or
+closure against later revival. The independent 45-minute **input** deadline alone
+does not deny payment for already accepted work while the original session is live.
 
 The fixed policy is preserved: 20 Tickets or zero, once per canonical boss and
 account/game/issuance UTC day, original-session 200 cap, and shared account/game

@@ -55,7 +55,9 @@ HubSchema.register({
       SELECT * INTO principal FROM game.shooter_verification_principal
         WHERE account_id=a AND worker_id=w AND key_id=k FOR UPDATE;
       IF NOT FOUND THEN RETURN jsonb_build_object('state','pending_retryable','reason','worker_authorization'); END IF;
-      SELECT * INTO gateway FROM game.shooter_verification_gateway WHERE singleton FOR UPDATE;
+      -- This transaction never changes gateway counters. Do not hold its global
+      -- scheduling lock across a single account's financial row waits.
+      SELECT * INTO gateway FROM game.shooter_verification_gateway WHERE singleton;
       t:=clock_timestamp();
       IF principal.revoked_at IS NOT NULL OR principal.not_before>t OR principal.expires_at<=t
         OR NOT 'result'=ANY(principal.scopes) OR NOT game.shooter_verification_hash_equal(principal.token_sha256,h) THEN
@@ -86,6 +88,23 @@ HubSchema.register({
       IF run.lifecycle<>'terminal' OR run.terminal_tick IS NULL OR run.terminal_result IS NULL
         OR run.terminal_accepted_tick IS NULL OR run.verified_tick<>run.terminal_accepted_tick THEN
         RETURN jsonb_build_object('state','pending_retryable','reason','verification_pending'); END IF;
+      IF NOT EXISTS(SELECT 1 FROM game.shooter_verification_attempt_result done
+        JOIN game.shooter_verification_job job ON job.job_id=done.job_id
+        WHERE job.run_id=target AND job.state='completed' AND done.state='completed'
+          AND done.fencing_token=job.fencing_token AND done.result_revision=run.revision
+          AND done.resolved_tick=run.verified_tick AND done.checkpoint_sha256=run.checkpoint_sha256
+          AND done.acknowledgment=job.verified_ack AND done.acknowledgment->>'runId'=target
+          AND done.acknowledgment->>'terminalRevision'=expected::text
+          AND done.acknowledgment->>'verifiedTick'=run.verified_tick::text) THEN
+        RETURN jsonb_build_object('state','pending_retryable','reason','verification_receipt_unavailable'); END IF;
+      IF run.checkpoint_json->'issuance' IS DISTINCT FROM legacy.issuance_json::jsonb
+        OR run.checkpoint_json->'issuance'->>'runId' IS DISTINCT FROM target
+        OR run.checkpoint_json->'issuance'->>'accountId' IS DISTINCT FROM owner::text
+        OR run.checkpoint_json->'issuance'->>'sessionId' IS DISTINCT FROM original_session::text
+        OR run.checkpoint_json->'issuance'->>'canonicalBoss' IS DISTINCT FROM legacy.canonical_boss
+        OR run.checkpoint_json->'issuance'->>'day' IS DISTINCT FROM to_char(legacy.day,'YYYY-MM-DD')
+        OR run.checkpoint_json->'issuance'->'seed' IS DISTINCT FROM to_jsonb(legacy.seed) THEN
+        RETURN jsonb_build_object('state','pending_retryable','reason','terminal_binding'); END IF;
       IF run.simulator_protocol<>1 OR run.upload_protocol<>2 OR run.checkpoint_schema<>2 OR run.economy_policy<>1
         OR run.content_fingerprint<>'cea1f88b'
         OR run.checkpoint_json->'snapshot'->'manifest'->>'sha256' IS DISTINCT FROM run.artifact_sha256
@@ -136,6 +155,15 @@ HubSchema.register({
         END LOOP;
         IF NOT clock_ready THEN RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='clock_unstable'; END IF;
         IF principal.expires_at<=t OR principal.not_before>t THEN RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='worker_authorization'; END IF;
+        IF NOT EXISTS(SELECT 1 FROM game.shooter_verification_gateway WHERE singleton AND enabled) THEN
+          RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='payments_disabled'; END IF;
+        -- 0056 can retain an observed original-session invalidation. JSON row
+        -- projection compiles before that additive lifecycle migration exists.
+        -- Its independent upload_deadline marker MUST NOT deny settlement.
+        IF to_jsonb(run)->>'session_invalidated_reason' IN ('session_expired','session_closed') THEN
+          RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE=(to_jsonb(run)->>'session_invalidated_reason'); END IF;
+        IF to_jsonb(run)->>'admission_closed_reason' IN ('session_expired','session_closed') THEN
+          RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE=(to_jsonb(run)->>'admission_closed_reason'); END IF;
         IF game_session_row.session_id IS NULL OR game_session_row.user_id IS DISTINCT FROM owner OR game_session_row.game_id IS DISTINCT FROM 'sproto-shooter'
           OR game_session_row.ticket_redeemed_at IS NULL OR game_session_row.state='closed' THEN
           RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='session_closed'; END IF;

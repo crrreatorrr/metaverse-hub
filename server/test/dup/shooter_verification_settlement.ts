@@ -13,7 +13,9 @@ const SHA = '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
 const SOURCE = '05f7a0a245af921fc65a99588564175c19658e38';
 const MANIFEST = { artifact: 'shooter-sim', sourceCommit: SOURCE, sha256: SHA, protocol: 1, contentFingerprint: 'cea1f88b', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const ctx = vm.createContext({ console });
-vm.runInContext(readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url), 'utf8'), ctx);
+const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
+assert.equal(createHash('sha256').update(artifactBytes).digest('hex'), SHA, 'execute exact approved bytes, not merely a SHA-named path');
+vm.runInContext(artifactBytes.toString('utf8'), ctx);
 function obj(v: unknown): Obj { return v as Obj; }
 function sql(v: string): string { return v.replace(/'/g, "''"); }
 function sim(expression: string, value: unknown): Obj {
@@ -127,6 +129,17 @@ async function waitSleep(name: string): Promise<void> {
   while (num(`SELECT count(*) FROM pg_stat_activity WHERE application_name='${name}' AND wait_event='PgSleep'`) === 0) {
     assert.ok(Date.now() < deadline, 'lock holder entered sleep'); await sleep(20);
   }
+}
+async function readyRun(): Promise<{ run: string; worker: Worker }> {
+  const login = await openGame((await guest()).token, 'sproto-shooter'), run = randomUUID();
+  const issuance = sim('return SprotoShooterSim.buildIssuance(v).issuance;', { accountId: login.hub.userId, sessionId: login.sessionId, runId: run,
+    day: psql("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date::text"), canonicalBoss: 'sahil', seed: 7 });
+  psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
+    VALUES('${run}','${login.hub.userId}','${login.sessionId}','pay-ready:${run}',current_date,'sahil',7,'${sql(JSON.stringify(issuance))}');
+    INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
+    VALUES('${run}','${login.hub.userId}','${login.sessionId}',1,2,1,'${SHA}','${SOURCE}','cea1f88b',now()-interval '1 minute',now()+interval '44 minutes')`);
+  const accepted = obj((await call('shooter.run.append', { protocol: 2, runId: run, sequence: 0, tick0: 0, n: 1, frames: Buffer.alloc(12).toString('base64'), actions: [] }, login.gameToken)).body);
+  assert.equal(accepted.state, 'received'); return { run, worker: await worker() };
 }
 function seedCap(f: Fixture, scope: 'session' | 'daily', value: number): void {
   const user = f.login.hub.userId, reference = scope === 'session' ? f.login.sessionId : randomUUID();
@@ -256,5 +269,49 @@ export async function runShooterVerificationSettlement(test: TestFn): Promise<vo
       isolate(); const denied = await fixture(name); const before = financialSnapshot(denied.login.hub.userId); enable(); await retry(denied);
       assert.equal(payment(denied).state, 'ineligible'); assert.equal(credits(denied), 0); assert.equal(financialSnapshot(denied.login.hub.userId), before);
     }
+  });
+  await test('shooter-payments', 'postcommit boss day or seed corruption cannot change the replayed economic binding', async () => {
+    isolate(); const f = await fixture(); enable();
+    const original = psql(`SELECT day::text||':'||seed FROM game.shooter_run WHERE run_id='${f.run}'`).split(':');
+    const before = financialSnapshot(f.login.hub.userId);
+    for (const change of ["canonical_boss='sahil'", 'day=day-1', 'seed=seed+1']) {
+      psql(`UPDATE game.shooter_run SET ${change} WHERE run_id='${f.run}'`);
+      await retry(f); assert.equal(financialSnapshot(f.login.hub.userId), before); assert.equal(credits(f), 0);
+      const refused = JSON.parse(psql(`SELECT game.settle_shooter_verified_result('${f.worker.login.userId}','${f.worker.workerId}','${f.worker.keyId}','${f.worker.hash}','${f.last.requestId}')::text`)) as Obj;
+      assert.equal(refused.reason, 'terminal_binding');
+      psql(`UPDATE game.shooter_run SET canonical_boss='broccoli',day='${original[0]}',seed=${original[1]} WHERE run_id='${f.run}'`);
+    }
+    await retry(f); assert.equal(credits(f), 1);
+  });
+  await test('shooter-payments', 'latest checkpoint must match immutable completed result evidence before any credit', async () => {
+    isolate(); const f = await fixture(); enable();
+    const original = psql(`SELECT checkpoint_sha256 FROM game.shooter_verification_run WHERE run_id='${f.run}'`);
+    const before = financialSnapshot(f.login.hub.userId);
+    psql(`UPDATE game.shooter_verification_run SET checkpoint_sha256=repeat('0',64) WHERE run_id='${f.run}'`);
+    await retry(f); assert.equal(financialSnapshot(f.login.hub.userId), before); assert.equal(credits(f), 0);
+    const refused = JSON.parse(psql(`SELECT game.settle_shooter_verified_result('${f.worker.login.userId}','${f.worker.workerId}','${f.worker.keyId}','${f.worker.hash}','${f.last.requestId}')::text`)) as Obj;
+    assert.equal(refused.reason, 'verification_receipt_unavailable');
+    psql(`UPDATE game.shooter_verification_run SET checkpoint_sha256='${original}' WHERE run_id='${f.run}'`);
+    await retry(f); assert.equal(credits(f), 1);
+  });
+  await test('shooter-payments', 'upload deadline stops input but does not add an unapproved payment deadline to a live original session', async () => {
+    isolate(); const f = await fixture(); enable();
+    psql(`UPDATE game.shooter_verification_run SET issued_at=issued_at-interval '26 minutes',upload_deadline=upload_deadline-interval '26 minutes' WHERE run_id='${f.run}'`);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_run WHERE run_id='${f.run}' AND upload_deadline<clock_timestamp()`), 1);
+    await retry(f); assert.equal(credits(f), 1); assert.equal(receipt(f)?.tickets, 20);
+  });
+  await test('shooter-payments', 'one blocked wallet does not hold the global gateway lock against another healthy worker claim', async () => {
+    isolate(); const f = await fixture(); const ready = await readyRun(); enable();
+    psql(`INSERT INTO game.tickets_balance(user_id,game_id,balance) VALUES('${f.login.hub.userId}','sproto-shooter',0) ON CONFLICT DO NOTHING`);
+    const holder = psqlAsync(`SET application_name='pay-wallet-isolation'; BEGIN; SELECT 1 FROM game.tickets_balance WHERE user_id='${f.login.hub.userId}' AND game_id='sproto-shooter' FOR UPDATE; SELECT pg_sleep(5); COMMIT;`);
+    await waitSleep('pay-wallet-isolation'); const paying = retry(f);
+    const deadline = Date.now() + 5000;
+    while (num("SELECT count(*) FROM pg_stat_activity WHERE query LIKE '%settle_shooter_verified_result%' AND wait_event_type='Lock'") === 0) {
+      assert.ok(Date.now() < deadline, 'payment reached the held wallet'); await sleep(20);
+    }
+    const claimed = await rpc(ready.worker, 'claim', {}); assert.equal(claimed.state, 'leased', JSON.stringify(claimed));
+    assert.equal(obj(obj(claimed.work).claim).runId, ready.run);
+    assert.equal(num("SELECT count(*) FROM pg_stat_activity WHERE application_name='pay-wallet-isolation' AND wait_event='PgSleep'"), 1, 'other claim completed while the wallet remained blocked');
+    await paying; await holder; assert.equal(credits(f), 1);
   });
 }
