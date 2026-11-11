@@ -89,7 +89,8 @@ No trigger on session rows acquires quota, economy or scheduler locks.
 Maintenance runs in separate short transactions on selected issuance, owner status
 and successful scoped worker claim polling. It never carries run/session locks
 into a worker scheduler transaction. At most16 candidates are visited per poll in
-stable session/run order. Existing predecessor-ready worker scheduling drains
+stable session/run order; locked candidates are skipped with `NOWAIT` so worker
+claim acknowledgments are not held behind unrelated session/run locks. Existing predecessor-ready worker scheduling drains
 accepted tails even without finish. Quarantined jobs and support reasons stay
 intact. A fully resolved sealed/expired run without a simulator terminal closes as
 `incomplete` and `ineligible`; this is a server closure fact, never an invented
@@ -101,5 +102,8 @@ and finish semantics.
 Focused Actions covers version choice/enrollment races, retained-manifest startup,
 same-key reservation deduplication, capacity rollback, empty and lost-seal recovery,
 append/seal serialization, real worker incomplete closure, missing-finish expiry,
-no revival/rebinding, post-lock authorization and stale-day rejection. Independent
+no revival/rebinding, post-lock authorization and stale-day rejection. Actual
+authoritative clear receipts additionally prove that input expiry alone permits
+payment while durable observed original-session expiry prevents later renewal
+from restoring payment authority. Independent
 review and passing exact-head Actions remain required before integration.

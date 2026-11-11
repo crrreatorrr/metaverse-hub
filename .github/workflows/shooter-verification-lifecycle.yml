@@ -19,6 +19,12 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -38,6 +44,7 @@ jobs:
         run: npm run test:dup
         env:
           DUP_ONLY: shooter-lifecycle
+          SHOOTER_CORPUS: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
       - name: Bounded failed-boot diagnostics
         if: failure()
         run: docker compose -f server/docker-compose.yml logs --tail=100 nakama

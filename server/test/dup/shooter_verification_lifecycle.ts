@@ -3,6 +3,7 @@ import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
 import { guest, openGame, call, psql, psqlAsync, num, sleep, type GameLogin } from './harness.ts';
+import { fixture as paymentFixture, isolate as paymentIsolate, enable as paymentEnable, retry as paymentRetry, payment, receipt } from './shooter_verification_settlement.ts';
 
 type Obj=Record<string,unknown>;
 type Test=(category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
@@ -170,5 +171,26 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     if (issued.ok===true) { assert.equal(retry.ok,true); assert.equal(retry.protocol,undefined); }
     else { assert.equal(retry.protocol,2); }
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE user_id='${s.hub.userId}' AND idem_key='${key}'`),1);
+  });
+  await test('shooter-lifecycle','timely accepted clear can pay after input deadline with original live session',async()=>{
+    paymentIsolate(); const f=await paymentFixture(); assert.equal(receipt(f),null);
+    psql(`UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${f.run}';
+      SELECT game.shooter_verification_touch('${f.login.hub.userId}','${f.run}')`);
+    assert.equal(psql(`SELECT admission_closed_reason FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'upload_deadline');
+    assert.equal(psql(`SELECT session_invalidated_reason IS NULL FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'t');
+    paymentEnable(); await paymentRetry(f); assert.equal(receipt(f)?.paid,true); assert.equal(receipt(f)?.tickets,20);
+  });
+  await test('shooter-lifecycle','observed session expiry after input closure durably denies payment despite later renewed lease',async()=>{
+    paymentIsolate(); const f=await paymentFixture(); assert.equal(receipt(f),null);
+    const lease=psql(`SELECT lease_until::text FROM game.game_session WHERE session_id='${f.login.sessionId}'`);
+    psql(`UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${f.run}';
+      SELECT game.shooter_verification_touch('${f.login.hub.userId}','${f.run}');
+      UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${f.login.sessionId}';
+      SELECT game.shooter_verification_touch('${f.login.hub.userId}','${f.run}');
+      UPDATE game.game_session SET lease_until='${lease}' WHERE session_id='${f.login.sessionId}'`);
+    assert.equal(psql(`SELECT admission_closed_reason FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'upload_deadline');
+    assert.equal(psql(`SELECT session_invalidated_reason FROM game.shooter_verification_run WHERE run_id='${f.run}'`),'session_expired');
+    paymentEnable(); await paymentRetry(f); assert.equal(receipt(f),null);
+    assert.equal(payment(f).state,'authorization_denied'); assert.equal(payment(f).reason,'session_expired');
   });
 }
