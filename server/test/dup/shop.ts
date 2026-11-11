@@ -68,7 +68,7 @@ const SPEND_CASES: Array<[string, string]> = [
   ['wallet', 'shop-stock coffee is not seeded'],
   ['forged', 'shop-stock unlisted item returns unknown_item'],
   ['wallet', 'shop-stock rows are known items without duplicate keys'],
-  ['wallet', 'pb sell_price is at most 45 percent of the cheapest buy'],
+  ['wallet', 'pb sell_price follows 45 percent policy with exact Campaign Pistol exception'],
   ['wallet', 'pb shop_price matches pb_shop_prices.csv row for row'],
   ['fault', 'pb.tickets_spend after_wallet rolls back'],
   ['fault', 'pb.tickets_spend kill_before_commit'],
@@ -1192,7 +1192,7 @@ export async function runShop(runner: GateRunner): Promise<void> {
     });
   }
 
-  await runner.test('wallet', 'pb sell_price is at most 45 percent of the cheapest buy', async () => {
+  await runner.test('wallet', 'pb sell_price follows 45 percent policy with exact Campaign Pistol exception', async () => {
     if (!shopColumns().includes('sell_price')) throw new Error('game.shop_price has no sell_price column');
     const rows = loadItems();
     const byItem = new Map<string, PricedItem[]>();
@@ -1208,7 +1208,11 @@ export async function runShop(runner: GateRunner): Promise<void> {
       const cheapestBuy = Math.min(...buys);
       for (const row of list) {
         if (row.sellPrice === null) continue;
-        if (row.sellPrice * 100 > cheapestBuy * 45) {
+        // Owner-approved exception: docs/games/pb-world.md, Tickets.
+        const campaignPistolException = itemId === 'gun_campaign_pistol'
+          && row.shopId === 'shop_terminal' && row.packSize === 1
+          && row.price === 2 && cheapestBuy === 2 && row.sellPrice === 1;
+        if (!campaignPistolException && row.sellPrice * 100 > cheapestBuy * 45) {
           mismatches.push(`${itemId} @ ${row.shopId} sell ${row.sellPrice} > 45% of ${cheapestBuy}`);
         }
       }
