@@ -22,7 +22,9 @@ CMD []
 # SQL RPC which must never be included in an operational image.
 FROM nakama-filter-base AS nakama-filter-fixture
 COPY services/shooter-verifier/test/nakama-filter-fixture.js /tmp/nakama-filter-fixture.js
-RUN cat /tmp/nakama-filter-fixture.js >> /nakama/data/modules/index.js && rm /tmp/nakama-filter-fixture.js
+# Nakama resolves callbacks by the original InitModule AST and rejects inline
+# callbacks. Add one named registration at a unique reviewed test-only anchor.
+RUN node -e 'const fs=require("node:fs"); const p="/nakama/data/modules/index.js"; const s=fs.readFileSync(p,"utf8"); const a="initializer.registerRpc(\"healthcheck\", rpcHealthcheck);"; if(s.split(a).length!==2)throw new Error("fixture_anchor"); fs.writeFileSync(p,s.replace(a,a+"\n    initializer.registerRpc(\"test.filter.driver\", rpcFilterDriverFixture);")+"\n"+fs.readFileSync("/tmp/nakama-filter-fixture.js","utf8"));' && rm /tmp/nakama-filter-fixture.js
 
 # Docker's final/default target is always operational. Omitting --target must
 # never silently select the deliberately unsafe disposable test image above.

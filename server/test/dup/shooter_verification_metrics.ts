@@ -248,7 +248,13 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
     isolate(); const w = await principal(), fixtures: Fixture[] = [];
     // Each trace is a complete real approved replay, not a fabricated terminal
     // or a synthetic payout target. All results belong to one logical worker.
-    for (let i = 0; i < 33; i++) fixtures.push(await fixture('broccoli-success-7', { beforeSubmit: owner => Object.assign(owner, w) }));
+    // Reuse only the service principal, never a player, issuance or checkpoint.
+    // Every slice still reads its immutable stored ACK; the helper verifies its
+    // strict cursor and final actual DB state without a redundant poll process.
+    const principalsBefore = num('SELECT count(*) FROM game.shooter_verification_principal');
+    for (let i = 0; i < 33; i++) fixtures.push(await fixture('broccoli-success-7', { worker: w, progressEvidence: 'stored-ack' }));
+    assert.equal(new Set(fixtures.map(f => f.login.hub.userId)).size, 33, 'all33 actual game accounts remain distinct');
+    assert.equal(num('SELECT count(*) FROM game.shooter_verification_principal'), principalsBefore, 'bulk setup allocates no unused service principals');
     const other = await principal(), first = await rpc(w, 'pending'); assert.equal(first.truncated, true); assert.equal(references(first).length, 4);
     const cursor = obj(first.nextCursor);
     assert.deepEqual(references(await rpc(other, 'pending', cursor)), []);

@@ -27,7 +27,7 @@ jobs:
       - name: Default image excludes the deliberately unsafe test RPC
         run: |
           docker build --file services/shooter-verifier/ops/Dockerfile.nakama-filter --tag shooter-filter-default-proof .
-          docker run --rm --entrypoint node shooter-filter-default-proof -e "const s=require('node:fs').readFileSync('/nakama/data/modules/index.js','utf8');if(s.includes('test.filter.driver')||s.includes('filterFixtureOriginalInit'))process.exit(1)"
+          docker run --rm --entrypoint node shooter-filter-default-proof -e "const s=require('node:fs').readFileSync('/nakama/data/modules/index.js','utf8');if(s.includes('test.filter.driver')||s.includes('rpcFilterDriverFixture'))process.exit(1)"
       - name: Private throwaway launch configuration
         run: |
           sh server/scripts/dev-env.sh --random-server-key
@@ -44,6 +44,8 @@ jobs:
       - name: Remove private launch file and disposable services
         if: always()
         run: |
-          docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml down --volumes
+          cleanup_status=0
+          docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml down --volumes || cleanup_status=$?
           rm -f /tmp/shooter-filter-launch.json
+          exit "$cleanup_status"
       # Never upload raw Nakama/PostgreSQL logs or launch JSON, even on failure.
