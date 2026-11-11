@@ -19,7 +19,7 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
   if(record)metrics.add('journalRecoveries');
   const save=value=>{journal.save(value);record=value;};
   const clear=()=>{journal.clear();record=null;};
-  function health(){const now=Date.now(),g=metrics.gateway;return{ready:!stopping&&!blocked&&!!offline?.ready&&sameManifest(offline.manifest)&&now-offline.asOf<15000&&!!g&&now-g.observedAt<15000&&g.canExecute&&g.writerReady&&g.authExpiresAt>now+1000&&accountExpiresAt>now+1000,draining:stopping,blocked,busy:inFlight,journalPhase:record?.phase||null,asOf:now};}
+  function health(){const now=Date.now(),g=metrics.gateway;return{ready:!stopping&&!blocked&&offline?.ready===true&&sameManifest(offline.manifest)&&typeof offline.asOf==='number'&&Number.isFinite(offline.asOf)&&now-offline.asOf>=-1000&&now-offline.asOf<15000&&!!g&&now-g.observedAt<15000&&g.canExecute&&g.writerReady&&g.authExpiresAt>now+1000&&accountExpiresAt>now+1000,draining:stopping,blocked,busy:inFlight,journalPhase:record?.phase||null,asOf:now};}
   const server=createServer((req,res)=>{if(req.method!=='GET'||!['/health','/ready','/metrics'].includes(req.url)){res.writeHead(404);res.end();return;}const state=health();res.writeHead(req.url==='/ready'&&!state.ready?503:200,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(req.url==='/metrics'?metrics.snapshot():state));});
   server.maxConnections=8;server.maxRequestsPerSocket=1;server.requestTimeout=2000;server.headersTimeout=2000;
   await new Promise((resolve,reject)=>{server.once('error',()=>reject(new Error('health_socket')));server.listen(healthPort,'127.0.0.1',resolve);});
@@ -46,7 +46,7 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
     // At most one renewal in flight. Its outcome is checked before publishing;
     // a lost renewal never grants authority to commit a different fence.
     let renewing=null,lost=false,timer=null,finished=false,renewals=0;
-    const schedule=live=>{if(finished)return;const remaining=Date.parse(live.leaseUntil)-Date.now();if(!Number.isFinite(remaining)||remaining<=0){lost=true;return;}timer=setTimeout(renew,Math.max(250,Math.min(5000,Math.floor(remaining/3))));};
+    const schedule=live=>{if(finished)return;if(typeof live.leaseUntil!=='string'){lost=true;return;}const remaining=Date.parse(live.leaseUntil)-Date.now();if(!Number.isFinite(remaining)||remaining<=0){lost=true;return;}timer=setTimeout(renew,Math.max(250,Math.min(5000,Math.floor(remaining/3))));};
     const renew=()=>{if(finished||renewing)return;if(++renewals>32){lost=true;return;}renewing=gateway.renew(ack.claim).then(value=>{if(value.state!=='leased')lost=true;else schedule(value);}).finally(()=>{renewing=null;});};
     let result;try{result=await gateway.replayClaim(ack,replay,{onLease:schedule});}finally{finished=true;clearTimeout(timer);if(renewing)await renewing;}
     if(lost){metrics.add('rpcFailures');return;}
