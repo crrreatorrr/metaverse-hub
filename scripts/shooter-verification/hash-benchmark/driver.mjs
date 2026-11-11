@@ -41,14 +41,14 @@ function projectResult(value, expectations) {
   const cases = value.cases.map((row, index) => {
     const expected = expectations[index];
     if (!exact(row, ['name','kind','codeUnits','canonicalSHA','serialization','variants']) || row.name !== names[index] || row.kind !== expected.kind
-      || row.codeUnits !== expected.codeUnits || row.canonicalSHA !== expected.expectedCanonicalSHA || !Array.isArray(row.variants) || row.variants.length !== 3) refuse();
+      || row.codeUnits !== expected.codeUnits || row.canonicalSHA !== expected.expectedCanonicalSHA || !Array.isArray(row.variants) || row.variants.length !== 4) refuse();
     const timing = input => {
       if (!exact(input, ['coldMs','warmMs']) || !duration(input.coldMs) || !Array.isArray(input.warmMs) || input.warmMs.length !== 2 || !input.warmMs.every(duration)) refuse();
       return { coldMs: input.coldMs, warmMs: [...input.warmMs] };
     };
     const serialization = expected.kind === 'canonical' ? timing(row.serialization) : row.serialization === null ? null : refuse();
     const variants = row.variants.map((variant, number) => {
-      if (!exact(variant, ['variant','hash','coldMs','warmMs']) || variant.variant !== ['original','cached_imul_length','shift_add_mod32'][number] || variant.hash !== expected.expectedHash) refuse();
+      if (!exact(variant, ['variant','hash','coldMs','warmMs']) || variant.variant !== ['original','cached_imul_length','shift_add_mod32','multiply403_shift24'][number] || variant.hash !== expected.expectedHash) refuse();
       return { variant: variant.variant, hash: variant.hash, ...timing({ coldMs: variant.coldMs, warmMs: variant.warmMs }) };
     });
     return { name: names[index], kind: expected.kind, codeUnits: expected.codeUnits, canonicalSHA: expected.expectedCanonicalSHA, serialization, variants };
@@ -131,7 +131,7 @@ try {
   const report = { ...projectResult(JSON.parse(result), expectations), authority: 'ci_advisory_actual_Goja_no_capacity_or_speedup_guarantee',
     provenance: { nakamaVersion: '3.41.0', gojaModule: revision, productionSourceSHA256: sha(production), extractedFunctionsSHA256: sha(originalJS), fixtureSourceSHA256: sha(source),
       approvedArtifactSHA256: '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9', fullFrozenFrames: 24000, predecessorFrames: 22000 },
-    methodology: { canonical: 'exact_production_stable; object_sorted_UTF16_keys_and_JSON_stringify; root_privateHash_omitted_only', fnv: 'UTF16_code_units; fixed_original_then_cached_then_shift_order; cold1_warm2_each',
+    methodology: { canonical: 'exact_production_stable; object_sorted_UTF16_keys_and_JSON_stringify; root_privateHash_omitted_only', fnv: 'UTF16_code_units; fixed_original_then_cached_then_shift_then_multiply403_order; cold1_warm2_each',
       fixtureTransport: 'synthetic_text_validated_bounded_UTF16_unit_arrays_and_fixed_canonical_edges_reconstructed_before_timing; approved_CP_native_Goja_JSON_parse_unchanged; no_production_parser_change',
       exclusions: 'input_generation_UTF16_reconstruction_parse_compile_SHA_and_JSON_output_outside_timed_functions; source_build_and_process_cold_not_measured; actual_Nakama_integration_still_required' } };
   const text = JSON.stringify(report);

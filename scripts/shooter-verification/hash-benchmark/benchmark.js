@@ -16,6 +16,16 @@ function shiftFNV(encoded) {
   }
   return ('00000000' + (h >>> 0).toString(16)).slice(-8);
 }
+function multiply403FNV(encoded) {
+  var h = 0x811c9dc5, length = encoded.length;
+  for (var i = 0; i < length; i++) {
+    h ^= encoded.charCodeAt(i);
+    // FNV prime = 2^24 + 403. Signed32 * 403 plus the signed shift
+    // stays below 2^40 + 2^31, so every integer is exact before |0.
+    h = (h * 403 + (h << 24)) | 0;
+  }
+  return ('00000000' + (h >>> 0).toString(16)).slice(-8);
+}
 function textFromUnits(units) {
   if (!Array.isArray(units) || units.length > 262144) throw new Error('benchmark_input_shape');
   for (var index = 0; index < units.length; index++) {
@@ -49,7 +59,7 @@ function hashBenchmarkJSON(encodedCase) {
     }
     canonicalSHA = __benchSHA(canonical);
   }
-  var names = ['original','cached_imul_length','shift_add_mod32'], functions = [fnv,cachedFNV,shiftFNV], rows = [], expected = null;
+  var names = ['original','cached_imul_length','shift_add_mod32','multiply403_shift24'], functions = [fnv,cachedFNV,shiftFNV,multiply403FNV], rows = [], expected = null;
   for (var j = 0; j < functions.length; j++) {
     before = __benchNow(); var hash = functions[j](canonical); var coldMs = __benchNow() - before;
     if (expected === null) expected = hash;
