@@ -10,6 +10,7 @@ import { hostObservation, latencyObservations } from './observers.ts';
 import { observeContainer, type CgroupSample } from './container-observer.ts';
 import { PublicPipeline } from './pipeline.ts';
 import { runPlan } from './runner.ts';
+import { validateResult } from './result-validation.ts';
 const exec = promisify(execFile);
 const composeFiles = ['-f', 'server/docker-compose.yml', '-f', 'services/shooter-verifier/ops/compose.ci.yml', '--profile', 'shooter-verification'];
 function directory(): string {
@@ -78,6 +79,7 @@ async function run(): Promise<void> {
     measurements: { ...latencyObservations([], []), cpu: { value: { evidence: 'serverCgroupSamples' }, unit: 'cpu_microseconds_cumulative', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: unobserved('bytes', 'checkpoint_storage', 'checkpoint size observer not yet implemented'), rewardDelay: quantiles([...pipeline.observations.values()].flatMap(o => o.rewardWallMs === null ? [] : [o.rewardWallMs]), 'ms', 'actual_owner_paid_status'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95' }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
     evidence: { serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actorLatency: [...pipeline.observations.values()], periodicObserverSamples: result.observations, arrivals: result.arrivals },
   };
+  validateResult(report);
   await writeFile(join(root, 'benchmark-report.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
   console.log(`CI advisory actual pipeline: ${result.actors.length} actors, ${workloadFailures} operational failures; no production capacity conclusion`);
   if (result.harnessStatus !== 'complete' || result.actors.length !== 20 || workloadFailures || !result.actors.some(a => a.paid) || !pipeline.matchMetrics().some(m => m.n > 0)) process.exitCode = 1;
