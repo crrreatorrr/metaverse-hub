@@ -6,12 +6,12 @@ const request={workerId:'worker',keyId:'key1',token:'a'.repeat(43),requestId:'re
   const m=loadModule();m.nk.sqlCalls.length=0;
   assert.equal(m.call<Record<string,unknown>>('shooter.internal.claim',{vars:{scope:'worker'}},request).state,'authorization_denied');
   assert.equal(m.nk.sqlCalls.length,0,'nohttpkey/JWTvarsserviceauthority');
-  m.nk.onSql('SELECT jsonb_build_object(\'ready\'',()=>[{result:'{"ready":false,"enabled":true}'}]);
+  m.nk.onSql('game.shooter_verification_gateway_preflight',()=>[{result:'{"state":"authorization_denied","reason":"unauthorized"}'}]);
   assert.equal(m.call<Record<string,unknown>>('shooter.internal.claim',{userId:USER,vars:{scope:'worker'}},{huge:'x'.repeat(21000000)}).state,'authorization_denied');
   assert.equal(m.nk.sqlCalls.length,1,'accountallowlistbeforelargeparse/authbody');
 }
 {
-  const m=loadModule();m.nk.onSql('SELECT jsonb_build_object(\'ready\'',()=>[{result:'{"ready":true,"enabled":true}'}]);
+  const m=loadModule();m.nk.onSql('game.shooter_verification_gateway_preflight',()=>[{result:'{"state":"ready"}'}]);
   m.nk.onSql('SELECT jsonb_build_object(\'authorized\'',()=>[{result:'{"authorized":true}'}]);
   const calls:unknown[][]=[];m.nk.onSql('SELECT game.shooter_verification_internal',(args)=>{calls.push(args);return[{result:'{"state":"pending_retryable"}'}];});
   assert.equal(m.call<Record<string,unknown>>('shooter.internal.claim',{userId:USER},request).state,'pending_retryable');
@@ -22,3 +22,10 @@ const request={workerId:'worker',keyId:'key1',token:'a'.repeat(43),requestId:'re
   assert.equal(m.call<Record<string,unknown>>('shooter.internal.claim',{userId:USER},{...request,huge:'x'.repeat(5000)}).reason,'oversized');
 }
 console.log('scopedworkerRPCcheapauth/bounds/redactiontestsok');
+
+{
+  const m=loadModule();m.nk.onSql('game.shooter_verification_gateway_preflight',()=>[{result:'{"state":"pending_retryable","reason":"rate_limited"}'}]);
+  m.nk.sqlCalls.length=0;
+  assert.equal(m.call<Record<string,unknown>>('shooter.internal.result',{userId:USER},{huge:'x'.repeat(21000000)}).reason,'rate_limited');
+  assert.equal(m.nk.sqlCalls.length,1,'durableaccount/globalattemptgatebeforelargeJSONparse');
+}

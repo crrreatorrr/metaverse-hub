@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { operational } from './replay.mjs';
 const LIMIT = 20 * 1024 * 1024;
 const ID = /^[A-Za-z0-9_.:@|-]{1,80}$/;
+const validID = (value) => typeof value === 'string' && ID.test(value);
 export function gatewayURL(value) {
   const url = new URL(value);
   if (url.protocol === 'http:' && !/^http:\/\/(?:127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?:\/|$)/i.test(String(value))) throw new Error('unsafe_gateway_url');
@@ -15,13 +16,14 @@ export class GatewayClient {
   #accountToken;
   constructor({ url = 'http://127.0.0.1:7350', workerId, keyId, token, accountToken, timeoutMs = 10000 }) {
     this.url = gatewayURL(url);
-    if (!ID.test(workerId || '') || !ID.test(keyId || '') || !/^[A-Za-z0-9_-]{43}$/.test(token || '')
+    if (!validID(workerId) || !validID(keyId) || !/^[A-Za-z0-9_-]{43}$/.test(token || '')
       || typeof accountToken !== 'string' || accountToken.length > 8192 || !accountToken
       || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 20000) throw new Error('bad_gateway_configuration');
     this.#auth = { workerId, keyId, token }; this.#accountToken = accountToken; this.timeoutMs = timeoutMs;
   }
-  async request(operation, body, requestId = randomUUID()) {
-    if (!['claim', 'renew', 'retry', 'result'].includes(operation) || !ID.test(requestId)) return operational('bad_gateway_request');
+  async request(operation, body, requestId) {
+    if (requestId === undefined && operation !== 'claim') requestId = randomUUID();
+    if (!['claim', 'renew', 'retry', 'result'].includes(operation) || !validID(requestId)) return operational('bad_gateway_request');
     // Coordinator-owned plain JSON only; replay children receive no credentials.
     let text;
     try { text = JSON.stringify({ ...this.#auth, requestId, body }); } catch { return operational('bad_gateway_request'); }
