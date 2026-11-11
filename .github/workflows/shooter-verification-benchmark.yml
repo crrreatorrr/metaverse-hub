@@ -35,6 +35,7 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/coverage.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
           node scripts/load/shooter-benchmark/metrics-collector.test.mjs
+          npx tsx scripts/load/shooter-benchmark/legacy-policy.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark
   twenty-independent-real-pipeline:

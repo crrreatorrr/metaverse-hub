@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { phaseInputReservation } from './budget.ts';
 
 export type Mode = 'legacy_full_goja' | 'legacy_segmented_goja' | 'bounded_v8_same_host' | 'bounded_v8_remote';
 export type Profile = 'trusted_fixture_time_aged' | 'public_browser_real_time';
@@ -7,6 +8,7 @@ export interface CorpusCase {
   boss: string;
   seed: number;
   frames: number;
+  actions: number;
   fixtureSha256: string;
   legacyInputEnvelopeSha256: string;
 }
@@ -23,10 +25,11 @@ export interface Assignment {
   boss: string;
   seed: number;
   frames: number;
+  actions: number;
   behavior: 'complete' | 'abandon';
 }
 export interface Phase {
-  kind: 'background_baseline' | 'cold_burst' | 'warm_burst' | 'retry_storm' | 'sustained' | 'drain';
+  kind: 'background_baseline' | 'finish_burst' | 'cold_burst' | 'warm_burst' | 'retry_storm' | 'sustained' | 'drain';
   waves: number;
   arrivalIntervalMs: number;
 }
@@ -68,6 +71,7 @@ export interface ActorResult {
   durablyVerified: boolean;
   payable: boolean;
   everObservedEligible: boolean;
+  observedPaid: boolean;
   paid: boolean;
 }
 export interface Measurement {
@@ -104,8 +108,9 @@ export function makePlan(corpus: Corpus, corpusBytes: Uint8Array, seed: string, 
   const assignments = [...EXPECTED_CASES, ...EXTRA_CASES].map((id, actor): Assignment => {
     const c = cases.get(id)!;
     invariant(SHA.test(c.fixtureSha256) && SHA.test(c.legacyInputEnvelopeSha256), 'case byte and input hashes required');
+    invariant(Number.isSafeInteger(c.actions) && c.actions >= 0 && c.actions <= 131072, 'bounded source action count');
     invariant(Number.isSafeInteger(c.frames) && c.frames > 0 && c.frames <= 24000, 'bounded complete frame count');
-    return { actor, caseId: c.id, caseSha256: c.fixtureSha256, inputSha256: c.legacyInputEnvelopeSha256, boss: c.boss, seed: c.seed, frames: c.frames, behavior: actor === 19 ? 'abandon' : 'complete' };
+    return { actor, caseId: c.id, caseSha256: c.fixtureSha256, inputSha256: c.legacyInputEnvelopeSha256, boss: c.boss, seed: c.seed, frames: c.frames, actions: c.actions, behavior: actor === 19 ? 'abandon' : 'complete' };
   });
   const plan: Plan = {
     schemaVersion: 1, authority: 'ci_advisory', profile: 'trusted_fixture_time_aged', mode, seed,
@@ -133,6 +138,7 @@ export function validatePlan(plan: Plan): void {
   invariant(plan.maxDurationMs > 0 && plan.maxDurationMs <= 900000, 'duration outside tooling hard maximum');
   invariant(plan.maxQueuedBytes > 0 && plan.maxQueuedBytes <= 64 * 1024 * 1024, 'queued bytes outside tooling hard maximum');
   invariant(plan.maxQueuedBytes >= Math.max(...plan.assignments.map(a => a.frames * 16 + 2048)), 'body budget cannot hold the largest full source request');
+  invariant(plan.maxQueuedBytes >= Math.max(...plan.phases.map(p => phaseInputReservation(plan.assignments, p.waves))), 'body budget cannot hold a fully prepared phase/cohort');
   invariant(plan.requestRetryLimit >= 0 && plan.requestRetryLimit <= 3, 'retry budget outside tooling hard maximum');
   invariant(plan.legacyReplayBudgetMs === 15000, 'legacy budget must remain 15 seconds');
   invariant(plan.phases.reduce((n, p) => n + p.waves, 0) <= 6, 'too many waves');
@@ -156,17 +162,17 @@ export function summarizeActors(actors: readonly ActorResult[]): Record<string, 
     invariant(Number.isSafeInteger(a.submittedFrames) && a.submittedFrames >= 0 && a.submittedFrames <= a.sourceFrames, 'submitted frame accounting');
     invariant(a.submittedFrames === 0 ? a.submittedInputSha256 === null : typeof a.submittedInputSha256 === 'string' && SHA.test(a.submittedInputSha256) && typeof a.submittedHashMeaning === 'string', 'submitted input identity');
     invariant(Number.isSafeInteger(a.acceptedTick) && Number.isSafeInteger(a.verifiedTick) && a.verifiedTick >= 0 && a.verifiedTick <= a.acceptedTick && a.acceptedTick <= a.submittedFrames, 'accepted/verified cursor accounting');
+    invariant(!a.observedPaid || a.everObservedEligible && a.submittedFrames > 0 && a.verifiedTick > 0, 'observed receipt needs positive verified eligible input');
     invariant(!a.everObservedEligible || a.submittedFrames > 0 && a.verifiedTick > 0, 'eligible milestone requires observed positive verified input');
     invariant(!a.durablyVerified || a.submittedFrames > 0 && a.verifiedTick === a.submittedFrames, 'durable status must cover submitted prefix');
-    invariant(!a.paid || (a.payable && a.everObservedEligible && a.submittedFrames > 0 && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
-    invariant(!a.everObservedEligible || a.submittedFrames > 0 && a.verifiedTick > 0, 'eligible milestone requires observed positive verified input');
+    invariant(!a.paid || (a.payable && a.observedPaid && a.everObservedEligible && a.submittedFrames > 0 && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
     invariant(!a.durablyVerified || a.attempted, 'verification without attempt');
     invariant(!['timeout', 'operational_failure', 'unsupported', 'censored', 'abandoned', 'not_started'].includes(a.status) || !a.paid, 'failure cannot count as paid throughput');
     const reason = `${a.status}:${a.rawReason ?? 'unspecified'}`;
     rawReasonCounts[reason] = (rawReasonCounts[reason] ?? 0) + 1;
   }
   const count = (p: (a: ActorResult) => boolean) => actors.filter(p).length;
-  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), eligible: count(a => a.everObservedEligible), eligibleUnpaid: count(a => a.everObservedEligible && !a.paid), eligibleCensored: count(a => a.everObservedEligible && !a.paid && a.status === 'censored'), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts, sourceFrames: actors.reduce((n, a) => n + a.sourceFrames, 0), submittedFrames: actors.reduce((n, a) => n + a.submittedFrames, 0), acceptedFrames: actors.reduce((n, a) => n + a.acceptedTick, 0), verifiedFrames: actors.reduce((n, a) => n + a.verifiedTick, 0), fullSourceActorsVerified: count(a => a.verifiedTick === a.sourceFrames) };
+  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), eligible: count(a => a.everObservedEligible), observedPaid: count(a => a.observedPaid), eligibleUnpaid: count(a => a.everObservedEligible && !a.observedPaid), eligibleCensored: count(a => a.everObservedEligible && !a.observedPaid && a.status === 'censored'), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts, sourceFrames: actors.reduce((n, a) => n + a.sourceFrames, 0), submittedFrames: actors.reduce((n, a) => n + a.submittedFrames, 0), acceptedFrames: actors.reduce((n, a) => n + a.acceptedTick, 0), verifiedFrames: actors.reduce((n, a) => n + a.verifiedTick, 0), fullSourceActorsVerified: count(a => a.verifiedTick === a.sourceFrames) };
 }
 export function unobserved(unit: string, observer: string, reason: string): Measurement {
   invariant(reason.length > 0, 'null metric needs reason');
@@ -178,4 +184,8 @@ export function quantiles(values: readonly number[], unit: string, observer: str
   const sorted = [...values].sort((a, b) => a - b);
   const q = (p: number) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
   return { value: { p50: q(.5), p95: q(.95), p99: q(.99), max: sorted[sorted.length - 1], method: 'nearest_rank' }, unit, observer, clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: values.length };
+}
+
+export function positiveEligibilityProof(durable: boolean, terminalOutcome: unknown, paymentState: unknown): boolean {
+  return durable && terminalOutcome === 'clear' && (paymentState === 'paid' || paymentState === 'pending');
 }

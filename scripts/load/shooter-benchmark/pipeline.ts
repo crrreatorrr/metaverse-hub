@@ -3,9 +3,9 @@
 import { performance } from 'node:perf_hooks';
 import { call, guest, openGame, psqlAsync } from '../../../server/test/dup/harness.ts';
 import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
-import { ByteBudget } from './budget.ts';
+import { ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { BackgroundTraffic } from './background.ts';
-import { sha256, type Assignment, type Phase, type Plan } from './contracts.ts';
+import { sha256, positiveEligibilityProof, type Assignment, type Phase, type Plan } from './contracts.ts';
 import { OperationFailure, type Binding, type CampaignAdapter, type Execution, type SubmissionProgress } from './runner.ts';
 const object = (v: unknown): Record<string, unknown> => v as Record<string, unknown>;
 const delay = (ms: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
@@ -37,38 +37,50 @@ export class PublicPipeline implements CampaignAdapter {
   private readonly background: BackgroundTraffic;
   private readonly budget: ByteBudget;
   private readonly inputReleases = new Map<string, () => void>();
+  private readonly activeExecutions = new Set<string>();
   private readonly runIds = new Set<string>();
   constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>) {
     this.background = new BackgroundTraffic(base, plan.seed);
     this.budget = new ByteBudget(plan.maxQueuedBytes);
   }
   async prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding> {
-    if (signal.aborted) throw new Error('aborted');
-    const login = await openGame((await guest()).token, 'sproto-shooter');
-    const actor = await prepareTrustedActor(assignment.caseId, login, { ageMs: 1200000 });
-    if (actor.trace.definition.frames !== assignment.frames || actor.trace.definition.fixtureSha256 !== assignment.caseSha256 || actor.trace.definition.legacyInputEnvelopeSha256 !== assignment.inputSha256) throw new Error('prepared trace differs from assignment');
-    const binding = { accountBindingHash: sha256(login.hub.userId), sessionBindingHash: sha256(login.sessionId), runBindingHash: sha256(actor.runId) };
-    if (signal.aborted) throw new Error('aborted');
-    this.inputReleases.set(binding.runBindingHash, this.budget.reserve(Buffer.byteLength(actor.trace.frames) + Buffer.byteLength(JSON.stringify(actor.trace.actions))));
-    this.runIds.add(actor.runId);
-    this.actors.set(binding.runBindingHash, { actor, wave });
-    return binding;
+    const estimate = sourceInputReservation(assignment.frames, assignment.actions);
+    const prepared = await prepareReserved(this.budget, estimate, async () => {
+      if (signal.aborted) throw new Error('aborted');
+      const login = await openGame((await guest()).token, 'sproto-shooter');
+      if (signal.aborted) throw new Error('aborted');
+      const actor = await prepareTrustedActor(assignment.caseId, login, { ageMs: 1200000 });
+      if (signal.aborted) throw new Error('aborted');
+      if (actor.trace.definition.frames !== assignment.frames || actor.trace.definition.fixtureSha256 !== assignment.caseSha256 || actor.trace.definition.legacyInputEnvelopeSha256 !== assignment.inputSha256) throw new Error('prepared trace differs from assignment');
+      if (Buffer.byteLength(actor.trace.frames) + Buffer.byteLength(JSON.stringify(actor.trace.actions)) > estimate) throw new Error('source input exceeds reservation');
+      return { actor, login };
+    });
+    try {
+      if (signal.aborted) throw new Error('aborted');
+      const { actor, login } = prepared.value;
+      const binding = { accountBindingHash: sha256(login.hub.userId), sessionBindingHash: sha256(login.sessionId), runBindingHash: sha256(actor.runId) };
+      this.inputReleases.set(binding.runBindingHash, prepared.release); this.runIds.add(actor.runId);
+      this.actors.set(binding.runBindingHash, { actor, wave }); return binding;
+    } catch (error) { prepared.release(); throw error; }
   }
   async execute(binding: Binding, assignment: Assignment, phase: Phase, signal: AbortSignal, progress: (value: SubmissionProgress) => void): Promise<Execution> {
     const prepared = this.actors.get(binding.runBindingHash);
     if (!prepared) throw new Error('unknown actual actor');
     const { actor, wave } = prepared;
+    this.activeExecutions.add(binding.runBindingHash);
+    let releaseWire = () => {};
+    try {
+    const wireBound = wireInputReservation(assignment.frames, assignment.actions);
+    releaseWire = this.budget.reserve(wireBound);
     const start = performance.now(), batches = reboundBatches(actor);
-    // All long traces fit one legal28800-frame batch, so the full accepted tail
-    // is durable before workers can observe an early terminal. No source trim.
-    if (batches.length !== 1) throw new Error('fixture batch contract changed; require pre-worker upload barrier');
+    // Accept the full single-batch corpus before any terminal can stop tails.
+    if (batches.length !== 1) throw new Error('fixture requires pre-worker multi-batch barrier');
     const original = batches[0], n = assignment.behavior === 'abandon' ? Math.min(120, original.n) : original.n;
     const batch = n === original.n ? original : { ...original, n, frames: original.frames.slice(0, n * 16), actions: original.actions.filter(a => a[0] < n) };
-    const releaseWire = this.budget.reserve(Buffer.byteLength(JSON.stringify(batch)));
-    try {
+    if (Buffer.byteLength(JSON.stringify(batch)) > wireBound) throw new Error('actual append exceeds wire reservation');
     const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
     this.observations.set(binding.runBindingHash, observation);
-    const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0, durablyVerified: false, payable: false, everObservedEligible: false };
+    const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0, durablyVerified: false, payable: false, everObservedEligible: false, observedPaid: false };
     progress(submission);
     // Lost-response storm discards successful acknowledgments then repeats the
     // exact frozen canonical body (same run/sequence/digest), never a new run.
@@ -92,13 +104,14 @@ export class PublicPipeline implements CampaignAdapter {
       submission.verifiedTick = Number(verified.tick);
       const durable = submission.verifiedTick === n;
       submission.durablyVerified = durable;
-      submission.everObservedEligible ||= durable && ['paid', 'pending', 'authorization_denied'].includes(String(payment.state));
-      submission.payable = durable && ['paid', 'pending'].includes(String(payment.state));
+      submission.everObservedEligible ||= positiveEligibilityProof(durable, terminal?.outcome, payment.state);
+      submission.payable = positiveEligibilityProof(durable, terminal?.outcome, payment.state);
+      submission.observedPaid ||= durable && terminal?.outcome === 'clear' && payment.state === 'paid';
       progress({ ...submission });
       if (durable && observation.verifiedWallMs === null) observation.verifiedWallMs = performance.now() - start;
       if (terminal) observation.terminalOutcome = String(terminal.outcome);
       if (payment.state === 'paid') {
-        if (!durable || Number(payment.tickets) !== 20) throw new Error('paid public status lacks full verified fixed20 receipt');
+        if (!durable || terminal?.outcome !== 'clear' || Number(payment.tickets) !== 20) throw new Error('paid public status lacks full verified fixed20 receipt');
         observation.rewardWallMs = performance.now() - start;
         observation.finishAckToPaidMs = observation.rewardWallMs - observation.finishAckWallMs;
         observation.firstEligiblePendingToPaidMs = observation.firstEligiblePendingWallMs === null ? null : observation.rewardWallMs - observation.firstEligiblePendingWallMs;
@@ -117,7 +130,7 @@ export class PublicPipeline implements CampaignAdapter {
       }
       await delay(500, signal);
     }
-    } finally { releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
+    } finally { this.activeExecutions.delete(binding.runBindingHash); releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
   }
   private async finishBarrier(wave: number, signal: AbortSignal): Promise<void> {
     let gate = this.gates.get(wave);
@@ -135,7 +148,7 @@ export class PublicPipeline implements CampaignAdapter {
     finally { signal.removeEventListener('abort', abort); }
   }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
-  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); for (const release of this.inputReleases.values()) release(); this.inputReleases.clear(); this.actors.clear(); await this.background.stop(); }
+  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); for (const [key, release] of this.inputReleases) if (!this.activeExecutions.has(key)) { release(); this.inputReleases.delete(key); } this.actors.clear(); await this.background.stop(); }
   async observe(signal: AbortSignal): Promise<void> { await Promise.all([this.sampleServer(signal), this.background.observe(signal)]); }
   async checkpointSizes(): Promise<Record<string, unknown>[]> {
     const ids = [...this.runIds];

@@ -389,7 +389,8 @@
         "submittedFrames",
         "acceptedTick",
         "verifiedTick",
-        "everObservedEligible"
+        "everObservedEligible",
+        "observedPaid"
       ],
       "properties": {
         "accountBindingHash": {
@@ -460,6 +461,9 @@
           "minimum": 0
         },
         "everObservedEligible": {
+          "type": "boolean"
+        },
+        "observedPaid": {
           "type": "boolean"
         }
       }
