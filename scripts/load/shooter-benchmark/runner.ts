@@ -108,6 +108,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
     }
   } catch { harnessStatus = signal.aborted ? 'interrupted' : 'failed'; }
   finally {
+    if (signal.aborted && harnessStatus === 'complete') harnessStatus = 'interrupted';
     clearTimeout(timeout); controller.abort(); observerController.abort();
     externalSignal?.removeEventListener('abort', abort);
     await observationLoop;

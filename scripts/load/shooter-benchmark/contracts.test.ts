@@ -36,7 +36,6 @@ assert.equal(result.harnessStatus, 'complete');
 assert.equal(result.summary.paid, 0);
 assert.ok(peak > 20, 'sustained arrival must overlap unresolved prior wave');
 assert.equal(backgroundStopped, true);
-console.log('benchmark contract tests passed; synthetic accounting tests only, no capacity evidence');
 const beforeDeadline = performance.now();
 const interrupted = await runPlan({ ...plan, maxDurationMs: 15, phases: [{ kind: 'cold_burst', waves: 1, arrivalIntervalMs: 0 }] }, { ...adapter, async execute() { return new Promise(() => undefined); } });
 assert.ok(performance.now() - beforeDeadline < 1000, 'hard deadline survives an adapter ignoring its signal');
@@ -46,3 +45,5 @@ assert.equal(interrupted.harnessStatus, 'interrupted');
 assert.ok(result.observations.length >= 1, 'observes initial/startup interval');
 assert.equal(result.arrivals.length, 2);
 assert.ok(result.arrivals.every(a => a.actualElapsedMs >= a.plannedElapsedMs));
+
+console.log('benchmark contract tests passed; synthetic accounting tests only, no capacity evidence');
