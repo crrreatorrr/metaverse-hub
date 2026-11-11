@@ -11,7 +11,9 @@ const SHA='797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
 const SOURCE='05f7a0a245af921fc65a99588564175c19658e38';
 const MANIFEST={artifact:'shooter-sim',sourceCommit:SOURCE,sha256:SHA,protocol:1,contentFingerprint:'cea1f88b',uploadProtocol:2,replayApiVersion:2,checkpointSchema:2,economyPolicy:1};
 const context=vm.createContext({});
-vm.runInContext(readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`,import.meta.url),'utf8'),context);
+const retainedBytes=readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`,import.meta.url));
+assert.equal(createHash('sha256').update(retainedBytes).digest('hex'),SHA,'execute the exact retained approved artifact bytes');
+vm.runInContext(retainedBytes.toString('utf8'),context);
 function object(v:unknown):Obj { return v as Obj; }
 function sql(v:string):string { return v.replace(/'/g,"''"); }
 function sim(code:string,value:unknown):Obj {

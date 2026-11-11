@@ -34,6 +34,7 @@ jobs:
         run: |
           set -eu
           sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
           sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
           for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
             echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
@@ -44,6 +45,18 @@ jobs:
         run: npm run test:dup
         env:
           DUP_ONLY: shooter-lifecycle
+          SHOOTER_CORPUS: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Selected lifecycle suite cannot silently pass with zero tests
+        run: |
+          if npm run test:dup > /tmp/lifecycle-empty-suite.log 2>&1; then
+            cat /tmp/lifecycle-empty-suite.log
+            echo 'Expected selected lifecycle suite without matching tests to fail'
+            exit 1
+          fi
+          rg --fixed-strings 'shooter-lifecycle: category produced no pass, failing the suite' /tmp/lifecycle-empty-suite.log
+        env:
+          DUP_ONLY: shooter-lifecycle
+          DUP_NAME: intentionally-unmatched-zero-pass-sentinel
           SHOOTER_CORPUS: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
       - name: Bounded failed-boot diagnostics
         if: failure()

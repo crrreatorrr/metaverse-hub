@@ -1772,6 +1772,10 @@ export function report(items: readonly Outcome[] = outcomes): number {
     failed += 1;
     console.log('shooter-payments: category produced no pass, failing the suite');
   }
+  if (selected('shooter-lifecycle') && !items.some((item) => item.category === 'shooter-lifecycle' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-lifecycle: category produced no pass, failing the suite');
+  }
   if (selected('shooter-wager')) {
     const rows = items.filter((item) => item.category === 'shooter-wager');
     const pass = rows.filter((item) => item.status === 'pass').length;
