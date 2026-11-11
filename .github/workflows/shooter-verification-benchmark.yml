@@ -27,5 +27,6 @@ jobs:
         run: |
           npx tsx scripts/load/shooter-benchmark/contracts.test.ts
           npx tsx scripts/load/shooter-benchmark/observers.test.ts
+          npx tsx scripts/load/shooter-benchmark/container-observer.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark

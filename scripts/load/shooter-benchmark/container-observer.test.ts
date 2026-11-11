@@ -1,0 +1,12 @@
+import assert from 'node:assert/strict';
+import { cpuDelta, parseCgroup, observeContainer } from './container-observer.ts';
+const before = parseCgroup('nakama', '\nBENCH_FILE cpu.stat\nusage_usec 2000000\nuser_usec 1500000\nsystem_usec 500000\nthrottled_usec 12\nBENCH_FILE memory.current\n1234\nBENCH_FILE memory.peak\n5678\nBENCH_FILE memory.events\noom_kill 0\nBENCH_FILE pids.current\n8\n', '2026-01-01T00:00:00Z');
+assert.equal(before.cpuUsageMicros, 2000000);
+assert.equal(before.memoryCurrentBytes, 1234);
+assert.equal(before.oomKills, 0);
+assert.deepEqual(cpuDelta(before, { ...before, cpuUsageMicros: 2500000, observedAt: '2026-01-01T00:00:02Z' }), { cpuSeconds: .5, wallSeconds: 2, unavailableReason: null });
+assert.equal(cpuDelta(before, { ...before, cpuUsageMicros: 0 }).cpuSeconds, null);
+assert.equal(parseCgroup('postgres', '', before.observedAt).unavailableReason, 'cgroup_v2_counter_unavailable');
+assert.throws(() => parseCgroup('verifier', 'x'.repeat(20000), before.observedAt), /bound/);
+await assert.rejects(observeContainer('verifier', 'not-an-id'), /container ID|restricted/);
+console.log('server CPU observer parser tests passed; actual container telemetry still requires integration lane');

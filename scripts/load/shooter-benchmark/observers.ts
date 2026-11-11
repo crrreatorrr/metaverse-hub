@@ -35,8 +35,8 @@ export interface ServerSample {
 export interface CoordinatorMetrics {
   uptimeMs: number;
   counters: Record<string, number>;
-  lastExecution: { cpuUserMicros: number; cpuSystemMicros: number; wallMs: number; rssBytes: number; heapUsedBytes: number; gcMs: null; gcObserved: false } | null;
-  gateway: { observedAt: string; queueDepth: number; queueTruncated: boolean; oldestQueueAgeMs: number | null; paymentPending: number; paymentTruncated: boolean; orphanPending: number; orphanTruncated: boolean; opsDbWallMs: number } | null;
+  lastExecution: { cpuUserMicros: number | null; cpuSystemMicros: number | null; wallMs: number | null; rssBytes: number | null; heapUsedBytes: number | null; gcMs: null; gcObserved: false } | null;
+  gateway: { observedAt: number; queueDepth: number | null; queueTruncated: boolean; oldestQueueAgeMs: number | null; paymentPending: number | null; paymentTruncated: boolean; orphanPending: number | null; orphanTruncated: boolean; opsDbWallMs: number | null } | null;
 }
 export async function coordinatorSample(base: string, signal: AbortSignal): Promise<{ wallMs: number; metrics: CoordinatorMetrics }> {
   const url = new URL('/metrics', base);
