@@ -15,6 +15,8 @@ namespace CoopRewards {
   export var BOARD_ID = "coop_stage_clear_ms_v1";
   export var PAY = 20;
   export var PROTOCOL = 1;
+  // The fingerprint written into game.settle_coop_clear by 0041, which refuses any other.
+  // It is not CoopProto.FINGERPRINT (the vendored sim); changing it needs a new migration.
   export var FINGERPRINT = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
   export var AFK_ALIVE = 300;
   export var SESSION_CAP = 200;
