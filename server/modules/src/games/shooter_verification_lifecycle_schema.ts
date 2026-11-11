@@ -127,7 +127,7 @@ HubSchema.register({
       u uuid,sid uuid,k text,rid text,d date,boss text,seed bigint,issuance text)
       RETURNS jsonb LANGUAGE plpgsql AS $fn$
       DECLARE old game.shooter_run%ROWTYPE; r game.shooter_verification_run%ROWTYPE;
-        s game.game_session%ROWTYPE; c game.shooter_verification_admission%ROWTYPE; t timestamptz; ack jsonb;
+        s game.game_session%ROWTYPE; c game.shooter_verification_admission%ROWTYPE; t timestamptz; ack jsonb; canonical jsonb;
       BEGIN
         SELECT * INTO c FROM game.shooter_verification_admission WHERE singleton FOR UPDATE;
         INSERT INTO game.shooter_verification_admission_account(user_id) VALUES(u) ON CONFLICT DO NOTHING;
@@ -153,6 +153,24 @@ HubSchema.register({
           OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_gateway WHERE singleton AND enabled)
           OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_payment_config WHERE singleton AND payments_enabled) THEN
           RETURN jsonb_build_object('state','pending_retryable','reason','verification_unavailable'); END IF;
+        -- Readiness is a non-reserving snapshot, not a promise that concurrent
+        -- consumers cannot use capacity first. Owning helpers enforce atomic
+        -- budgets. Do not take scheduler -> gateway locks (gateway uses inverse).
+        IF NOT EXISTS(SELECT 1 FROM game.shooter_verification_scheduler q
+          LEFT JOIN game.shooter_verification_scheduler_account a ON a.user_id=u
+          WHERE q.singleton AND q.retained_jobs<q.max_jobs AND COALESCE(a.retained_jobs,0)<q.max_account_jobs
+            AND q.retained_attempts<q.max_attempts_retained AND COALESCE(a.retained_attempts,0)<q.max_account_attempts_retained
+            AND q.reserved_checkpoint_bytes+16777216<=q.max_checkpoint_bytes
+            AND COALESCE(a.reserved_checkpoint_bytes,0)+16777216<=q.max_account_checkpoint_bytes)
+          OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_gateway g WHERE g.singleton
+            AND g.retained_requests+2<=g.max_requests AND g.reserved_receipt_bytes+41943040<=g.max_receipt_bytes
+            AND EXISTS(SELECT 1 FROM game.shooter_verification_principal p JOIN game.shooter_verification_worker w
+              ON w.worker_id=p.worker_id AND w.account_id=p.account_id
+              WHERE p.revoked_at IS NULL AND p.not_before<=clock_timestamp() AND p.expires_at>clock_timestamp()
+                AND ARRAY['claim','renew','retry','result']::text[]<@p.scopes
+                AND p.retained_requests+2<=g.max_principal_requests
+                AND p.reserved_receipt_bytes+41943040<=g.max_principal_receipt_bytes)) THEN
+          RETURN jsonb_build_object('state','pending_retryable','reason','verification_capacity'); END IF;
         t:=clock_timestamp();
         IF s.session_id IS NULL OR s.game_id<>'sproto-shooter' OR s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN
           RETURN jsonb_build_object('state','authorization_denied','reason','session_closed'); END IF;
@@ -163,6 +181,23 @@ HubSchema.register({
           OR boss IS NULL OR boss NOT IN ('sahil','obama','broccoli','glowie','tinubu') OR seed IS NULL OR seed NOT BETWEEN 1 AND 4294967295
           OR issuance IS NULL OR octet_length(issuance)>32768 THEN
           RETURN jsonb_build_object('state','invalid','reason','malformed'); END IF;
+        canonical:=issuance::jsonb;
+        IF jsonb_typeof(canonical) IS DISTINCT FROM 'object' THEN
+          RETURN jsonb_build_object('state','invalid','reason','issuance_mismatch'); END IF;
+        IF (SELECT count(*) FROM jsonb_object_keys(canonical))<>19
+          OR EXISTS(SELECT 1 FROM jsonb_object_keys(canonical) AS fields(name)
+            WHERE name<>ALL(ARRAY['v','protocol','runId','accountId','sessionId','day','seed','levelId','sectionId','encounterId',
+              'canonicalBoss','parts','countAs','loadout','contentFingerprint','maxFrames','duelId','distinctFrom','initialStateHash']))
+          OR canonical->'v' IS DISTINCT FROM '1'::jsonb OR canonical->'protocol' IS DISTINCT FROM '1'::jsonb
+          OR canonical->'countAs' IS DISTINCT FROM '1'::jsonb OR canonical->'maxFrames' IS DISTINCT FROM '162000'::jsonb
+          OR canonical->'seed' IS DISTINCT FROM to_jsonb(seed)
+          OR canonical->'runId' IS DISTINCT FROM to_jsonb(rid) OR canonical->'accountId' IS DISTINCT FROM to_jsonb(u::text)
+          OR canonical->'sessionId' IS DISTINCT FROM to_jsonb(sid::text) OR canonical->'day' IS DISTINCT FROM to_jsonb(to_char(d,'YYYY-MM-DD'))
+          OR canonical->'canonicalBoss' IS DISTINCT FROM to_jsonb(boss) OR canonical->'loadout' IS DISTINCT FROM '"canonical-start"'::jsonb
+          OR canonical->'contentFingerprint' IS DISTINCT FROM '"cea1f88b"'::jsonb
+          OR jsonb_typeof(canonical->'initialStateHash') IS DISTINCT FROM 'string'
+          OR canonical->>'initialStateHash'!~'^[0-9a-f]{8}$' THEN
+          RETURN jsonb_build_object('state','invalid','reason','issuance_mismatch'); END IF;
         IF EXISTS(SELECT 1 FROM game.shooter_verification_run WHERE user_id=u AND lifecycle IN ('open','sealed','quarantined')) THEN
           RETURN jsonb_build_object('state','pending_retryable','reason','active_run'); END IF;
         ack:=jsonb_build_object('protocol',2,'state','issued','runId',rid,'issuance',issuance::jsonb,

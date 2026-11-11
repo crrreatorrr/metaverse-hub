@@ -15,6 +15,15 @@ retain their original version across cohort enrollment and configuration rollbac
 An immutable historical issue acknowledgment grants no fresh admission or payment
 authority, including when recovered after session expiry.
 
+New issuance also refuses known saturated global/owner retained-job, attempt and
+checkpoint budgets, exhausted global gateway receipt budgets, or absence of a
+live registered worker key with claim/renew/retry/result scope and room for the
+first claim/result responses. This is a non-reserving readiness snapshot. Other
+consumers may use capacity before this run reaches a worker, and the owning
+atomic helpers still enforce every limit. It does not reserve whole-run work,
+promise payment or demonstrate hosting isolation/readiness. Snapshot reads do not
+acquire scheduler/gateway locks under issuance's admission/session/run locks.
+
 V2 issue response:
 
 ```json
@@ -63,6 +72,10 @@ post-lock actual database clock checks original-session validity and canonical U
 day; a day rollover returns `issuance_day_changed` for rebuilding on retry. Both
 the legacy run and v2 metadata/full-run quota reservation commit together or roll
 back together. Capacity cannot leave a legacy-only orphan.
+The SQL issuer additionally binds the canonical issuance header to the exact
+owner, original session, run, UTC day, boss, seed and fixed protocol/loadout policy.
+The trusted engine builder and retained-artifact validation remain authoritative
+for encounter content and the deterministic initial state.
 
 `shooter.run.finish` accepts exactly
 `{protocol:2,runId,lastSequence,lastTick}`. It requires the original live game

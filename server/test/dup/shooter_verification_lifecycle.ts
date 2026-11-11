@@ -23,8 +23,9 @@ const CONFIG=`UPDATE game.shooter_verification_admission SET new_runs_enabled=tr
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1099511627776,max_account_checkpoint_bytes=1073741824,lease_seconds=60,attempt_seconds=120,attempt_limit=10,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096;
  UPDATE game.shooter_verification_gateway SET enabled=true,global_attempts_per_minute=1000000,account_attempts_per_minute=100000,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
  UPDATE game.shooter_verification_payment_config SET payments_enabled=true`;
-function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');
- UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','terminal','expired','quarantined'); ${CONFIG}`); }
+async function isolate():Promise<void> { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');
+ UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','terminal','expired','quarantined'); ${CONFIG}`);
+ await service(); }
 async function login():Promise<GameLogin> { return openGame((await guest()).token,'sproto-shooter'); }
 function enroll(s:GameLogin):void { psql(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${s.hub.userId}')`); }
 async function issue(s:GameLogin,key=randomUUID()):Promise<Obj> { return object((await call('shooter.run.issue',{key,canonicalBoss:'sahil'},s.gameToken)).body); }
@@ -48,7 +49,7 @@ async function service():Promise<(op:string,body:unknown)=>Promise<Obj>> {
   const hash=createHash('sha256').update(`shooter-worker-token-v1\n${token}`).digest('hex');
   psql(`INSERT INTO game.shooter_verification_worker(worker_id,account_id) VALUES('${worker}','${principal.userId}');
     INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
-    VALUES('${principal.userId}','${worker}','${key}','${hash}',ARRAY['claim','result'],clock_timestamp()-interval '1 minute',clock_timestamp()+interval '10 minutes')`);
+    VALUES('${principal.userId}','${worker}','${key}','${hash}',ARRAY['claim','renew','retry','result'],clock_timestamp()-interval '1 minute',clock_timestamp()+interval '10 minutes')`);
   const request=async(op:string,body:unknown):Promise<Obj>=>object((await call(`shooter.internal.${op}`,{workerId:worker,keyId:key,token,requestId:randomUUID(),body},principal.token)).body);
   return request;
 }
@@ -65,7 +66,7 @@ async function drain(run:string):Promise<void> {
 
 export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
   await test('shooter-lifecycle','default-empty cohort preserves legacy and sticky enrollment cannot opt out',async()=>{
-    isolate(); const s=await login(),key=randomUUID(),old=await issue(s,key);
+    await isolate(); const s=await login(),key=randomUUID(),old=await issue(s,key);
     assert.equal(old.ok,true); assert.equal(old.protocol,undefined);
     enroll(s); assert.deepEqual(await issue(s,key),{...old,replay:true},'already-issued legacy key retains original version');
     psql('UPDATE game.shooter_verification_admission SET new_runs_enabled=false');
@@ -75,7 +76,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.throws(()=>psql(`DELETE FROM game.shooter_verification_cohort WHERE user_id='${s.hub.userId}'`),/shooter_cohort_sticky/);
   });
   await test('shooter-lifecycle','canonical issuance starts approved retained worker and key retries do not reserve twice',async()=>{
-    isolate(); const s=await login(); enroll(s); const key=randomUUID();
+    await isolate(); const s=await login(); enroll(s); const key=randomUUID();
     const results=await Promise.all([issue(s,key),issue(s,key)]); assert.deepEqual(results[0],results[1]);
     const ack=results[0]!; assert.deepEqual(ack.manifest,MANIFEST); assert.equal(ack.state,'issued');
     const start=sim('var m=v.manifest,out=SprotoShooterSim.beginIncrementalReplay({issuance:v.issuance,manifest:{artifact:m.artifact,sourceCommit:m.sourceCommit,sha256:m.sha256,protocol:m.protocol,contentFingerprint:m.contentFingerprint}});return JSON.parse(SprotoShooterSim.publicReplayJSON(out));',{issuance:ack.issuance,manifest:MANIFEST});
@@ -86,7 +87,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal((await finish(s,String(ack.runId))).state,'sealed','stop-new still permits drain/finish');
   });
   await test('shooter-lifecycle','capacity failure rolls back both run rows and reservation',async()=>{
-    isolate(); const s=await login(); enroll(s);
+    await isolate(); const s=await login(); enroll(s);
     psql('UPDATE game.shooter_verification_admission SET max_global_runs=retained_runs');
     const before=num('SELECT retained_runs FROM game.shooter_verification_admission');
     assert.equal((await issue(s)).state,'pending_retryable');
@@ -94,7 +95,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num('SELECT retained_runs FROM game.shooter_verification_admission'),before);
   });
   await test('shooter-lifecycle','finish acknowledgment survives retries and empty closure never simulates or pays',async()=>{
-    isolate(); const {s,run}=await fixture(),ack=await finish(s,run); assert.equal(ack.state,'sealed');
+    await isolate(); const {s,run}=await fixture(),ack=await finish(s,run); assert.equal(ack.state,'sealed');
     assert.deepEqual(await finish(s,run),ack); assert.equal((await finish(s,run,0,1)).reason,'seal_conflict');
     const view=await status(s,run); assert.deepEqual(view.sealAck,ack); assert.equal(object(view.terminal).outcome,'incomplete');
     assert.equal(view.revision,0); assert.equal(object(view.payment).state,'ineligible');
@@ -103,14 +104,14 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
   });
   await test('shooter-lifecycle','append/finish race seals exactly its accepted highwater and retains all bytes',async()=>{
-    isolate(); const {s,run}=await fixture();
+    await isolate(); const {s,run}=await fixture();
     const [received,sealed]=await Promise.all([append(s,run),finish(s,run)]);
     if (received.state==='received') { assert.equal(sealed.reason,'seal_conflict'); assert.equal((await finish(s,run,0,1)).state,'sealed'); }
     else { assert.equal(received.reason,'run_closed'); assert.equal(sealed.state,'sealed'); }
     assert.equal(num(`SELECT accepted_batches FROM game.shooter_verification_run WHERE run_id='${run}'`),received.state==='received'?1:0);
   });
   await test('shooter-lifecycle','sealed accepted input drains through actual worker then closes incomplete without synthetic CP terminal',async()=>{
-    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    await isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
     assert.equal((await finish(s,run,0,1)).state,'sealed'); const revision=num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`);
     await drain(run); const view=await status(s,run); assert.equal(object(view.terminal).outcome,'incomplete');
     assert.equal(view.revision,revision+1,'only actual worker progress changes revision');
@@ -119,7 +120,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
   });
   await test('shooter-lifecycle','missing finish expires admission, retains work and cannot revive with renewed session',async()=>{
-    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    await isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
     const original=psql(`SELECT lease_until::text FROM game.game_session WHERE session_id='${s.sessionId}'`);
     psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${s.sessionId}'`);
     const expired=await status(s,run); assert.equal(expired.state,'expired'); assert.equal(expired.authorization,'session_expired');
@@ -130,7 +131,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num('SELECT reserved_bytes FROM game.shooter_verification_admission'),retained);
   });
   await test('shooter-lifecycle','session authorization is sampled after blocked finish lock and no replacement session can bind',async()=>{
-    isolate(); const {s,run}=await fixture();
+    await isolate(); const {s,run}=await fixture();
     const name=`lifecycle-${randomUUID()}`;
     const holder=psqlAsync(`SET application_name='${name}'; BEGIN; UPDATE game.game_session SET lease_until=clock_timestamp()+interval '1 second' WHERE session_id='${s.sessionId}'; SELECT pg_sleep(2); COMMIT;`);
     await waitLock(name); assert.equal((await finish(s,run)).state,'authorization_denied'); await holder;
@@ -139,7 +140,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(psql(`SELECT seal_ack IS NULL FROM game.shooter_verification_run WHERE run_id='${run}'`),'t');
   });
   await test('shooter-lifecycle','new issuance checks session clock after economy lock wait and leaves no orphan',async()=>{
-    isolate(); const s=await login(); enroll(s); const name=`issue-${randomUUID()}`;
+    await isolate(); const s=await login(); enroll(s); const name=`issue-${randomUUID()}`;
     const holder=psqlAsync(`SET application_name='${name}'; BEGIN;
       SELECT pg_advisory_xact_lock(hashtextextended('economy:' || '${s.hub.userId}',0));
       UPDATE game.game_session SET lease_until=clock_timestamp()+interval '1 second' WHERE session_id='${s.sessionId}';
@@ -149,7 +150,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num(`SELECT retained_runs FROM game.shooter_verification_admission_account WHERE user_id='${s.hub.userId}'`),0);
   });
   await test('shooter-lifecycle','worker polling closes abandoned empty runs and skips locked maintenance candidates',async()=>{
-    isolate(); const {s,run}=await fixture(),request=await service(),name=`reap-${randomUUID()}`;
+    await isolate(); const {s,run}=await fixture(),request=await service(),name=`reap-${randomUUID()}`;
     psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${s.sessionId}'`);
     const holder=psqlAsync(`SET application_name='${name}'; BEGIN; SELECT 1 FROM game.game_session WHERE session_id='${s.sessionId}' FOR UPDATE; SELECT pg_sleep(3); COMMIT;`);
     await waitLock(name); const skipped=await request('claim',{}); assert.equal(skipped.reason,'no_capacity_or_ready_work');
@@ -160,7 +161,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),0);
   });
   await test('shooter-lifecycle','input deadline expiry releases the active slot without deleting accepted evidence',async()=>{
-    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    await isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
     // Synthetic clock-age fixture uses one transaction timestamp for the exact
     // historical45min constraint; authorization still uses actual current time.
     psql(`UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${run}'`);
@@ -172,7 +173,7 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     await drain(run); assert.equal(object((await status(s,run)).terminal).outcome,'incomplete');
   });
   await test('shooter-lifecycle','expiry preserves quarantined work and its support reason while releasing admission',async()=>{
-    isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
+    await isolate(); const {s,run}=await fixture(); assert.equal((await append(s,run)).state,'received');
     const job=randomUUID();
     psql(`INSERT INTO game.shooter_verification_job(job_id,run_id,sequence_from,sequence_to,tick0,tick_end,expected_revision,input_sha256,state,max_attempts)
       VALUES('${job}','${run}',0,0,0,1,0,'${'a'.repeat(64)}','quarantined',1);
@@ -184,18 +185,60 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${run}'`),1);
   });
   await test('shooter-lifecycle','stale canonical UTC day is rejected without orphan issuance',async()=>{
-    isolate(); const s=await login(); enroll(s); const run=randomUUID();
+    await isolate(); const s=await login(); enroll(s); const run=randomUUID();
     const stale=sim('return SprotoShooterSim.buildIssuance(v).issuance;',{accountId:s.hub.userId,sessionId:s.sessionId,runId:run,day:'2000-01-01',canonicalBoss:'sahil',seed:7});
     const result=JSON.parse(psql(`SELECT game.issue_shooter_verification_run('${s.hub.userId}','${s.sessionId}','stale','${run}','2000-01-01','sahil',7,'${sql(JSON.stringify(stale))}')::text`)) as Obj;
     assert.equal(result.reason,'issuance_day_changed'); assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE run_id='${run}'`),0);
   });
   await test('shooter-lifecycle','legacy/cohort version race is serialized without mixed rows',async()=>{
-    isolate(); const s=await login(),key=randomUUID();
+    await isolate(); const s=await login(),key=randomUUID();
     const [issued]=await Promise.all([issue(s,key),psqlAsync(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${s.hub.userId}')`)]);
     const retry=await issue(s,key);
     if (issued.ok===true) { assert.equal(retry.ok,true); assert.equal(retry.protocol,undefined); }
     else { assert.equal(retry.protocol,2); }
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE user_id='${s.hub.userId}' AND idem_key='${key}'`),1);
+  });
+  await test('shooter-lifecycle','known scheduler and receipt saturation refuses new reservations',async()=>{
+    await isolate(); const s=await login(); enroll(s);
+    psql(`INSERT INTO game.shooter_verification_scheduler_account(user_id) VALUES('${s.hub.userId}')`);
+    for (const [table,column,limit,where] of [
+      ['shooter_verification_scheduler','retained_jobs','max_jobs','singleton'],
+      ['shooter_verification_scheduler','retained_attempts','max_attempts_retained','singleton'],
+      ['shooter_verification_scheduler','reserved_checkpoint_bytes','max_checkpoint_bytes','singleton'],
+      ['shooter_verification_scheduler_account','retained_jobs','10000',`user_id='${s.hub.userId}'`],
+      ['shooter_verification_scheduler_account','retained_attempts','100000',`user_id='${s.hub.userId}'`],
+      ['shooter_verification_scheduler_account','reserved_checkpoint_bytes','1073741824',`user_id='${s.hub.userId}'`],
+      ['shooter_verification_gateway','retained_requests','max_requests','singleton'],
+      ['shooter_verification_gateway','reserved_receipt_bytes','max_receipt_bytes','singleton'],
+    ]) {
+      const before=psql(`SELECT ${column}::text FROM game.${table} WHERE ${where}`);
+      psql(`UPDATE game.${table} SET ${column}=${limit} WHERE ${where}`);
+      assert.equal((await issue(s)).reason,'verification_capacity',`${table}.${column}`);
+      psql(`UPDATE game.${table} SET ${column}=${before} WHERE ${where}`);
+    }
+    assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE user_id='${s.hub.userId}'`),0);
+    assert.equal(num(`SELECT retained_runs FROM game.shooter_verification_admission_account WHERE user_id='${s.hub.userId}'`),0);
+  });
+  await test('shooter-lifecycle','new issuance requires a live registered full-scope worker with response headroom',async()=>{
+    await isolate(); const s=await login(); enroll(s);
+    psql('UPDATE game.shooter_verification_principal SET revoked_at=clock_timestamp()');
+    assert.equal((await issue(s)).reason,'verification_capacity');
+    await service(); psql("UPDATE game.shooter_verification_principal SET scopes=ARRAY['claim','result'] WHERE revoked_at IS NULL");
+    assert.equal((await issue(s)).reason,'verification_capacity','renew/retry required by coordinator');
+    psql("UPDATE game.shooter_verification_principal SET scopes=ARRAY['claim','renew','retry','result'],reserved_receipt_bytes=107374182400 WHERE revoked_at IS NULL");
+    assert.equal((await issue(s)).reason,'verification_capacity');
+    await service(); assert.equal((await issue(s)).state,'issued');
+  });
+  await test('shooter-lifecycle','SQL issuance binds canonical header to exact owner/session/day/boss and seed',async()=>{
+    await isolate(); const s=await login(); enroll(s); const run=randomUUID();
+    const day=psql("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date::text");
+    const canonical=sim('return SprotoShooterSim.buildIssuance(v).issuance;',{accountId:s.hub.userId,sessionId:s.sessionId,runId:run,day,canonicalBoss:'sahil',seed:7});
+    for (const change of [{seed:8},{accountId:randomUUID()},{sessionId:randomUUID()},{runId:randomUUID()},{day:'2000-01-01'},{canonicalBoss:'obama'},{loadout:'custom'},{protocol:2},{maxFrames:162001},{extra:true}]) {
+      const issuance={...canonical,...change};
+      const result=JSON.parse(psql(`SELECT game.issue_shooter_verification_run('${s.hub.userId}','${s.sessionId}','binding','${run}','${day}','sahil',7,'${sql(JSON.stringify(issuance))}')::text`)) as Obj;
+      assert.equal(result.reason,'issuance_mismatch',JSON.stringify(change));
+    }
+    assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE run_id='${run}'`),0);
   });
   await test('shooter-lifecycle','timely accepted clear can pay after input deadline with original live session',async()=>{
     paymentIsolate(); const f=await paymentFixture(); assert.equal(receipt(f),null);
