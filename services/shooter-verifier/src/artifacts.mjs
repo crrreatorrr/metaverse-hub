@@ -4,8 +4,8 @@ import vm from 'node:vm';
 import { APPROVED, ECONOMY, equalJSON } from './approved.mjs';
 
 // Neither a request nor an environment variable selects a path, URL or module.
-const bundleURL = new URL('../../../server/modules/vendor/shooter-sim.js', import.meta.url);
-const pinURL = new URL('../../../server/modules/vendor/shooter-sim.pin.json', import.meta.url);
+const bundleURL = new URL(`../artifacts/${APPROVED.sha256}/shooter-sim.js`, import.meta.url);
+const pinURL = new URL(`../artifacts/${APPROVED.sha256}/shooter-sim.pin.json`, import.meta.url);
 export function loadApprovedArtifact() {
   const bytes = readFileSync(bundleURL);
   if (bytes.length > 1024 * 1024 || createHash('sha256').update(bytes).digest('hex') !== APPROVED.sha256) throw new Error('artifact_unavailable');

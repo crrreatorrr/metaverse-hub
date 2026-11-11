@@ -44,8 +44,8 @@ test('actual warm bounded OS process returns full private checkpoint and public 
     assert.equal(JSON.stringify(result.publicResult).includes('account'), false);
     const next = request(r.issuance, 'step', result.privateCheckpoint);
     const resumed = await pool.execute(JSON.stringify(next));
-    assert.equal(resumed.publicResult.reason, 'idle');
-    assert.deepEqual(resumed.privateCheckpoint, result.privateCheckpoint);
+    assert.equal(resumed.kind, 'pending_retryable');
+    assert.equal(resumed.reason, 'bad_worker_binding');
   } finally { pool.close(); }
 });
 test('queue, malformed inputs, crash and close remain operational, finite and credential-free', async () => {

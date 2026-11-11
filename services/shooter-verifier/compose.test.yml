@@ -1,5 +1,6 @@
 services:
   verifier-test:
+    image: shooter-verifier-pr09:test
     build:
       context: ../..
       dockerfile: services/shooter-verifier/Dockerfile

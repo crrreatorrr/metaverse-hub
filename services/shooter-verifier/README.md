@@ -13,7 +13,7 @@ The manifest is the exact server-owned allowlist in `src/approved.mjs`.
 `economyPolicy:1` names the unchanged initial policy (schema uses a positive
 integer), not a new economic rule. Bundle economy declarations must remain
 non-minting/zero/server authority; this package never chooses a payment amount.
-New approved artifacts require explicit reviewed code and bundle updates; retain
+Retained bytes and pin live in the service-owned content-addressed `artifacts/<sha>/` directory; the mutable current Nakama vendor is never loaded. CI changes that current vendor and still loads the retained artifact, and the offline image contains no Nakama vendor directory. New approved artifacts require explicit reviewed code and bundle updates; retain
 old versions until their accepted work is resolved, including quarantined runs.
 There is currently one supported manifest and no issuance of this API.
 

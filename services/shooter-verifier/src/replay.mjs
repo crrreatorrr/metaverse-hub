@@ -32,6 +32,13 @@ export function replayText(text, artifact) {
     || (request.operation === 'begin' ? c.continuationTick !== 0 : request.checkpoint?.accounting?.verifiedFrames !== c.continuationTick)
     || (request.operation === 'step' && request.checkpoint?.pending && request.checkpoint.pending.sha256 !== c.inputSha256)
     || (request.operation === 'accept' && request.accepted?.sha256 !== c.inputSha256)) return operational('bad_worker_binding');
+  if (request.operation === 'step' && (!request.checkpoint?.pending || c.continuationTick >= c.tickEnd)) return operational('bad_worker_binding');
+  if (request.operation === 'accept') {
+    let batch;
+    try { batch = JSON.parse(request.batch); } catch { return operational('bad_worker_request'); }
+    if (!batch || !Number.isSafeInteger(batch.tick0) || !Number.isSafeInteger(batch.n) || batch.n < 1
+      || c.tick0 < batch.tick0 || c.tickEnd > batch.tick0 + batch.n || c.continuationTick >= c.tickEnd) return operational('bad_worker_binding');
+  }
   if (request.checkpoint?.pending) {
     const pending = request.checkpoint.pending;
     if (!pending.batch || !Number.isSafeInteger(pending.batch.tick0) || !Number.isSafeInteger(pending.batch.n)
