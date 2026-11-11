@@ -6,7 +6,7 @@ import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observe
 import { ByteBudget, prepareReserved, sourceInputReservation, wireInputReservation } from './budget.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, positiveEligibilityProof, type Assignment, type Phase, type Plan } from './contracts.ts';
-import { OperationFailure, type Binding, type CampaignAdapter, type Execution, type SubmissionProgress } from './runner.ts';
+import { OperationFailure, InstrumentationFailure, type Binding, type CampaignAdapter, type Execution, type SubmissionProgress } from './runner.ts';
 const object = (v: unknown): Record<string, unknown> => v as Record<string, unknown>;
 const delay = (ms: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(new Error('aborted')); };
@@ -36,6 +36,8 @@ export class PublicPipeline implements CampaignAdapter {
   private readonly gates = new Map<number, { count: number; promise: Promise<void>; release: () => void; fail: () => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly background: BackgroundTraffic;
   private readonly budget: ByteBudget;
+  private observing = false;
+  private readonly observingComponents = new Set<string>();
   private readonly inputReleases = new Map<string, () => void>();
   private readonly activeExecutions = new Set<string>();
   private readonly runIds = new Set<string>();
@@ -149,7 +151,21 @@ export class PublicPipeline implements CampaignAdapter {
   }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
   async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); for (const [key, release] of this.inputReleases) if (!this.activeExecutions.has(key)) { release(); this.inputReleases.delete(key); } this.actors.clear(); await this.background.stop(); }
-  async observe(signal: AbortSignal): Promise<void> { await Promise.all([this.sampleServer(signal), this.background.observe(signal)]); }
+  async observe(signal: AbortSignal): Promise<void> {
+    if (this.observing) throw new InstrumentationFailure('previous_pipeline_observation_active');
+    this.observing = true;
+    const component = async (name: string, operation: () => Promise<void>) => {
+      this.observingComponents.add(name);
+      try { await operation(); }
+      catch (error) { if (error instanceof OperationFailure || error instanceof InstrumentationFailure) throw error; throw new InstrumentationFailure(`${name}_observer_exception`); }
+      finally { this.observingComponents.delete(name); }
+    };
+    try {
+      const outcomes = await Promise.allSettled([component('server', () => this.sampleServer(signal)), component('background', () => this.background.observe(signal))]);
+      for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+    } finally { this.observing = false; }
+  }
+  observationContext() { return { pendingComponents: [...this.observingComponents], background: this.background.observationContext() }; }
   async checkpointSizes(): Promise<Record<string, unknown>[]> {
     const ids = [...this.runIds];
     if (!ids.length) return [];
@@ -162,5 +178,6 @@ export class PublicPipeline implements CampaignAdapter {
   matchEnds() { return this.background.matchEnds; }
   inputBudget() { return this.budget.observation(); }
   backgroundCoverage() { return this.background.coverage; }
+  backgroundTransitions() { return this.background.controlTransitions; }
   backgroundRejections() { return this.background.rejectionCounts; }
 }

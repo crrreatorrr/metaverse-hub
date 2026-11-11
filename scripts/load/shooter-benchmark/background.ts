@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
 import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
 import { sha256 } from './contracts.ts';
+import { runLifetimeControl } from './control.ts';
 import { SutUnavailable, InstrumentationFailure } from './runner.ts';
 type Encoder = (input: Record<string, unknown>) => Uint8Array;
 function object(value: unknown): Record<string, unknown> {
@@ -27,6 +28,12 @@ export class BackgroundTraffic {
   private stopping = false;
   private started = false;
   private observing = false;
+  private readonly controlAbort = new AbortController();
+  private controlTask: Promise<void> | null = null;
+  private controlFailure: string | null = null;
+  private readonly replacing = new Set<number>();
+  private readonly reading = new Set<number>();
+  readonly controlTransitions: { slot: number; startedMonoMs: number; finishedMonoMs: number; outcome: 'ready' | 'failed'; reason: string | null }[] = [];
   private lifetimeSignal: AbortSignal | null = null;
   private targetMatches = 0;
   private readonly encode: Encoder;
@@ -34,7 +41,7 @@ export class BackgroundTraffic {
   readonly matchObservations: MatchQuantiles[] = [];
   readonly matchEnds: { matchBindingHash: string; observedAt: string; reason: string; outcome: string; replacement: number }[] = [];
   readonly rejectionCounts: Record<string, number> = {};
-  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; replacements: number }[] = [];
+  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number }[] = [];
   private replacements = 0;
   private readonly replacementLimit = 60;
   constructor(private base: string, private seed: string) {
@@ -50,7 +57,7 @@ export class BackgroundTraffic {
   private socket(token: string): HubRealtime { return createRealtime({ serverUrl: this.base, getToken: () => token, reconnect: false }); }
   async start(hubUsers: number, freePvpMatches: number, signal: AbortSignal): Promise<void> {
     if (!Number.isInteger(hubUsers) || hubUsers < 0 || hubUsers > 20 || !Number.isInteger(freePvpMatches) || freePvpMatches < 0 || freePvpMatches > 10) throw new Error('background bound exceeded');
-    this.lifetimeSignal = signal; this.targetMatches = freePvpMatches;
+    this.lifetimeSignal = AbortSignal.any([signal, this.controlAbort.signal]); this.targetMatches = freePvpMatches;
     for (let i = 0; i < hubUsers; i++) {
       if (signal.aborted) throw new Error('background startup aborted');
       const login = await guest();
@@ -71,15 +78,15 @@ export class BackgroundTraffic {
       }, 100);
     }
     for (let i = 0; i < freePvpMatches; i++) await this.pair(signal, i);
-    this.started = true;
+    this.started = true; this.controlTask = runLifetimeControl(this.lifetimeSignal, 250, () => this.maintainRound());
   }
   private async pair(signal: AbortSignal, slot: number, replacement = false): Promise<void> {
     if (this.stopping || signal.aborted) throw new Error('background stopped');
     const a = await openGame((await guest()).token, 'sproto-shooter'), b = await openGame((await guest()).token, 'sproto-shooter');
     if (this.stopping || signal.aborted) throw new Error('background stopped');
-    const created = object((await call('shooter.room_create', {}, a.gameToken, { signal })).body);
+    const created = object((await call('shooter.room_create', {}, a.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
     if (created.error || created.stake !== 0 || typeof created.matchId !== 'string') throw new Error('free PvP background room unavailable');
-    const joined = object((await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal })).body);
+    const joined = object((await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
     if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
     if (joined.matchId !== created.matchId) throw new Error('free PvP background join failed');
     const seats: Seat[] = [];
@@ -131,51 +138,79 @@ export class BackgroundTraffic {
     await this.pair(signal, pair.slot, true);
     return true;
   }
+  private async maintainRound(): Promise<boolean> {
+    const signal = this.lifetimeSignal!;
+    if (this.stopping || signal.aborted) return false;
+      const ended = this.pairs.filter(pair => pair.seats.some(seat => seat.mail.some(message => message.opCode === 8)));
+      await Promise.all(ended.map(async pair => {
+        this.replacing.add(pair.slot); const startedMonoMs = performance.now();
+        let outcome: 'ready' | 'failed' = 'ready', reason: string | null = null;
+        try { await this.replaceConfirmedEnd(pair, signal); }
+        catch (error) {
+          if (!this.stopping && !signal.aborted) {
+            outcome = 'failed'; reason = error instanceof InstrumentationFailure || error instanceof SutUnavailable ? error.reason : 'background_control_operation_failed';
+            this.controlFailure = reason;
+          }
+        } finally {
+          this.replacing.delete(pair.slot);
+          if (!this.stopping && !signal.aborted) this.controlTransitions.push({ slot: pair.slot, startedMonoMs, finishedMonoMs: performance.now(), outcome, reason });
+        }
+      }));
+    return !this.controlFailure && !this.stopping && !signal.aborted;
+  }
+  observationContext(): Record<string, unknown> {
+    return { activeSlots: this.pairs.length, replacingSlots: [...this.replacing], pendingMetricSlots: [...this.reading], controlFailure: this.controlFailure };
+  }
   async observe(signal: AbortSignal): Promise<void> {
     if (this.observing) throw new InstrumentationFailure('previous_background_observation_active');
     this.observing = true;
-    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, replacements: this.replacements };
-    if (this.coverage.length >= 2000) throw new InstrumentationFailure('background_coverage_bound_exceeded');
+    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, observedEndingSlots: 0, replacingSlots: this.replacing.size, replacements: this.replacements };
     try {
-    if (!this.started) return;
-    while (this.pairs.length < this.targetMatches) {
-      if (++this.replacements > this.replacementLimit) throw new InstrumentationFailure('background_replacement_budget_exhausted');
-      const occupied = new Set(this.pairs.map(pair => pair.slot));
-      const slot = Array.from({ length: this.targetMatches }, (_, i) => i).find(i => !occupied.has(i));
-      if (slot === undefined) throw new InstrumentationFailure('background_slot_accounting_mismatch');
-      await this.pair(signal, slot, true);
+      if (this.coverage.length >= 2000) throw new InstrumentationFailure('background_coverage_bound_exceeded');
+      if (!this.started) return;
+      if (this.controlFailure) throw new InstrumentationFailure(this.controlFailure);
+      if (this.pairs.length + this.replacing.size < this.targetMatches) throw new InstrumentationFailure('background_slot_missing_without_control');
+      const outcomes = await Promise.allSettled([...this.pairs].map(async pair => {
+        const ended = () => pair.seats.some(seat => seat.mail.some(message => message.opCode === 8));
+        if (ended()) { coverage.observedEndingSlots++; return; }
+        this.reading.add(pair.slot); coverage.attemptedMetrics++;
+        try {
+          let reply;
+          try { reply = await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal }); }
+          catch { throw new InstrumentationFailure(signal.aborted ? 'pvp_metric_read_deadline' : 'pvp_metric_transport_exception'); }
+          if (reply.status >= 500) throw new SutUnavailable(`pvp_metrics_http_${reply.status}`);
+          const body = object(reply.body);
+          if (body.error === 'match_missing') {
+            const untilEnd = Date.now() + 1000;
+            while (!signal.aborted && Date.now() < untilEnd && !ended()) await wait(25);
+            if (!signal.aborted && ended()) { coverage.confirmedEndMetricMisses++; return; }
+            throw new SutUnavailable('pvp_metric_missing_without_result_proof');
+          }
+          if (body.error) throw new InstrumentationFailure('pvp_metrics_error_response');
+          if (body.stake !== 0 || body.ticketsMinted !== 0) throw new InstrumentationFailure('pvp_non_free_workload');
+          const values = ['n', 'p50', 'p95', 'max', 'tick'].map(key => Number(body[key]));
+          if (!values.every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_quantiles');
+          const seatInputs = (Array.isArray(body.seats) ? body.seats : []).map(value => {
+            const seat = object(value), input = { applied: Number(seat.applied), held: Number(seat.held), neutral: Number(seat.neutral), late: Number(seat.late) };
+            if (!Object.values(input).every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_input_counters'); return input;
+          });
+          if (signal.aborted || this.stopping) throw new InstrumentationFailure('background_observation_cancelled');
+          if (this.matchObservations.length >= 10000) throw new InstrumentationFailure('match_observation_bound_exceeded');
+          coverage.successfulMetrics++;
+          this.matchObservations.push({ slot: pair.slot, createdMonoMs: pair.createdMonoMs, replacement: pair.replacement, observedMonoMs: performance.now(), matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), n: values[0], p50: values[1], p95: values[2], max: values[3], tick: values[4], phase: String(body.phase), endReason: String(body.endReason ?? ''), outcome: String(body.outcome ?? ''), seatInputs, observer: 'shooter.metrics' });
+        } finally { this.reading.delete(pair.slot); }
+      }));
+      for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
+    } finally {
+      this.observing = false;
+      if (!this.stopping && !this.lifetimeSignal?.aborted) { coverage.activeSlots = this.pairs.length; coverage.replacingSlots = this.replacing.size; coverage.replacements = this.replacements; this.coverage.push(coverage); }
     }
-    for (const pair of [...this.pairs]) {
-      if (await this.replaceConfirmedEnd(pair, signal)) continue;
-      coverage.attemptedMetrics++;
-      const reply = await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal });
-      if (reply.status >= 500) throw new SutUnavailable(`pvp_metrics_http_${reply.status}`);
-      const body = object(reply.body);
-      if (body.error === 'match_missing') {
-        const untilEnd = Date.now() + 1000;
-        while (!signal.aborted && Date.now() < untilEnd && !pair.seats.some(s => s.mail.some(m => m.opCode === 8))) await wait(25);
-        if (!signal.aborted && await this.replaceConfirmedEnd(pair, signal)) { coverage.confirmedEndMetricMisses++; continue; }
-        throw new SutUnavailable('pvp_metric_missing_without_result_proof');
-      }
-      if (body.error) throw new InstrumentationFailure('pvp_metrics_error_response');
-      if (body.stake !== 0 || body.ticketsMinted !== 0) throw new InstrumentationFailure('pvp_non_free_workload');
-      const values = ['n', 'p50', 'p95', 'max', 'tick'].map(key => Number(body[key]));
-      if (!values.every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_quantiles');
-      if (this.matchObservations.length >= 10000) throw new InstrumentationFailure('match_observation_bound_exceeded');
-      const seatInputs = (Array.isArray(body.seats) ? body.seats : []).map(value => { const seat = object(value); const input = { applied: Number(seat.applied), held: Number(seat.held), neutral: Number(seat.neutral), late: Number(seat.late) }; if (!Object.values(input).every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_input_counters'); return input; });
-      if (signal.aborted || this.stopping) throw new InstrumentationFailure('background_observation_cancelled');
-      coverage.successfulMetrics++;
-      this.matchObservations.push({ slot: pair.slot, createdMonoMs: pair.createdMonoMs, replacement: pair.replacement, observedMonoMs: performance.now(), matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), n: values[0], p50: values[1], p95: values[2], max: values[3], tick: values[4], phase: String(body.phase), endReason: String(body.endReason ?? ''), outcome: String(body.outcome ?? ''), seatInputs, observer: 'shooter.metrics' });
-      // These are per-match server quantiles, never samples to merge into a
-      // fictitious aggregate p95. Every observed result/end reason is retained
-      // when its slot is replaced; a missing metric remains a failed sample.
-    }
-    } finally { this.observing = false; if (!this.stopping && !this.lifetimeSignal?.aborted) { coverage.activeSlots = this.pairs.length; coverage.replacements = this.replacements; this.coverage.push(coverage); } }
   }
   async stop(): Promise<void> {
-    this.stopping = true;
+    this.stopping = true; this.controlAbort.abort();
     for (const frame of this.frames) clearInterval(frame);
     for (const live of this.live) { clearInterval(live.timer); live.rt.disconnect(); }
     this.frames = []; this.live = [];
+    if (this.controlTask) await this.controlTask;
   }
 }
