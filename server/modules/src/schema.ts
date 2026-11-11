@@ -3687,6 +3687,58 @@ namespace HubSchema {
          $fn$`,
       ],
     },
+    {
+      // Release the client-reported grants 0033 parked (gameplay plan B3, owner decision 10.3:
+      // "migration now, promoting pending claims; release the four held pets; leave hub_life_medal").
+      //   Relics: genesis_shard (peoples-bitcoin, pb.quest_complete) and tidebreaker_belt
+      //           (sproto-fighter, fighter.story_level_complete).
+      //   Pets:   pet_honk_sproto, pet_spiral_sproto (hpos10i), pet_moon_sproto, pet_sproto_pup (peoples-bitcoin).
+      // Unlike 0043, which deleted pending Core claims, every pending row for these six ids is
+      // promoted with game.promote_pending_grant: the player already did the work. That function is
+      // earn-once (ON CONFLICT DO NOTHING on the live table, then it deletes the pending row), writes
+      // the same item_ledger row and game_beaten row as a live claim, and pays no Tickets or Verse.
+      // hub_life_medal stays held: it gates the Hatchery. The last statement fails the migration,
+      // and with it the boot, if any row for the six ids is still pending.
+      id: "0060_relic_unhold",
+      statements: [
+        `UPDATE game.event_rule SET grant_hold = false
+         WHERE (game_id, event_type, relic_id) IN (
+           ('sproto-fighter', 'fighter.story_level_complete', 'tidebreaker_belt'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'genesis_shard')
+         )`,
+        `UPDATE game.item_rule SET grant_hold = false
+         WHERE (game_id, event_type, item_id) IN (
+           ('hpos10i', 'hpos10i.level_complete', 'pet_honk_sproto'),
+           ('hpos10i', 'hpos10i.level_complete', 'pet_spiral_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_moon_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup')
+         )`,
+        `SELECT game.promote_pending_grant(p.user_id, 'relic', p.relic_id)
+         FROM (
+           SELECT user_id, relic_id FROM game.relic_claim_pending
+           WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ORDER BY created_at, user_id, relic_id
+         ) p`,
+        `SELECT game.promote_pending_grant(p.user_id, 'item', p.item_id)
+         FROM (
+           SELECT user_id, item_id FROM game.item_owned_pending
+           WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ORDER BY created_at, user_id, item_id
+         ) p`,
+        `DO $chk$
+         BEGIN
+           IF EXISTS (
+             SELECT 1 FROM game.relic_claim_pending WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ) OR EXISTS (
+             SELECT 1 FROM game.item_owned_pending
+             WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ) THEN
+             RAISE EXCEPTION 'relic_unhold_left_pending';
+           END IF;
+         END
+         $chk$`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {

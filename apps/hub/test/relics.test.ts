@@ -42,7 +42,8 @@ assert.ok(!ownsFourLights(new Set(FOUR_LIGHTS_RELIC_IDS.slice(0, 3))), 'three li
 const menu = readFileSync(new URL('../src/menu.ts', import.meta.url), 'utf8');
 assert.ok(menu.includes('ownsFourLights(relics)'), 'menu fallback uses the four-light rule');
 
-// A3: every grant the server holds shows the pending badge, never "Locked"; an owned one says so.
+// A3 and B3: a grant the server holds shows the pending badge, never "Locked". The client's held
+// lists must match the rules that still have grant_hold after every migration.
 {
   const schema = readFileSync(new URL('../../../server/modules/src/schema.ts', import.meta.url), 'utf8');
   for (const id of [...HELD_RELIC_IDS, ...HELD_PET_IDS]) {
@@ -51,8 +52,18 @@ assert.ok(menu.includes('ownsFourLights(relics)'), 'menu fallback uses the four-
     assert.ok(isHeld(id));
     assert.ok(schema.includes(`'${id}'`), `${id} is a server rule`);
   }
-  for (const id of HELD_RELIC_IDS) assert.ok(RELICS.some((relic) => relic.id === id), `${id} is a Relic`);
+  // 0033 held these six; 0060_relic_unhold released them, so none may be listed as held here.
+  const at = schema.indexOf('id: "0060_relic_unhold"');
+  assert.ok(at > 0, '0060_relic_unhold is registered');
+  const released = schema.slice(at, schema.indexOf('$chk$`', at));
+  for (const id of ['genesis_shard', 'tidebreaker_belt', 'pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup']) {
+    assert.ok(released.includes(`'${id}'`), `0060 releases ${id}`);
+    assert.equal(isHeld(id), false, `${id} is no longer shown as pending`);
+    assert.equal(grantBadge(id, false), 'Locked');
+  }
+  assert.equal(schema.slice(at).includes("grant_hold = true"), false, 'no later migration holds a grant again');
   assert.equal(grantBadge('cones_tip', false), 'Locked');
   assert.equal(grantBadge('pet_nobu', true, 'Model soon'), 'Model soon');
+  assert.equal(HELD_BADGE, 'Not awarded yet');
 }
 console.log('held badges ok');

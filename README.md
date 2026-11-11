@@ -137,6 +137,8 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle, god mode counts) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter Wave Mode, god mode counts) | `dragon_scale` |
 
+Since migration `0060_relic_unhold`, every Relic in this table is granted on the qualifying event (the Genesis Block Shard and Tidebreaker Belt were held until then, and claims recorded while they were held were promoted). The only grant still held is the Life Medal item.
+
 The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`). `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).

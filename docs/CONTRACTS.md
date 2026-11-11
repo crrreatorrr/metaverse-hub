@@ -105,7 +105,10 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0042 | hub | `schema.ts` | `0042_server_flags` (`game.server_flags`, read by `src/flags.ts`) |
 | 0043 | hub | `schema.ts` | `0043_hpos10i_core_live` (takes the HPOS10I Core off the 0033 hold) |
 | 0044 | peoples-bitcoin (owner godmode) | `games/pb_godmode.ts` | `0044_pb_godmode` (`game.godmode_user`, `game.godmode_topup`, the `godmode` ledger kind) |
-| 0045+ | next free | | none; check open PRs before taking an id |
+| 0045–0058 | see `docs/migration-allocations.md` and the comments above `REGISTERED` in `schema.ts` | | |
+| 0059 | hub | `schema.ts` | `0059_hub_exchange` (`game.exchange_tickets_hub`, the Wallet tab's hub-scope exchange) |
+| 0060 | hub | `schema.ts` | `0060_relic_unhold` (releases the held Genesis Block Shard, Tidebreaker Belt and four pets; promotes their pending claims) |
+| 0061+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 

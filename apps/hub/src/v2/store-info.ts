@@ -20,9 +20,15 @@ export function storePriceLine(id: StorePetId): string {
 /**
  * Relics and pets whose rule has `grant_hold = true` on the server: the qualifying clear is
  * recorded in a pending table and gives the player nothing yet.
+ *
+ * Empty since server migration 0060_relic_unhold (plan item B3), which released the Genesis Block
+ * Shard, the Tidebreaker Belt and the four held pets and promoted their pending claims. Deploy the
+ * server with 0060 before a hub build that carries these empty lists; until then the two Relic
+ * cards and four pet cards would read "Locked" instead of "Not awarded yet". If a grant is ever
+ * held again, list its id here and the menu shows the pending badge.
  */
-export const HELD_RELIC_IDS: readonly string[] = ['genesis_shard', 'tidebreaker_belt'];
-export const HELD_PET_IDS: readonly string[] = ['pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup'];
+export const HELD_RELIC_IDS: readonly string[] = [];
+export const HELD_PET_IDS: readonly string[] = [];
 
 export const HELD_BADGE = 'Not awarded yet';
 export const HELD_NOTE = 'Clearing this is recorded. The Relic arrives when grants open.';
