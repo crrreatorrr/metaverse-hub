@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync,rmSync,writeFileSync,symlinkSync,readFileSync,statSync } from 'node:fs';
+import { mkdtempSync,rmSync,writeFileSync,symlinkSync,readFileSync,statSync,existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Journal,JOURNAL_BYTES } from '../ops/journal.mjs';
@@ -16,3 +16,5 @@ test('frame parser rejects tiny chunk exhaustion, oversized length, malformed an
 test('request digest uses exact operation and canonical sorted object keys',()=>{assert.equal(requestDigest('result',{z:[3,{b:2,a:1}],a:0}),requestDigest('result',{a:0,z:[3,{a:1,b:2}]}));assert.notEqual(requestDigest('result',{}),requestDigest('claim',{}));});
 test('restart observations distinguish unknown from an actual counted lower bound',async()=>{const {Metrics}=await import('../ops/safe-metrics.mjs');const m=new Metrics();assert.equal(m.snapshot().counters.workerRestarts,null);m.execution({instanceId:'daemon-a',restarts:0});assert.equal(m.snapshot().counters.workerRestarts,0);assert.equal(m.snapshot().workerRestartsObserved,true);m.execution({instanceId:'daemon-a',restarts:2});m.execution({instanceId:'daemon-b',restarts:0});assert.equal(m.snapshot().counters.workerRestarts,3);assert.equal(m.snapshot().workerRestartsLowerBound,true);});
 test('scalar transport responses remain bounded operational outcomes',async t=>{const {GatewayClient}=await import('../src/gateway-client.mjs'),original=globalThis.fetch;globalThis.fetch=async()=>new Response('null',{status:200});t.after(()=>{globalThis.fetch=original;});const c=new GatewayClient({workerId:'worker',keyId:'key',token:'a'.repeat(43),accountToken:'ephemeral'});assert.equal((await c.ops()).reason,'bad_gateway_response');});
+
+test('journal rejects a symlink ancestor before creating anything through it',t=>{const dir=directory(t),target=directory(t);symlinkSync(target,join(dir,'alias'));assert.throws(()=>new Journal(join(dir,'alias','new-private-directory')),/journal_permissions/);assert.equal(existsSync(join(target,'new-private-directory')),false);});

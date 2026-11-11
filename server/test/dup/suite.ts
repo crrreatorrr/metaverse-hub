@@ -2052,8 +2052,10 @@ export async function main(): Promise<void> {
     if (selected('shooter-commit')) await runShooterVerificationCommit(test);
     if (selected('shooter-payments')) await runShooterVerificationSettlement(test);
     if (selected('shooter-lifecycle')) await runShooterVerificationLifecycle(test);
-    if (selected('shooter-metrics')) await runShooterVerificationMetrics(test);
     if (selected('shooter-retention')) await runShooterVerificationRetention(test);
+    // Metrics ends with1000 retained quarantine fixtures. Run it after all
+    // other v2 fixtures, whose smaller disposable quotas must remain faithful.
+    if (selected('shooter-metrics')) await runShooterVerificationMetrics(test);
 
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);

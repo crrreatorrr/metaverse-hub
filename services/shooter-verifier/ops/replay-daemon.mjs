@@ -44,7 +44,7 @@ export async function startReplayDaemon({socketPath='/run/shooter/replay.sock'}=
     if(restartBudgetUsed>=limits.restarts)return;metrics();pool.close();pool=new ReplayPool({size:1,queue:0});starts++;lastPoolStarts=1;restartBudgetUsed++;
   },1000);
   async function close(){draining=true;clearInterval(monitor);server.close();
-    const deadline=Date.now()+limits.requestMs;while(busy&&Date.now()<deadline)await new Promise(r=>setTimeout(r,25));
+    const deadline=Date.now()+limits.requestMs;while((busy||peers.size>0)&&Date.now()<deadline)await new Promise(r=>setTimeout(r,25));
     pool.close();for(const peer of peers)peer.destroy();
     try{const now=lstatSync(socketPath);if(now.ino===inode.ino&&now.dev===inode.dev)unlinkSync(socketPath);}catch{ /* fixed socket only */ }
   }
