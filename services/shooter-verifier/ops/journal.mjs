@@ -1,5 +1,5 @@
 import { mkdirSync,lstatSync,openSync,readFileSync,writeFileSync,fsyncSync,closeSync,renameSync,unlinkSync,constants,fstatSync } from 'node:fs';
-import { join,dirname } from 'node:path';
+import { join,dirname,resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 export const JOURNAL_BYTES=20*1024*1024+4096;
 const id=v=>typeof v==='string'&&/^[A-Za-z0-9_.:@|-]{1,80}$/.test(v);
@@ -7,11 +7,12 @@ function valid(value){if(!value||typeof value!=='object'||Array.isArray(value)||
 const hash=text=>createHash('sha256').update(text).digest('hex');
 export class Journal {
   constructor(directory='/var/lib/shooter-journal'){
-    if(typeof directory!=='string'||!directory.startsWith('/'))throw new Error('journal_configuration');
+    if(typeof directory!=='string'||!directory.startsWith('/')||resolve(directory)!==directory)throw new Error('journal_configuration');
+    // Check every existing ancestor before mkdir can follow an unexpected link.
+    for(let path=directory;;path=dirname(path)){try{const info=lstatSync(path);if(info.isSymbolicLink()||!info.isDirectory())throw new Error('journal_permissions');}catch(e){if(e.code!=='ENOENT')throw new Error('journal_permissions');}if(path==='/')break;}
     mkdirSync(directory,{recursive:true,mode:0o700});
-    for(let path=directory;;path=dirname(path)){if(lstatSync(path).isSymbolicLink())throw new Error('journal_permissions');if(path==='/')break;}
     const info=lstatSync(directory);
-    if(!info.isDirectory()||info.isSymbolicLink()||(info.mode&0o077)!==0)throw new Error('journal_permissions');
+    if(!info.isDirectory()||info.isSymbolicLink()||info.uid!==process.getuid()||(info.mode&0o077)!==0)throw new Error('journal_permissions');
     this.directory=directory;this.current=join(directory,'current.json');this.next=join(directory,'current.next');
     this.value=null;
   }

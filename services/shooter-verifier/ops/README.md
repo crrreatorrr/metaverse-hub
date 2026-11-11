@@ -34,8 +34,8 @@ resource bounds, not a measured production operating envelope.
 
 After a durable terminal checkpoint ACK the journal can clear even while payment
 is pending. An indexed server-owned metadata pointer keeps the original RESULT
-request ID/digest. The coordinator periodically reads only its own bounded pages
-and repairs by that proof in a separate transaction through the existing0055
+request ID/digest. The coordinator periodically reads only its own bounded pages, attempts at most
+one proof per observation cycle, refreshes availability after repair, and repairs by that proof in a separate transaction through the existing0055
 settlement function. No checkpoint, amount, outcome or run selector is accepted
 by repair. Key rotation within the same account/logical worker is supported.
 Do not permanently retire a logical worker/account while its pending payments
@@ -47,7 +47,12 @@ The coordinator publishes only loopback `/health`, `/ready` and `/metrics` on947
 with no Compose host port. Readiness requires a fresh approved offline manifest,
 fresh authenticated server observation, scoped key/account-token expiry and the
 checkpoint writer. Metrics contain fixed counters and capped approximate queue,
-lag/payment/orphan observations; truncation flags are explicit. CPU/wall/RSS are
+lag/payment/orphan observations; truncation flags are explicit. A truncated
+eligibility sample is unknown, never an authoritative negative: the coordinator
+probes the actual scheduler with5-second exponential backoff capped60 seconds.
+These speculative small ACKs remain subject to existing finite receipt quotas.
+The live-lease sample10001 exceeds the supported max_leased10000, so capacity
+cannot be undercounted below its configured limit. CPU/wall/RSS are
 observed separately. GC and unrelated online match latency remain null/unobserved.
 There are no run/account IDs, checkpoints, inputs or credentials in metrics/logs.
 A successful metrics test is not an online PvP latency or production capacity claim.
@@ -88,3 +93,9 @@ credential JSON0600 before starting, then remove the disposable volumes privatel
 Health9476 remains loopback and can be sampled through a fixed bounded Node
 reader via Docker exec. Never print the credential file or journal. Applying this
 CI overlay does not authorize an equivalent production cleartext route.
+
+Durable worker progress immediately triggers a fresh nonmutating availability
+probe before another claim. Idle/negative/uncertain paths keep bounded polling
+and backoff. A failed fresh probe cannot reuse an older positive hint. Financial
+repair pending/failure counters and last-repair wall time are separate from
+verification queue metrics; repair and claiming remain one sequential chain.

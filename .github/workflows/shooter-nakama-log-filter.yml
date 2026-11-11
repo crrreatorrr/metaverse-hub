@@ -1,0 +1,49 @@
+name: shooter-nakama-log-filter
+on:
+  pull_request:
+    paths:
+      - services/shooter-verifier/ops/**
+      - services/shooter-verifier/test/nakama-filter*
+      - server/modules/src/**
+      - .github/workflows/shooter-nakama-log-filter.yml
+permissions:
+  contents: read
+jobs:
+  actual-driver-fault:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      NAKAMA_FILTER_TARGET: nakama-filter-fixture
+      NAKAMA_LAUNCH_FILE: /tmp/shooter-filter-launch.json
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Pure bounded-filter, configuration and readiness tests
+        run: node --test services/shooter-verifier/test/nakama-filter.test.mjs
+      - name: Default image excludes the deliberately unsafe test RPC
+        run: |
+          docker build --file services/shooter-verifier/ops/Dockerfile.nakama-filter --tag shooter-filter-default-proof .
+          docker run --rm --entrypoint node shooter-filter-default-proof -e "const s=require('node:fs').readFileSync('/nakama/data/modules/index.js','utf8');if(s.includes('test.filter.driver')||s.includes('filterFixtureOriginalInit'))process.exit(1)"
+      - name: Private throwaway launch configuration
+        run: |
+          sh server/scripts/dev-env.sh --random-server-key
+          node services/shooter-verifier/test/nakama-filter-driver.mjs config
+          echo "NAKAMA_FILTER_UID=$(id -u)" >> "$GITHUB_ENV"
+          echo "NAKAMA_FILTER_GID=$(id -g)" >> "$GITHUB_ENV"
+      - name: Build and boot disposable filtered Nakama profile
+        run: docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml up -d --build --wait --wait-timeout 240
+      - name: Actual private-argument driver termination and Docker sink assertion
+        run: node services/shooter-verifier/test/nakama-filter-driver.mjs
+      - name: Fixed-event startup diagnostics without raw log fields
+        if: failure()
+        run: node services/shooter-verifier/test/nakama-filter-driver.mjs diagnose
+      - name: Remove private launch file and disposable services
+        if: always()
+        run: |
+          docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml down --volumes
+          rm -f /tmp/shooter-filter-launch.json
+      # Never upload raw Nakama/PostgreSQL logs or launch JSON, even on failure.

@@ -167,6 +167,7 @@ HubSchema.register({id:"0058_shooter_verification_observations",statements:[
          AND NOT EXISTS(SELECT 1 FROM game.shooter_verification_job j WHERE j.run_id=r.run_id AND j.state='quarantined')
          AND NOT EXISTS(SELECT 1 FROM game.shooter_verification_job j WHERE j.run_id=r.run_id AND j.state IN ('ready','leased','retry_wait')
            AND (j.state='leased' AND j.lease_until>t OR j.state='retry_wait' AND j.next_attempt_at>t))),
+       'eligibilityUnknown',COALESCE(c.claims_enabled,false) AND (SELECT count(*) FROM leases)<COALESCE(c.max_leased,0) AND (SELECT count(*)>1000 FROM candidates),
        'queueDepth',(SELECT count(*) FROM sample),'queueTruncated',(SELECT count(*)>1000 FROM candidates),
        'oldestQueueAgeMs',COALESCE((SELECT GREATEST(0,floor(extract(epoch FROM(t-min(b.accepted_at)))*1000)) FROM sample r
          JOIN LATERAL(SELECT accepted_at FROM game.shooter_verification_batch WHERE run_id=r.run_id AND tick0<=r.verified_tick AND tick0+frame_count>r.verified_tick ORDER BY tick0 DESC LIMIT 1)b ON true),0),
