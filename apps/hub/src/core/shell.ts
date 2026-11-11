@@ -685,7 +685,6 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     }
     const clicks = stickClicks(moveStick);
     if (frame.pressed(clicks.look)) {
-      yaw = player.facingYaw;
       pitch = MOVEMENT.initialPitch;
       cameraFollow.recenter();
     }

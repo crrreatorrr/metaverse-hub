@@ -22,17 +22,96 @@ var SprotoShooterSim = (() => {
   var verify_exports = {};
   __export(verify_exports, {
     ECONOMY: () => ECONOMY,
+    INCREMENTAL_CHECKPOINT_SCHEMA_VERSION: () => INCREMENTAL_CHECKPOINT_SCHEMA_VERSION,
     LIMITS: () => LIMITS,
     PROTOCOL_VERSION: () => PROTOCOL_VERSION,
+    REPLAY_API_VERSION: () => REPLAY_API_VERSION,
     SOURCE_COMMIT: () => SOURCE_COMMIT,
+    UPLOAD_PROTOCOL_VERSION: () => UPLOAD_PROTOCOL_VERSION,
+    acceptReplayBatch: () => acceptReplayBatch,
+    beginIncrementalReplay: () => beginIncrementalReplay,
     bossById: () => bossById,
     buildIssuance: () => buildIssuance,
     contentFingerprintOf: () => contentFingerprintOf,
+    publicReplayJSON: () => publicReplayJSON,
     pureClone: () => pureClone,
     runKiteProbeJSON: () => runKiteProbeJSON,
+    stepReplaySlice: () => stepReplaySlice,
     verifyRun: () => verifyRun,
     verifyRunJSON: () => verifyRunJSON
   });
+
+  // src/server/replayChecks.js
+  function runtimeCheat(state) {
+    const t = state.tuning || {};
+    if (t.godMode) return "god_mode";
+    if (t.infiniteAmmo || t.freezeEnemies || t.unlockAllRecipes) return "debug";
+    if (t.enemyHpMult !== 1 || t.enemyDmgMult !== 1) return "debug";
+    if (state.mode !== "campaign" || state.testMode || state.bossFight) return "debug";
+    return null;
+  }
+  var SIM_GUN_SOURCES = { start: 1, world: 1, boss: 1, drop: 1 };
+  function inventoryCheat(state) {
+    const p = state.players[state.localPlayerId];
+    if (!p) return "malformed";
+    for (let i = 0; i < p.guns.length; i++) {
+      const g = p.guns[i];
+      if (g && !SIM_GUN_SOURCES[g.source]) return "injected_inventory";
+    }
+    for (let i = 0; i < state.pickups.length; i++) {
+      const gun = state.pickups[i].gun;
+      if (gun && !SIM_GUN_SOURCES[gun.source]) return "injected_inventory";
+    }
+    return null;
+  }
+  function emptyPart(type) {
+    return { type, spawned: false, dead: false, fled: false, sourceKind: null, sourceId: null };
+  }
+  function noteParts(seen2, state, boss2) {
+    for (let i = 0; i < boss2.parts.length; i++) {
+      const type = boss2.parts[i];
+      const prev = seen2[type] || emptyPart(type);
+      const matches = [];
+      for (let e = 0; e < state.enemies.length; e++) {
+        const enemy2 = state.enemies[e];
+        if (enemy2.type === type && enemy2.boss) matches.push(enemy2);
+      }
+      const enemy = matches.length ? matches[matches.length - 1] : null;
+      if (!enemy) {
+        seen2[type] = prev;
+        continue;
+      }
+      prev.spawned = true;
+      if (enemy.fled) prev.fled = true;
+      if (enemy.dead && enemy.hp <= 0) {
+        prev.dead = true;
+        if (enemy.lastHit) {
+          prev.sourceKind = enemy.lastHit.sourceKind;
+          prev.sourceId = enemy.lastHit.sourceId;
+        }
+      }
+      seen2[type] = prev;
+    }
+  }
+  function classify(seen2, boss2, playerDead, playerId) {
+    const parts = [];
+    for (let i = 0; i < boss2.parts.length; i++) parts.push(seen2[boss2.parts[i]] || emptyPart(boss2.parts[i]));
+    if (playerDead) return { outcome: "fail", reason: "player_down", parts, eligible: false };
+    if (parts.some((part) => part.fled)) return { outcome: "fail", reason: "boss_fled", parts, eligible: false };
+    if (!parts.every((part) => part.dead)) return { outcome: "incomplete", reason: "boss_alive", parts, eligible: false };
+    const clean = parts.every((part) => (part.sourceKind === "gun" || part.sourceKind === "splash") && part.sourceId === playerId);
+    if (!clean) return { outcome: "assisted", reason: "assisted", parts, eligible: false };
+    return { outcome: "clear", reason: "boss_clear", parts, eligible: true };
+  }
+  function checkpointRestored(state) {
+    const events = state && state.events;
+    if (!events) return false;
+    for (let i = 0; i < events.length; i++) {
+      const type = events[i].type;
+      if (type === "lockdownReset" || type === "voidRescue") return true;
+    }
+    return false;
+  }
 
   // src/core/rng.js
   function hashSeed(n) {
@@ -9297,9 +9376,9 @@ var SprotoShooterSim = (() => {
       if (byCount) return true;
       const wait = waveWait(enc, squad6);
       if (wait == null || wait <= 0 || !prog.started) return false;
-      const keys = Object.keys(prog.squads);
-      if (!keys.length) return false;
-      const last = prog.squads[keys[keys.length - 1]];
+      const keys2 = Object.keys(prog.squads);
+      if (!keys2.length) return false;
+      const last = prog.squads[keys2[keys2.length - 1]];
       if (prog.t - (last.at || 0) < wait) return false;
       for (let i = 0; i < (enc.squads || []).length; i++) {
         const sq = enc.squads[i];
@@ -11963,6 +12042,15 @@ var SprotoShooterSim = (() => {
 
   // src/sim/campaign/campaign.js
   var snaps = /* @__PURE__ */ new WeakMap();
+  function exportCampaignCheckpoints(state, clone2 = structuredClone) {
+    const saved = snaps.get(state);
+    return saved ? Object.keys(saved).sort().map((id) => ({ id, state: clone2(saved[id]) })) : [];
+  }
+  function importCampaignCheckpoints(state, entries) {
+    const saved = /* @__PURE__ */ Object.create(null);
+    for (const entry of entries) saved[entry.id] = structuredClone(entry.state);
+    snaps.set(state, saved);
+  }
   function startCampaign(state, p, levelId) {
     const rt = getLevelRuntime(levelId || "L01");
     const first = rt.sections[0];
@@ -13193,15 +13281,15 @@ var SprotoShooterSim = (() => {
   }
   function enemyGun(state, e, t, gun, dt, canFire, slot = "") {
     const ai = e.ai;
-    const K = (n) => slot + n;
-    if (ai[K("gunCd")] == null) ai[K("gunCd")] = range(state.rng, 0.8, gun.cooldownMax);
-    if (gun.trackDone && ai[K("doneT")] != null) ai[K("doneT")] += dt;
-    if (ai[K("burstLeft")] > 0) {
-      ai[K("burstT")] -= dt;
-      if (ai[K("burstT")] <= 0) {
-        ai[K("burstLeft")]--;
-        ai[K("burstT")] = gun.burstGap;
-        if (gun.trackDone && ai[K("burstLeft")] === 0) ai[K("doneT")] = 0;
+    const K2 = (n) => slot + n;
+    if (ai[K2("gunCd")] == null) ai[K2("gunCd")] = range(state.rng, 0.8, gun.cooldownMax);
+    if (gun.trackDone && ai[K2("doneT")] != null) ai[K2("doneT")] += dt;
+    if (ai[K2("burstLeft")] > 0) {
+      ai[K2("burstT")] -= dt;
+      if (ai[K2("burstT")] <= 0) {
+        ai[K2("burstLeft")]--;
+        ai[K2("burstT")] = gun.burstGap;
+        if (gun.trackDone && ai[K2("burstLeft")] === 0) ai[K2("doneT")] = 0;
         const sc = e.scale;
         let from;
         if (gun.from) {
@@ -13228,19 +13316,19 @@ var SprotoShooterSim = (() => {
       }
       return true;
     }
-    if (ai[K("aimT")] > 0) {
-      ai[K("aimT")] -= dt;
-      if (ai[K("aimT")] <= 0) {
-        ai[K("burstLeft")] = gun.burst;
-        ai[K("burstT")] = 0;
+    if (ai[K2("aimT")] > 0) {
+      ai[K2("aimT")] -= dt;
+      if (ai[K2("aimT")] <= 0) {
+        ai[K2("burstLeft")] = gun.burst;
+        ai[K2("burstT")] = 0;
       }
       return true;
     }
-    ai[K("gunCd")] -= dt;
+    ai[K2("gunCd")] -= dt;
     const d = Math.hypot(t.pos.x - e.pos.x, t.pos.z - e.pos.z);
-    if (canFire && ai[K("gunCd")] <= 0 && d < gun.range && !t.downed) {
-      ai[K("gunCd")] = range(state.rng, gun.cooldownMin, gun.cooldownMax);
-      ai[K("aimT")] = gun.windup;
+    if (canFire && ai[K2("gunCd")] <= 0 && d < gun.range && !t.downed) {
+      ai[K2("gunCd")] = range(state.rng, gun.cooldownMin, gun.cooldownMax);
+      ai[K2("aimT")] = gun.windup;
       emit(state, "enemyAttack", { id: e.id, enemyType: e.type, special: !!slot });
       return true;
     }
@@ -14767,10 +14855,10 @@ var SprotoShooterSim = (() => {
       }
       return s5 + "]";
     }
-    const keys = Object.keys(value).sort();
+    const keys2 = Object.keys(value).sort();
     let s = "{";
     let n = 0;
-    for (const k of keys) {
+    for (const k of keys2) {
       const v = value[k];
       if (v === void 0) continue;
       if (n++) s += ",";
@@ -14798,10 +14886,10 @@ var SprotoShooterSim = (() => {
       return arr;
     }
     const out = {};
-    const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i++) {
-      if (keys[i] === "events") continue;
-      out[keys[i]] = quantizeForHash(value[keys[i]]);
+    const keys2 = Object.keys(value);
+    for (let i = 0; i < keys2.length; i++) {
+      if (keys2[i] === "events") continue;
+      out[keys2[i]] = quantizeForHash(value[keys2[i]]);
     }
     return out;
   }
@@ -15239,11 +15327,11 @@ var SprotoShooterSim = (() => {
       }
       return null;
     }
-    const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i++) {
-      const why = hostileKey(keys[i]);
+    const keys2 = Object.keys(value);
+    for (let i = 0; i < keys2.length; i++) {
+      const why = hostileKey(keys2[i]);
       if (why) return why;
-      const hit = inspectValue(value[keys[i]], depth + 1);
+      const hit = inspectValue(value[keys2[i]], depth + 1);
       if (hit) return hit;
     }
     return null;
@@ -15347,9 +15435,9 @@ var SprotoShooterSim = (() => {
   var BIND_KEYS = ["accountId", "sessionId", "day", "runId"];
   var SEG_KEYS = ["i", "from", "tick0", "n", "frames", "actions"];
   function exactKeys(obj, allowed) {
-    const keys = Object.keys(obj);
-    if (keys.length !== allowed.length) return false;
-    for (let i = 0; i < allowed.length; i++) if (keys.indexOf(allowed[i]) < 0) return false;
+    const keys2 = Object.keys(obj);
+    if (keys2.length !== allowed.length) return false;
+    for (let i = 0; i < allowed.length; i++) if (keys2.indexOf(allowed[i]) < 0) return false;
     return true;
   }
   function validDay(s) {
@@ -15400,8 +15488,8 @@ var SprotoShooterSim = (() => {
     for (let i = 0; i < log.segments.length; i++) {
       const seg = log.segments[i];
       if (!seg || typeof seg !== "object" || Array.isArray(seg)) return "malformed";
-      const keys = Object.keys(seg);
-      for (let k = 0; k < keys.length; k++) if (SEG_KEYS.indexOf(keys[k]) < 0) return "malformed";
+      const keys2 = Object.keys(seg);
+      for (let k = 0; k < keys2.length; k++) if (SEG_KEYS.indexOf(keys2[k]) < 0) return "malformed";
       if (!("i" in seg) || !("from" in seg) || !("tick0" in seg) || !("n" in seg) || !("frames" in seg)) return "malformed";
       if (typeof seg.i !== "number" || !Number.isInteger(seg.i) || seg.i !== i) return seg.i < 0 ? "negative" : "malformed";
       if (typeof seg.tick0 !== "number" || !Number.isInteger(seg.tick0)) return "malformed";
@@ -15440,7 +15528,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "c1f0d0e5f9af8edd05c840a55d7c8a66d15c2876";
+  var SOURCE_COMMIT = "05f7a0a245af921fc65a99588564175c19658e38";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
@@ -15548,6 +15636,643 @@ var SprotoShooterSim = (() => {
     return { ok: true, issuance, ticketsMinted: 0 };
   }
 
+  // src/core/sha256.js
+  var K = [
+    1116352408,
+    1899447441,
+    3049323471,
+    3921009573,
+    961987163,
+    1508970993,
+    2453635748,
+    2870763221,
+    3624381080,
+    310598401,
+    607225278,
+    1426881987,
+    1925078388,
+    2162078206,
+    2614888103,
+    3248222580,
+    3835390401,
+    4022224774,
+    264347078,
+    604807628,
+    770255983,
+    1249150122,
+    1555081692,
+    1996064986,
+    2554220882,
+    2821834349,
+    2952996808,
+    3210313671,
+    3336571891,
+    3584528711,
+    113926993,
+    338241895,
+    666307205,
+    773529912,
+    1294757372,
+    1396182291,
+    1695183700,
+    1986661051,
+    2177026350,
+    2456956037,
+    2730485921,
+    2820302411,
+    3259730800,
+    3345764771,
+    3516065817,
+    3600352804,
+    4094571909,
+    275423344,
+    430227734,
+    506948616,
+    659060556,
+    883997877,
+    958139571,
+    1322822218,
+    1537002063,
+    1747873779,
+    1955562222,
+    2024104815,
+    2227730452,
+    2361852424,
+    2428436474,
+    2756734187,
+    3204031479,
+    3329325298
+  ];
+  function utf8Bytes(text) {
+    const out = [];
+    for (let i = 0; i < text.length; i++) {
+      let c = text.charCodeAt(i);
+      if (c >= 55296 && c <= 56319 && i + 1 < text.length) {
+        const d = text.charCodeAt(i + 1);
+        if (d >= 56320 && d <= 57343) {
+          c = 65536 + (c - 55296 << 10) + (d - 56320);
+          i += 1;
+        }
+      }
+      if (c < 128) out.push(c);
+      else if (c < 2048) out.push(192 | c >> 6, 128 | c & 63);
+      else if (c < 65536) out.push(224 | c >> 12, 128 | c >> 6 & 63, 128 | c & 63);
+      else out.push(240 | c >> 18, 128 | c >> 12 & 63, 128 | c >> 6 & 63, 128 | c & 63);
+    }
+    return out;
+  }
+  function rotr(x, n) {
+    return x >>> n | x << 32 - n;
+  }
+  function sha256Hex(text) {
+    const bytes = utf8Bytes(String(text));
+    const bitLength = bytes.length * 8;
+    bytes.push(128);
+    while (bytes.length % 64 !== 56) bytes.push(0);
+    const high = Math.floor(bitLength / 4294967296);
+    bytes.push(high >>> 24 & 255, high >>> 16 & 255, high >>> 8 & 255, high & 255);
+    bytes.push(bitLength >>> 24 & 255, bitLength >>> 16 & 255, bitLength >>> 8 & 255, bitLength & 255);
+    const h = [1779033703, 3144134277, 1013904242, 2773480762, 1359893119, 2600822924, 528734635, 1541459225];
+    const w = new Array(64);
+    for (let at2 = 0; at2 < bytes.length; at2 += 64) {
+      for (let i = 0; i < 16; i++) {
+        const j = at2 + i * 4;
+        w[i] = bytes[j] << 24 | bytes[j + 1] << 16 | bytes[j + 2] << 8 | bytes[j + 3] | 0;
+      }
+      for (let i = 16; i < 64; i++) {
+        const s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ w[i - 15] >>> 3;
+        const s12 = rotr(w[i - 2], 17) ^ rotr(w[i - 2], 19) ^ w[i - 2] >>> 10;
+        w[i] = w[i - 16] + s0 + w[i - 7] + s12 | 0;
+      }
+      let [a, b, c, d, e, f, g, k] = h;
+      for (let i = 0; i < 64; i++) {
+        const S15 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+        const ch = e & f ^ ~e & g;
+        const t1 = k + S15 + ch + K[i] + w[i] | 0;
+        const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+        const maj = a & b ^ a & c ^ b & c;
+        const t2 = S0 + maj | 0;
+        k = g;
+        g = f;
+        f = e;
+        e = d + t1 | 0;
+        d = c;
+        c = b;
+        b = a;
+        a = t1 + t2 | 0;
+      }
+      h[0] = h[0] + a | 0;
+      h[1] = h[1] + b | 0;
+      h[2] = h[2] + c | 0;
+      h[3] = h[3] + d | 0;
+      h[4] = h[4] + e | 0;
+      h[5] = h[5] + f | 0;
+      h[6] = h[6] + g | 0;
+      h[7] = h[7] + k | 0;
+    }
+    let out = "";
+    for (let i = 0; i < 8; i++) out += (h[i] >>> 0).toString(16).padStart(8, "0");
+    return out;
+  }
+
+  // src/server/checkpoint.js
+  var CHECKPOINT_VERSION = 1;
+  var CHECKPOINT_LIMITS = Object.freeze({ bytes: 16 * 1024 * 1024, depth: 64, nodes: 1e6, array: 1e5, string: 16384, checkpoints: 64 });
+  var forbidden = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  var fail2 = () => {
+    throw new Error("bad_private_checkpoint");
+  };
+  var integer = (n) => Number.isSafeInteger(n) && n >= 0;
+  function boundedCheckpointJSON(value, exporting = false, limits = CHECKPOINT_LIMITS) {
+    const ancestors = /* @__PURE__ */ new Set();
+    let nodes = 0;
+    let bytes = 0;
+    function add3(n) {
+      bytes += n;
+      if (bytes > limits.bytes) fail2();
+    }
+    function textSize(s) {
+      if (s.length > limits.string) fail2();
+      const json = JSON.stringify(s);
+      let n = 0;
+      for (let i = 0; i < json.length; i++) {
+        const c = json.charCodeAt(i);
+        if (c < 128) n++;
+        else if (c < 2048) n += 2;
+        else if (c >= 55296 && c <= 56319) {
+          n += 4;
+          i++;
+        } else n += 3;
+      }
+      return n;
+    }
+    function walk(v, depth) {
+      if (++nodes > limits.nodes || depth > limits.depth) fail2();
+      if (v === null) {
+        add3(4);
+        return null;
+      }
+      if (typeof v === "string") {
+        add3(textSize(v));
+        return v;
+      }
+      if (typeof v === "boolean") {
+        add3(v ? 4 : 5);
+        return v;
+      }
+      if (typeof v === "number") {
+        if (!Number.isFinite(v)) fail2();
+        add3(JSON.stringify(v).length);
+        return v;
+      }
+      if (typeof v !== "object" || ancestors.has(v)) fail2();
+      const proto = Object.getPrototypeOf(v);
+      if (Array.isArray(v) ? proto !== Array.prototype : proto !== Object.prototype && proto !== null) fail2();
+      if (Object.getOwnPropertySymbols(v).length) fail2();
+      ancestors.add(v);
+      let result;
+      if (Array.isArray(v)) {
+        if (v.length > limits.array || Object.keys(v).length !== v.length || Object.getOwnPropertyNames(v).length !== v.length + 1) fail2();
+        add3(2 + Math.max(0, v.length - 1));
+        result = [];
+        for (let i = 0; i < v.length; i++) {
+          const descriptor = Object.getOwnPropertyDescriptor(v, String(i));
+          if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) fail2();
+          result.push(walk(descriptor.value, depth + 1));
+        }
+      } else {
+        result = {};
+        add3(2);
+        let count = 0;
+        for (const key2 of Object.getOwnPropertyNames(v)) {
+          if (forbidden.has(key2)) fail2();
+          const descriptor = Object.getOwnPropertyDescriptor(v, key2);
+          if (!descriptor.enumerable || !("value" in descriptor)) fail2();
+          if (exporting && descriptor.value === void 0) continue;
+          add3(textSize(key2) + 1 + (count++ ? 1 : 0));
+          result[key2] = walk(descriptor.value, depth + 1);
+        }
+      }
+      ancestors.delete(v);
+      return result;
+    }
+    return walk(value, 0);
+  }
+  var project = boundedCheckpointJSON;
+  function keys(value, expected) {
+    if (!value || Array.isArray(value) || typeof value !== "object") fail2();
+    const actual = Object.keys(value).sort();
+    const wanted = expected.slice().sort();
+    if (actual.length !== wanted.length || actual.some((key2, i) => key2 !== wanted[i])) fail2();
+  }
+  function manifestOk(manifest) {
+    keys(manifest, ["artifact", "sourceCommit", "sha256", "contentFingerprint", "protocol"]);
+    if (manifest.artifact !== "shooter-sim" || manifest.protocol !== 1 || typeof manifest.sourceCommit !== "string" || typeof manifest.contentFingerprint !== "string" || typeof manifest.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(manifest.sha256) || !/^[0-9a-f]{40}$/.test(manifest.sourceCommit) || !/^[0-9a-f]{8}$/.test(manifest.contentFingerprint)) fail2();
+  }
+  function bindingOk(binding) {
+    keys(binding, ["accountId", "sessionId", "day", "runId"]);
+    for (const key2 of Object.keys(binding)) if (typeof binding[key2] !== "string" || !binding[key2].length || binding[key2].length > 256) fail2();
+  }
+  function stateOk(state) {
+    if (!state || state.version !== 1 || !integer(state.tick) || !Number.isFinite(state.time) || state.time < 0 || !integer(state.nextId) || !integer(state.localPlayerId) || !integer(state.seed) || state.seed > 4294967295 || typeof state.mode !== "string" || !state.mode.length) fail2();
+    keys(state.rng, ["a", "b", "c", "d"]);
+    for (const word of Object.values(state.rng)) if (!Number.isInteger(word) || word < -2147483648 || word > 4294967295) fail2();
+    if (!state.players || Array.isArray(state.players) || typeof state.players !== "object" || !state.players[state.localPlayerId]) fail2();
+    for (const [id, player] of Object.entries(state.players)) {
+      if (String(player?.id) !== id || player.kind !== "player") fail2();
+      for (const name of ["pos", "prevPos", "vel"]) {
+        if (!player[name] || !["x", "y", "z"].every((axis) => Number.isFinite(player[name][axis]))) fail2();
+      }
+    }
+    if (state.mode === "campaign" && !state.level) fail2();
+    if (state.level) {
+      if (typeof state.level.id !== "string" || typeof state.level.section !== "string") fail2();
+      const runtime = getLevelRuntime(state.level.id);
+      if (runtime.id !== state.level.id || !runtime.sections.some((section) => section.id === state.level.section)) fail2();
+    }
+    const ids = /* @__PURE__ */ new Set();
+    const entities = Object.values(state.players);
+    for (const name of ["enemies", "allies", "projectiles", "pickups", "hazards"]) {
+      if (!Array.isArray(state[name])) fail2();
+      for (const entity of state[name]) entities.push(entity);
+    }
+    for (const entity of entities) {
+      if (!entity || !integer(entity.id) || entity.id >= state.nextId || ids.has(entity.id)) fail2();
+      ids.add(entity.id);
+    }
+  }
+  function validate(body) {
+    keys(body, ["v", "manifest", "binding", "state", "campaignCheckpoints", "parts", "counters"]);
+    if (body.v !== CHECKPOINT_VERSION) fail2();
+    manifestOk(body.manifest);
+    bindingOk(body.binding);
+    stateOk(body.state);
+    keys(body.counters, ["frames", "segments"]);
+    if (!integer(body.counters.frames) || !integer(body.counters.segments)) fail2();
+    if (!body.parts || Array.isArray(body.parts) || typeof body.parts !== "object") fail2();
+    const partTypes = new Set(CANONICAL_BOSSES.flatMap((boss2) => boss2.parts));
+    for (const [type, part] of Object.entries(body.parts)) {
+      if (!partTypes.has(type)) fail2();
+      keys(part, ["type", "spawned", "dead", "fled", "sourceKind", "sourceId"]);
+      if (part.type !== type || typeof part.spawned !== "boolean" || typeof part.dead !== "boolean" || typeof part.fled !== "boolean" || part.sourceKind !== null && typeof part.sourceKind !== "string" || part.sourceId !== null && !integer(part.sourceId)) fail2();
+    }
+    if (!Array.isArray(body.campaignCheckpoints) || body.campaignCheckpoints.length > CHECKPOINT_LIMITS.checkpoints) fail2();
+    let allowed = /* @__PURE__ */ new Set();
+    if (body.state.level) {
+      const runtime = getLevelRuntime(body.state.level.id);
+      if (runtime.id !== body.state.level.id) fail2();
+      allowed = /* @__PURE__ */ new Set(["start", ...runtime.sections.flatMap((sec) => (sec.checkpoints || []).map((cp) => cp.id))]);
+    }
+    const seen2 = /* @__PURE__ */ new Set();
+    for (const entry of body.campaignCheckpoints) {
+      keys(entry, ["id", "state"]);
+      if (typeof entry.id !== "string" || !allowed.has(entry.id) || seen2.has(entry.id)) fail2();
+      seen2.add(entry.id);
+      stateOk(entry.state);
+      if (entry.state.seed !== body.state.seed || entry.state.localPlayerId !== body.state.localPlayerId || entry.state.tick > body.state.tick || entry.state.level?.id !== body.state.level?.id || entry.state.level?.checkpoint !== entry.id) fail2();
+      if ("campaignCheckpoints" in entry.state || "privateCheckpoint" in entry.state) fail2();
+    }
+    if (body.state.mode === "campaign" && (!seen2.has("start") || !seen2.has(body.state.level.checkpoint))) fail2();
+  }
+  function privateHash(body) {
+    return fnv1a(stableStringify(body));
+  }
+  function createPrivateCheckpoint(state, { manifest, binding, parts = {}, counters }) {
+    const body = project({
+      v: CHECKPOINT_VERSION,
+      manifest,
+      binding,
+      state,
+      // Borrow trusted references only for the bounded projection below: do not
+      // allocate a deep clone before checking the aggregate traversal budget.
+      campaignCheckpoints: exportCampaignCheckpoints(state, (value) => value),
+      parts,
+      counters: counters === void 0 ? { frames: 0, segments: 0 } : counters
+    }, true);
+    if (counters === void 0) body.counters.frames = body.state?.tick;
+    validate(body);
+    const envelope = { ...body, privateHash: privateHash(body) };
+    return project(envelope);
+  }
+  function restorePrivateCheckpoint(envelope, { manifest, binding }) {
+    const copy = project(envelope);
+    keys(copy, ["v", "manifest", "binding", "state", "campaignCheckpoints", "parts", "counters", "privateHash"]);
+    const { privateHash: digest, ...body } = copy;
+    validate(body);
+    const expectedManifest = project(manifest), expectedBinding = project(binding);
+    manifestOk(expectedManifest);
+    bindingOk(expectedBinding);
+    if (stableStringify(body.manifest) !== stableStringify(expectedManifest) || stableStringify(body.binding) !== stableStringify(expectedBinding) || typeof digest !== "string" || digest !== privateHash(body)) fail2();
+    importCampaignCheckpoints(body.state, body.campaignCheckpoints);
+    return { state: body.state, parts: body.parts, counters: body.counters };
+  }
+
+  // src/server/incremental.js
+  var UPLOAD_PROTOCOL_VERSION = 2;
+  var REPLAY_API_VERSION = 2;
+  var INCREMENTAL_CHECKPOINT_SCHEMA_VERSION = 2;
+  var INCREMENTAL_LIMITS = Object.freeze({
+    batchFramesTextBytes: 2097152,
+    runFramesTextBytes: 67108864,
+    bodyBytes: 2162688,
+    batchFrames: 28800,
+    runFrames: 162e3,
+    batches: 4096,
+    batchActions: 32,
+    runActions: 131072,
+    depth: 12,
+    idLength: 80
+  });
+  var PRIVATE_LIMITS = { ...CHECKPOINT_LIMITS, string: INCREMENTAL_LIMITS.batchFramesTextBytes };
+  var WIRE_LIMITS = { ...CHECKPOINT_LIMITS, bytes: INCREMENTAL_LIMITS.bodyBytes, depth: INCREMENTAL_LIMITS.depth, string: INCREMENTAL_LIMITS.batchFramesTextBytes, array: 32, nodes: 1024 };
+  var int2 = (n) => Number.isSafeInteger(n) && n >= 0;
+  function bad(reason) {
+    const error = new Error(reason);
+    error.reason = reason;
+    throw error;
+  }
+  function exact(object, names) {
+    if (!object || typeof object !== "object" || Array.isArray(object)) bad("malformed");
+    const keys2 = Object.keys(object).sort(), expected = names.slice().sort();
+    if (keys2.length !== expected.length || keys2.some((key2, i) => key2 !== expected[i])) bad("malformed");
+  }
+  var equal = (a, b) => stableStringify(a) === stableStringify(b);
+  var bindingOf = (issuance) => ({ accountId: issuance.accountId, sessionId: issuance.sessionId, day: issuance.day, runId: issuance.runId });
+  function clone(value) {
+    return boundedCheckpointJSON(value, false, PRIVATE_LIMITS);
+  }
+  function resultError(reason) {
+    return { publicResult: { version: REPLAY_API_VERSION, status: "invalid", reason, retryable: false, eligible: false, ranked: false, ticketsMinted: 0 }, privateCheckpoint: null };
+  }
+  function guard(operation) {
+    try {
+      return operation();
+    } catch (error) {
+      if (!error.operationalReason && (error.reason || error.message === "bad_private_checkpoint")) return resultError(error.reason || "bad_private_checkpoint");
+      return { publicResult: {
+        version: REPLAY_API_VERSION,
+        status: "pending_retryable",
+        reason: error.operationalReason || "execution_failure",
+        retryable: true,
+        eligible: false,
+        ranked: false,
+        ticketsMinted: 0
+      }, privateCheckpoint: null };
+    }
+  }
+  function replayBatchDigest(batch) {
+    return sha256Hex(stableStringify(batch));
+  }
+  function decodeReplayBatch(text) {
+    if (typeof text !== "string") bad("malformed");
+    if (utf8Bytes2(text) > INCREMENTAL_LIMITS.bodyBytes) bad("oversized");
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      bad("malformed");
+    }
+    let batch;
+    try {
+      batch = boundedCheckpointJSON(parsed, false, WIRE_LIMITS);
+    } catch {
+      bad("malformed");
+    }
+    const hostile = inspectValue(batch);
+    if (hostile) bad(hostile);
+    exact(batch, ["protocol", "runId", "sequence", "tick0", "n", "frames", "actions"]);
+    if (batch.protocol !== UPLOAD_PROTOCOL_VERSION) bad("unsupported_version");
+    if (!validId(batch.runId) || !/^[\x21-\x7e]+$/.test(batch.runId) || batch.runId.length > 80) bad("malformed");
+    if (!int2(batch.sequence) || !int2(batch.tick0) || !int2(batch.n) || batch.n < 1) bad("malformed");
+    if (batch.n > INCREMENTAL_LIMITS.batchFrames || typeof batch.frames !== "string" || batch.frames.length > INCREMENTAL_LIMITS.batchFramesTextBytes) bad("oversized");
+    if (batch.frames.length !== batch.n * 16 || !/^[A-Za-z0-9+/]+$/.test(batch.frames)) bad("malformed");
+    if (!Array.isArray(batch.actions) || batch.actions.length > INCREMENTAL_LIMITS.batchActions) bad("oversized");
+    let previous = -1;
+    for (const action of batch.actions) {
+      if (!Array.isArray(action) || action.length !== 2 || !int2(action[0]) || action[0] <= previous || action[0] >= batch.n || action[1] !== 1) bad("malformed");
+      previous = action[0];
+    }
+    const decoded = decodeFrames(batch.frames, batch.n, batch.actions);
+    if (decoded.error) bad(decoded.error);
+    return { batch, commands: decoded.commands };
+  }
+  function utf8Bytes2(text) {
+    let n = 0;
+    for (let i = 0; i < text.length; i++) {
+      const c = text.charCodeAt(i);
+      if (c < 128) n++;
+      else if (c < 2048) n += 2;
+      else if (c >= 55296 && c <= 56319 && i + 1 < text.length && text.charCodeAt(i + 1) >= 56320 && text.charCodeAt(i + 1) <= 57343) {
+        n += 4;
+        i++;
+      } else n += 3;
+    }
+    return n;
+  }
+  function original(ctx) {
+    if (!ctx || !ctx.issuance || !ctx.manifest) bad("malformed");
+    const issuance = clone(ctx.issuance), manifest = clone(ctx.manifest);
+    const binding = bindingOf(issuance);
+    const built = buildIssuance({ ...binding, canonicalBoss: issuance.canonicalBoss, seed: issuance.seed });
+    if (!built.ok || !equal(built.issuance, issuance)) bad("bad_issuance");
+    if (manifest.contentFingerprint !== issuance.contentFingerprint || manifest.contentFingerprint !== contentFingerprint(1)) bad("fingerprint_mismatch");
+    return { issuance, manifest, binding };
+  }
+  function checkAccounting(a, snapshot, pending, terminal, issuance, validatePendingWire = true) {
+    let commands = null;
+    exact(a, ["acceptedFrames", "verifiedFrames", "simFrames", "framesTextBytes", "verifiedFramesTextBytes", "actions", "verifiedActions", "batches", "verifiedBatches"]);
+    if (Object.values(a).some((n) => !int2(n))) bad("bad_private_checkpoint");
+    if (a.acceptedFrames > Math.min(issuance.maxFrames, INCREMENTAL_LIMITS.runFrames) || a.framesTextBytes > INCREMENTAL_LIMITS.runFramesTextBytes || a.actions > INCREMENTAL_LIMITS.runActions || a.batches > INCREMENTAL_LIMITS.batches || a.verifiedFrames > a.acceptedFrames || a.verifiedFramesTextBytes > a.framesTextBytes || a.verifiedActions > a.actions || a.verifiedBatches > a.batches || a.simFrames !== snapshot.state.tick || a.simFrames > a.verifiedFrames || a.framesTextBytes !== a.acceptedFrames * 16 || a.verifiedFramesTextBytes !== a.verifiedFrames * 16 || a.actions > a.acceptedFrames || a.verifiedActions > a.verifiedFrames || a.actions > a.batches * INCREMENTAL_LIMITS.batchActions || a.batches > a.acceptedFrames || a.verifiedBatches > a.verifiedFrames || a.acceptedFrames > a.batches * INCREMENTAL_LIMITS.batchFrames || snapshot.counters.frames !== a.verifiedFrames || snapshot.counters.segments !== a.verifiedBatches) bad("bad_private_checkpoint");
+    const classified = classify(snapshot.parts, bossById(issuance.canonicalBoss), snapshot.state.players[snapshot.state.localPlayerId].dead, snapshot.state.localPlayerId);
+    if (!terminal && (a.simFrames !== a.verifiedFrames || classified.outcome !== "incomplete")) bad("bad_private_checkpoint");
+    if (terminal) {
+      exact(terminal, ["outcome", "reason", "eligible", "ranked", "canonicalCount", "parts", "stateHash", "simTick", "inputFrame"]);
+      if (!["clear", "assisted", "fail"].includes(terminal.outcome) || terminal.simTick !== a.simFrames || terminal.inputFrame !== terminal.simTick || terminal.stateHash !== verifyStateHash(snapshot.state)) bad("bad_private_checkpoint");
+      const expected = classified;
+      if (!equal(terminal.parts, expected.parts) || terminal.outcome !== expected.outcome || terminal.reason !== expected.reason || terminal.eligible !== expected.eligible || terminal.ranked !== (expected.outcome === "clear") || terminal.canonicalCount !== (["clear", "assisted"].includes(expected.outcome) ? 1 : 0)) bad("bad_private_checkpoint");
+    }
+    if (pending) {
+      exact(pending, ["batch", "cursor", "sha256"]);
+      const decoded = validatePendingWire ? decodeReplayBatch(JSON.stringify(pending.batch)) : null;
+      const batch = decoded ? decoded.batch : pending.batch;
+      commands = decoded ? decoded.commands : null;
+      if (!int2(pending.cursor) || pending.cursor >= batch.n || validatePendingWire && pending.sha256 !== replayBatchDigest(batch) || batch.runId !== issuance.runId || batch.sequence !== a.batches - 1 || batch.tick0 + batch.n !== a.acceptedFrames || batch.tick0 + pending.cursor !== a.verifiedFrames || batch.tick0 > a.verifiedBatches * INCREMENTAL_LIMITS.batchFrames || a.verifiedBatches !== a.batches - 1) bad("bad_private_checkpoint");
+      const unverifiedActions = batch.actions.filter((action) => action[0] >= pending.cursor).length;
+      if (a.framesTextBytes - a.verifiedFramesTextBytes !== (batch.n - pending.cursor) * 16 || a.actions - a.verifiedActions !== unverifiedActions) bad("bad_private_checkpoint");
+    } else if (a.acceptedFrames !== a.verifiedFrames || a.framesTextBytes !== a.verifiedFramesTextBytes || a.actions !== a.verifiedActions || a.batches !== a.verifiedBatches) bad("bad_private_checkpoint");
+    return commands;
+  }
+  function save(state, parts, metadata, origin) {
+    try {
+      const body = {
+        v: INCREMENTAL_CHECKPOINT_SCHEMA_VERSION,
+        issuance: origin.issuance,
+        snapshot: createPrivateCheckpoint(state, {
+          manifest: origin.manifest,
+          binding: origin.binding,
+          parts,
+          counters: { frames: metadata.accounting.verifiedFrames, segments: metadata.accounting.verifiedBatches }
+        }),
+        accounting: metadata.accounting,
+        pending: metadata.pending,
+        firstTerminal: metadata.firstTerminal
+      };
+      checkAccounting(body.accounting, { state, parts, counters: body.snapshot.counters }, body.pending, body.firstTerminal, origin.issuance, false);
+      const copy = clone(body);
+      return { ...copy, privateHash: fnv1a(stableStringify(copy)) };
+    } catch {
+      const error = new Error("checkpoint_export_failure");
+      error.operationalReason = "checkpoint_export_failure";
+      throw error;
+    }
+  }
+  function load(checkpoint, origin) {
+    const copy = clone(checkpoint);
+    exact(copy, ["v", "issuance", "snapshot", "accounting", "pending", "firstTerminal", "privateHash"]);
+    const { privateHash: privateHash2, ...body } = copy;
+    if (body.v !== INCREMENTAL_CHECKPOINT_SCHEMA_VERSION || privateHash2 !== fnv1a(stableStringify(body)) || !equal(body.issuance, origin.issuance)) bad("bad_private_checkpoint");
+    const restored = restorePrivateCheckpoint(body.snapshot, { manifest: origin.manifest, binding: origin.binding });
+    const cheat = runtimeCheat(restored.state) || inventoryCheat(restored.state);
+    if (cheat) bad(cheat);
+    const commands = checkAccounting(body.accounting, restored, body.pending, body.firstTerminal, origin.issuance);
+    return { ...body, state: restored.state, parts: restored.parts, commands };
+  }
+  function response(checkpoint, status, reason, retryable = false) {
+    const a = checkpoint.accounting, terminal = checkpoint.firstTerminal;
+    return { privateCheckpoint: checkpoint, publicResult: {
+      version: REPLAY_API_VERSION,
+      status,
+      reason,
+      retryable,
+      ticketsMinted: 0,
+      eligible: !!terminal?.eligible,
+      ranked: !!terminal?.ranked,
+      acceptedInputTick: a.acceptedFrames,
+      verifiedInputTick: a.verifiedFrames,
+      simulationTick: a.simFrames,
+      acceptedBatches: a.batches,
+      verifiedBatches: a.verifiedBatches,
+      framesTextBytes: a.framesTextBytes,
+      verifiedFramesTextBytes: a.verifiedFramesTextBytes,
+      actions: a.actions,
+      verifiedActions: a.verifiedActions,
+      terminal: terminal ? clone(terminal) : null
+    } };
+  }
+  function beginIncrementalReplay(ctx) {
+    return guard(() => {
+      const origin = original(ctx), state = buildIssuedState(origin.issuance);
+      if (!canonicalLoadoutOk(state) || verifyStateHash(state) !== origin.issuance.initialStateHash) bad("bad_start");
+      const parts = {};
+      noteParts(parts, state, bossById(origin.issuance.canonicalBoss));
+      const accounting = { acceptedFrames: 0, verifiedFrames: 0, simFrames: 0, framesTextBytes: 0, verifiedFramesTextBytes: 0, actions: 0, verifiedActions: 0, batches: 0, verifiedBatches: 0 };
+      return response(save(state, parts, { accounting, pending: null, firstTerminal: null }, origin), "verified", "ready");
+    });
+  }
+  function acceptReplayBatch(text, checkpoint, ctx) {
+    return guard(() => {
+      const origin = original(ctx), current = load(checkpoint, origin);
+      if (current.pending) bad("pending_batch");
+      const { batch } = decodeReplayBatch(text), a = current.accounting;
+      if (batch.runId !== origin.issuance.runId) bad("rebind");
+      if (batch.sequence !== a.batches || batch.tick0 !== a.acceptedFrames) bad("history_conflict");
+      const accepted = clone(ctx.accepted);
+      exact(accepted, ["runId", "sequence", "tick0", "n", "sha256", "binding", "acceptedBeforeTerminal"]);
+      if (accepted.runId !== batch.runId || accepted.sequence !== batch.sequence || accepted.tick0 !== batch.tick0 || accepted.n !== batch.n || accepted.sha256 !== replayBatchDigest(batch) || !equal(accepted.binding, origin.binding) || typeof accepted.acceptedBeforeTerminal !== "boolean") bad("bad_accepted_record");
+      if (current.firstTerminal && !accepted.acceptedBeforeTerminal) bad("terminal_closed");
+      if (a.acceptedFrames + batch.n > Math.min(origin.issuance.maxFrames, INCREMENTAL_LIMITS.runFrames) || a.framesTextBytes + batch.frames.length > INCREMENTAL_LIMITS.runFramesTextBytes || a.actions + batch.actions.length > INCREMENTAL_LIMITS.runActions || a.batches + 1 > INCREMENTAL_LIMITS.batches) bad("oversized");
+      a.acceptedFrames += batch.n;
+      a.framesTextBytes += batch.frames.length;
+      a.actions += batch.actions.length;
+      a.batches++;
+      const pending = { batch, cursor: 0, sha256: accepted.sha256 };
+      return response(save(current.state, current.parts, { ...current, pending }, origin), "received", "accepted");
+    });
+  }
+  function stepReplaySlice(checkpoint, ctx) {
+    return guard(() => {
+      const clock = typeof ctx?.clock === "function" ? ctx.clock : () => Date.now();
+      const started = clock();
+      const origin = original(ctx), current = load(checkpoint, origin);
+      const work = ctx.maxWorkFrames;
+      if (!int2(work) || work < 1 || work > INCREMENTAL_LIMITS.batchFrames) bad("bad_work_limit");
+      if (!current.pending) return response(checkpoint, current.firstTerminal ? "terminal_verified" : "verified", "idle");
+      const pending = current.pending;
+      const commands = current.commands;
+      const boss2 = bossById(origin.issuance.canonicalBoss), playerId = current.state.localPlayerId;
+      let timedOut = false, count = 0;
+      while (pending.cursor < pending.batch.n && count < work) {
+        if (clock() - started >= LIMITS.maxCpuMs) {
+          timedOut = true;
+          break;
+        }
+        const index = pending.cursor;
+        if (!current.firstTerminal) {
+          const before = { ...current.state.players[playerId].pos };
+          simulate(current.state, { [playerId]: commands[index] });
+          const moved = movementDelta(before, current.state.players[playerId].pos);
+          if (moved && !checkpointRestored(current.state)) bad(moved);
+          const cheat = runtimeCheat(current.state) || inventoryCheat(current.state);
+          if (cheat) bad(cheat);
+          noteParts(current.parts, current.state, boss2);
+          const end = classify(current.parts, boss2, current.state.players[playerId].dead, playerId);
+          current.accounting.simFrames = current.state.tick;
+          if (end.outcome !== "incomplete") current.firstTerminal = {
+            ...end,
+            ranked: end.outcome === "clear",
+            canonicalCount: ["clear", "assisted"].includes(end.outcome) ? 1 : 0,
+            stateHash: verifyStateHash(current.state),
+            simTick: current.state.tick,
+            inputFrame: current.accounting.verifiedFrames + 1
+          };
+        }
+        pending.cursor++;
+        count++;
+        current.accounting.verifiedFrames++;
+        current.accounting.verifiedFramesTextBytes += 16;
+        if (pending.batch.actions.some((action) => action[0] === index)) current.accounting.verifiedActions++;
+      }
+      if (pending.cursor === pending.batch.n) {
+        current.pending = null;
+        current.accounting.verifiedBatches++;
+      }
+      const next2 = save(current.state, current.parts, current, origin);
+      return response(
+        next2,
+        timedOut ? "pending_retryable" : current.pending ? "received" : current.firstTerminal ? "terminal_verified" : "verified",
+        timedOut ? "execution_timeout" : current.pending ? "slice_complete" : current.firstTerminal?.reason || "boss_alive",
+        timedOut
+      );
+    });
+  }
+  function publicReplayJSON(workerResult) {
+    const p = workerResult.publicResult;
+    const out = {};
+    for (const key2 of [
+      "version",
+      "status",
+      "reason",
+      "retryable",
+      "eligible",
+      "ranked",
+      "ticketsMinted",
+      "acceptedInputTick",
+      "verifiedInputTick",
+      "simulationTick",
+      "acceptedBatches",
+      "verifiedBatches",
+      "framesTextBytes",
+      "verifiedFramesTextBytes",
+      "actions",
+      "verifiedActions"
+    ]) if (p[key2] !== void 0) out[key2] = p[key2];
+    if (p.terminal) {
+      out.terminal = {};
+      for (const key2 of ["outcome", "reason", "eligible", "ranked", "canonicalCount", "stateHash", "simTick", "inputFrame"]) out.terminal[key2] = p.terminal[key2];
+    } else out.terminal = null;
+    return JSON.stringify(out);
+  }
+
   // src/server/verify.js
   function pureClone(value) {
     if (value === null || typeof value !== "object") return value;
@@ -15557,14 +16282,14 @@ var SprotoShooterSim = (() => {
       return arr;
     }
     const out = {};
-    const keys = Object.keys(value);
-    for (let i = 0; i < keys.length; i++) out[keys[i]] = pureClone(value[keys[i]]);
+    const keys2 = Object.keys(value);
+    for (let i = 0; i < keys2.length; i++) out[keys2[i]] = pureClone(value[keys2[i]]);
     return out;
   }
   if (typeof globalThis !== "undefined" && globalThis.__SPROTO_VERIFY_BUNDLE) {
     globalThis.structuredClone = pureClone;
   }
-  function fail2(reason, extra = {}) {
+  function fail3(reason, extra = {}) {
     return {
       ok: false,
       reason,
@@ -15585,67 +16310,6 @@ var SprotoShooterSim = (() => {
   function seen(list, value) {
     return Array.isArray(list) && list.indexOf(value) >= 0;
   }
-  function runtimeCheat(state) {
-    const t = state.tuning || {};
-    if (t.godMode) return "god_mode";
-    if (t.infiniteAmmo || t.freezeEnemies || t.unlockAllRecipes) return "debug";
-    if (t.enemyHpMult !== 1 || t.enemyDmgMult !== 1) return "debug";
-    if (state.mode !== "campaign" || state.testMode || state.bossFight) return "debug";
-    return null;
-  }
-  var SIM_GUN_SOURCES = { start: 1, world: 1, boss: 1, drop: 1 };
-  function inventoryCheat(state) {
-    const p = state.players[state.localPlayerId];
-    if (!p) return "malformed";
-    for (let i = 0; i < p.guns.length; i++) {
-      const g = p.guns[i];
-      if (g && !SIM_GUN_SOURCES[g.source]) return "injected_inventory";
-    }
-    for (let i = 0; i < state.pickups.length; i++) {
-      const gun = state.pickups[i].gun;
-      if (gun && !SIM_GUN_SOURCES[gun.source]) return "injected_inventory";
-    }
-    return null;
-  }
-  function emptyPart(type) {
-    return { type, spawned: false, dead: false, fled: false, sourceKind: null, sourceId: null };
-  }
-  function noteParts(seen2, state, boss2) {
-    for (let i = 0; i < boss2.parts.length; i++) {
-      const type = boss2.parts[i];
-      const prev = seen2[type] || emptyPart(type);
-      const matches = [];
-      for (let e = 0; e < state.enemies.length; e++) {
-        const enemy2 = state.enemies[e];
-        if (enemy2.type === type && enemy2.boss) matches.push(enemy2);
-      }
-      const enemy = matches.length ? matches[matches.length - 1] : null;
-      if (!enemy) {
-        seen2[type] = prev;
-        continue;
-      }
-      prev.spawned = true;
-      if (enemy.fled) prev.fled = true;
-      if (enemy.dead && enemy.hp <= 0) {
-        prev.dead = true;
-        if (enemy.lastHit) {
-          prev.sourceKind = enemy.lastHit.sourceKind;
-          prev.sourceId = enemy.lastHit.sourceId;
-        }
-      }
-      seen2[type] = prev;
-    }
-  }
-  function classify(seen2, boss2, playerDead, playerId) {
-    const parts = [];
-    for (let i = 0; i < boss2.parts.length; i++) parts.push(seen2[boss2.parts[i]] || emptyPart(boss2.parts[i]));
-    if (playerDead) return { outcome: "fail", reason: "player_down", parts, eligible: false };
-    if (parts.some((part) => part.fled)) return { outcome: "fail", reason: "boss_fled", parts, eligible: false };
-    if (!parts.every((part) => part.dead)) return { outcome: "incomplete", reason: "boss_alive", parts, eligible: false };
-    const clean = parts.every((part) => (part.sourceKind === "gun" || part.sourceKind === "splash") && part.sourceId === playerId);
-    if (!clean) return { outcome: "assisted", reason: "assisted", parts, eligible: false };
-    return { outcome: "clear", reason: "boss_clear", parts, eligible: true };
-  }
   function checkpointOf(state, seen2) {
     return {
       hash: verifyStateHash(state),
@@ -15664,41 +16328,41 @@ var SprotoShooterSim = (() => {
   function verifyRun(log, ctx) {
     const started = clockOf(ctx)();
     const pre = preflightLog(log);
-    if (pre) return fail2(pre);
-    if (!ctx || typeof ctx !== "object" || !ctx.issuance) return fail2("malformed");
+    if (pre) return fail3(pre);
+    if (!ctx || typeof ctx !== "object" || !ctx.issuance) return fail3("malformed");
     const issuance = ctx.issuance;
-    if (issuance.v !== PROTOCOL_VERSION || issuance.protocol !== PROTOCOL_VERSION) return fail2("unsupported_version");
+    if (issuance.v !== PROTOCOL_VERSION || issuance.protocol !== PROTOCOL_VERSION) return fail3("unsupported_version");
     const boss2 = bossById(issuance.canonicalBoss);
-    if (!boss2) return fail2(rejectedOrUnknown(issuance.canonicalBoss));
+    if (!boss2) return fail3(rejectedOrUnknown(issuance.canonicalBoss));
     const callerAccount = ctx.accountId != null ? ctx.accountId : issuance.accountId;
     const callerSession = ctx.sessionId != null ? ctx.sessionId : issuance.sessionId;
     const callerDay = ctx.day != null ? ctx.day : issuance.day;
     const binding = log.binding;
     if (callerAccount !== issuance.accountId || binding.accountId !== issuance.accountId || callerSession !== issuance.sessionId || binding.sessionId !== issuance.sessionId || callerDay !== issuance.day || binding.day !== issuance.day || binding.runId !== issuance.runId) {
-      return fail2("rebind", { canonicalBoss: boss2.id });
+      return fail3("rebind", { canonicalBoss: boss2.id });
     }
     const digest = logDigest(log);
-    if (seen(ctx.seenDigests, digest)) return fail2("reused_log", { logDigest: digest, canonicalBoss: boss2.id });
-    if (seen(ctx.seenRunIds, issuance.runId)) return fail2("reused_run", { logDigest: digest, canonicalBoss: boss2.id });
+    if (seen(ctx.seenDigests, digest)) return fail3("reused_log", { logDigest: digest, canonicalBoss: boss2.id });
+    if (seen(ctx.seenRunIds, issuance.runId)) return fail3("reused_run", { logDigest: digest, canonicalBoss: boss2.id });
     const liveFingerprint = contentFingerprint(PROTOCOL_VERSION);
-    if (issuance.contentFingerprint !== liveFingerprint) return fail2("fingerprint_mismatch", { logDigest: digest });
+    if (issuance.contentFingerprint !== liveFingerprint) return fail3("fingerprint_mismatch", { logDigest: digest });
     let state;
     let tickBase = 0;
     if (ctx.resume) {
-      if (!ctx.resume.state || ctx.resume.hash !== verifyStateHash(ctx.resume.state)) return fail2("bad_checkpoint", { logDigest: digest });
+      if (!ctx.resume.state || ctx.resume.hash !== verifyStateHash(ctx.resume.state)) return fail3("bad_checkpoint", { logDigest: digest });
       if (log.segments[0].from !== ctx.resume.hash || log.segments[0].tick0 !== ctx.resume.tick) {
-        return fail2("bad_checkpoint", { logDigest: digest });
+        return fail3("bad_checkpoint", { logDigest: digest });
       }
       const cheat = runtimeCheat(ctx.resume.state) || inventoryCheat(ctx.resume.state);
-      if (cheat) return fail2(cheat, { logDigest: digest });
+      if (cheat) return fail3(cheat, { logDigest: digest });
       state = pureClone(ctx.resume.state);
-      if (verifyStateHash(state) !== ctx.resume.hash) return fail2("bad_checkpoint", { logDigest: digest });
+      if (verifyStateHash(state) !== ctx.resume.hash) return fail3("bad_checkpoint", { logDigest: digest });
       tickBase = ctx.resume.tick;
     } else {
-      if (log.segments[0].from != null || log.segments[0].tick0 !== 0) return fail2("bad_checkpoint", { logDigest: digest });
+      if (log.segments[0].from != null || log.segments[0].tick0 !== 0) return fail3("bad_checkpoint", { logDigest: digest });
       state = buildIssuedState(issuance);
-      if (!canonicalLoadoutOk(state)) return fail2("injected_inventory", { logDigest: digest });
-      if (issuance.initialStateHash !== verifyStateHash(state)) return fail2("bad_start", { logDigest: digest });
+      if (!canonicalLoadoutOk(state)) return fail3("injected_inventory", { logDigest: digest });
+      if (issuance.initialStateHash !== verifyStateHash(state)) return fail3("bad_start", { logDigest: digest });
     }
     const now = clockOf(ctx);
     let total = 0;
@@ -15713,24 +16377,24 @@ var SprotoShooterSim = (() => {
     noteParts(seenParts, state, boss2);
     for (let s = 0; s < log.segments.length; s++) {
       const seg = log.segments[s];
-      if (s > 0 && seg.from !== verifyStateHash(state)) return fail2("bad_checkpoint", { logDigest: digest, tick: state.tick });
-      if (seg.tick0 !== state.tick) return fail2(s === 0 ? "bad_checkpoint" : "accelerated", { logDigest: digest, tick: state.tick });
-      if (total + seg.n > (issuance.maxFrames || LIMITS.maxTotalFrames)) return fail2("oversized", { logDigest: digest });
+      if (s > 0 && seg.from !== verifyStateHash(state)) return fail3("bad_checkpoint", { logDigest: digest, tick: state.tick });
+      if (seg.tick0 !== state.tick) return fail3(s === 0 ? "bad_checkpoint" : "accelerated", { logDigest: digest, tick: state.tick });
+      if (total + seg.n > (issuance.maxFrames || LIMITS.maxTotalFrames)) return fail3("oversized", { logDigest: digest });
       const decoded = decodeFrames(seg.frames, seg.n, seg.actions || []);
-      if (decoded.error) return fail2(decoded.error, { logDigest: digest, tick: state.tick });
+      if (decoded.error) return fail3(decoded.error, { logDigest: digest, tick: state.tick });
       for (let f = 0; f < decoded.commands.length; f++) {
-        if ((f & 63) === 0 && now() - started > LIMITS.maxCpuMs) return fail2("cpu_budget", { logDigest: digest, tick: state.tick });
+        if ((f & 63) === 0 && now() - started > LIMITS.maxCpuMs) return fail3("cpu_budget", { logDigest: digest, tick: state.tick });
         const before = { x: state.players[playerId].pos.x, y: state.players[playerId].pos.y, z: state.players[playerId].pos.z };
         simulate(state, { [playerId]: decoded.commands[f] });
         const moved = movementDelta(before, state.players[playerId].pos);
-        if (moved && !checkpointRestored(state)) return fail2(moved, { logDigest: digest, tick: state.tick });
+        if (moved && !checkpointRestored(state)) return fail3(moved, { logDigest: digest, tick: state.tick });
         const cheat = runtimeCheat(state) || inventoryCheat(state);
-        if (cheat) return fail2(cheat, { logDigest: digest, tick: state.tick });
+        if (cheat) return fail3(cheat, { logDigest: digest, tick: state.tick });
         noteParts(seenParts, state, boss2);
         total++;
       }
     }
-    if (state.tick !== tickBase + total) return fail2("accelerated", { logDigest: digest, tick: state.tick });
+    if (state.tick !== tickBase + total) return fail3("accelerated", { logDigest: digest, tick: state.tick });
     const end = classify(seenParts, boss2, state.players[playerId].dead, playerId);
     const checkpoint = checkpointOf(state, seenParts);
     return {
@@ -15758,28 +16422,19 @@ var SprotoShooterSim = (() => {
       economy: ECONOMY
     };
   }
-  function checkpointRestored(state) {
-    const events = state && state.events;
-    if (!events) return false;
-    for (let i = 0; i < events.length; i++) {
-      const type = events[i].type;
-      if (type === "lockdownReset" || type === "voidRescue") return true;
-    }
-    return false;
-  }
   function rejectedOrUnknown(id) {
     if (id === "agent" || id === "glowieAgent") return "glowie_not_agent";
     if (id === "obamaDuo" || id === "midgetDuo") return "obama_is_one";
     return "unknown_boss";
   }
   function verifyRunJSON(text) {
-    if (typeof text !== "string") return JSON.stringify(fail2("malformed"));
-    if (/[[,:]\s*-?(?:NaN|Infinity)\b/.test(text)) return JSON.stringify(fail2("nan"));
+    if (typeof text !== "string") return JSON.stringify(fail3("malformed"));
+    if (/[[,:]\s*-?(?:NaN|Infinity)\b/.test(text)) return JSON.stringify(fail3("nan"));
     let body;
     try {
       body = JSON.parse(text);
     } catch {
-      return JSON.stringify(fail2("malformed"));
+      return JSON.stringify(fail3("malformed"));
     }
     if (Array.isArray(body)) {
       const out = [];
