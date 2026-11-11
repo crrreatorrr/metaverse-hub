@@ -44,6 +44,8 @@ jobs:
       - name: Remove private launch file and disposable services
         if: always()
         run: |
-          docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml down --volumes
+          cleanup_status=0
+          docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml down --volumes || cleanup_status=$?
           rm -f /tmp/shooter-filter-launch.json
+          exit "$cleanup_status"
       # Never upload raw Nakama/PostgreSQL logs or launch JSON, even on failure.
