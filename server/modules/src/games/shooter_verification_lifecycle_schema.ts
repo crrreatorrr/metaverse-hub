@@ -81,7 +81,7 @@ HubSchema.register({
         FOR item IN SELECT r.user_id,r.run_id FROM game.shooter_verification_run r
           JOIN game.game_session s ON s.session_id=r.session_id AND s.user_id=r.user_id
           WHERE (p_user IS NULL OR r.user_id=p_user) AND (
-            (r.session_invalidated_reason IS NULL AND r.payment_state IN ('none','pending')
+            (r.session_invalidated_reason IS NULL AND r.lifecycle<>'invalid' AND r.payment_state IN ('none','pending')
               AND (s.state<>'open' OR s.lease_until<=clock_timestamp() OR s.ticket_redeemed_at IS NULL))
             OR (r.admission_closed_reason IS NULL AND r.lifecycle IN ('open','sealed','quarantined') AND r.upload_deadline<=clock_timestamp())
             OR (r.lifecycle IN ('sealed','expired') AND r.verified_tick=r.accepted_tick AND r.terminal_tick IS NULL
