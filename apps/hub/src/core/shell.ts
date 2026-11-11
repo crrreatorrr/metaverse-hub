@@ -39,6 +39,7 @@ import '../style.css';
 import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalDwell, type PortalDwell } from '../travel';
 
 import { createEngine } from './engine';
+import { createCameraFollow } from './camera-follow';
 import { PAD, PAD_TUNING, createPadReader, loadMoveStick, padPrompt, rumble, saveMoveStick, stickClicks, type MoveStick, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
 import type { RealmDefinition, RealmContent } from './realm';
@@ -216,6 +217,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   /** The login gate or a trip had the pad last frame: latch what is held when they let go. */
   let padBlocked = true;
   let yaw = initial.yaw;
+  const cameraFollow = createCameraFollow();
   /** Yaw the body shows: eases toward the controller's facing instead of snapping. */
   let bodyYaw = initial.yaw;
   /** Seconds off the ground, so a step down a curb does not flash the jump pose. */
@@ -351,6 +353,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       keys.clear();
       yaw = savedView.yaw;
       pitch = savedView.pitch;
+      cameraFollow.reset();
     },
     onSpin(delta) {
       previewSpin += delta;
@@ -442,7 +445,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   const canvas = world.renderer.domElement;
   canvas.addEventListener('pointerdown', (event) => {
-    if (menu.open) return;
+    if (controlsBlocked()) return;
     dragging = true;
     canvas.setPointerCapture(event.pointerId);
     void canvas.requestPointerLock();
@@ -451,11 +454,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     dragging = false;
   });
   window.addEventListener('pointermove', (event) => {
-    if (menu.open) return;
+    if (controlsBlocked()) return;
     if (document.pointerLockElement !== canvas && !dragging) return;
-    yaw -= event.movementX * MOVEMENT.mouseYaw;
-    pitch -= event.movementY * MOVEMENT.mousePitch;
-    pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
+    turnCamera(event.movementX * MOVEMENT.mouseYaw, event.movementY * MOVEMENT.mousePitch);
   });
 
   window.addEventListener('resize', () => {
@@ -477,6 +478,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const moving = inputAmount > 0;
     const requestedSpeed = Math.min(1, inputAmount) * (input.sprint ? SPRINT_SPEED : WALK_SPEED);
     const speed = planarSpeed.sample(dt, player.position.x, player.position.z, moving ? player.facingYaw : undefined, requestedSpeed);
+    yaw = cameraFollow.step(dt, yaw, player.facingYaw, moving && (speed ?? 0) > 0.02);
     airTime = player.grounded ? 0 : airTime + dt;
     const air = {
       airborne: player.velocity.y > AIR_RISE || airTime > AIR_GRACE,
@@ -510,6 +512,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (warp) {
       dwell = initialDwell();
       yaw = warp.yaw;
+      cameraFollow.reset();
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
       planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
@@ -554,26 +557,39 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   /**
-   * Keyboard camera for players without a mouse: Z / C turn, R / F raise and lower the camera.
+   * Keyboard camera for players without a mouse: Z / C turn, R / F lower and raise the camera.
    * WASD and the arrows both move the character, so the camera stays off the movement keys.
    */
   function orbitCamera(dt: number): void {
-    const yawInput = (keys.has('KeyZ') ? 1 : 0) - (keys.has('KeyC') ? 1 : 0);
-    const pitchInput = (keys.has('KeyR') ? 1 : 0) - (keys.has('KeyF') ? 1 : 0);
-    yaw += yawInput * CAMERA_YAW_RATE * dt;
-    pitch += pitchInput * CAMERA_PITCH_RATE * dt;
-    pitch = MathUtils.clamp(pitch, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
+    if (controlsBlocked()) return;
+    const yawInput = (keys.has('KeyC') ? 1 : 0) - (keys.has('KeyZ') ? 1 : 0);
+    const pitchInput = (keys.has('KeyF') ? 1 : 0) - (keys.has('KeyR') ? 1 : 0);
+    turnCamera(yawInput * CAMERA_YAW_RATE * dt, pitchInput * CAMERA_PITCH_RATE * dt);
+  }
+
+  function controlsBlocked(): boolean {
+    return gate.isOpen() || traveling || menu.open || chat.open || Boolean(content.overlayOpen?.()) || isTypingTarget(document.activeElement);
+  }
+
+  function turnCamera(horizontal: number, vertical: number): void {
+    if (horizontal === 0 && vertical === 0) return;
+    yaw += horizontal;
+    pitch = MathUtils.clamp(pitch + vertical, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
+    cameraFollow.manualLook(horizontal);
   }
 
   function readInput(padMove: PadMove = NO_PAD_MOVE): MoveInput {
-    if (menu.open || chat.open || content.overlayOpen?.()) {
+    if (controlsBlocked()) {
       jumpQueued = false;
+      cameraFollow.reset();
       return { forward: 0, strafe: 0, sprint: false, jump: false, yaw };
     }
     const up = keys.has('ArrowUp') || keys.has('KeyW');
     const down = keys.has('ArrowDown') || keys.has('KeyS');
     const right = keys.has('ArrowRight') || keys.has('KeyD');
     const left = keys.has('ArrowLeft') || keys.has('KeyA');
+    const digitalForward = (up ? 1 : 0) - (down ? 1 : 0) + padMove.digitalForward;
+    const digitalStrafe = (right ? 1 : 0) - (left ? 1 : 0) + padMove.digitalStrafe;
     const forward = MathUtils.clamp((up ? 1 : 0) - (down ? 1 : 0) + padMove.forward, -1, 1);
     const strafe = MathUtils.clamp((right ? 1 : 0) - (left ? 1 : 0) + padMove.strafe, -1, 1);
     const jump = jumpQueued;
@@ -583,7 +599,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       strafe,
       sprint: keys.has('ShiftLeft') || keys.has('ShiftRight') || padMove.sprint,
       jump,
-      yaw,
+      yaw: cameraFollow.movementYaw(yaw, forward, strafe, { forward: digitalForward, strafe: digitalStrafe }),
     };
   }
 
@@ -591,7 +607,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
    * One controller frame (docs/controllers.md). Overlays first: the login gate runs its own
    * loop in login.ts, the arcade picker and Sprotel's talk panel take the D-pad / walking stick /
    * A / B as arrows / Enter / Esc, and the menu moves a focus ring. In the plaza: the walking stick
-   * (right by default, see `MoveStick`) moves, the other stick turns the camera, A uses the prompt in
+   * (left by default, see `MoveStick`) moves, the other stick turns the camera, A uses the prompt in
    * front of you (arcade cabinet, Sprotel) and jumps everywhere else, X also uses the prompt,
    * B (held) or a click of the walking stick runs, a click of the camera stick puts the camera
    * behind you, Menu opens the menu and View opens chat.
@@ -671,13 +687,19 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (frame.pressed(clicks.look)) {
       yaw = player.facingYaw;
       pitch = MOVEMENT.initialPitch;
+      cameraFollow.recenter();
     }
     const moving = frame.move.x !== 0 || frame.move.y !== 0;
     if (frame.pressed(clicks.move)) padRun = !padRun;
     if (!moving) padRun = false;
-    yaw -= frame.look.x * PAD_TUNING.lookYawRate * dt;
-    pitch = MathUtils.clamp(pitch + frame.look.y * PAD_TUNING.lookPitchRate * dt, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
-    return { forward: -frame.move.y, strafe: frame.move.x, sprint: frame.held(PAD.B) || padRun };
+    turnCamera(frame.look.x * PAD_TUNING.lookYawRate * dt, -frame.look.y * PAD_TUNING.lookPitchRate * dt);
+    return {
+      forward: -frame.move.y,
+      strafe: frame.move.x,
+      sprint: frame.held(PAD.B) || padRun,
+      digitalForward: (frame.held(PAD.UP) ? 1 : 0) - (frame.held(PAD.DOWN) ? 1 : 0),
+      digitalStrafe: (frame.held(PAD.RIGHT) ? 1 : 0) - (frame.held(PAD.LEFT) ? 1 : 0),
+    };
   }
 
   const previewLook = new Vector3();
@@ -1206,7 +1228,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 }
 
 /** Controller movement handed to the player controller, merged with the keyboard. */
-interface PadMove { forward: number; strafe: number; sprint: boolean }
-const NO_PAD_MOVE: PadMove = Object.freeze({ forward: 0, strafe: 0, sprint: false });
+interface PadMove { forward: number; strafe: number; sprint: boolean; digitalForward: number; digitalStrafe: number }
+const NO_PAD_MOVE: PadMove = Object.freeze({ forward: 0, strafe: 0, sprint: false, digitalForward: 0, digitalStrafe: 0 });
 /** D-pad steps for overlays that already speak arrow keys (the arcade picker). */
 const NAV_KEYS = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' } as const;

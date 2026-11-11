@@ -81,8 +81,6 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
       position.x += mx * speed;
       position.z += mz * speed;
       facingYaw = Math.atan2(mx, -mz);
-    } else {
-      facingYaw = input.yaw;
     }
 
     incomingSegment.start.copy(position);

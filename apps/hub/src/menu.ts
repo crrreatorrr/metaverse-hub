@@ -223,7 +223,7 @@ export function createMenu(options: MenuOptions): Menu {
   const padNote = el('p', 'menu-note small', '');
   const stickRow = el('div', 'chip-row');
   const stickButtons = new Map<MoveStick, HTMLButtonElement>();
-  for (const [stick, label] of [['right', 'Right stick moves'], ['left', 'Left stick moves']] as const) {
+  for (const [stick, label] of [['left', 'Left stick moves'], ['right', 'Right stick moves']] as const) {
     const chip = el('button', 'chip', label);
     chip.type = 'button';
     chip.dataset.stick = stick;
@@ -243,7 +243,7 @@ export function createMenu(options: MenuOptions): Menu {
       chip.setAttribute('aria-pressed', String(id === stick));
     }
     const camera = stick === 'right' ? 'left' : 'right';
-    padNote.textContent = `The ${camera} stick turns the camera. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
+    padNote.textContent = `The ${camera} stick turns the camera, with inverted vertical control. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
   }
 
   // ---------- Pets

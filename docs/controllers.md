@@ -52,16 +52,16 @@ without touching the keyboard:
 ## The plaza
 
 The plaza follows the same rules (`apps/hub/src/core/gamepad.ts`, `apps/hub/src/core/pad-focus.ts`,
-tested in `apps/hub/test/gamepad.test.ts`), with one owner-requested exception to rule 6: by default
-the **right stick walks and the left stick turns the camera**. Menu → Items → Controller switches back
-to the standard layout (left stick walks); the choice is saved in this browser (`hub:pad-move-stick`).
+tested in `apps/hub/test/gamepad.test.ts`), with inverted vertical camera control. By default,
+the **left stick walks and the right stick turns the camera**. Menu → Items → Controller can swap
+the sticks; the choice is saved in this browser (`hub:pad-move-stick`).
 Below, "walking stick" and "camera stick" follow that setting. Keyboard and mouse are unchanged; any
 key or click gives the prompts back to the keyboard.
 
 | Action | Controller |
 | --- | --- |
-| Move (camera-relative) | Walking stick (right by default) or D-pad |
-| Camera | Camera stick (left by default, not inverted) |
+| Move (camera-relative) | Walking stick (left by default) or D-pad |
+| Camera | Camera stick (right by default, vertically inverted) |
 | Run | Hold B, or click the walking stick (stays on until you stop) |
 | Use the prompt in front of you (arcade cabinet, Sprotel) | A ("Press E" prompts read "Press A"). X does the same |
 | Jump | A, anywhere there is no prompt to use |
@@ -71,6 +71,12 @@ key or click gives the prompts back to the keyboard.
 | Arcade picker | D-pad / walking stick choose, A plays, B steps away |
 | Talking to Sprotel | D-pad / walking stick choose, A asks, B (or "See you.") leaves |
 | Login gate | D-pad / walking stick move the focus ring, A presses (tabs, Continue as guest, submit). Text fields keep focus for a device keyboard |
+
+The camera smoothly follows each new travel direction. Holding a movement direction keeps a
+straight course while the camera turns behind the avatar. The camera stick, mouse, and Z / C
+look left / right consistently. Manual camera input takes priority; follow resumes after a short
+pause while moving. Stopping preserves the avatar's facing, and clicking the camera stick
+recenters immediately. Camera and movement inputs pause while a menu, chat, or dialog is open.
 
 The arcade picker, Sprotel's panel and the chat chip show controller buttons while a pad is the last
 device used, and A gives a short rumble where the browser supports it. The A that closes the login
@@ -87,7 +93,7 @@ The keyboard follows one layout too, so a player who knows one Sproto game knows
 - **WASD and the arrow keys both move.** Local versus is the exception: P1 keeps WASD and P2
   takes the arrows, and the game says so on screen.
 - The mouse looks or aims in 3D games (click to capture). Keyboard camera turning, where it
-  exists, never uses WASD (the plaza uses Z / C to turn and R / F to raise and lower).
+  exists, never uses WASD (the plaza uses Z / C to turn and R / F to lower and raise).
 - Space jumps (or is the main action where there is no jump). Shift runs or dashes.
 - E uses or interacts. R reloads in shooters.
 - Menus: arrows and W / S move, Enter and Space confirm, Esc goes back or closes. Esc (or P)
@@ -95,5 +101,5 @@ The keyboard follows one layout too, so a player who knows one Sproto game knows
   arcade picker).
 - Prompts, help screens and the README always name the keys the game really uses.
 
-The plaza: WASD or arrows move, mouse looks, Z / C turn the camera, R / F raise and lower it,
+The plaza: WASD or arrows move, mouse looks, Z / C turn the camera, R / F lower and raise it,
 Shift runs, Space jumps, E uses, Enter opens chat, Esc opens the menu (1–4 change its tab).
