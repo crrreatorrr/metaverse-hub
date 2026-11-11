@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { randomBytes, createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
+import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { guest, openGame, call, psql, psqlAsync, num, sleep, type Guest } from './harness.ts';
 type TestFn = (category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Row = Record<string,unknown>;
@@ -11,11 +13,12 @@ const q=(s:string)=>"'"+s.replace(/'/g,"''")+"'";
 const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
  UPDATE game.shooter_verification_admission SET new_runs_enabled=true,max_global_runs=1000,max_account_runs=100,max_global_bytes=1099511627776,max_account_bytes=1073741824,max_global_batches=1000000,max_account_batches=100000,global_appends_per_minute=100000,account_appends_per_minute=10000;
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1073741824,max_account_checkpoint_bytes=67108864,lease_seconds=30,attempt_seconds=120,attempt_limit=3,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096`;
-function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');${CONFIG}`); }
+function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined');${CONFIG}`); }
 function hash(s:string):string {return createHash('sha256').update(s).digest('hex');}
 async function principal(scopes=['claim','renew','retry','result']):Promise<{account:Guest;workerId:string;keyId:string;token:string}> {
   const account=await guest(),workerId='worker-'+crypto.randomUUID(),keyId='key1',token=randomBytes(32).toString('base64url');
-  psql(`INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+  psql(`INSERT INTO game.shooter_verification_worker(worker_id,account_id) VALUES('${workerId}','${account.userId}');
+    INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
     VALUES('${account.userId}','${workerId}','${keyId}','${hash('shooter-worker-token-v1\n'+token)}',ARRAY[${scopes.map(q).join(',')}],clock_timestamp()-interval '1 second',clock_timestamp()+interval '5 minutes')`);
   return {account,workerId,keyId,token};
 }
@@ -68,6 +71,31 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     assert.equal((await rpc(rotated,'renew',{jobId:crypto.randomUUID(),fence:1,expectedRevision:0})).state,'authorization_denied');
     psql(`UPDATE game.shooter_verification_principal SET revoked_at=clock_timestamp() WHERE worker_id='${p.workerId}' AND key_id='key2'`);
     assert.equal((await rpc(rotated,'claim')).state,'authorization_denied');
+  });
+  await test('shooter-internal','logical worker ownership cannot be duplicated across accounts even during concurrent provisioning',async()=>{
+    isolate();const a=await guest(),b=await guest(),worker='worker-'+crypto.randomUUID();
+    const provision=(account:string,key:string)=>psqlAsync(`BEGIN;INSERT INTO game.shooter_verification_worker(worker_id,account_id) VALUES('${worker}','${account}');
+      INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+      VALUES('${account}','${worker}','${key}','${'a'.repeat(64)}',ARRAY['claim'],clock_timestamp(),clock_timestamp()+interval '1 minute');COMMIT;`);
+    const results=await Promise.allSettled([provision(a.userId,'key-a'),provision(b.userId,'key-b')]);
+    assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_worker WHERE worker_id='${worker}'`),1);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_principal WHERE worker_id='${worker}'`),1);
+    const owner=psql(`SELECT account_id::text FROM game.shooter_verification_worker WHERE worker_id='${worker}'`),other=owner===a.userId?b.userId:a.userId;
+    const conflicting=await Promise.allSettled([psqlAsync(`INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+      VALUES('${other}','${worker}','other-key','${'b'.repeat(64)}',ARRAY['claim'],clock_timestamp(),clock_timestamp()+interval '1 minute')`)]);
+    assert.equal(conflicting[0]!.status,'rejected','registryFKrejectsseconddifferentaccountkey');
+  });
+  await test('shooter-internal','real network coordinator claims, renews, replays in isolated process and submits only pending dependency',async()=>{
+    isolate();const p=await principal(),run=await fixture();
+    const text=execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/live-gateway.mjs',import.meta.url))],{
+      input:JSON.stringify({url:process.env.NAKAMA_URL||'http://127.0.0.1:7350',workerId:p.workerId,keyId:p.keyId,token:p.token,accountToken:p.account.token,requestId:crypto.randomUUID()}),
+      encoding:'utf8',timeout:60000,maxBuffer:1024*1024,
+    });
+    const result=JSON.parse(text) as Row;
+    assert.deepEqual(result,{runId:run,kind:'replayed',verified:8,status:'verified',submitState:'pending_retryable',submitReason:'result_commit_unavailable'});
+    assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),0);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),3);
   });
   await test('shooter-internal','lost claim response is an immutable bounded receipt, never a second claim or changing checkpoint',async()=>{
     isolate();const p=await principal(),run=await fixture(),rid=crypto.randomUUID();

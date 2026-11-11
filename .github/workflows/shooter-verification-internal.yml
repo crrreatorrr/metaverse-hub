@@ -9,6 +9,7 @@ on:
       - server/test/games/shooter_verification_internal.test.ts
       - services/shooter-verifier/src/gateway-client.mjs
       - services/shooter-verifier/test/gateway-client.test.mjs
+      - services/shooter-verifier/test/live-gateway.mjs
       - .github/workflows/shooter-verification-internal.yml
 permissions:
   contents: read

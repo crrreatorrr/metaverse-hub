@@ -16,6 +16,8 @@ internal operations; it grants no administrative, SQL or generic payment access.
 
 ## Authorization and rotation
 
+An immutable `game.shooter_verification_worker` registry binds each logical worker ID to exactly one owning service account; principal rows reference that pair. Concurrent attempts to provision another account under the same worker ID fail. Replacing a service account requires a new worker ID and letting old leases expire; only key rotation within its owning account preserves logical request identity.
+
 Server-owned `game.shooter_verification_principal` binds account UUID, worker ID,
 key ID, SHA-256 of `shooter-worker-token-v1\n` plus a cryptographically random
 32-byte base64url token, explicit scopes, not-before, expiry and revocation.
@@ -58,7 +60,7 @@ Private checkpoint validation here is deliberately transport/schema-level; PR11
 must validate complete critical state, hashes, versions and monotonic counters.
 
 Request digest is SHA256(operation + newline + stable sorted-key JSON body),
-excluding credential/request ID. Request IDs are namespaced by logical worker ID, independently of rotating key/account IDs; the original issuing account/key remain immutable audit fields. A currently authorized replacement key for that same worker can recover the original receipt after old-key revocation. Identical authorized request IDs return the
+excluding credential/request ID. Request IDs are namespaced by logical worker ID, independently of rotating key IDs within its fixed owning account; the original issuing account/key remain immutable audit fields. A currently authorized replacement key for that same worker can recover the original receipt after old-key revocation. Identical authorized request IDs return the
 original immutable receipt; conflicting operation/body rejects. Claim and its
 full server-owned private work acknowledgment are stored **in the same SQL
 transaction**, so a lost response cannot claim another job. The projection uses
