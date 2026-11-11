@@ -1,0 +1,127 @@
+# Optional renderer-stress experiment, not the primary PR20 client-under-load profile.
+# The failed314 twenty-renderer result remains failed historical evidence.
+# This manual workflow preserves the strict20 driver and all existing bounds.
+name: shooter-browser-renderer-stress-experimental
+on:
+  workflow_dispatch:
+concurrency:
+  group: shooter-browser-benchmark-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+jobs:
+  twenty-actual-public-browsers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HUB_SHOOTER_FIXTURE: benchmark
+      SHOOTER_OPS_CI_DIRECTORY: /tmp/shooter-benchmark-browser-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 01087a4533a9475bcd9a0a4b2547833ab6a663f4
+          path: .ci-browser-client
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check browser benchmark dependencies
+        run: npx tsc -p scripts/load/shooter-benchmark/tsconfig.json --noEmit
+      - name: Validate bounded browser observations and receipt accounting
+        run: |
+          npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
+          npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
+          node --check scripts/load/shooter-benchmark/public-browsers.mjs
+          node --check scripts/load/shooter-benchmark/browser-ci.mjs
+      - name: Lint browser benchmark and observation boundaries
+        run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs
+      - name: Throwaway credentials for disposable stack
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot ephemeral Nakama and PostgreSQL
+        id: stack
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180 postgres nakama
+      - name: Explicit finite fixture config and scoped principal
+        run: |
+          npx tsx scripts/load/shooter-benchmark/ci.ts prepare
+          sudo chown -R 1000:1000 "$SHOOTER_OPS_CI_DIRECTORY/socket" "$SHOOTER_OPS_CI_DIRECTORY/journal" "$SHOOTER_OPS_CI_DIRECTORY/shooter-worker.json"
+      - name: Actual fenced coordinator and network-isolated replay containers
+        run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml -f scripts/load/shooter-benchmark/compose.ci.yml --profile shooter-verification up -d --build --no-deps replay coordinator metrics-observer
+      - name: Install and build exact approved production Game
+        working-directory: .ci-browser-client
+        env:
+          VITE_SHOOTER_REWARDED: 'true'
+          VITE_NAKAMA_URL: http://127.0.0.1:7350
+          VITE_NAKAMA_SERVER_KEY: ${{ env.NAKAMA_SERVER_KEY }}
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+          npm run build
+      - name: Serve actual production Game on loopback
+        run: |
+          cd .ci-browser-client
+          node node_modules/vite/bin/vite.js preview --host 127.0.0.1 --port 4173 --strictPort > "$RUNNER_TEMP/shooter-browser-server.log" 2>&1 &
+          echo "$!" > "$RUNNER_TEMP/shooter-browser-preview.pid"
+          for attempt in $(seq 1 100); do
+            if curl --fail --silent --connect-timeout 1 --max-time 1 http://127.0.0.1:4173/ > /dev/null; then exit 0; fi
+            sleep 0.1
+          done
+          exit 1
+      - name: Twenty genuine public browser prefixes with independent background observation
+        run: npx tsx scripts/load/shooter-benchmark/browser-ci.mjs
+        env:
+          SHOOTER_BROWSER_CLIENT: ${{ github.workspace }}/.ci-browser-client
+          SHOOTER_BROWSER_EXPECTED_SOURCE: 01087a4533a9475bcd9a0a4b2547833ab6a663f4
+      - name: Retain bounded safe browser and timing reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooter-ci-advisory-browser-benchmark
+          path: |
+            /tmp/shooter-benchmark-browser-${{ github.run_id }}/browser-benchmark-report.json
+            /tmp/shooter-benchmark-browser-${{ github.run_id }}/browser-frame-intervals.json
+          if-no-files-found: warn
+      - name: Stop preview and delete disposable stack
+        if: always()
+        timeout-minutes: 2
+        run: |
+          set +e
+          cleanup_status=0
+          if [ -f "$RUNNER_TEMP/shooter-browser-preview.pid" ]; then
+            preview_pid=$(cat "$RUNNER_TEMP/shooter-browser-preview.pid")
+            if [[ "$preview_pid" =~ ^[0-9]+$ ]]; then
+              kill "$preview_pid" 2>/dev/null
+              for attempt in $(seq 1 50); do
+                kill -0 "$preview_pid" 2>/dev/null || break
+                sleep 0.1
+              done
+              if kill -0 "$preview_pid" 2>/dev/null; then
+                kill -KILL "$preview_pid" 2>/dev/null || true
+                cleanup_status=1
+              fi
+            fi
+          fi
+          case "${{ steps.stack.outcome }}" in
+            success|failure|cancelled)
+              timeout 90s docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml -f scripts/load/shooter-benchmark/compose.ci.yml --profile shooter-verification down --volumes --timeout 10 || cleanup_status=$?
+              ;;
+          esac
+          sudo rm -rf "$SHOOTER_OPS_CI_DIRECTORY" || cleanup_status=$?
+          exit "$cleanup_status"

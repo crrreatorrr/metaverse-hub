@@ -1,0 +1,25 @@
+import assert from 'node:assert/strict';
+import { createMetricReadLifetime } from './metric-read-lifetime.ts';
+import { settleMetricRead, MetricReadParentAborted } from './metric-read-disposition.ts';
+const hash = 'a'.repeat(64);
+function deferred<T>() { let resolve!: (value: T) => void, reject!: (error: unknown) => void; const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; }
+const parent = new AbortController(), lifetime = createMetricReadLifetime({ matchBindingHash: hash, parentSignal: parent.signal });
+const pending = deferred<{ status: number }>(); let observed = 0, endCensored = 0;
+const consumer = (async () => { const result = await settleMetricRead(pending.promise, lifetime); if (result.kind === 'end_censored') endCensored++; else observed++; })();
+pending.resolve({ status: 200 });
+assert.equal(lifetime.notifyResult(hash), true, 'RESULT closes before already-queued response continuation');
+parent.abort('private parent reason');
+await consumer;
+assert.equal(observed, 0); assert.equal(endCensored, 1, 'resolved-after-RESULT produces exactly one censor and no quantile');
+const deadline = new AbortController(), deadlineLife = createMetricReadLifetime({ matchBindingHash: hash, parentSignal: deadline.signal });
+const late = deferred<number>(), lateResult = settleMetricRead(late.promise, deadlineLife);
+late.resolve(1); deadline.abort();
+await assert.rejects(lateResult, error => error instanceof MetricReadParentAborted);
+assert.equal(deadlineLife.notifyResult(hash), false, 'late RESULT cannot rewrite parent deadline');
+const normalLife = createMetricReadLifetime({ matchBindingHash: hash, parentSignal: new AbortController().signal });
+assert.equal((await settleMetricRead(Promise.resolve(1), normalLife)).kind, 'response');
+assert.equal(normalLife.notifyResult(hash), false);
+const rejectedLife = createMetricReadLifetime({ matchBindingHash: hash, parentSignal: new AbortController().signal }), rejected = deferred<number>();
+const rejectedResult = settleMetricRead(rejected.promise, rejectedLife); rejected.reject(new Error('transport rejected')); rejectedLife.notifyResult(hash);
+assert.equal((await rejectedResult).kind, 'end_censored');
+console.log('Deferred resolved/rejected response races preserve first closure and never double-count quantiles');
