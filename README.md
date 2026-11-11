@@ -132,7 +132,7 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
-| `fighter.story_level_complete` with world `1` (first story enemy, Halloween 2008) | `tidebreaker_belt` |
+| `fighter.story_level_complete` with world `1` (defeat Halloween 2008 in Story, including replays) | `tidebreaker_belt` once per player |
 | `arcade.boss_defeated` with boss `bront` (god mode counts) | `breakwater_coin` |
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle, god mode counts) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter Wave Mode, god mode counts) | `dragon_scale` |

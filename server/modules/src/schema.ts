@@ -3574,7 +3574,7 @@ namespace HubSchema {
       ],
     },
     {
-      // The first Fighter story victory (Halloween 2008) grants the Belt immediately.
+      // Any Level 1 Fighter story clear (Halloween 2008) can grant the Belt immediately.
       // Keep the legacy world-1 event contract and existing live ownership. Old held
       // claims are discarded; a fresh qualifying victory grants through the live path.
       id: "0050_fighter_belt_live",

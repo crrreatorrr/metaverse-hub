@@ -160,7 +160,7 @@ function seedLiveShard(userId: string, sessionId: string): string {
 }
 
 export async function runHold(test: TestFn): Promise<void> {
-  await test('hold', '0050 second boot releases only the Belt and preserves existing ownership', async () => {
+  await test('hold', '0050 lets a third Level 1 clear grant the Belt and preserves existing ownership', async () => {
     const owned = await login('sproto-fighter');
     const waiting = await login('sproto-fighter');
     const shard = await login('peoples-bitcoin');
@@ -177,13 +177,17 @@ export async function runHold(test: TestFn): Promise<void> {
     try {
       // Restore the pre-0050 state, then let Nakama's real boot run the new migration.
       psql(`UPDATE game.event_rule SET grant_hold = true WHERE relic_id = 'tidebreaker_belt'`);
-      await call('session.event', {
-        eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-held',
-      }, waiting.gameToken);
+      for (const key of ['migration-first-win', 'migration-second-win']) {
+        const result = await call('session.event', {
+          eventId: 'fighter.story_level_complete', data: { world: 1 }, key,
+        }, waiting.gameToken);
+        assertNoop(result.body);
+      }
       assert.equal(pendingRelics(waiting.hub.userId, 'tidebreaker_belt'), 1);
     } finally {
       psql("DELETE FROM game.schema_migrations WHERE id = '0050_fighter_belt_live'");
       compose(['restart', 'nakama']);
+      compose(['up', '-d', '--no-recreate', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
       await waitReady();
     }
     assert.equal(pendingRelics(waiting.hub.userId, 'tidebreaker_belt'), 0);
@@ -194,9 +198,13 @@ export async function runHold(test: TestFn): Promise<void> {
       WHERE user_id = '${sqlId(shard.hub.userId)}' AND relic_id = 'genesis_shard'`), eventId);
     assert.equal(pendingRelics(pendingShard.hub.userId, 'genesis_shard'), 1);
     const granted = await call('session.event', {
-      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-fresh-win',
+      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-third-win',
     }, waiting.gameToken);
     assert.equal(granted.body.granted, 'tidebreaker_belt');
+    const replay = await call('session.event', {
+      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-fourth-win',
+    }, waiting.gameToken);
+    assertNoop(replay.body);
     assert.equal(relicClaims(waiting.hub.userId, 'tidebreaker_belt'), 1);
     assert.equal(mints(waiting.hub.userId, 'tidebreaker_belt'), 1);
   });
