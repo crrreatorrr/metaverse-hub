@@ -1,5 +1,5 @@
 import FOLLOWERS from '../../../server/data/follower-pets.json';
-import { createPetMotion, type PetCollision } from './core/pet-motion';
+import { createPetMotion, PET_SCALE, type PetCollision } from './core/pet-motion';
 import { createPetFollower, EQUIPPABLE_PET_IDS, type PetFollower } from './v2/pets';
 import type { RealmId } from './core/realm-id';
 // Remote plaza avatars for up to 100 players.
@@ -102,7 +102,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   root.add(far);
 
   // Two nearby followers get animated models; the rest share one instanced draw.
-  const petGeometry = new SphereGeometry(0.24, 6, 4);
+  const petGeometry = new SphereGeometry(0.24 * PET_SCALE, 6, 4);
   const petMaterial = new MeshStandardMaterial({ color: '#a8dcff', roughness: 0.8 });
   const farPets = new InstancedMesh(petGeometry, petMaterial, FAR_CAPACITY);
   farPets.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -278,7 +278,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
             if (!motion) { motion = createPetMotion(opts.petCollision); petMotions.set(slot, motion); }
             motion.setFollowSpeed(PET_SPEEDS.get(p.pet) ?? 8);
             motion.update(dt, v, STAND_Y);
-            v.copy(motion.position).y += 0.28 + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04;
+            v.copy(motion.position).y += (0.28 + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04) * PET_SCALE;
             q.identity();
             m.compose(v, q, s);
             farPets.setMatrixAt(petCount++, m);

@@ -1,5 +1,9 @@
 import { Vector3, type Box3, type Matrix4 } from 'three';
 
+/** Uniform display scale relative to the authored pet models and catalog sizes. */
+export const PET_SCALE = 2;
+const FOLLOW_DISTANCE = 1.5 * PET_SCALE;
+
 export interface PetCollision {
   (position: Vector3): void;
   blocked?(bounds: Box3, transform: Matrix4): boolean;
@@ -28,7 +32,7 @@ export function createPetMotion(collide?: PetCollision, followSpeed = 8) {
       delta.subVectors(player, lastPlayer).setY(0);
       if (placed && delta.lengthSq() > 1e-8 && delta.lengthSq() < 4) heading.copy(delta).normalize();
       lastPlayer.copy(player);
-      target.set(player.x - heading.x * 1.5, player.y - standY, player.z - heading.z * 1.5);
+      target.set(player.x - heading.x * FOLLOW_DISTANCE, player.y - standY, player.z - heading.z * FOLLOW_DISTANCE);
       const snap = !placed || position.distanceToSquared(target) > 100 || Math.abs(position.y - target.y) > 4;
       if (snap) {
         // Long companions start at the trail position. The view validates their complete animated hull.

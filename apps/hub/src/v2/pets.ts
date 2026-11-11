@@ -4,7 +4,7 @@ import {
 } from 'three';
 import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { WORLD_ROOT, loadGLTF } from './core';
-import { createPetMotion, type PetCollision } from '../core/pet-motion';
+import { createPetMotion, PET_SCALE, type PetCollision } from '../core/pet-motion';
 import FOLLOWERS from '../../../../server/data/follower-pets.json';
 import PETS_DATA from './pets.json';
 import CLEARANCE from './pet-clearance.json';
@@ -38,12 +38,12 @@ const IDLE_TRICKS = ['idle_trick', 'idle_trick_2'] as const;
 const FADE = 0.2;
 const ONCE = new Set(['sit_enter', 'spawn_poof', 'emote_happy', ...IDLE_TRICKS]);
 /**
- * Follow clips play at 1x at the avatar's jog (follow_walk) and dash (follow_run) and scale with the pet's
- * real speed, so legs slow down as the follower settles instead of paddling at full rate. Run starts above
+ * Follow clips scale with the pet's real speed and displayed stride length, so legs slow down as the
+ * follower settles instead of paddling at full rate. Run starts above
  * RUN_ENTER m/s and ends below RUN_EXIT, from the pet's own speed (it lags the avatar).
  */
-const WALK_REF = 7.8;
-const RUN_REF = 16;
+const WALK_REF = 7.8 * PET_SCALE;
+const RUN_REF = 16 * PET_SCALE;
 const RUN_ENTER = 11;
 const RUN_EXIT = 9;
 const RATE_MIN = 0.45;
@@ -108,6 +108,7 @@ export interface PetFollower {
 export function createPetFollower(parent: Object3D, collide?: PetCollision): PetFollower {
   const group = new LOD();
   group.name = 'hub-pet';
+  group.scale.setScalar(PET_SCALE);
   group.visible = false;
   parent.add(group);
   let active: string | null = null;
@@ -190,11 +191,11 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
   function fits(clip: string, ignoreOwner = false): boolean {
     const extent = clearance(clip);
     if (!extent) return true;
-    bounds.min.set(extent[0], extent[1], extent[2]);
-    bounds.max.set(extent[3], extent[4], extent[5]);
+    bounds.min.set(extent[0], extent[1], extent[2]).multiplyScalar(PET_SCALE);
+    bounds.max.set(extent[3], extent[4], extent[5]).multiplyScalar(PET_SCALE);
     if (active === DEFAULT_PET_ID && !ignoreOwner) {
       const gap = Math.hypot(transform.elements[12] - ownerPosition.x, transform.elements[14] - ownerPosition.z);
-      if (gap < 1.05) return false;
+      if (gap < 1.05 * PET_SCALE) return false;
     }
     return !collide?.blocked?.(bounds, transform);
   }
@@ -204,7 +205,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     const from = hasSafePose ? group.position : motion.position;
     for (const offset of BULL_SIDESTEPS) {
       const angle = motion.headingYaw + offset;
-      sideSpot.set(ownerPosition.x + Math.sin(angle) * 1.25, motion.position.y, ownerPosition.z + Math.cos(angle) * 1.25);
+      sideSpot.set(ownerPosition.x + Math.sin(angle) * 1.25 * PET_SCALE, motion.position.y, ownerPosition.z + Math.cos(angle) * 1.25 * PET_SCALE);
       let clear = true;
       const steps = Math.max(1, Math.ceil(from.distanceTo(sideSpot) / 0.2));
       for (let step = 1; step <= steps; step += 1) {
@@ -223,8 +224,8 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
     beam.updateWorldMatrix(true, false);
     beamOrigin.setFromMatrixPosition(beam.matrixWorld);
     beamDirection.set(0, 1, 0).transformDirection(beam.matrixWorld);
-    // The authored peak beam is two metres, including the hub model scale.
-    const length = 2 * beam.scale.y;
+    // The authored peak beam is two metres before the uniform display scale.
+    const length = 2 * PET_SCALE * beam.scale.y;
     beam.scale.y *= collide.beamRange(beamOrigin, beamDirection, length) / length;
   }
 

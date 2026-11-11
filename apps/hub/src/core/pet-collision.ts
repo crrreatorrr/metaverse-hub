@@ -1,6 +1,6 @@
 import { Box3, DoubleSide, Line3, Ray, Vector3 } from 'three';
 import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from 'three-mesh-bvh';
-import type { PetCollision } from './pet-motion';
+import { PET_SCALE, type PetCollision } from './pet-motion';
 
 /** Small capsule against the realm's existing BVH, with reusable shapecast callbacks. */
 export function createPetCollision(bvh: MeshBVH): PetCollision {
@@ -8,7 +8,7 @@ export function createPetCollision(bvh: MeshBVH): PetCollision {
   const bounds = new Box3();
   const surface = new Vector3();
   const point = new Vector3();
-  const radius = 0.25;
+  const radius = 0.25 * PET_SCALE;
   const callbacks: Parameters<MeshBVH['shapecast']>[0] = {
     intersectsBounds: box => box.intersectsBox(bounds) ? INTERSECTED : NOT_INTERSECTED,
     intersectsTriangle: tri => {
@@ -24,7 +24,7 @@ export function createPetCollision(bvh: MeshBVH): PetCollision {
   const ray = new Ray();
   const resolve: PetCollision = position => {
     segment.start.set(position.x, position.y + radius + 0.01, position.z);
-    segment.end.copy(segment.start).y += 0.15;
+    segment.end.copy(segment.start).y += 0.15 * PET_SCALE;
     bounds.makeEmpty().expandByPoint(segment.start).expandByPoint(segment.end).expandByScalar(radius);
     bvh.shapecast(callbacks);
     position.set(segment.start.x, segment.start.y - radius - 0.01, segment.start.z);
