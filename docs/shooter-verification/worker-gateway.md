@@ -151,3 +151,12 @@ still trigger Nakama's own argument logging. Production activation therefore
 requires approved runtime argument-redaction/log-access controls and a separate
 connection-fault review; this PR installs none and makes no unconditional private
 snapshot-log secrecy claim. SQL-only catching is not a cure for driver logging.
+
+Exact upstream evidence: Nakama3.41 commit
+[`cab8af584947ff0d7ebee91d6c33e67d87fd3e47`](https://github.com/heroiclabs/nakama/blob/cab8af584947ff0d7ebee91d6c33e67d87fd3e47/server/runtime_javascript_nakama.go#L764)
+logs `query`, `args` and error in the SQL adapter;
+[config.go:904](https://github.com/heroiclabs/nakama/blob/cab8af584947ff0d7ebee91d6c33e67d87fd3e47/server/config.go#L904)
+sets the256KiB request default. PR19 must provide and fault-test a concrete
+runtime/logging profile that redacts private arguments before raw logs are
+persisted, including connection loss/cancellation; successful SQL catch tests
+alone do not clear that activation gate.
