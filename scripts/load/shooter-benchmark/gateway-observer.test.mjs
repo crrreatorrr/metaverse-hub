@@ -10,13 +10,13 @@ function fixture(request, fetch) {
 }
 test('delegation preserves arguments, returned identity and unread response body; private fields never enter metadata', async () => {
   const body = { token: 'PRIVATE-BODY', privateCheckpoint: { secret: 'PRIVATE-CP' } }, id = 'PRIVATE-RID', dto = { state: 'verified', reason: null, token: 'PRIVATE-RETURN' };
-  let requestThis, fetchThis, forwarded;
-  const target = { fetch: async function (...args) { fetchThis = this;forwarded = args;return { status: 200, get body() { throw new Error('observer must never read response body'); } }; } };
-  const prototype = { async request(...args) { requestThis = this;assert.deepEqual(args, ['result', body, id]);await target.fetch('https://PRIVATE-URL', { headers: { Authorization: 'PRIVATE-AUTH' }, body: 'PRIVATE-WIRE' });return dto; } };
+  let requestThisPreserved = false, fetchThisPreserved = false, forwarded;
+  const target = { fetch: async function (...args) { fetchThisPreserved = this === target;forwarded = args;return { status: 200, get body() { throw new Error('observer must never read response body'); } }; } };
+  const prototype = { async request(...args) { requestThisPreserved = this === prototype;assert.deepEqual(args, ['result', body, id]);await target.fetch('https://PRIVATE-URL', { headers: { Authorization: 'PRIVATE-AUTH' }, body: 'PRIVATE-WIRE' });return dto; } };
   const originalRequest = prototype.request, originalFetch = target.fetch, metrics = { snapshot() { return { uptimeMs: 3 }; } }, originalSnapshot = metrics.snapshot;
   const observer = installGatewayObserver({ gatewayPrototype: prototype, metricsPrototype: metrics, fetchTarget: target });
   try {
-    assert.equal(await prototype.request('result', body, id), dto);assert.equal(requestThis, prototype);assert.equal(fetchThis, target);
+    assert.equal(await prototype.request('result', body, id), dto);assert.equal(requestThisPreserved, true);assert.equal(fetchThisPreserved, true);
     assert.equal(forwarded[0], 'https://PRIVATE-URL');assert.equal(forwarded[1].body, 'PRIVATE-WIRE');
     const snapshot = metrics.snapshot();assert.equal(snapshot.uptimeMs, 3);
     const row = snapshot.gatewayDiagnostics.recent[0];assert.equal(row.operation, 'result');assert.equal(row.httpStatus, 200);assert.equal(row.fetchPhase, 'headers_received');assert.equal(row.state, 'verified');
