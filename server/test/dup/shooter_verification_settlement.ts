@@ -318,4 +318,69 @@ export async function runShooterVerificationSettlement(test: TestFn): Promise<vo
     assert.equal(num("SELECT count(*) FROM pg_stat_activity WHERE application_name='pay-wallet-isolation' AND wait_event='PgSleep'"), 1, 'other claim completed while the wallet remained blocked');
     await paying; await holder; assert.equal(credits(f), 1);
   });
+  await test('shooter-payments', 'simulated midnight while real cap rows are locked reacquires the new UTC bucket before one fixed credit', async () => {
+    isolate(); const f = await fixture(); enable();
+    const clockDefinition = psql("SELECT pg_get_functiondef('game.shooter_verification_payment_now()'::regprocedure)");
+    const clockSource = psql("SELECT prosrc FROM pg_proc WHERE oid='game.shooter_verification_payment_now()'::regprocedure");
+    assert.equal(clockSource.trim(), 'SELECT clock_timestamp()', 'real production clock before the disposable fixture');
+    const a = psql("SELECT (((clock_timestamp() AT TIME ZONE 'UTC')::date+1)+time '23:59:59') AT TIME ZONE 'UTC'");
+    const b = psql(`SELECT '${a}'::timestamptz+interval '2 seconds'`);
+    const dayA = psql(`SELECT ('${a}'::timestamptz AT TIME ZONE 'UTC')::date::text`);
+    const dayB = psql(`SELECT ('${b}'::timestamptz AT TIME ZONE 'UTC')::date::text`);
+    const user = f.login.hub.userId;
+    const holders: Promise<string>[] = [];
+    let paying: Promise<string> | null = null, fixtureCreated = false;
+    async function blockedBy(name: string): Promise<void> {
+      const deadline = Date.now() + 5000;
+      while (num(`SELECT count(*) FROM pg_stat_activity waiter JOIN pg_stat_activity holder ON holder.pid=ANY(pg_blocking_pids(waiter.pid))
+        WHERE waiter.application_name='pay-utc-controlled' AND holder.application_name='${name}'`) === 0) {
+        assert.ok(Date.now() < deadline, `payment waits for ${name}`); await sleep(20);
+      }
+    }
+    function holder(name: string, day: string): Promise<string> {
+      return psqlAsync(`SET application_name='${name}'; BEGIN;
+        SELECT 1 FROM game.earn_window WHERE user_id='${user}' AND bucket='tickets:sproto-shooter' AND day='${day}' FOR UPDATE;
+        DO $barrier$ DECLARE expires_at timestamptz:=clock_timestamp()+interval '15 seconds'; BEGIN LOOP
+          EXIT WHEN (SELECT released FROM game.test_payment_barrier WHERE name='${name}');
+          IF clock_timestamp()>expires_at THEN RAISE EXCEPTION 'payment_barrier_timeout'; END IF;
+          PERFORM pg_sleep(0.02);
+        END LOOP; END; $barrier$; COMMIT;`);
+    }
+    try {
+      psql(`CREATE TABLE game.test_payment_clock(singleton boolean PRIMARY KEY,t timestamptz NOT NULL);
+        CREATE TABLE game.test_payment_barrier(name text PRIMARY KEY,released boolean NOT NULL DEFAULT false);
+        INSERT INTO game.test_payment_clock VALUES(true,'${a}');
+        INSERT INTO game.test_payment_barrier(name) VALUES('pay-utc-A'),('pay-utc-B');
+        CREATE OR REPLACE FUNCTION game.shooter_verification_payment_now() RETURNS timestamptz LANGUAGE sql VOLATILE
+          AS $fixture$SELECT t FROM game.test_payment_clock WHERE singleton$fixture$;
+        UPDATE game.game_session SET lease_until='${b}'::timestamptz+interval '1 hour' WHERE session_id='${f.login.sessionId}';
+        UPDATE game.shooter_verification_principal SET expires_at='${b}'::timestamptz+interval '1 hour' WHERE worker_id='${f.worker.workerId}';
+        INSERT INTO game.tickets_balance(user_id,game_id,balance) VALUES('${user}','sproto-shooter',1000) ON CONFLICT(user_id,game_id) DO UPDATE SET balance=1000;
+        INSERT INTO game.tickets_ledger(event_id,user_id,game_id,delta,balance_after,reason,ref_id,kind,created_at)
+          VALUES(gen_random_uuid(),'${user}','sproto-shooter',1000,1000,'seed_utc','${randomUUID()}','earn','${a}'::timestamptz-interval '1 minute');
+        INSERT INTO game.idempotency(user_id,key,rpc,req_hash,response,created_at)
+          VALUES('${user}','seed-utc','tickets.earn',decode(repeat('b',64),'hex'),'{"balance":1000}','${a}'::timestamptz-interval '1 minute');
+        INSERT INTO game.earn_window(user_id,bucket,day,amount) VALUES('${user}','tickets:sproto-shooter','${dayA}',1000),('${user}','tickets:sproto-shooter','${dayB}',0)`);
+      fixtureCreated = true;
+      holders.push(holder('pay-utc-A', dayA), holder('pay-utc-B', dayB));
+      await waitSleep('pay-utc-A'); await waitSleep('pay-utc-B');
+      paying = psqlAsync(`SET application_name='pay-utc-controlled'; SELECT game.settle_shooter_verified_result('${f.worker.login.userId}','${f.worker.workerId}','${f.worker.keyId}','${f.worker.hash}','${f.last.requestId}')::text`);
+      await blockedBy('pay-utc-A');
+      psql(`UPDATE game.test_payment_clock SET t='${b}'; UPDATE game.test_payment_barrier SET released=true WHERE name='pay-utc-A'`);
+      await holders[0]; await blockedBy('pay-utc-B');
+      assert.equal(credits(f), 0, 'new-day cap lock is held before any credit');
+      psql("UPDATE game.test_payment_barrier SET released=true WHERE name='pay-utc-B'");
+      const result = obj(JSON.parse(await paying)); await holders[1];
+      assert.equal(result.paid, true); assert.equal(credits(f), 1); assert.equal(receipt(f)?.tickets, 20);
+      assert.equal(num(`SELECT amount FROM game.earn_window WHERE user_id='${user}' AND bucket='tickets:sproto-shooter' AND day='${dayA}'`), 1000, 'old day charged nothing');
+      assert.equal(num(`SELECT amount FROM game.earn_window WHERE user_id='${user}' AND bucket='tickets:sproto-shooter' AND day='${dayB}'`), 20, 'new day charged fixed20');
+      assert.equal(psql(`SELECT (created_at AT TIME ZONE 'UTC')::date::text FROM game.tickets_ledger WHERE user_id='${user}' AND reason='srv_shooter_boss_clear'`), dayB);
+    } finally {
+      if (fixtureCreated) psql('UPDATE game.test_payment_barrier SET released=true');
+      await Promise.allSettled([...holders, ...(paying ? [paying] : [])]);
+      psql(clockDefinition);
+      assert.equal(psql("SELECT prosrc FROM pg_proc WHERE oid='game.shooter_verification_payment_now()'::regprocedure"), clockSource, 'restore exact real-clock provider');
+      if (fixtureCreated) psql('DROP TABLE game.test_payment_clock,game.test_payment_barrier');
+    }
+  });
 }

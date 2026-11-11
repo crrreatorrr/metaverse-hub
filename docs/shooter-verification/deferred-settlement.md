@@ -38,6 +38,10 @@ response delivery happens before expiry. Denial rolls back even zero wallet/cap,
 ranking-placeholder and idempotency initialization; no financial rows change.
 The actual post-lock UTC day selects the shared cap bucket; a bounded retry locks
 the actual bucket if midnight passes during preparation.
+The private zero-argument `shooter_verification_payment_now()` is SQL VOLATILE
+and defaults exactly to `SELECT clock_timestamp()`. It accepts no caller time,
+environment/configuration override or table value. Ledger/receipt/idempotency
+timestamps use the same final post-lock settlement timestamp.
 
 Payment does not retain the global gateway scheduling lock while waiting for one
 account's wallet. It rechecks gateway enablement at its final authorization
@@ -85,7 +89,14 @@ Broccoli clears exercise duplicate workers, response loss after checkpoint or
 payment commit, wallet rollback, original-session queue/lock expiry, session close,
 current service-key rotation, cap races and stable receipts. Assisted/failure
 traces receive zero. A historical issuance-day fixture checks the issuance versus
-current settlement bucket split; it does not claim to advance real wall time.
+current settlement bucket split. A separate disposable PostgreSQL test temporarily
+replaces the private clock function, holds the A-day cap row at simulated
+23:59:59, advances to B-day 00:00:01, then proves the payment waits for B's cap row
+after A releases. Exactly one fixed credit charges B, with no additional A usage.
+Both sessions/principals stay live in that model. Finally it releases both holder
+transactions, restores the exact real-clock function and drops fixture tables.
+This exercises real SQL locks with simulated wall-clock values, not physical
+midnight. The simulator/verifier clock and execution budgets are unchanged.
 Existing fault points are inert without the CI-only runtime environment and armed
 database rows. Unit tests check bounded logging and receipt-derived payment target
 arguments. No local implementation tests or builds run.
