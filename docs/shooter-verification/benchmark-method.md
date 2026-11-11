@@ -1,0 +1,64 @@
+# PR20 benchmark tooling design (review draft)
+
+Status: design only, 2026-11-11. No benchmark, local test, deployment, infrastructure purchase, or production traffic is authorized or performed. Parent owns merges. Implementation starts in a new standalone clone/branch after design approval and PR18/19 interfaces stabilize; PR155 remains untouched. All executable verification goes through GitHub Actions.
+
+## Purpose and boundary with PR21
+
+Deliver `scripts/load/shooter-campaign-verification.ts`, a versioned JSON result schema, bounded fixture/observer helpers and `docs/shooter-verification/benchmark-method.md`. A reproducible workload can include failures; harness correctness does not imply workload capacity. CI output must say `ci_advisory`, have `productionCapacityConclusion: null`, and cannot select production concurrency, admission, slice or hosting limits. PR21 requires separately authorized measurements on the intended host and verified region, correctness evidence, an approved hosting proposal, and an explicit browser-provenance decision. Remote execution and paid hosts remain unavailable gates, not features silently exercised by CI.
+
+## Independent cohorts and corpus
+
+Each scenario creates a fresh cohort of exactly 20 separately authenticated users, 20 original game sessions and 20 run IDs. A validator rejects duplicate account/session/run binding hashes. Each mode/repetition uses new identities so prior boss/day credits and caps do not contaminate comparisons. A repeated input trace is allowed only as an explicitly assigned case on a fresh binding; cloning one run/receipt 20 times is forbidden.
+
+Profile A is a trusted-fixture protocol load: all 12 frozen PR18 corpus cases, plus eight predeclared assignments balancing bosses, seeds and trace lengths. It includes all five bosses, seeds 7/11, full 9634-frame Sahil and full 24000-frame Obama, and explicit failed/assisted cases. Abandonment is a separately labelled planned stop of a real independently issued run. Fixture byte hashes, input hashes, counts and source identities are pinned from PR18; expected v2 outcomes are not inferred from fixture filenames. All frames traverse actual Nakama ingress, PR19 coordinator, credential-free verifier and checkpoint gateway. CI-only SQL preselects issuance seeds and ages legitimate fixture timing for synchronized bursts; it is explicitly labelled `trusted_fixture_time_aged`, is absent from production code and does not introduce a public seed or clock override. No outcome/state/health mutation, reroll, shortened hard trace or reward shortcut is allowed.
+
+Profile B is ordinary public timing: 20 actual Game browser contexts with independent authenticated identities, real public issuance (server-random seeds), canonical DOM recording/upload/finish/recovery controller and real-time input pacing. The bot only supplies legal input; it cannot import state, call `_sweep`, alter health, select/reroll seeds or bypass upload timing. PR18's actual-UI 9634-frame clear supplies pinned long UI coverage; arbitrary emulator traces are not claimed to be browser-identical. A protocol-only actor has no client-frame sample. Software-rendered CI browser metrics are advisory and identify renderer/hardware. Neither profile may be described as the other.
+
+A separate background cohort drives normal Hub movement and free PvP matches with real SDK/WebSockets. Proposed reference load: 20 Hub users and 10 two-seat free PvP matches, all additional identities (a Shooter session must not be displaced by another game session). Counts/cadence are explicit configuration, not operating recommendations. No wagers, funding, broad public HTTP key, server restart or hidden acceptance-script side effects are used. Existing top-level load scripts cannot simply be imported; extract narrow side-effect-free adapters or implement equivalent bounded clients. Traffic RNG and schedules are seeded and recorded.
+
+## Engine/placement comparisons
+
+1. Actual existing legacy full replay uses ordinary v1 issuance and the actual legacy submit RPC; v2 legacy bypass guards remain intact. Preserve its existing 15-second cap. Timeout/budget exhaustion remains an observed failure with full-case identity; never remove the 24000-frame case or count failure as useful throughput.
+2. Segmented Goja is available only where the approved artifact and checkpoint contract are actually supported. A fixed benchmark-only adapter can exercise the same fenced gateway outside Nakama; do not add a production fallback, arbitrary engine selector or user-controlled executable path. Unsupported cases are reported as unsupported, never replaced by easier cases.
+3. Same-host bounded V8 uses actual PR19 coordinator/offline-daemon containers and resource fences. Verifier receives no DB/wallet credentials, JWT, HTTP key or outbound network access.
+4. Remote isolated worker is gated on separate authorization and intended same-region host evidence. Coordinator and offline Unix-socket daemon remain colocated; no network-exposed replay daemon. No remote endpoint/default credentials are included now.
+
+Record exact approved source/artifact hashes for each mode. Legacy current vendor and retained v2 artifact may differ: disclose identities and semantic comparison evidence rather than calling them byte-identical. Architectural differences (full replay in Nakama versus checkpoint worker) prevent attributing all deltas solely to Goja versus V8.
+
+## Bounded schedules
+
+A manifest fixes actor assignments, input corpus, concurrency, arrival times, traffic seed, upload cadence, retries, repetitions and hard stop before execution. Validate total actors, duration, queued bytes, sockets and retry budget. Default CLI behavior emits a plan; actual execution requires an explicit ephemeral-CI profile. Non-CI target/remote execution remains disabled until an authorized target profile is separately reviewed.
+
+Run background-only baselines before and after candidates. Use predeclared balanced mode order and repeated fresh cohorts. Record cold process start separately from warm worker reuse; do not claim cold OS/page caches without measuring/resetting them. Phases include normal pacing, an explicit final-batch/finish barrier, synchronized upload burst, deterministic reconnect and lost-response retry storm (same exact request ID/body), and sustained fixed-arrival waves of fresh 20-actor cohorts. Waves/duration/bytes have hard maxima; drain is bounded and remaining actors are censored rather than deleted. Queue time series and arrival/completion counts must expose growth even when individual requests succeed. No timeout increase, trace truncation or selective restart makes a failing mode green.
+
+The first CI lane validates contracts and one complete bounded fixture cohort. Full public-paced and sustained profiles preserve their full durations even if impractical for a short CI lane; skipped execution is explicit. CI cannot replace deployment-equivalent measurements. On authorized target hardware, separate load-generator resources from SUT when possible; disclose colocation otherwise and never count load-generator CPU as verifier CPU.
+
+## Observation and machine-readable results
+
+Raw event records contain pseudonymous binding hashes, source case, phase, monotonic timestamp, engine/role, operation, request hash, outcome/raw reason and duration. Never serialize credentials, JWTs, session tokens, raw input/CP bodies or Nakama SQL arguments. A bounded JSONL event stream plus final JSON summary preserves failures and censored work. Every actor has a terminal harness accounting status, including not-started, abandoned, timed-out, unsupported and still-pending.
+
+Capture CPU user/system seconds or cgroup cpu.stat deltas separately from wall time and RPC latency. Capture queue depth/oldest age/arrival/completion deltas from PR19 bounded approximate metrics, marking approximation/truncation and sample lag. Capture process RSS and cgroup current/peak memory with separate definitions; CPU quota/throttle events, PIDs and OOM/restarts. GC duration/count is null with an unavailability reason unless a real runtime observer provides it; never substitute wall pauses. SQL server durations are distinct from client-observed DB/RPC RTT and null when unobserved. Capture CP UTF-8 JSON bytes, storage bytes and wire bytes separately where available, with observer/source. Capture uploaded bytes/retries, checkpoint work, result and payment retry counts, first durable terminal time, receipt time, eligible reward delay, browser frame quantiles and actual PvP match tick quantiles. Record actual observer identity/version and clock domain; cross-machine timing needs measured skew or server timestamps, not subtraction of unrelated monotonic clocks.
+
+Summaries report denominators and raw reason counts. Business fail, assisted, abandoned/incomplete, authentication denial and operational capacity/timeout failure remain distinct. Throughput has attempted, durably verified, payable and paid numerators; failures never become successful throughput. Reward latency includes eligible unpaid/censored counts beside observed paid quantiles; a low paid p95 with many pending actors cannot imply a healthy service. Quantiles record sample count/method and retain raw bounded samples or JSONL references.
+
+Result provenance includes benchmark/schema version, git SHAs and dirty status, retained/current artifact SHA, corpus manifest/hash and case assignment hash, image digests, approved verifier version, Node/Go/Goja/Nakama/Postgres/browser versions, worker limits/config hash and exact schedule. For each host role record actual OS/kernel/CPU model/vCPU/cpuset/quota/memory/cgroup/PID limits and load-generator placement. Region is null unless verified with cited evidence; do not guess from IP. Host/container telemetry availability is explicit. Capture software browser renderer and device characteristics. Configuration is data, not an automatic recommendation.
+
+## Verification and dependencies
+
+Need stable PR18 helpers for corpus, ordinary browser bot, authenticated issuance/finish and known long UI lane. Need stable PR19 Compose/container profile, coordinator startup/readiness, bounded safe metrics and proof-repair lifecycle. PR17 retention/backup and all existing economic tests remain prerequisites, not benchmark shortcuts. PR19 payment repair must operate after terminal ACK without retaining the full result body; benchmark counts pending repairs and never invents a pay RPC.
+
+Meaningful CI checks: schema rejects duplicate bindings, missing source identity, unlabelled fixture timing, false successful throughput, absent censored actors and CI capacity claims; fixture assignment contains all cases and exact long counts; schedule is reproducible and bounded; actual ephemeral Nakama/19 full 20-actor burst produces independently bound receipts/statuses, logs no secrets, records errors honestly and exits nonzero on harness corruption; at least one lost-response retry verifies same-body/RID recovery rather than duplicate runs. Integration must retain normal Hub/PvP observers. Unit tests cannot replace the actual pipeline. Standard repository checks and independent review run in GitHub Actions only.
+
+## Open implementation seams (not user approval questions)
+
+- Final PR18 browser signals and corpus helper export paths.
+- Final PR19 container service names/socket/readiness and safe aggregate DTO.
+- Whether supported segmented Goja can use the already pinned Go runtime harness without exposing production selection; report unsupported until implemented and independently reviewed.
+- CI budget for full 20-fixture lane plus background traffic; preserve trace/caps regardless of lane allocation.
+- Raw SQL/GC observer availability; schema deliberately permits null with a reason instead of fabricating metrics.
+
+External PR21 gates remain intended host/region, separately authorized target benchmark, hosting approval and browser-provenance acceptance. PR20 tooling can merge without claiming those gates have passed.
+
+## Implementation draft status
+
+The current draft provides bounded schedule construction, actor binding/accounting invariants, an injectable pipeline adapter contract, sustained overlapping wave scheduling, safe metrics/host observation interfaces and contract CI. It does **not yet execute the actual Nakama/PR19 20-actor pipeline**, actual browser profile, legacy/segmented adapters, or normal Hub/PvP observers. It cannot be described as a complete harness. The CLI currently emits a plan only and refuses execution flags. The final actual-pipeline lane is required before PR20 acceptance; synthetic adapter tests establish scheduling/accounting only. PR18/19 interfaces are being coordinated before integration. No measurements or operating limits are published.

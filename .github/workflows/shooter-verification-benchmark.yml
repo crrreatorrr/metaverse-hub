@@ -1,0 +1,29 @@
+name: shooter-verification-benchmark-tooling
+on:
+  pull_request:
+    paths:
+      - scripts/load/shooter-campaign-verification.ts
+      - scripts/load/shooter-benchmark/**
+      - docs/shooter-verification/benchmark-method.md
+      - .github/workflows/shooter-verification-benchmark.yml
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Type-check benchmark tooling
+        run: npx tsc -p scripts/load/shooter-benchmark/tsconfig.json --noEmit
+      - name: Validate bounded scheduling and honest accounting
+        run: npx tsx scripts/load/shooter-benchmark/contracts.test.ts
+      - name: Lint benchmark tooling
+        run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark
