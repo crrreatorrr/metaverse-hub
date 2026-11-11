@@ -44,7 +44,8 @@ export class GatewayClient {
         if (bytes > LIMIT) { await reader.cancel(); return operational('response_oversized'); }
         chunks.push(Buffer.from(value));
       }
-      return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      const parsed=JSON.parse(Buffer.concat(chunks).toString('utf8'));
+      return parsed&&typeof parsed==='object'&&!Array.isArray(parsed)?parsed:operational('bad_gateway_response');
     } catch { return operational('gateway_unavailable'); }
   }
   pending(cursor=null) {return this.request('pending',cursor||{});}
@@ -61,7 +62,7 @@ export class GatewayClient {
     // A stored claim acknowledgment is historical. Recheck its exact live fence
     // before executing; never silently substitute another job/current checkpoint.
     const live = await this.renew(ack.claim);
-    if (live.state !== 'leased' || (!Number.isFinite(Date.parse(live.leaseUntil)) || Date.parse(live.leaseUntil) <= Date.now())) return operational('stale_claim');
+    if (live.state !== 'leased' || typeof live.leaseUntil!=='string' || (!Number.isFinite(Date.parse(live.leaseUntil)) || Date.parse(live.leaseUntil) <= Date.now())) return operational('stale_claim');
     onLease(live);
     const w = ack.work;
     let checkpoint = w.checkpoint;

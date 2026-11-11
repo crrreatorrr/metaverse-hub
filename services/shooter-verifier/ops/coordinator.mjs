@@ -38,7 +38,7 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
     if(ack.state!=='leased'){
       const durable=await proof('claim',record.claimRequestId,{});if(durable)clear();else metrics.add('rpcFailures');return;
     }
-    if(ack.workState!=='ready'||!ack.work){
+    if(ack.workState!=='ready'||!ack.work||typeof ack.work!=='object'||!ack.claim||typeof ack.claim!=='object'){
       if(ack.workState==='stale')clear();else metrics.add('rpcFailures');return;
     }
     if(!sameManifest(ack.work.manifest)){metrics.add('artifactMismatches');blocked=true;return;}
@@ -62,7 +62,7 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
   async function observe(){
     const now=Date.now();if(now-lastMaintenance>=60000){lastMaintenance=now;await gateway.maintenance();}
     if(now-lastOps>=pollMs){lastOps=now;offline=await replay.health();metrics.observeGateway(await gateway.ops());}
-    if(now-lastRepair>=pollMs){lastRepair=now;const pending=await gateway.pending(paymentCursor);if(pending.state==='pending_proofs'&&Array.isArray(pending.references)){let attempted=0;for(const reference of pending.references.slice(0,4)){if(stopping)break;const value=await gateway.repair(reference.resultRequestId,reference.requestSha256);attempted++;metrics.add('paymentRepairs');if(value.paid===true)metrics.add('paidObservations');if(['authorization_denied','ineligible'].includes(value.state))metrics.add('paymentDenials');if(typeof reference.createdAt==='string')paymentCursor={afterCreatedAt:reference.createdAt,afterRequestId:reference.resultRequestId};}if(attempted===pending.references.length&&!pending.truncated)paymentCursor=null;}}
+    if(now-lastRepair>=pollMs){lastRepair=now;const pending=await gateway.pending(paymentCursor);if(pending.state==='pending_proofs'&&Array.isArray(pending.references)){let attempted=0;for(const reference of pending.references.slice(0,4)){if(stopping)break;if(!reference||typeof reference.resultRequestId!=='string'||!/^[A-Za-z0-9_.:@|-]{1,80}$/.test(reference.resultRequestId)||typeof reference.requestSha256!=='string'||!/^[0-9a-f]{64}$/.test(reference.requestSha256)){metrics.add('rpcFailures');continue;}const value=await gateway.repair(reference.resultRequestId,reference.requestSha256);attempted++;metrics.add('paymentRepairs');if(value.paid===true)metrics.add('paidObservations');if(['authorization_denied','ineligible'].includes(value.state))metrics.add('paymentDenials');if(typeof reference.createdAt==='string')paymentCursor={afterCreatedAt:reference.createdAt,afterRequestId:reference.resultRequestId};}if(attempted===pending.references.length&&!pending.truncated)paymentCursor=null;}}
   }
   const loop=(async()=>{process.stdout.write(safeEvent('coordinator_started'));while(!stopping){try{await observe();if(!blocked){inFlight=true;try{await work();}finally{inFlight=false;}}}catch{blocked=true;process.stdout.write(safeEvent('coordinator_quarantined',{reason:'journal'}));}if(!stopping)await delay(pollMs);}process.stdout.write(safeEvent('coordinator_stopped'));})();
   async function close(){stopping=true;await loop;await new Promise(resolve=>server.close(resolve));}

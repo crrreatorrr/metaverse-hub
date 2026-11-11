@@ -78,3 +78,13 @@ against an unfiltered production runtime. See the filtered profile and its actua
 Actions driver-fault proof; deployment review must preserve stdout/stderr piping,
 file-log refusal and whole-line filtering before any log persistence. Existing
 production deploy files are intentionally unchanged.
+
+`compose.ci.yml` is the disposable integration overlay after
+`server/docker-compose.yml`. It requires an explicit absolute
+`SHOOTER_OPS_CI_DIRECTORY` and the profile. Its coordinator shares only Nakama's
+network namespace and uses literal loopback HTTP; replay still has network none.
+The fixture author must create socket/journal directories0700 ownedUID1000 and
+credential JSON0600 before starting, then remove the disposable volumes privately.
+Health9476 remains loopback and can be sampled through a fixed bounded Node
+reader via Docker exec. Never print the credential file or journal. Applying this
+CI overlay does not authorize an equivalent production cleartext route.

@@ -15,7 +15,8 @@ export class UnixReplayClient {
       const timer=setTimeout(()=>finish(operational('ipc_timeout')),this.timeout);
       const reader=new FrameReader(value=>{
         if(!exact(value,['v','id','result','metrics'])||value.v!==1||!ipcId(value.id)||value.id!==id){finish(operational('ipc_protocol_failure'));return;}
-        this.onMetrics(value.metrics);finish(value.result);
+        if(!value.result||typeof value.result!=='object'||Array.isArray(value.result)){finish(operational('ipc_protocol_failure'));return;}
+        try{this.onMetrics(value.metrics);}catch{finish(operational('ipc_protocol_failure'));return;}finish(value.result);
       },()=>finish(operational('ipc_protocol_failure')));
       socket.on('connect',()=>socket.write(frame));socket.on('data',c=>reader.push(c));socket.on('end',()=>reader.end());
       socket.on('error',()=>finish(operational('ipc_unavailable')));socket.on('close',()=>{if(!done)finish(operational('ipc_unavailable'));});

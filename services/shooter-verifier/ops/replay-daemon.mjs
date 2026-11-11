@@ -17,7 +17,7 @@ export async function startReplayDaemon({socketPath='/run/shooter/replay.sock'}=
   let pool=new ReplayPool({size:1,queue:0}),busy=false,draining=false,restartBudgetUsed=0,starts=1,lastPoolStarts=1,restartAt=Date.now(),requests=0;
   const id=randomUUID(),peers=new Set();
   const ready=()=>!draining&&pool.slots.some(s=>s.ready&&!s.dead);
-  const metrics=()=>{const stats=pool.stats();starts+=Math.max(0,stats.processStarts-lastPoolStarts);lastPoolStarts=stats.processStarts;return{requests,restarts:starts-1,busy,clients:peers.size,...stats};};
+  const metrics=()=>{const stats=pool.stats();starts+=Math.max(0,stats.processStarts-lastPoolStarts);lastPoolStarts=stats.processStarts;return{instanceId:id,requests,restarts:starts-1,busy,clients:peers.size,...stats};};
   const server=net.createServer(socket=>{
     if(draining||peers.size>=limits.clients){socket.destroy();return;}peers.add(socket);
     const timer=setTimeout(()=>socket.destroy(),limits.requestMs);
