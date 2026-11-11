@@ -22,7 +22,9 @@ import { runShooterVerificationInternal } from './shooter_verification_internal.
 import { runShooterVerificationCommit } from './shooter_verification_commit.ts';
 import { runShooterVerificationSettlement } from './shooter_verification_settlement.ts';
 import { runShooterVerificationLifecycle } from './shooter_verification_lifecycle.ts';
+import { runShooterVerificationMetrics } from './shooter_verification_metrics.ts';
 import { runShooterVerificationRetention } from './shooter_verification_retention.ts';
+
 import { runShooterVerificationLeases } from './shooter_verification_leases.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
@@ -1777,9 +1779,14 @@ export function report(items: readonly Outcome[] = outcomes): number {
     failed += 1;
     console.log('shooter-lifecycle: category produced no pass, failing the suite');
   }
+  if (selected('shooter-metrics') && !items.some((item) => item.category === 'shooter-metrics' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-metrics: category produced no pass, failing the suite');
+  }
   if (selected('shooter-retention') && !items.some((item) => item.category === 'shooter-retention' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-retention: category produced no pass, failing the suite');
+
   }
   if (selected('shooter-wager')) {
     const rows = items.filter((item) => item.category === 'shooter-wager');
@@ -2046,6 +2053,10 @@ export async function main(): Promise<void> {
     if (selected('shooter-payments')) await runShooterVerificationSettlement(test);
     if (selected('shooter-lifecycle')) await runShooterVerificationLifecycle(test);
     if (selected('shooter-retention')) await runShooterVerificationRetention(test);
+    // Metrics ends with1000 retained quarantine fixtures. Run it after all
+    // other v2 fixtures, whose smaller disposable quotas must remain faithful.
+    if (selected('shooter-metrics')) await runShooterVerificationMetrics(test);
+
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
