@@ -12,7 +12,7 @@ export const P4_CLIPS = ['jog', 'dash'] as const;
 /** Bones a rig must share with the wizard to take its clips: the retarget matches bones by name. */
 const WIZARD_SKELETON = ['Hips', 'Spine', 'Head', 'LeftArm', 'RightArm', 'LeftUpLeg', 'RightUpLeg', 'LeftToeBase', 'RightToeBase'];
 /** Clips that move the feet, measured for `ground_speed`. */
-const GAIT_CLIPS = new Set(['jog', 'dash', 'run', 'walk']);
+const GAIT_CLIPS = new Set(['jog', 'dash', 'run', 'walk', 'walk_slow']);
 
 export interface RigSource {
   scene: Object3D;

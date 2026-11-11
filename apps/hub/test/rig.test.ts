@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       // Only gait clips with a planted foot are measured; the dragon flies, so nothing of his is.
       assert.equal(clips, rig.animations, `${character.id} keeps its own clips`);
       for (const gait of clips) {
-        if (groundSpeedOf(gait) > 0) assert.ok(['walk', 'run', ...P4_CLIPS].includes(gait.name), `${character.id} ${gait.name} is not a gait clip`);
+        if (groundSpeedOf(gait) > 0) assert.ok(['walk', 'run', 'walk_slow', ...P4_CLIPS].includes(gait.name), `${character.id} ${gait.name} is not a gait clip`);
       }
       if (character.id === 'dragon') assert.ok(clips.every((gait) => groundSpeedOf(gait) === 0), 'the dragon has no foot contact');
       offSkeleton += 1;
@@ -293,14 +293,19 @@ async function main(): Promise<void> {
     for (const name of ['idle', 'walk', 'run', 'fly', 'fireball']) clip(rig.animations, name);
   }
 
-  // The Pepe rigs carry their own gaits and a jump scrubbed by the avatar controller.
-  for (const character of CHARACTERS.filter((entry) => entry.id.startsWith('pepe'))) {
+  // The Wizard-guided rigs use their own clips and sync their feet to travel speed.
+  for (const character of CHARACTERS.filter((entry) => entry.id === 'soldier' || entry.id.startsWith('pepe'))) {
     const rig = await loadGLB(`${PUBLIC}${character.asset}`);
     const fit = characterHeight(character) / restHeight(rig.scene);
     assert.equal(rig.scene.userData.boot_support, true, `${character.id} corrects boot clearance during blends`);
-    for (const [name, speed] of [['jog', WALK_SPEED], ['dash', SPRINT_SPEED]] as const) {
+    assert.equal(rig.scene.userData.speed_matched_gaits, true, `${character.id} advances gait by travel distance`);
+    const slow = clip(rig.animations, 'walk_slow');
+    assert.ok(measureGroundSpeed(rig.scene, slow) > 0, `${character.id} has a measured slow walk`);
+    const [jog, dash] = character.id === 'soldier' ? ['walk', 'run'] : ['jog', 'dash'];
+    for (const [name, speed] of [[jog, WALK_SPEED], [dash, SPRINT_SPEED]] as const) {
       const plantedSpeed = fit * measureGroundSpeed(rig.scene, clip(rig.animations, name));
-      assert.ok(speed / plantedSpeed < 2.5, `${character.id} ${name} can match controller speed`);
+      const rate = speed / plantedSpeed;
+      assert.ok(rate >= 0.8 && rate <= 1.25, `${character.id} ${name} keeps its cadence at plaza speed`);
     }
     const mixer = new AnimationMixer(rig.scene);
     const toes = ['Left', 'Right'].map(side => rig.scene.getObjectByName(`mixamorig${side}ToeBase`)!);
@@ -308,10 +313,23 @@ async function main(): Promise<void> {
     const restHand = hand.getWorldQuaternion(new Quaternion()).invert();
     const worldHand = new Quaternion();
     const point = new Vector3();
+    const otherToe = new Vector3();
     const up = new Vector3(0, 1, 0);
-    for (const name of ['idle', 'jog', 'dash', 'jump']) {
+    for (const name of ['idle', 'walk_slow', jog, dash, 'jump']) {
       const motion = clip(rig.animations, name);
       const action = mixer.clipAction(motion).play();
+      if (name !== 'idle' && name !== 'jump') {
+        mixer.setTime(0);
+        toes[0].getWorldPosition(point);
+        toes[1].getWorldPosition(otherToe);
+        assert.ok(point.z > otherToe.z && point.y <= otherToe.y + 0.012,
+          `${character.id} starts ${name} on the left foot`);
+        mixer.setTime(motion.duration * 0.5);
+        toes[1].getWorldPosition(point);
+        toes[0].getWorldPosition(otherToe);
+        assert.ok(point.z > otherToe.z && point.y <= otherToe.y + 0.012,
+          `${character.id} reaches the right footfall halfway through ${name}`);
+      }
       if (name === 'jump') {
         for (const toe of toes) {
           const heightAt = (phase: number) => {
