@@ -122,7 +122,12 @@ try {
       try { await a.page.locator('#view canvas').click({ timeout: 5000 }); }
       catch { assert.equal((await a.readSnapshot()).phase, 'ended', 'an obscured arena is acceptable only after a legitimate local terminal'); }
       await a.page.waitForFunction(() => document.pointerLockElement !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
-      if ((await a.readSnapshot()).phase !== 'ended') { await a.page.mouse.move(180, 110); await a.page.mouse.down(); }
+      if ((await a.readSnapshot()).phase !== 'ended') {
+        // The real start panel disables input and clears held keys. Send a new
+        // genuine key edge after installation rather than relying on title input.
+        await a.page.keyboard.up('KeyW'); await a.page.keyboard.down('KeyW');
+        await a.page.mouse.move(180, 110); await a.page.mouse.down();
+      }
     }
     await a.page.waitForFunction(() => {
       const flow = window.__game.rewardedCampaign.snapshot();

@@ -36,6 +36,12 @@ function retainedHistory(runId: string, restore = false): string {
   return digest(JSON.parse(data(`SELECT jsonb_build_object(
     'run',(SELECT to_jsonb(r) FROM game.shooter_verification_run r WHERE run_id='${runId}'),
     'legacyRun',(SELECT to_jsonb(r) FROM game.shooter_run r WHERE run_id='${runId}'),
+    'admission',(SELECT to_jsonb(c) FROM game.shooter_verification_admission c),
+    'accountAdmission',(SELECT to_jsonb(c) FROM game.shooter_verification_admission_account c WHERE user_id=(SELECT user_id FROM game.shooter_verification_run WHERE run_id='${runId}')),
+    'scheduler',(SELECT to_jsonb(c) FROM game.shooter_verification_scheduler c),
+    'gateway',(SELECT to_jsonb(c) FROM game.shooter_verification_gateway c),
+    'wallets',(SELECT jsonb_agg(to_jsonb(w) ORDER BY game_id) FROM game.tickets_balance w WHERE user_id=(SELECT user_id FROM game.shooter_verification_run WHERE run_id='${runId}')),
+    'ledger',(SELECT jsonb_agg(to_jsonb(e) ORDER BY event_id) FROM game.tickets_ledger e WHERE user_id=(SELECT user_id FROM game.shooter_verification_run WHERE run_id='${runId}')),
     'batch',(SELECT jsonb_agg(to_jsonb(b) ORDER BY sequence) FROM game.shooter_verification_batch b WHERE run_id='${runId}'),
     'jobs',(SELECT jsonb_agg(to_jsonb(j) ORDER BY job_id) FROM game.shooter_verification_job j WHERE run_id='${runId}'),
     'attempts',(SELECT jsonb_agg(to_jsonb(a) ORDER BY a.job_id,a.fencing_token) FROM game.shooter_verification_attempt a JOIN game.shooter_verification_job j USING(job_id) WHERE j.run_id='${runId}'),
