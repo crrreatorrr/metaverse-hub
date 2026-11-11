@@ -2,7 +2,7 @@
 
 Status: **documentation only; drill not executed; public activation blocked.**
 This prepares PR22 without completing PR21 or PR22. It changes no runtime,
-configuration, schema, financial policy or deployment. The [original plan](implementation-plan.md#pr-22--add-rollout-shadow-mode-and-rollback-controls)
+configuration, schema, financial policy or deployment. The [original plan](implementation-plan.md)
 requires intended-host measurements before selecting operating limits and a
 staging demonstration before rollout. Running that demonstration against an
 external host, deploying, applying production migrations, creating production
