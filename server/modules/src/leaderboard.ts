@@ -1,8 +1,10 @@
 // Public leaderboards (score.submit → submit, leaderboard.top → top).
 //
-// Scores land in game.ranked_score, keyed (user, board, variant). The time and
-// win boards for hpos10i and sproto accept a write only when
-// game.game_session.ranked is true (the session row, never the client). NOBU
+// Scores land in game.ranked_score, keyed (user, board, variant). A sproto
+// client post is accepted only when game.game_session.ranked is true (the
+// session row, never the client). HPOS10I's act time posts from normal hub
+// sessions too (gameplay plan B4): the plaza has no ranked entry, so the
+// ranked-only rule left that board empty. NOBU
 // time trials are gear-free and always eligible (Contract C13): one board,
 // variant = Classic level ("1".."3"), layout ("1v2".."3v2"), or new level ("4".."6"), integer milliseconds.
 // peoples-bitcoin is exempt. sproto_wins and meta are server boards: only
@@ -132,7 +134,7 @@ namespace HubBoards {
     + " ), gate AS (SELECT CASE"
     + " WHEN NOT EXISTS (SELECT 1 FROM sess) THEN 'session_closed'"
     + " WHEN NOT COALESCE((SELECT ranked FROM sess), false)"
-    + " AND (SELECT game_id FROM sess) IN ('hpos10i', 'sproto') THEN 'unranked'"
+    + " AND (SELECT game_id FROM sess) IN ('sproto') THEN 'unranked'"
     + " WHEN $3::boolean THEN 'god_mode'"
     + " WHEN (SELECT game_id FROM sess) IS DISTINCT FROM $4::text THEN 'bad_board'"
     + " ELSE NULL END AS reason),"
@@ -295,6 +297,10 @@ namespace HubBoards {
     if (boardId === "nobu_trial_time") {
       variant = variantFor(boardId, { level: body.variant }) || "";
       if (!variant) return fail("bad_variant");
+    } else if (boardId === CoopRewards.BOARD_ID) {
+      // One row per boss (gameplay plan E5): the variant is one of the twelve settled boss ids.
+      variant = typeof body.variant === "string" ? body.variant : "";
+      if (CoopRewards.BOSSES.indexOf(variant) < 0) return fail("bad_variant");
     }
     var limit = asInt(body.limit, 10);
     if (limit < 1) limit = 1;

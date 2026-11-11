@@ -90,6 +90,10 @@ function scoreOf(person: Person, boardId: HubBoardId): number {
       return person.verse.sproto;
     case 'verse_total':
       return verseTotal(person);
+    case 'coop_stage_clear_ms_v1:01-marina-bront':
+      return Math.round(person.nobu_trial_time * 2400);
+    case 'meta':
+      return Math.round(4000 - person.hpos10i_act_time * 10 - person.nobu_trial_time * 10 + person.sproto_wins * 20);
     default: {
       const never: never = boardId;
       return never;

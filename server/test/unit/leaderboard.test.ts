@@ -97,7 +97,17 @@ for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as con
   assert.equal(hp.value, 40, 'other boards round');
   assert.equal(submitted.at(-1)![8], '', 'no variant');
   const sql = mod.nk.sqlCalls.find((c) => c.sql.startsWith('WITH sess'))!.sql;
-  assert.match(sql, /IN \('hpos10i', 'sproto'\) THEN 'unranked'/, 'nobu is not ranked-gated');
+  // B4: only sproto still needs a ranked session; an unranked HPOS10I session posts its act time.
+  assert.match(sql, /IN \('sproto'\) THEN 'unranked'/, 'hpos10i and nobu are not ranked-gated');
+  assert.doesNotMatch(sql, /'hpos10i'[^)]*\) THEN 'unranked'/);
+  const unranked = submit({ userId: '00000000-0000-4000-8000-00000000bbbb', vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { boardId: 'hpos10i_act_time', value: 61.2, meta: { zone: 'z1_retro_rush_hills', act: 1 } });
+  assert.deepEqual(unranked, { accepted: true, posted: true, value: 61, order: 'asc' });
+  assert.deepEqual(plain(submitted.at(-1)!.slice(2, 7)), [false, 'hpos10i', 'hpos10i_act_time', 'asc', 61]);
+  assert.deepEqual(
+    submit({ userId: '00000000-0000-4000-8000-00000000aaaa', vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { boardId: 'hpos10i_act_time', value: 50, godMode: true }),
+    { accepted: false, reason: 'god_mode' },
+    'god mode still posts nothing',
+  );
 }
 
 // leaderboard.top: variant required for NOBU, limit clamped, any signed-in scope.
@@ -117,6 +127,19 @@ for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as con
   mod.call('leaderboard.top', game('sproto'), { boardId: 'sproto_wins' });
   assert.deepEqual(plain(topArgs), ['sproto_wins', 'desc', U, '', 10]);
   assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', { vars: { scope: 'hub' } }, { boardId: 'meta' }).error, 'unauthorized');
+  // E5: the Coop clear board is read per boss; anything else is bad_variant. Clients still cannot post it.
+  const coopBosses = plain((mod.global.CoopRewards as { BOSSES: string[] }).BOSSES);
+  assert.equal(coopBosses.length, 12);
+  for (const boss of coopBosses) {
+    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'coop_stage_clear_ms_v1', variant: boss }).variant, boss);
+    assert.deepEqual(plain(topArgs), ['coop_stage_clear_ms_v1', 'asc', U, boss, 10]);
+  }
+  for (const variant of [undefined, '', '1', '01-marina', 'toString', '__proto__', 7, '01-marina-bront ']) {
+    assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'coop_stage_clear_ms_v1', variant }).error, 'bad_variant', String(variant));
+  }
+  assert.equal(submit(game('sproto-coop-battle'), { boardId: 'coop_stage_clear_ms_v1', value: 1000, meta: {} }).error, 'bad_board');
+  mod.call('leaderboard.top', hub, { boardId: 'meta' });
+  assert.deepEqual(plain(topArgs), ['meta', 'desc', U, '', 10]);
 }
 
 console.log('leaderboard tests ok');
