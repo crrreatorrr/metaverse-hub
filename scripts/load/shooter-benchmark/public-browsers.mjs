@@ -91,7 +91,20 @@ async function startMeasuredRun(handle, boss, signal, operation) {
 
 // Freeze gameplay through native browser release and actual reward status DOM.
 // No Game/input/state/clock mutation. Back requests the normal final-tail finish.
-async function stopPrefix(handle, signal, operation) {
+async function stopProjection(page) {
+  return page.evaluate(() => {
+    const g = window.__game, snapshot = g.rewardedCampaign.snapshot();
+    const button = document.querySelector('[data-p="rewarded"]'), box = button?.getBoundingClientRect();
+    const target = box ? document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2) : null;
+    return { gamePaused: g.paused === true, snapshotPaused: snapshot.paused === true,
+      ended: snapshot.phase === 'ended', pointerLocked: document.pointerLockElement !== null,
+      inputLocked: g.input.locked === true, screenHidden: g.screen.hidden === true,
+      pauseMenuPresent: !!document.querySelector('.pause'), rewardPanelPresent: !!document.querySelector('[data-reward-panel]'),
+      pauseStatusPresent: !!button, pauseStatusHitTarget: !target ? 'none' : target.closest('[data-p="rewarded"]') ? 'pause_status'
+        : target.closest('[data-reward-panel]') ? 'reward_panel' : target.tagName === 'CANVAS' ? 'canvas' : 'other' };
+  });
+}
+async function stopPrefix(handle, signal, operation, diagnostics) {
   operation('stop_key_up_W');
   await bounded(handle.page.keyboard.up('KeyW'), signal);
   operation('stop_mouse_up_0');
@@ -100,10 +113,25 @@ async function stopPrefix(handle, signal, operation) {
   await bounded(handle.page.evaluate(() => document.exitPointerLock()), signal);
   operation('stop_wait_unlock');
   await bounded(handle.page.waitForFunction(() => document.pointerLockElement === null), signal);
+  // Unlock and Game's pointerlockchange handler are separate observations.
+  // The native pause screen overlays the HUD; use its actual status action,
+  // as in the full-service DOM lane, after observing the dependent UI state.
+  operation('stop_wait_native_pause');
+  await bounded(handle.page.waitForFunction(() => {
+    const g = window.__game, snapshot = g.rewardedCampaign.snapshot();
+    return snapshot.phase === 'ended' || document.querySelector('[data-reward-panel]') !== null
+      || (g.paused && snapshot.paused && document.querySelector('[data-p="rewarded"]') !== null);
+  }), signal);
+  diagnostics.beforeStatus = await bounded(stopProjection(handle.page), signal);
   operation('stop_status_panel_check');
-  if (!await bounded(handle.page.locator('[data-reward-panel]').count(), signal)) {
+  if (diagnostics.beforeStatus.ended) {
+    // afterTick queues the real terminal panel; no pause-menu action exists
+    // for that path. Observe the production microtask rather than reopening it.
+    operation('stop_wait_terminal_panel');
+    await bounded(handle.page.locator('[data-reward-panel]').waitFor({ state: 'visible' }), signal);
+  } else if (!await bounded(handle.page.locator('[data-reward-panel]').count(), signal)) {
     operation('stop_status_click');
-    await bounded(handle.page.locator('[data-reward-status]').click(), signal);
+    await bounded(handle.page.locator('[data-p="rewarded"]').click(), signal);
   }
   operation('stop_wait_paused');
   await bounded(handle.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().paused), signal);
@@ -234,7 +262,8 @@ async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, dec
         await pause(500, scope);
       }
       row.stage = 'planned_dom_stop';
-      const frozen = await stopPrefix(handle, scope, operation); frozenTick = frozen.recordedTick;
+      row.stopDiagnostics = {};
+      const frozen = await stopPrefix(handle, scope, operation, row.stopDiagnostics); frozenTick = frozen.recordedTick;
       row.stage = 'finish_and_verify';
       row.recordedFrames = frozenTick; row.finalPausedProof = true; row.finishRequested = true; mark('finalPausedObservedMs');
       // The count was sampled while paused BEFORE Back; UI may prune a resolved
@@ -276,6 +305,10 @@ async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, dec
         // recording/payment windows. Preserve already-observed censored data.
         const cleanup = AbortSignal.timeout(5000);
         try {
+          if (row.stopDiagnostics) {
+            try { row.stopDiagnostics.final = await bounded(stopProjection(handle.page), cleanup); }
+            catch { row.stopDiagnostics.finalUnavailable = true; }
+          }
           if (observerInstalled) {
             const frame = await bounded(handle.page.evaluate(stopBrowserFrameObserver), cleanup);
             row.clientFrames = { ...quantiles(frame.samples), metric: frame.metric, clockDomain: frame.clockDomain,
