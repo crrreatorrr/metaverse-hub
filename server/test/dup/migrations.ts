@@ -86,11 +86,12 @@ function dropPristineVerificationSchema(): void {
   const tables = assertPristineVerificationDomain();
   // No CASCADE: any dependency from an unrelated/financial object is a failure.
   // One complete DROP handles internal FKs, including0058's derived payment_work.
-  if (tables.length) psql(`DROP TABLE ${tables.map(t => `game.${ident(t)}`).join(',')}`);
   const functions = lines(`SELECT p.proname||'|'||pg_get_function_identity_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
     WHERE n.nspname='game' AND p.prokind='f' AND (p.proname LIKE 'shooter\\_verification\\_%' ESCAPE '\\' OR p.proname LIKE 'issue\\_shooter\\_verification\\_%' ESCAPE '\\' OR p.proname LIKE 'settle\\_shooter\\_verified\\_%' ESCAPE '\\') ORDER BY p.proname,p.oid`);
   const signatures = functions.map(row => { const split = row.indexOf('|'), name = row.slice(0, split), args = row.slice(split + 1); assert.match(name, VERIFICATION_FUNCTION); assert.ok(!/[;\n]/.test(args)); return `game.${ident(name)}(${args})`; });
-  if (signatures.length) psql(`DROP FUNCTION ${signatures.join(',')}`);
+  // Any unexpected function dependency also rolls back the preceding table
+  // removal: the pristine fixture is never left half reconstructed.
+  psql(`BEGIN;${tables.length ? `DROP TABLE ${tables.map(t => `game.${ident(t)}`).join(',')};` : ''}${signatures.length ? `DROP FUNCTION ${signatures.join(',')};` : ''}COMMIT;`);
 }
 
 /** Reconstruct genuine pre-latest DDL from immutable registered statement bytes. */
