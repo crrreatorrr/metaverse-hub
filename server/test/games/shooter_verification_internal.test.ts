@@ -29,3 +29,16 @@ console.log('scopedworkerRPCcheapauth/bounds/redactiontestsok');
   assert.equal(m.call<Record<string,unknown>>('shooter.internal.result',{userId:USER},{huge:'x'.repeat(21000000)}).reason,'rate_limited');
   assert.equal(m.nk.sqlCalls.length,1,'durableaccount/globalattemptgatebeforelargeJSONparse');
 }
+{
+  const m=loadModule();m.nk.onSql('game.shooter_verification_gateway_preflight',()=>[{result:'{"state":"ready"}'}]);
+  m.nk.onSql('SELECT jsonb_build_object(\'authorized\'',()=>[{result:'{"authorized":true}'}]);
+  const ack={state:'leased',claim:{jobId:'job-reference'},leaseUntil:'historical',attemptDeadline:'historical'};
+  m.nk.onSql('SELECT game.shooter_verification_internal',()=>[{result:JSON.stringify(ack)}]);
+  const reads:unknown[][]=[];
+  m.nk.onSql('SELECT game.shooter_verification_private_response',(args)=>{reads.push(args);return[{result:'{"work":null,"workState":"authorization_denied","workReason":"unauthorized"}'}];});
+  const reply=m.call<Record<string,unknown>>('shooter.internal.claim',{userId:USER},request);
+  assert.equal(reply.work,null);assert.equal(reply.workState,'authorization_denied');assert.equal(reply.state,'leased','originalacksubsetremainshistorical');
+  assert.equal(reads.length,1);assert.equal(reads[0]!.length,6);assert.equal(reads[0]![4],request.requestId);
+  assert.ok(!JSON.stringify(reads).includes(request.token),'readqueryhasfingerprintnotrawcredential');
+  assert.ok(!JSON.stringify(reads).includes('privateCheckpoint'),'readquerytakesonlyidentityandimmutablereference');
+}

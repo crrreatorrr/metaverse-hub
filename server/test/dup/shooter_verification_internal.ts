@@ -17,6 +17,8 @@ const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,global_a
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1073741824,max_account_checkpoint_bytes=67108864,lease_seconds=30,attempt_seconds=120,attempt_limit=3,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096`;
 function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined');${CONFIG}`); }
 function sqlData(sql:string):void {const dir=mkdtempSync(join(tmpdir(),'shooter-gateway-fixture-'));try{const path=join(dir,'fixture.sql');writeFileSync(path,sql);psqlFile(path);}finally{rmSync(dir,{recursive:true,force:true});}}
+function ackOnly(v:Row):Row {const copy={...v};delete copy.work;delete copy.workState;delete copy.workReason;return copy;}
+function readerSql(p:Principal,rid:string):string {return `SELECT game.shooter_verification_private_response('${p.account.userId}','${p.workerId}','${p.keyId}','${hash('shooter-worker-token-v1\n'+p.token)}','${rid}','${hash('claim\n{}')}')::text`;}
 function hash(s:string):string {return createHash('sha256').update(s).digest('hex');}
 async function principal(scopes=['claim','renew','retry','result']):Promise<{account:Guest;workerId:string;keyId:string;token:string}> {
   const account=await guest(),workerId='worker-'+crypto.randomUUID(),keyId='key1',token=randomBytes(32).toString('base64url');
@@ -50,8 +52,8 @@ async function waitLock(marker:string):Promise<void> {
   for(let i=0;i<25;i++){if(num(`SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE ${q('%'+marker+'%')} AND wait_event='PgSleep'`)>0)return;await sleep(50);}
   throw new Error('fixture lock not acquired');
 }
-async function waitGatewayBlocked():Promise<void> {
-  for(let i=0;i<25;i++){if(num("SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE '%SELECT game.shooter_verification_internal(%' AND wait_event_type='Lock'")>0)return;await sleep(50);}
+async function waitGatewayBlocked(name='shooter_verification_internal'):Promise<void> {
+  for(let i=0;i<25;i++){if(num(`SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE '%SELECT game.${name}(%' AND wait_event_type='Lock'`)>0)return;await sleep(50);}
   throw new Error('gateway did not block on downstream lock');
 }
 export async function runShooterVerificationInternal(test:TestFn):Promise<void> {
@@ -116,7 +118,7 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
       UPDATE game.shooter_verification_run SET revision=1,verified_tick=22000,simulation_tick=22000,verified_bytes=352000,
       checkpoint_json=payload.value,checkpoint_sha256=repeat('0',64) FROM payload WHERE run_id='${run}'`);
     const healthy=await fixture(),badClaim=await rpc(p,'claim');
-    assert.equal(badClaim.reason,'private_work_unavailable');assert.equal((badClaim.claim as Row).runId,run);
+    assert.equal(badClaim.workReason,'private_work_unavailable');assert.equal(badClaim.work,null);assert.equal((badClaim.claim as Row).runId,run);
     assert.equal(psql(`SELECT state FROM game.shooter_verification_job WHERE run_id='${run}'`),'retry_wait');
     assert.equal(num(`SELECT attempts FROM game.shooter_verification_job WHERE run_id='${run}'`),1,'corruptpredecessorconsumesboundedattempt');
     const healthyClaim=await rpc(p,'claim');assert.equal((healthyClaim.claim as Row).runId,healthy,'corruptaccountcannotstarvehealthyaccount');
@@ -131,19 +133,52 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     assert.ok((result.receivedCheckpointBytes as number)>262144);assert.ok((result.checkpointBytes as number)>262144);
     assert.equal(num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`),24000);
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
-    console.log(JSON.stringify({latePredecessorBytes:generated.checkpointBytes,networkReceivedBytes:result.receivedCheckpointBytes,networkResultBytes:result.checkpointBytes,fullFrozenFrames:24000}));
+    assert.equal(psql(`SELECT bool_and(octet_length(acknowledgment::text)<=game.shooter_verification_gateway_receipt_budget() AND NOT (acknowledgment ? 'work') AND NOT jsonb_path_exists(acknowledgment,'$.**.privateCheckpoint') AND NOT jsonb_path_exists(acknowledgment,'$.**.batch') AND NOT jsonb_path_exists(acknowledgment,'$.**.frames ? (@.type() == "string")')) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),'t');
+    console.log(JSON.stringify({latePredecessorBytes:generated.checkpointBytes,networkReceivedBytes:result.receivedCheckpointBytes,networkResultBytes:result.checkpointBytes,maxStoredAckBytes:num(`SELECT max(octet_length(acknowledgment::text)) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),fullFrozenFrames:24000}));
   });
   await test('shooter-internal','lost claim response is an immutable bounded receipt, never a second claim or changing checkpoint',async()=>{
     isolate();const p=await principal(),run=await fixture(),rid=crypto.randomUUID();
     const first=await rpc(p,'claim',{},rid);assert.equal(first.state,'leased',JSON.stringify(first));const claim=first.claim as Row,work=first.work as Row;
     assert.equal(claim.runId,run);assert.equal((work.issuance as Row).runId,run);assert.equal((work.batch as Row).sequence,0);assert.equal((work.accepted as Row).acceptedBeforeTerminal,true);
+    const stored=JSON.parse(psql(`SELECT acknowledgment::text FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND request_id='${rid}'`)) as Row;
+    assert.deepEqual(stored,ackOnly(first));assert.equal(stored.work,undefined);assert.ok(!JSON.stringify(stored).includes('privateCheckpoint'));assert.equal(stored.batch,undefined);assert.equal(stored.privateCheckpoint,undefined);
+    assert.ok(Buffer.byteLength(JSON.stringify(stored))<=num('SELECT game.shooter_verification_gateway_receipt_budget()'));
     const retry=await rpc(p,'claim',{},rid);assert.deepEqual(retry,first);assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt WHERE job_id='${claim.jobId}'`),1);
     assert.equal((await rpc(p,'renew',{jobId:claim.jobId,fence:claim.fence,expectedRevision:claim.expectedRevision},rid)).reason,'request_conflict');
     const released=await rpc(p,'retry',{jobId:claim.jobId,fence:claim.fence,expectedRevision:claim.expectedRevision,reason:'worker_crash'});assert.equal(released.state,'pending_retryable');
-    assert.deepEqual(await rpc(p,'claim',{},rid),first,'historical receipt cannot silently become a new attempt');
+    const stale=await rpc(p,'claim',{},rid);assert.deepEqual(ackOnly(stale),ackOnly(first),'immutableackcannotbecomenewattempt');assert.equal(stale.work,null);assert.equal(stale.workState,'stale');
     assert.equal((await rpc(p,'renew',{jobId:claim.jobId,fence:claim.fence,expectedRevision:claim.expectedRevision})).state,'stale');
-    assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),3*20971520);
+    assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),3*65536);
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
+  });
+  await test('shooter-internal','immutable claim acknowledgment survives progress and expiry without exposing a replacement checkpoint',async()=>{
+    isolate();const p=await principal(),run=await fixture(),rid=crypto.randomUUID(),first=await rpc(p,'claim',{},rid),c=first.claim as Row;
+    assert.equal(first.workState,'ready');
+    const before=psql(`SELECT acknowledgment::text FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND request_id='${rid}'`);
+    // Trusted fixture models an authoritative predecessor revision transition.
+    psql(`UPDATE game.shooter_verification_run SET revision=1,verified_tick=1,simulation_tick=1,verified_bytes=16 WHERE run_id='${run}';
+      UPDATE game.shooter_verification_job SET expected_revision=1,continuation_tick=1 WHERE job_id='${c.jobId}'`);
+    const after=await rpc(p,'claim',{},rid);assert.deepEqual(ackOnly(after),ackOnly(first));assert.equal(after.work,null);assert.equal(after.workState,'stale');
+    assert.equal(psql(`SELECT acknowledgment::text FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND request_id='${rid}'`),before);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt WHERE job_id='${c.jobId}'`),1);
+    isolate();const p2=await principal();await fixture();const id2=crypto.randomUUID(),live=await rpc(p2,'claim',{},id2),c2=live.claim as Row;
+    psql(`UPDATE game.shooter_verification_job SET lease_until=clock_timestamp()-interval '1 millisecond' WHERE job_id='${c2.jobId}'`);
+    const expired=await rpc(p2,'claim',{},id2);assert.deepEqual(ackOnly(expired),ackOnly(live));assert.equal(expired.work,null);assert.equal(expired.workState,'stale');
+  });
+  await test('shooter-internal','private work read reauthorizes scope revocation and expiry after its own lock wait',async()=>{
+    isolate();const p=await principal();await fixture();const rid=crypto.randomUUID(),first=await rpc(p,'claim',{},rid);assert.equal(first.workState,'ready');
+    psql(`UPDATE game.shooter_verification_principal SET expires_at=clock_timestamp()+interval '2 seconds' WHERE worker_id='${p.workerId}'`);
+    const blocker=psqlAsync("BEGIN;SELECT 1 FROM game.shooter_verification_scheduler WHERE singleton FOR UPDATE;SELECT pg_sleep(3) /* private-work-expiry-lock */;COMMIT;");
+    await waitLock('private-work-expiry-lock');const request=psqlAsync(readerSql(p,rid));await waitGatewayBlocked('shooter_verification_private_response');
+    const [text]=await Promise.all([request,blocker]);const response=JSON.parse(text) as Row;assert.equal(response.work,null);assert.equal(response.workState,'authorization_denied');
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),1,'historicalackcommittedbeforelaterreadexpiry');
+    isolate();const p2=await principal();await fixture();const id2=crypto.randomUUID();await rpc(p2,'claim',{},id2);
+    psql(`UPDATE game.shooter_verification_principal SET revoked_at=clock_timestamp() WHERE worker_id='${p2.workerId}'`);
+    const revoked=JSON.parse(psql(readerSql(p2,id2))) as Row;assert.equal(revoked.work,null);assert.equal(revoked.workState,'authorization_denied');
+    const token=randomBytes(32).toString('base64url');
+    psql(`INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+      VALUES('${p2.account.userId}','${p2.workerId}','renew-only','${hash('shooter-worker-token-v1\n'+token)}',ARRAY['renew'],clock_timestamp()-interval '1 second',clock_timestamp()+interval '1 minute')`);
+    const scoped=JSON.parse(psql(readerSql({...p2,keyId:'renew-only',token},id2))) as Row;assert.equal(scoped.work,null);assert.equal(scoped.workState,'authorization_denied');
   });
   await test('shooter-internal','lost claim remains the same attempt across key rotation and original-key revocation',async()=>{
     isolate();const p=await principal();await fixture();await fixture();const rid=crypto.randomUUID();
@@ -187,9 +222,9 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     }finally{psql('DROP TRIGGER shooter_gateway_fault_fixture ON game.shooter_verification_gateway_receipt;DROP FUNCTION game.shooter_gateway_fault_fixture()');}
   });
   await test('shooter-internal','count and conservative byte reservations stop overload atomically and keep receipts immutable',async()=>{
-    isolate();const p=await principal();await rpc(p,'claim');psql('UPDATE game.shooter_verification_gateway SET max_principal_requests=1,max_principal_receipt_bytes=20971520');
+    isolate();const p=await principal();await rpc(p,'claim');psql('UPDATE game.shooter_verification_gateway SET max_principal_requests=1,max_principal_receipt_bytes=65536');
     assert.equal((await rpc(p,'claim')).reason,'gateway_capacity');assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),1);
-    assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),20971520);
+    assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),65536);
     psql(`DO $x$ BEGIN BEGIN DELETE FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'; RAISE EXCEPTION 'expected refusal'; EXCEPTION WHEN raise_exception THEN IF SQLERRM<>'shooter_gateway_receipt_immutable' THEN RAISE; END IF; END; END; $x$`);
   });
   await test('shooter-internal','malformed and wrong-token attempts consume durable global/account budget before large parsing',async()=>{
