@@ -36,6 +36,7 @@ function loadPin(text, label) {
   if (!/^[0-9a-f]{64}$/.test(String(pin.sha256 || ''))) errors.push(`${label} sha256`);
   if (pin.fingerprint !== FINGERPRINT) errors.push(`${label} fingerprint`);
   if (pin.protocol !== 1 || pin.protocolVersion !== 1) errors.push(`${label} protocol`);
+  if (pin.uploadProtocol !== 2 || pin.replayApiVersion !== 2 || pin.checkpointSchema !== 2) errors.push(`${label} incremental versions`);
   if (pin.sha256 !== pin.bundleSha256) errors.push(`${label} sha256 != bundleSha256`);
   if (pin.fingerprint !== pin.contentFingerprint) errors.push(`${label} fingerprint != contentFingerprint`);
   if (pin.commit !== pin.sourceCommit) errors.push(`${label} commit != sourceCommit`);
@@ -86,6 +87,19 @@ function checkLocal() {
     errors.push('bundle did not export verifyRun and buildIssuance');
   } else {
     if (api.PROTOCOL_VERSION !== 1) errors.push('bundle protocol');
+    if (api.UPLOAD_PROTOCOL_VERSION !== pin.uploadProtocol || api.REPLAY_API_VERSION !== pin.replayApiVersion
+      || api.INCREMENTAL_CHECKPOINT_SCHEMA_VERSION !== pin.checkpointSchema) errors.push('bundle incremental versions');
+    for (const entry of ['beginIncrementalReplay', 'acceptReplayBatch', 'stepReplaySlice', 'publicReplayJSON']) {
+      if (typeof api[entry] !== 'function') errors.push(`bundle missing ${entry}`);
+    }
+    if (typeof api.beginIncrementalReplay === 'function' && typeof api.publicReplayJSON === 'function') {
+      const refused = api.beginIncrementalReplay({});
+      if (refused.privateCheckpoint !== null || refused.publicResult.status !== 'invalid'
+        || refused.publicResult.ticketsMinted !== 0) errors.push('incremental malformed issuance not refused');
+      const serialized = api.publicReplayJSON({ ...refused, privateCheckpoint: { secret: 'private-pin-sentinel' },
+        publicResult: { ...refused.publicResult, secret: 'public-pin-sentinel' } });
+      if (serialized.includes('private-pin-sentinel') || serialized.includes('public-pin-sentinel')) errors.push('incremental public serializer leaked private fields');
+    }
     if (api.SOURCE_COMMIT !== (pin && pin.commit)) errors.push(`bundle commit ${api.SOURCE_COMMIT}`);
     const fingerprint = api.contentFingerprintOf();
     if (fingerprint !== FINGERPRINT) errors.push(`bundle fingerprint ${fingerprint}`);
