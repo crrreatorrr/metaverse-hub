@@ -66,11 +66,11 @@ function replay(work: Obj): Obj {
 }
 type Submission = { worker: Worker; requestId: string; body: Obj; acknowledgment: Obj; returned: Obj };
 type Fixture = { login: GameLogin; run: string; tick: number; expected: Obj; worker: Worker; last: Submission; submissions: Submission[] };
-type Options = { login?: GameLogin; tail?: number; day?: string; beforeSubmit?: (w: Worker, login: GameLogin) => void; stopAfterTerminal?: boolean };
+type Options = { login?: GameLogin; tail?: number; day?: string; beforeSubmit?: (w: Worker, login: GameLogin) => void; stopAfterTerminal?: boolean; worker?: Worker; progressEvidence?: 'stored-ack' };
 export async function fixture(name = 'broccoli-success-7', options: Options = {}): Promise<Fixture> {
   const sample = frozen(name), original = obj(sample.issuance);
   const login = options.login || await openGame((await guest()).token, 'sproto-shooter');
-  const run = randomUUID(), w = await worker();
+  const run = randomUUID(), w = options.worker || await worker();
   const day = options.day || psql("SELECT (clock_timestamp() AT TIME ZONE 'UTC')::date::text");
   const issuance = obj(sim('return SprotoShooterSim.buildIssuance(v).issuance;', {
     accountId: login.hub.userId, sessionId: login.sessionId, runId: run, day, canonicalBoss: original.canonicalBoss, seed: original.seed,
@@ -89,20 +89,31 @@ export async function fixture(name = 'broccoli-success-7', options: Options = {}
   }
   const submissions: Submission[] = [];
   options.beforeSubmit?.(w, login);
-  while (num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`) < n + tail) {
+  let receiptTick = 0;
+  while ((options.progressEvidence === 'stored-ack' ? receiptTick : num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`)) < n + tail) {
     const claimed = await rpc(w, 'claim', {}); assert.equal(claimed.state, 'leased', JSON.stringify(claimed));
     const work = obj(claimed.work); assert.equal(obj(work.claim).runId, run);
     const result = replay(work), body = { manifest: MANIFEST, result }, requestId = randomUUID();
     assert.ok(result.privateCheckpoint, JSON.stringify(result.publicResult));
-    const beforeVerified = num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
+    const beforeVerified = options.progressEvidence === 'stored-ack' ? receiptTick : num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
     const returned = await rpc(w, 'result', body, requestId);
     const raw = psql(`SELECT acknowledgment::text FROM game.shooter_verification_gateway_receipt WHERE worker_id='${w.workerId}' AND request_id='${requestId}'`);
     assert.ok(raw, JSON.stringify(returned)); const acknowledgment = obj(JSON.parse(raw));
     assert.ok(['verified', 'terminal_verified'].includes(String(acknowledgment.state)), JSON.stringify(acknowledgment));
-    const afterVerified = num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
-    assert.ok(afterVerified > beforeVerified, `worker result must advance verified tick: ${beforeVerified} -> ${afterVerified}`);
+    if (options.progressEvidence === 'stored-ack') {
+      const nextTick = acknowledgment.verifiedTick;
+      assert.ok(typeof nextTick === 'number' && Number.isSafeInteger(nextTick) && nextTick > receiptTick && nextTick <= n + tail, 'immutable stored ACK must advance its exact bounded replay cursor');
+      receiptTick = nextTick;
+    } else {
+      const afterVerified = num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
+      assert.ok(afterVerified > beforeVerified, `worker result must advance verified tick: ${beforeVerified} -> ${afterVerified}`);
+    }
     submissions.push({ worker: w, requestId, body, acknowledgment, returned });
     if (options.stopAfterTerminal && acknowledgment.state === 'terminal_verified') break;
+  }
+  if (options.progressEvidence === 'stored-ack') {
+    assert.equal(num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`), receiptTick, 'final actual run row must equal the immutable ACK cursor');
+    if (!options.stopAfterTerminal) assert.equal(receiptTick, n + tail, 'complete original stored trace remains required');
   }
   assert.ok(submissions.length); return { login, run, tick: n + tail, expected: obj(sample.expected), worker: w, last: submissions[submissions.length - 1]!, submissions };
 }
