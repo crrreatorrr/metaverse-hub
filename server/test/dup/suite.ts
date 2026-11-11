@@ -82,7 +82,7 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-interface Outcome {
+export interface Outcome {
   category: string;
   name: string;
   status: 'pass' | 'fail' | 'pending' | 'expected-fail';
@@ -1724,53 +1724,56 @@ function pending(category: string, name: string, reason: string): void {
   console.log(`PENDING ${category} ${name} — ${reason}`);
 }
 
-function report(): number {
-  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...outcomes.map((item) => item.category)])];
+export function report(items: readonly Outcome[] = outcomes): number {
+  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
   console.log('\nDuplication suite');
-  let failed = 0;
+  let failed = items.filter((item) => item.status === 'fail').length;
   for (const category of categories) {
-    const rows = outcomes.filter((item) => item.category === category);
+    const rows = items.filter((item) => item.category === category);
     const pass = rows.filter((item) => item.status === 'pass').length;
     const fail = rows.filter((item) => item.status === 'fail').length;
     const waiting = rows.filter((item) => item.status === 'pending').length;
     const expected = rows.filter((item) => item.status === 'expected-fail').length;
-    failed += fail;
     console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending, ${expected} expected-fail`);
   }
+  if (process.env.DUP_ONLY && !items.some((item) => item.status === 'pass')) {
+    failed += 1;
+    console.log('selected filter produced no pass, failing the suite');
+  }
   if (selected('shooter-free') || selected('shooter-match')) {
-    const rows = outcomes.filter((item) => item.category === 'shooter-free');
+    const rows = items.filter((item) => item.category === 'shooter-free');
     const pass = rows.filter((item) => item.status === 'pass').length;
     if (pass === 0) {
       failed += 1;
       console.log('shooter-free: category produced no pass, failing the suite');
     }
   }
-  if (selected('shooter-verification') && !outcomes.some((item) => item.category === 'shooter-verification' && item.status === 'pass')) {
+  if (selected('shooter-verification') && !items.some((item) => item.category === 'shooter-verification' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-verification: category produced no pass, failing the suite');
   }
-  if (selected('shooter-ingest') && !outcomes.some((item) => item.category === 'shooter-ingest' && item.status === 'pass')) {
+  if (selected('shooter-ingest') && !items.some((item) => item.category === 'shooter-ingest' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-ingest: category produced no pass, failing the suite');
   }
-  if (selected('shooter-leases') && !outcomes.some((item) => item.category === 'shooter-leases' && item.status === 'pass')) {
+  if (selected('shooter-leases') && !items.some((item) => item.category === 'shooter-leases' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-leases: category produced no pass, failing the suite');
   }
-  if (selected('shooter-internal') && !outcomes.some((item) => item.category === 'shooter-internal' && item.status === 'pass')) {
+  if (selected('shooter-internal') && !items.some((item) => item.category === 'shooter-internal' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-internal: category produced no pass, failing the suite');
   }
-  if (selected('shooter-commit') && !outcomes.some((item) => item.category === 'shooter-commit' && item.status === 'pass')) {
+  if (selected('shooter-commit') && !items.some((item) => item.category === 'shooter-commit' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-commit: category produced no pass, failing the suite');
   }
-  if (selected('shooter-payments') && !outcomes.some((item) => item.category === 'shooter-payments' && item.status === 'pass')) {
+  if (selected('shooter-payments') && !items.some((item) => item.category === 'shooter-payments' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-payments: category produced no pass, failing the suite');
   }
   if (selected('shooter-wager')) {
-    const rows = outcomes.filter((item) => item.category === 'shooter-wager');
+    const rows = items.filter((item) => item.category === 'shooter-wager');
     const pass = rows.filter((item) => item.status === 'pass').length;
     if (pass === 0) {
       failed += 1;
@@ -1784,11 +1787,11 @@ function report(): number {
   }
   if (failed) {
     console.log('\nFailures');
-    for (const item of outcomes.filter((row) => row.status === 'fail')) {
+    for (const item of items.filter((row) => row.status === 'fail')) {
       console.log(`- ${item.category} ${item.name}: ${item.detail?.split('\n')[0]}`);
     }
   }
-  const expected = outcomes.filter((row) => row.status === 'expected-fail');
+  const expected = items.filter((row) => row.status === 'expected-fail');
   if (expected.length) {
     console.log('\nExpected failures (redeem-fix is not on this commit)');
     for (const item of expected) {
