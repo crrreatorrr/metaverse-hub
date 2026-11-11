@@ -102,24 +102,24 @@ export function buildCanonicalFixtureIssuance(input: Obj): Obj {
 
 export async function prepareTrustedActor(caseId: string, login: GameLogin, options: { runId?: string; key?: string; ageMs?: number } = {}): Promise<TrustedActor> {
   fixtureGuard();
-  const { psql } = await import('./harness.ts');
+  const { psqlAsync } = await import('./harness.ts');
   const trace = loadFrozenTrace(caseId), runId = options.runId === undefined ? randomUUID() : options.runId, key = options.key === undefined ? 'e2e:' + runId : options.key, ageMs = options.ageMs === undefined ? 0 : options.ageMs;
   assert.match(login.hub.userId, UUID); assert.match(login.sessionId, UUID); assert.match(runId, UUID);
   assert.match(key, /^[A-Za-z0-9_.:@|-]{1,80}$/);
   assert.ok(Number.isSafeInteger(ageMs) && ageMs >= 0 && ageMs <= 1200000);
-  const day = psql("SELECT to_char((clock_timestamp() AT TIME ZONE 'UTC')::date,'YYYY-MM-DD')");
+  const day = await psqlAsync("SELECT to_char((clock_timestamp() AT TIME ZONE 'UTC')::date,'YYYY-MM-DD')");
   const issuance = buildCanonical({ accountId: login.hub.userId, sessionId: login.sessionId, runId, day, canonicalBoss: trace.definition.boss, seed: trace.definition.seed });
-  psql(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${login.hub.userId}') ON CONFLICT DO NOTHING`);
-  const issueAck = object(JSON.parse(psql(`SELECT game.issue_shooter_verification_run('${login.hub.userId}','${login.sessionId}',${literal(key)},'${runId}',${literal(day)},${literal(trace.definition.boss)},${trace.definition.seed},${literal(JSON.stringify(issuance))})::text`)));
+  await psqlAsync(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${login.hub.userId}') ON CONFLICT DO NOTHING`);
+  const issueAck = object(JSON.parse(await psqlAsync(`SELECT game.issue_shooter_verification_run('${login.hub.userId}','${login.sessionId}',${literal(key)},'${runId}',${literal(day)},${literal(trace.definition.boss)},${trace.definition.seed},${literal(JSON.stringify(issuance))})::text`)));
   assert.equal(issueAck.state, 'issued', JSON.stringify(issueAck)); assert.equal(issueAck.runId, runId);
   assert.deepEqual(issueAck.manifest, integrationManifest);
   assert.deepEqual(issueAck.issuance, issuance);
   if (ageMs) {
     // Explicit internal fixture clock-age, never used in the actual UI lane.
     // Keep the database deadline exactly45minutes after its synthetic issuance.
-    psql(`UPDATE game.shooter_verification_run SET issued_at=issued_at-make_interval(secs=>${ageMs / 1000}),upload_deadline=upload_deadline-make_interval(secs=>${ageMs / 1000}) WHERE run_id='${runId}'`);
+    await psqlAsync(`UPDATE game.shooter_verification_run SET issued_at=issued_at-make_interval(secs=>${ageMs / 1000}),upload_deadline=upload_deadline-make_interval(secs=>${ageMs / 1000}) WHERE run_id='${runId}'`);
   }
-  const clocks = object(JSON.parse(psql(`SELECT jsonb_build_object('issuedAt',issued_at,'uploadDeadline',upload_deadline)::text FROM game.shooter_verification_run WHERE run_id='${runId}'`)));
+  const clocks = object(JSON.parse(await psqlAsync(`SELECT jsonb_build_object('issuedAt',issued_at,'uploadDeadline',upload_deadline)::text FROM game.shooter_verification_run WHERE run_id='${runId}'`)));
   return Object.freeze({ login, runId, key, issuance, issueAck, trace, fixture: Object.freeze({ kind: 'trusted_ci_server_fixture' as const, ageMs, issuedAt: String(clocks.issuedAt), uploadDeadline: String(clocks.uploadDeadline) }) });
 }
 
