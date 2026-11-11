@@ -170,6 +170,7 @@ try {
     await c.page.waitForFunction(() => {
       const game = window.__game, flow = game.rewardedCampaign.snapshot();
       return flow.phase === 'ended' || !!game.canonicalRewardFailure || game.crash.halted || game.crash.total > 0
+        || game.rewardedCampaign.current?.halted === true || game.rewardedCampaign.current?.identityStopped === true
         || ['error', 'cancelled', 'unranked'].includes(flow.phase) || !flow.active;
     }, null, { timeout: 2100000 });
     const state = await safeSnapshot(c.page);

@@ -34,6 +34,16 @@ async function reject(label: string, name: string, body: Obj, token: string, sta
   assert.equal(history(), before, label + ' changes no accepted evidence/checkpoint/job/payment');
   passes++; console.log('PASS public-adversarial ' + label);
 }
+async function rejectIssue(label: string, body: Obj, reason: string): Promise<void> {
+  // The existing public issuer rejects these forbidden keys before selecting
+  // v1/v2, preserving its legacy zero-credit error envelope for both cohorts.
+  const before = history(), runs = num(`SELECT count(*) FROM game.shooter_run WHERE user_id='${login.hub.userId}'`);
+  const response = (await call('shooter.run.issue', body, login.gameToken)).body as Obj;
+  assert.equal(response.reason, reason, label); assert.equal(response.ok, false); assert.equal(response.paid, false);
+  assert.equal(response.tickets, 0); assert.equal(response.ticketsMinted, 0);
+  assert.equal(history(), before); assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE user_id='${login.hub.userId}'`), runs);
+  passes++; console.log('PASS public-adversarial ' + label);
+}
 const append = (label: string, body: Obj, state = 'invalid', reason = 'malformed', token = login.gameToken): Promise<void> => reject(label, 'shooter.run.append', body, token, state, reason);
 for (const [key, value] of [['state', { hp: 999, godMode: true }], ['seed', 7], ['outcome', 'clear'], ['manifest', { sha256: 'a'.repeat(64) }]] as const)
   await append('client supplied ' + key + ' is not upload authority', { ...batch, [key]: value });
@@ -53,8 +63,8 @@ assert.equal(num(`SELECT accepted_tick FROM game.shooter_verification_run WHERE 
 assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${replacementActor.runId}'`), 0);
 await reject('forged finish outcome', 'shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence: -1, lastTick: 0, outcome: 'clear' }, login.gameToken, 'invalid', 'malformed');
 await reject('finish cannot skip unaccepted highwater', 'shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence: 0, lastTick: batch.n }, login.gameToken, 'invalid', 'seal_conflict');
-await reject('cohort issue cannot choose seed', 'shooter.run.issue', { key: randomUUID(), canonicalBoss: 'sahil', seed: 7 }, login.gameToken, 'invalid', 'malformed');
-await reject('cohort issue cannot request legacy fallback', 'shooter.run.issue', { key: randomUUID(), canonicalBoss: 'sahil', protocol: 1 }, login.gameToken, 'invalid', 'malformed');
+await rejectIssue('cohort issue cannot choose seed', { key: randomUUID(), canonicalBoss: 'sahil', seed: 7 }, 'forged_seed');
+await rejectIssue('cohort issue cannot request legacy fallback', { key: randomUUID(), canonicalBoss: 'sahil', protocol: 1 }, 'injected_inventory');
 await reject('other owner cannot inspect status', 'shooter.run.status', { runId: actor.runId }, stranger.hub.token, 'invalid', 'unknown_run');
 assert.equal(passes, 20, 'every explicit public denial case ran');
 const legacyBefore = history();
