@@ -6,7 +6,12 @@ on:
       - server/test/games/shooter_integration_fixture_contract.test.ts
       - server/test/shooter-integration-corpus.test.ts
       - server/test/shooter-full-stack.test.ts
+      - server/test/shooter-container-recovery.test.ts
+      - server/test/shooter-network-restore.test.ts
+      - server/test/shooter-public-adversarial.test.ts
+      - server/test/fixtures/shooter-restore.compose.yml
       - server/test/dup/shooter_verification_e2e_operations.ts
+      - server/test/dup/shooter_verification_e2e_oracle.ts
       - scripts/shooter-verification/**
       - server/test/fixtures/shooter-integration-corpus.json
       - .github/workflows/shooter-verification-e2e.yml
@@ -144,6 +149,148 @@ jobs:
           SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
           SHOOTER_APPROVED_SOURCE: ${{ github.workspace }}/.ci-shooter
           SHOOTER_BROWSER_CLIENT: ${{ github.workspace }}/.ci-browser-client
+      - name: Stop actual test containers and discard private journals
+        if: always()
+        run: |
+          if test -n "${SHOOTER_OPS_CI_DIRECTORY:-}"; then
+            docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes
+            case "$SHOOTER_OPS_CI_DIRECTORY" in
+              "$RUNNER_TEMP"/shooter-e2e-*) sudo rm -rf -- "$SHOOTER_OPS_CI_DIRECTORY" ;;
+              *) echo 'Refusing unexpected fixture cleanup directory'; exit 1 ;;
+            esac
+          else
+            docker compose -f server/docker-compose.yml down --volumes
+          fi
+  actual-coordinator-recovery:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Create only disposable test credentials and transport profile
+        run: |
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot actual ephemeral Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Actual coordinator-container crash and proof-only payment repair
+        run: npx tsx server/test/shooter-container-recovery.test.ts
+        env:
+          HUB_SHOOTER_FIXTURE: integration
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Stop actual test containers and discard private journals
+        if: always()
+        run: |
+          if test -n "${SHOOTER_OPS_CI_DIRECTORY:-}"; then
+            docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes
+            case "$SHOOTER_OPS_CI_DIRECTORY" in
+              "$RUNNER_TEMP"/shooter-e2e-*) sudo rm -rf -- "$SHOOTER_OPS_CI_DIRECTORY" ;;
+              *) echo 'Refusing unexpected fixture cleanup directory'; exit 1 ;;
+            esac
+          else
+            docker compose -f server/docker-compose.yml down --volumes
+          fi
+  actual-network-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Create only disposable test credentials and transport profile
+        run: |
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot actual ephemeral Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Actual second-Nakama backup restore and isolated continuation
+        run: npx tsx server/test/shooter-network-restore.test.ts
+        env:
+          HUB_SHOOTER_FIXTURE: integration
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Stop actual test containers and discard private journals
+        if: always()
+        run: |
+          if test -n "${SHOOTER_RESTORE_PRIVATE_DIRECTORY:-}"; then
+            SHOOTER_OPS_CI_DIRECTORY="$SHOOTER_RESTORE_PRIVATE_DIRECTORY" docker compose -p shooter-e2e-restore -f server/docker-compose.yml -f server/test/fixtures/shooter-restore.compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes
+            case "$SHOOTER_RESTORE_PRIVATE_DIRECTORY" in
+              "$RUNNER_TEMP"/shooter-e2e-restore-*) sudo rm -rf -- "$SHOOTER_RESTORE_PRIVATE_DIRECTORY" ;;
+              *) echo 'Refusing unexpected restore fixture directory'; exit 1 ;;
+            esac
+          fi
+          if test -n "${SHOOTER_OPS_CI_DIRECTORY:-}"; then
+            docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes
+            case "$SHOOTER_OPS_CI_DIRECTORY" in
+              "$RUNNER_TEMP"/shooter-e2e-*) sudo rm -rf -- "$SHOOTER_OPS_CI_DIRECTORY" ;;
+              *) echo 'Refusing unexpected fixture cleanup directory'; exit 1 ;;
+            esac
+          else
+            docker compose -f server/docker-compose.yml down --volumes
+          fi
+  actual-public-adversarial:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Create only disposable test credentials and transport profile
+        run: |
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot actual ephemeral Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Actual public ingress forgery and immutable retry matrix
+        run: npx tsx server/test/shooter-public-adversarial.test.ts
+        env:
+          HUB_SHOOTER_FIXTURE: integration
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
       - name: Stop actual test containers and discard private journals
         if: always()
         run: |

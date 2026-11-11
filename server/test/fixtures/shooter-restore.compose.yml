@@ -1,0 +1,9 @@
+# Disposable Actions restore lane only, applied after server/docker-compose.yml.
+# A separate --project-name is mandatory in the driver. No production profile.
+services:
+  postgres:
+    ports: !override ["127.0.0.1:15432:5432"]
+    volumes: !reset []
+    tmpfs: [/var/lib/postgresql/data]
+  nakama:
+    ports: !override ["127.0.0.1:17349:7349", "127.0.0.1:17350:7350", "127.0.0.1:17351:7351"]

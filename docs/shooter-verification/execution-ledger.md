@@ -1,7 +1,8 @@
 # Campaign verification execution ledger
 
 Updated November 11, 2026. This records implementation and evidence, not launch
-authorization. Feature tests/builds run in GitHub Actions. This work has not
+authorization. The [evidence map](integration-evidence.md) links each requirement
+to its source, execution mode and exact scoped Actions proof. Feature tests/builds run in GitHub Actions. This work has not
 deployed production services, applied production migrations, provisioned production
 credentials, bought hosting or enabled public reward cohorts/flags. The original
 [implementation plan](implementation-plan.md) remains preserved verbatim.
@@ -24,11 +25,15 @@ credentials, bought hosting or enabled public reward cohorts/flags. The original
 | Required issuance/finish/expiry companion | Hub [156](https://github.com/crrreatorrr/metaverse-hub/pull/156), merge `a3d64f2cf2f5807edc2c1cf682d90654278ffadc` |
 | 16 actual Game/UI | Shooter [112](https://github.com/crrreatorrr/sproto-shooter/pull/112), merge `20057a4040f9b07fea5bc1102af5602b36478f29`, preserving `91bd4d7`; default off |
 | 17 retention/recovery | Hub [159](https://github.com/crrreatorrr/metaverse-hub/pull/159), merge `3f69eaaf3113c737ce9533efdf658547816dc9c8` |
+| 19 worker operations | Hub [160](https://github.com/crrreatorrr/metaverse-hub/pull/160), merge `7db01566ea5c3fb7897c4f3ed4b26edf831f00e5`, preserving `19f7a73`; default off |
 
 Hub [154](https://github.com/crrreatorrr/metaverse-hub/pull/154) preserves the two
 historical 0050 migration identities. Hub [158](https://github.com/crrreatorrr/metaverse-hub/pull/158)
 updates generated vendor artifacts after external PvP changes. Unrelated existing
 main changes are preserved.
+Hub [163](https://github.com/crrreatorrr/metaverse-hub/pull/163) corrects only
+historical test-fixture reconstruction; immutable migration IDs, bodies,
+checksums and economy remain unchanged.
 
 ## Current evidence and limits
 
@@ -58,7 +63,38 @@ main changes are preserved.
   full private-checkpoint parity with retained05f, 9634-frame clear/20 Tickets and
   24000-frame incomplete/zero Tickets. The extra abandoned-empty case closed via
   idle maintenance with no owner-status request or queued work. This proves that
-  lane only; the new browser lane and later recovery/adversarial work are pending.
+  lane only; other lane evidence is recorded separately below.
+- PR18's actual coordinator recovery lane passed at `4874274`, job
+  [130425860361](https://github.com/crrreatorrr/metaverse-hub/actions/runs/42991693016/job/130425860361):
+  three literal PASS results. A real container was killed while its result
+  response was held after durable checkpoint commit; a fresh process recovered
+  the same journal request/digest/ACK. With no runnable jobs or retained journal
+  CP, proof-only repair recovered a wallet transaction failure and paid once;
+  original-session expiry denied payment in the second case. Active SIGTERM
+  during observed offline CPU work exited normally, and a fresh coordinator
+  completed all 24000 frames with retained-checkpoint parity and zero payment.
+- PR18's second-service restore lane passed at `3537364`, job
+  [130428218376](https://github.com/crrreatorrr/metaverse-hub/actions/runs/42992408179/job/130428218376).
+  An actual binary database dump after 4096 verified frames restored into fresh
+  PostgreSQL; a second Nakama authenticated the original owner and a fresh
+  coordinator/offline daemon completed all 9634 frames. Both independently
+  continued databases matched the retained checkpoint and paid one 20-Ticket
+  ledger event. Pre-backup ACK identities/timestamps and migration history were
+  preserved; new post-backup financial UUIDs/timestamps were compared by their
+  explicit financial meaning. Later additions broaden the pre-backup quota and
+  wallet row checks and still require an exact-head rerun. No raw backup/CP or
+  credential artifacts were uploaded.
+- PR18's actual browser lane passed at `8a01b6c`, job
+  [130434059347](https://github.com/crrreatorrr/metaverse-hub/actions/runs/42994190792/job/130434059347).
+  Genuine public random-seed DOM input recorded 127 ticks and matched retained05f.
+  The labeled trusted-server Sahil7 case completed all 9634 frames through the
+  production Game/UI/renderer/native RAF/recorder/transport and isolated service,
+  matched stateHash `3163be0c`, RNG/IDs/accounting and paid 20 once. Measured wall
+  time was 1,038,834ms (about 17m19s), not 161 seconds or a 60Hz/human-feel claim.
+  CI did not meet real-time wall cadence; intended-host validation remains a
+  PR21 rollout gate.
+  The final approved client revision and combined reviewed head must rerun;
+  this passing sub-job does not hide the public fixture failure in that workflow.
 - A native-OOM probe once returned exit 137 with Docker's OOMKilled flag false;
   an exact rerun reported 137/true. The original observation is retained, and a
   passing retry is not a claim that the startup-event race or capacity is solved.
@@ -67,8 +103,7 @@ main changes are preserved.
 
 | Stage | Reviewable work; remaining evidence |
 | --- | --- |
-| 18 full integration | Hub draft [162](https://github.com/crrreatorrr/metaverse-hub/pull/162), [integration design](integration-design.md). First full-corpus container lane passed as recorded above. Executable public random-seed DOM and full9634 actual Game lanes are published for Actions; their execution, adversarial/restart/drain, restored transport and proof-only payment-repair remain explicit completion gates. Full PR18 completion is not claimed. |
-| 19 worker operations | Hub draft [160](https://github.com/crrreatorrr/metaverse-hub/pull/160). Offline UNIX daemon/network coordinator, durable journal, scoped observations/payment repair/maintenance, log boundary and manifests. Mock-fetch recovery and idle shutdown do not substitute for real container crash/active-drain proofs. |
+| 18 full integration | Hub draft [162](https://github.com/crrreatorrr/metaverse-hub/pull/162), [integration design](integration-design.md). Full-corpus container, actual crash/drain/payment-repair, second-Nakama restore and actual A/C browser lanes have scoped passing evidence above. The corrected 26-case public-adversarial fixture, final client revision/review and exact-head combined reruns remain gates. Full PR18 completion is not claimed. |
 | 20 benchmarks | Hub draft [161](https://github.com/crrreatorrr/metaverse-hub/pull/161). Method/schema and workload tooling; CI runs are advisory correctness/workload evidence, not intended-host capacity. |
 
 ## Policy and external gates

@@ -115,14 +115,40 @@ try {
   psql(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${login.hub.userId}')`);
   const a = await initActualRewardPage({ browser, url, session: await realSession(login) });
   try {
-    await installCapture(a.page); await a.start({ boss: 'sahil' });
-    await a.page.keyboard.down('KeyW'); await a.page.mouse.move(180, 110); await a.page.mouse.down();
-    await a.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().recordedTick >= 120, null, { timeout: 180000 });
-    await a.page.keyboard.up('KeyW'); await a.page.mouse.up(); await a.page.keyboard.press('Escape');
+    await installCapture(a.page);
+    await a.page.keyboard.down('KeyW');
+    await a.start({ boss: 'sahil' });
+    if ((await a.readSnapshot()).phase !== 'ended') {
+      // Successful production start may already hold native pointer lock.
+      // Locator actionability under an existing lock is not an unlock gesture.
+      if (!await a.page.evaluate(() => document.pointerLockElement !== null)) await a.page.mouse.click(320, 360);
+      await a.page.waitForFunction(() => document.pointerLockElement !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
+      if ((await a.readSnapshot()).phase !== 'ended') {
+        // The real start panel disables input and clears held keys. Send a new
+        // genuine key edge after installation rather than relying on title input.
+        await a.page.keyboard.up('KeyW'); await a.page.keyboard.down('KeyW');
+        await a.page.mouse.move(180, 110); await a.page.mouse.down();
+      }
+    }
+    await a.page.waitForFunction(() => {
+      const flow = window.__game.rewardedCampaign.snapshot();
+      return flow.recordedTick >= 120 || flow.phase === 'ended';
+    }, null, { timeout: 180000 });
+    await a.page.keyboard.up('KeyW'); await a.page.mouse.up();
+    // CDP Escape does not reliably perform Chromium's native pointer-lock
+    // release. Use the browser's native release API, then actual production
+    // pause/status DOM controls. Never set Game.paused/state/clock directly.
+    if ((await a.readSnapshot()).phase !== 'ended') {
+      await a.page.evaluate(() => document.exitPointerLock());
+      const pauseStatus = a.page.locator('[data-p="rewarded"]');
+      await a.page.waitForFunction(() => document.querySelector('[data-p="rewarded"]') !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
+      if ((await a.readSnapshot()).phase !== 'ended') await pauseStatus.click();
+    }
     const state = await safeSnapshot(a.page); assert.ok(state.snapshot.runId);
+    assert.equal(state.snapshot.paused, true, 'actual status panel stops Game ticks before the final state capture');
     const observedCommands = decodeFrames(state.captured.frames, state.captured.n, state.captured.actions).commands;
     assert.ok(observedCommands?.some(command => command.moveZ !== 0), 'real DOM movement reached recorded canonical input');
-    await a.page.locator('[data-reward-status]').click(); await a.page.locator('[data-reward-action="back"]').click();
+    await a.page.locator('[data-reward-action="back"]').click();
     const proof = await assertStoredProof(state.snapshot.runId, state, a, state.captured.n);
     console.log('PASS actual-browser public random-seed DOM prefix/finish retained05f parity ' + JSON.stringify(proof));
   } finally { await a.close(); }
@@ -141,8 +167,14 @@ try {
       const original = crypto.randomUUID.bind(crypto);
       crypto.randomUUID = () => { crypto.randomUUID = original; return key; };
     }, key) });
-    await c.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().phase === 'ended', null, { timeout: 2100000 });
+    await c.page.waitForFunction(() => {
+      const game = window.__game, flow = game.rewardedCampaign.snapshot();
+      return flow.phase === 'ended' || !!game.canonicalRewardFailure || game.crash.halted || game.crash.total > 0
+        || game.rewardedCampaign.current?.halted === true || game.rewardedCampaign.current?.identityStopped === true
+        || ['error', 'cancelled', 'unranked'].includes(flow.phase) || !flow.active;
+    }, null, { timeout: 2100000 });
     const state = await safeSnapshot(c.page);
+    assert.equal(state.snapshot.phase, 'ended', 'full trace ended normally; permanent failure never waits out the long deadline');
     assert.equal(state.snapshot.runId, actor.runId); assert.equal(state.captured.n, 9634);
     assert.equal(hash(state.captured.frames), hash(actor.trace.frames));
     assert.equal(hash(JSON.stringify(state.captured.actions)), hash(JSON.stringify(actor.trace.actions)));

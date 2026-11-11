@@ -3,21 +3,16 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import vm from 'node:vm';
 import { guest, openGame, psql, num, waitReady } from './dup/harness';
-import { appendActor, appendDigest, finishActor, integrationCases, integrationManifest, observeActor, prepareTrustedActor, type PublicBatch, type TrustedActor } from './dup/shooter_verification_e2e_fixtures';
+import { appendActor, finishActor, integrationCases, observeActor, prepareTrustedActor } from './dup/shooter_verification_e2e_fixtures';
 
 import { ops, prepareOperations, waitUntil } from './dup/shooter_verification_e2e_operations';
+import { retainedOracle } from './dup/shooter_verification_e2e_oracle';
 
 type Obj = Record<string, unknown>;
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
-const SHA = String(integrationManifest.sha256);
-const bytes = readFileSync(new URL(`../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
 const digest = (v: string | Buffer): string => createHash('sha256').update(v).digest('hex');
-assert.equal(digest(bytes), SHA);
-const realm = vm.createContext({}); vm.runInContext(bytes.toString('utf8'), realm);
 const obj = (value: unknown): Obj => value as Obj;
 function stable(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value);
@@ -28,22 +23,6 @@ function query(sql: string): string {
   return execFileSync('docker', ['compose', '-f', 'server/docker-compose.yml', 'exec', '-T', 'postgres', 'psql', '-U', 'postgres', '-d', 'nakama', '-v', 'ON_ERROR_STOP=1', '-q', '-t', '-A'], {
     cwd: ROOT, input: sql, encoding: 'utf8', timeout: 30000, maxBuffer: 22 * 1024 * 1024,
   }).trim();
-}
-function retainedOracle(actor: TrustedActor, batch: PublicBatch): Obj {
-  realm.input = JSON.stringify({ issuance: actor.issuance, manifest: integrationManifest, batch, digest: appendDigest(batch) });
-  try {
-    return obj(JSON.parse(vm.runInContext(`JSON.stringify((function(v){
-      var api=SprotoShooterSim,m=v.manifest,c={issuance:v.issuance,manifest:{artifact:m.artifact,sourceCommit:m.sourceCommit,sha256:m.sha256,protocol:m.protocol,contentFingerprint:m.contentFingerprint},maxWorkFrames:4096};
-      var out=api.beginIncrementalReplay(c),cp=out.privateCheckpoint;
-      if(!cp)throw new Error('oracle_begin');
-      out=api.acceptReplayBatch(JSON.stringify(v.batch),cp,Object.assign({},c,{accepted:{runId:v.batch.runId,sequence:0,tick0:0,n:v.batch.n,sha256:v.digest,binding:{accountId:v.issuance.accountId,sessionId:v.issuance.sessionId,runId:v.issuance.runId,day:v.issuance.day},acceptedBeforeTerminal:true}}));
-      cp=out.privateCheckpoint;if(!cp)throw new Error('oracle_accept');
-      var slices=0;
-      while(cp.pending){var before=cp.accounting.verifiedFrames;out=api.stepReplaySlice(cp,c);cp=out.privateCheckpoint;
-        if(!cp||cp.accounting.verifiedFrames<=before||++slices>40)throw new Error('oracle_nonprogress');}
-      return cp;
-    })(JSON.parse(input)))`, realm) as string));
-  } finally { delete realm.input; }
 }
 
 await waitReady();
