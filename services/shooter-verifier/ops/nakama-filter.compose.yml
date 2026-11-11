@@ -1,0 +1,38 @@
+# Dormant standalone profile. Launch JSON is private mode0600, mounted read-only.
+# No existing local/production stack is modified. No stdout logger bypass.
+name: shooter-filter-proof
+services:
+  postgres:
+    image: postgres:16.8-alpine
+    environment:
+      POSTGRES_DB: nakama
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?private throwaway or approved credential required}
+    healthcheck:
+      test: [CMD, pg_isready, -U, postgres, -d, nakama]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    tmpfs: [/var/lib/postgresql/data]
+  nakama:
+    build:
+      context: ../../..
+      dockerfile: services/shooter-verifier/ops/Dockerfile.nakama-filter
+      target: ${NAKAMA_FILTER_TARGET:-nakama-filter}
+    read_only: true
+    init: false
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    tmpfs: [/tmp]
+    volumes:
+      - ${NAKAMA_LAUNCH_FILE:?absolute private launch JSON path required}:/run/nakama-launch.json:ro
+    ports: [127.0.0.1:7350:7350]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, node, -e, "require('node:http').get('http://127.0.0.1:9477/ready',r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>{process.exitCode=1})"]
+      interval: 2s
+      timeout: 2s
+      retries: 90
+      start_period: 5s
+    stop_grace_period: 12s

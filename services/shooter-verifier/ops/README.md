@@ -47,7 +47,12 @@ The coordinator publishes only loopback `/health`, `/ready` and `/metrics` on947
 with no Compose host port. Readiness requires a fresh approved offline manifest,
 fresh authenticated server observation, scoped key/account-token expiry and the
 checkpoint writer. Metrics contain fixed counters and capped approximate queue,
-lag/payment/orphan observations; truncation flags are explicit. CPU/wall/RSS are
+lag/payment/orphan observations; truncation flags are explicit. A truncated
+eligibility sample is unknown, never an authoritative negative: the coordinator
+probes the actual scheduler with5-second exponential backoff capped60 seconds.
+These speculative small ACKs remain subject to existing finite receipt quotas.
+The live-lease sample10001 exceeds the supported max_leased10000, so capacity
+cannot be undercounted below its configured limit. CPU/wall/RSS are
 observed separately. GC and unrelated online match latency remain null/unobserved.
 There are no run/account IDs, checkpoints, inputs or credentials in metrics/logs.
 A successful metrics test is not an online PvP latency or production capacity claim.

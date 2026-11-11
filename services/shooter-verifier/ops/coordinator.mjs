@@ -14,7 +14,7 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
   let accountExpiresAt=0;try{const parts=credentials.accountToken.split('.');const claims=JSON.parse(Buffer.from(parts[1]||'','base64url').toString('utf8'));if(Number.isSafeInteger(claims.exp)&&claims.exp>0)accountExpiresAt=claims.exp*1000;}catch{/* Unobserved credential expiry fails readiness closed. */}
   const gateway=new GatewayClient(credentials),journal=new Journal(journalDirectory),metrics=new Metrics();
   const replay=new UnixReplayClient({socketPath,onMetrics:value=>metrics.execution(value)});
-  let record=journal.load(),stopping=false,blocked=false,offline=null,lastOps=0,lastRepair=0,lastMaintenance=0,inFlight=false,paymentCursor=null;
+  let record=journal.load(),stopping=false,blocked=false,offline=null,lastOps=0,lastRepair=0,lastMaintenance=0,inFlight=false,paymentCursor=null,uncertainNextAt=0,uncertainBackoffMs=5000;
   if(record&&record.workerId!==credentials.workerId)throw new Error('journal_identity');
   if(record)metrics.add('journalRecoveries');
   const save=value=>{journal.save(value);record=value;};
@@ -33,11 +33,12 @@ export async function startCoordinator({credentials,journalDirectory='/var/lib/s
   }
   async function work(){
     if(record?.phase==='submitting'||record?.phase==='retrying'){await submit();return;}
-    if(!record){if(!health().ready||!metrics.gateway?.eligible)return;save({v:1,phase:'claiming',workerId:credentials.workerId,claimRequestId:randomUUID()});}
+    if(!record){if(!health().ready)return;const hint=metrics.gateway;if(!hint.eligible){if(!hint.eligibilityUnknown||Date.now()<uncertainNextAt)return;uncertainNextAt=Date.now()+uncertainBackoffMs;uncertainBackoffMs=Math.min(60000,uncertainBackoffMs*2);}else{uncertainNextAt=0;uncertainBackoffMs=5000;}save({v:1,phase:'claiming',workerId:credentials.workerId,claimRequestId:randomUUID()});}
     const ack=await gateway.claim(record.claimRequestId);
     if(ack.state!=='leased'){
       const durable=await proof('claim',record.claimRequestId,{});if(durable)clear();else metrics.add('rpcFailures');return;
     }
+    uncertainNextAt=0;uncertainBackoffMs=5000;
     if(ack.workState!=='ready'||!ack.work||typeof ack.work!=='object'||!ack.claim||typeof ack.claim!=='object'){
       if(ack.workState==='stale')clear();else metrics.add('rpcFailures');return;
     }
