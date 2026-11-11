@@ -18,7 +18,7 @@ test('plainHTTP is literal loopback only; URLs cannot embed credential/query/fra
 test('scoped client sends ordinaryJWT +exactserviceenvelope and retains explicitrequestID across retries',async()=>{
   const seen=[];const {s,url}=await server(async(req,res)=>{let text='';for await(const chunk of req)text+=chunk;seen.push({url:req.url,authorization:req.headers.authorization,body:JSON.parse(text)});res.setHeader('content-type','application/json');res.end('{"state":"pending_retryable"}');});
   try{const c=new GatewayClient({url,...auth});assert.ok(!JSON.stringify(c).includes(auth.token));assert.ok(!JSON.stringify(c).includes(auth.accountToken));await c.claim('same-request');await c.claim('same-request');
-    assert.equal((await c.claim()).reason,'bad_gateway_request');assert.equal(seen.length,2);assert.deepEqual(seen[0],seen[1]);assert.equal(seen[0].authorization,'Bearer test-account-jwt');assert.equal(seen[0].body.requestId,'same-request');assert.deepEqual(seen[0].body.body,{});
+    assert.equal((await c.claim()).reason,'bad_gateway_request');assert.equal(seen.length,2);assert.deepEqual(seen[0],seen[1]);assert.equal(seen[0].url,'/v2/rpc/shooter.internal.claim?unwrap=true');assert.equal(seen[0].authorization,'Bearer test-account-jwt');assert.equal(seen[0].body.requestId,'same-request');assert.deepEqual(seen[0].body.body,{});
     assert.equal((await c.request('pay',{})).reason,'bad_gateway_request');assert.equal((await c.result({}, {x:'x'.repeat(21*1024*1024)})).reason,'request_oversized');assert.equal(seen.length,2);
   }finally{s.close();}
 });

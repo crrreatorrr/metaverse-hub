@@ -117,6 +117,7 @@ HubSchema.register({
           OR r.source_commit<>'05f7a0a245af921fc65a99588564175c19658e38' OR r.content_fingerprint<>'cea1f88b' THEN
           RAISE EXCEPTION 'private_work_unavailable';
         END IF;
+        IF r.checkpoint_json IS NOT NULL AND r.checkpoint_sha256 IS DISTINCT FROM encode(sha256(convert_to(r.checkpoint_json::text,'UTF8')),'hex') THEN RAISE EXCEPTION 'private_work_unavailable'; END IF;
         -- Accepted batch exists durably; no client boolean supplies this fact.
         -- PR11 must stop distinct append atomically when terminal is committed.
         IF r.terminal_tick IS NOT NULL AND (to_jsonb(r)->>'terminal_accepted_sequence') IS NULL THEN RAISE EXCEPTION 'private_work_unavailable'; END IF;
@@ -161,7 +162,7 @@ HubSchema.register({
     `CREATE OR REPLACE FUNCTION game.shooter_verification_internal(a uuid,w text,k text,h text,op text,rid text,digest text,body jsonb)
       RETURNS jsonb LANGUAGE plpgsql AS $fn$
       DECLARE p game.shooter_verification_principal%ROWTYPE; cfg game.shooter_verification_gateway%ROWTYPE;
-        old game.shooter_verification_gateway_receipt%ROWTYPE; ack jsonb; t timestamptz;
+        old game.shooter_verification_gateway_receipt%ROWTYPE; ack jsonb; t timestamptz; c jsonb;
       BEGIN
         -- Lock order principal -> gateway config -> scheduler -> account -> run -> job.
         -- Preflight is only an optimization; authorization is rechecked here.
@@ -188,7 +189,19 @@ HubSchema.register({
         BEGIN
           IF op='claim' THEN
             ack:=game.shooter_verification_claim(w);
-            IF ack->>'state'='leased' THEN ack:=ack || jsonb_build_object('work',game.shooter_verification_private_work(ack->'claim',w)); END IF;
+            IF ack->>'state'='leased' THEN
+              c:=ack->'claim';
+              BEGIN
+                ack:=ack || jsonb_build_object('work',game.shooter_verification_private_work(c,w));
+              EXCEPTION WHEN raise_exception THEN
+                IF SQLERRM<>'private_work_unavailable' THEN RAISE; END IF;
+                -- Preserve claim/attempt/fairness, then release through the same
+                -- live fence into finite durable backoff/quarantine. Never leak
+                -- corrupt CP or repeatedly roll back the scheduler's last-turn.
+                ack:=game.shooter_verification_retry((c->>'jobId')::uuid,w,(c->>'fence')::bigint,(c->>'expectedRevision')::bigint,'database_issue')
+                  || jsonb_build_object('reason','private_work_unavailable','claim',c);
+              END;
+            END IF;
           ELSIF op='renew' THEN
             ack:=game.shooter_verification_renew((body->>'jobId')::uuid,w,(body->>'fence')::bigint,(body->>'expectedRevision')::bigint);
           ELSIF op='retry' THEN
@@ -211,6 +224,11 @@ HubSchema.register({
           ELSIF SQLERRM='private_work_unavailable' THEN RETURN jsonb_build_object('state','pending_retryable','reason','private_work_unavailable');
           ELSE RAISE; END IF;
         END;
+      EXCEPTION WHEN OTHERS THEN
+        -- Roll back all server-side mutations and return no SQL error/parameters
+        -- to Nakama's SQL adapter (which otherwise logs its argument array).
+        -- Connection/driver cancellation errors need deployment log filtering.
+        RETURN jsonb_build_object('state','pending_retryable','reason','gateway_unavailable');
       END; $fn$`,
   ],
 });
