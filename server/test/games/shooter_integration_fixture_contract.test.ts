@@ -1,0 +1,20 @@
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { appendDigest, integrationCases, reboundBatches, type TrustedActor } from '../dup/shooter_verification_e2e_fixtures.ts';
+
+assert.equal(integrationCases.length, 12);
+assert.equal(new Set(integrationCases.map(row => row.boss)).size, 5);
+assert.equal(integrationCases.find(row => row.id === 'sahil-success-7')?.frames, 9634);
+assert.equal(integrationCases.find(row => row.id === 'obama-success-7')?.frames, 24000);
+const run = 'a0510000-0000-4000-8000-000000000003';
+const batch = { protocol: 2 as const, runId: run, sequence: 0, tick0: 0, n: 1, frames: 'AAAAAAAAAAAAAAAA', actions: [] };
+const canonical = '{"actions":[],"frames":"AAAAAAAAAAAAAAAA","n":1,"protocol":2,"runId":"a0510000-0000-4000-8000-000000000003","sequence":0,"tick0":0}';
+assert.equal(appendDigest(batch), createHash('sha256').update(canonical).digest('hex'), 'v2 append digest is distinct from the original legacy envelope hash');
+const actor = { runId: run, trace: { definition: { frames: 241 }, frames: 'A'.repeat(241 * 16), actions: [[0, 1], [119, 1], [120, 1], [240, 1]] } } as unknown as TrustedActor;
+const chunks = reboundBatches(actor, 120);
+assert.deepEqual(chunks.map(row => [row.sequence, row.tick0, row.n]), [[0, 0, 120], [1, 120, 120], [2, 240, 1]]);
+assert.equal(chunks.map(row => row.frames).join(''), actor.trace.frames);
+assert.deepEqual(chunks.flatMap(row => row.actions.map(action => [row.tick0 + action[0]!, action[1]])), actor.trace.actions);
+assert.ok(chunks.every(row => Object.isFrozen(row) && Object.isFrozen(row.actions)));
+assert.throws(() => reboundBatches(actor, 0));
+console.log('integration fixture identity/digest/final-tail contract checks ok; no backend or browser execution claimed');

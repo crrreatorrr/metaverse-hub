@@ -1,0 +1,36 @@
+name: shooter-verification-e2e
+on:
+  pull_request:
+    paths:
+      - server/test/dup/shooter_verification_e2e_fixtures.ts
+      - server/test/games/shooter_integration_fixture_contract.test.ts
+      - server/test/shooter-integration-corpus.test.ts
+      - server/test/fixtures/shooter-integration-corpus.json
+      - .github/workflows/shooter-verification-e2e.yml
+permissions:
+  contents: read
+jobs:
+  corpus-input-preservation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Exact twelve-trace input preservation (not full-stack execution)
+        run: npx tsx server/test/shooter-integration-corpus.test.ts
+        env:
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Canonical digest and final-tail contracts
+        run: npx tsx server/test/games/shooter_integration_fixture_contract.test.ts
