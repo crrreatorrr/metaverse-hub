@@ -74,3 +74,14 @@ export class CreateRateBudget {
     current.push(nowMs); this.attempts.set(accountHash, current);
   }
 }
+
+export function authoritativeFreeResult(matchId: string, event: { matchId: string; opCode: number; sender: unknown; json(): unknown }): { outcome: string; reason: string; tick: number } | null {
+  if (event.matchId !== matchId || event.opCode !== 8 || event.sender !== null) return null;
+  let value: unknown;
+  try { value = event.json(); } catch { return null; }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const body = value as Record<string, unknown>;
+  if (body.ticketsMinted !== 0 || body.stakes !== false || typeof body.outcome !== 'string' || !/^[a-z_]{1,32}$/.test(body.outcome)
+    || typeof body.reason !== 'string' || !/^[a-z0-9_]{1,80}$/.test(body.reason) || !Number.isSafeInteger(body.tick) || Number(body.tick) < 0) return null;
+  return { outcome: body.outcome, reason: body.reason, tick: Number(body.tick) };
+}

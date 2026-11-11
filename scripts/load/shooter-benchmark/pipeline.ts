@@ -200,6 +200,7 @@ export class PublicPipeline implements CampaignAdapter {
   }
   matchMetrics() { return this.background.matchObservations; }
   coordinationFailures() { return this.finishSync.failures(); }
+  backgroundMetricEndCensors() { return this.background.metricEndCensors; }
   backgroundParticipants() { return this.background.participantEvidence(); }
   backgroundMetricReads() { return this.background.metricReads; }
   matchEnds() { return this.background.matchEnds; }

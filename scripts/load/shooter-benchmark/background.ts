@@ -6,8 +6,10 @@ import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } fr
 import { guest, openGame, type GameLogin } from '../../../server/test/dup/harness.ts';
 import { benchmarkRpc as call } from './rpc.ts';
 import { sha256 } from './contracts.ts';
+import { settleMetricRead, MetricReadParentAborted } from './metric-read-disposition.ts';
+import { createMetricReadLifetime, type MetricReadLifetimeEvidence } from './metric-read-lifetime.ts';
 import { oneShotCoverage } from './coverage.ts';
-import { FixedSlotParticipants, CreateRateBudget, assertOriginalCredential, allowOrdinaryCreateRetry,
+import { authoritativeFreeResult, FixedSlotParticipants, CreateRateBudget, assertOriginalCredential, allowOrdinaryCreateRetry,
   PVP_REPLACEMENT_LIMIT, PVP_INITIAL_LIMIT, BACKGROUND_PROFILE_MS, NORMAL_ROUND_MS, CREATE_RETRY_BUDGET_MS,
   CREATE_RETRY_DELAY_MS, ROOM_OPERATION_LIMIT } from './background-policy.ts';
 import { runLifetimeControl } from './control.ts';
@@ -42,6 +44,9 @@ export class BackgroundTraffic {
   private controlFailure: string | null = null;
   private readonly replacing = new Set<number>();
   private readonly reading = new Set<number>();
+  private readonly matchResults = new Map<string, { outcome: string; reason: string; tick: number; observedMonoMs: number }>();
+  private readonly pendingMetricReads = new Map<string, ReturnType<typeof createMetricReadLifetime>>();
+  readonly metricEndCensors: Readonly<MetricReadLifetimeEvidence & { slot: number; authoritativeEventObservedMonoMs: number }>[] = [];
   readonly controlTransitions: { slot: number; startedMonoMs: number; finishedMonoMs: number; outcome: 'ready' | 'failed'; reason: string | null }[] = [];
   private lifetimeSignal: AbortSignal | null = null;
   private targetMatches = 0;
@@ -51,7 +56,7 @@ export class BackgroundTraffic {
   readonly matchEnds: { matchBindingHash: string; observedAt: string; reason: string; outcome: string; replacement: number }[] = [];
   readonly metricReads: Readonly<{ slot: number; matchBindingHash: string; startedMonoMs: number; finishedMonoMs: number; elapsedMs: number; stage: string; outcome: string; httpStatus: number | null; signalDefinition: string }>[] = [];
   readonly rejectionCounts: Record<string, number> = {};
-  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number; closure: 'sample_complete' | 'sample_deadline' | 'measurement_window_closed'; pendingMetricSlots: number[] }[] = [];
+  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number; endCensoredMetricReads: number; closure: 'sample_complete' | 'sample_deadline' | 'measurement_window_closed'; pendingMetricSlots: number[] }[] = [];
   private replacements = 0;
   private readonly replacementLimit = PVP_REPLACEMENT_LIMIT;
   private readonly participants = new FixedSlotParticipants<GameLogin>(value => ({ accountId: value.hub.userId, sessionId: value.sessionId }));
@@ -176,6 +181,11 @@ export class BackgroundTraffic {
       seat.match.onMessage(message => {
         if (this.stopping) return;
         mail.push(message); if (mail.length > 128) mail.shift();
+        const resultProof = authoritativeFreeResult(matchId, message);
+        if (resultProof) {
+          if (!this.matchResults.has(matchId)) this.matchResults.set(matchId, { ...resultProof, observedMonoMs: performance.now() });
+          this.pendingMetricReads.get(matchId)?.notifyResult(sha256(message.matchId));
+        }
         if (message.opCode === 3) { const reason = message.json<{ reason?: string }>().reason; const key = typeof reason === 'string' && /^[a-z0-9_]{1,80}$/.test(reason) ? reason : 'unclassified_rejection'; this.rejectionCounts[key] = (this.rejectionCounts[key] ?? 0) + 1; }
       }); seats.push(seat);
     }
@@ -190,7 +200,7 @@ export class BackgroundTraffic {
     pair.timer = setInterval(() => {
       if (this.stopping || this.lifetimeSignal?.aborted) return;
       for (const s of seats) {
-        if (s.mail.some(m => m.opCode === 8)) continue;
+        if (this.matchResults.has(pair.matchId)) continue;
         const snapshot = [...s.mail].reverse().find(m => m.opCode === 7);
         const tick = snapshot?.json<{ tick: number }>().tick ?? 0;
         if (tick <= s.sentTick) continue; s.sentTick = tick;
@@ -204,9 +214,8 @@ export class BackgroundTraffic {
   }
   private async replaceConfirmedEnd(pair: Pair, signal: AbortSignal): Promise<boolean> {
     if (this.stopping || signal.aborted || this.lifetimeSignal?.aborted) return false;
-    const result = pair.seats.flatMap(s => s.mail.filter(m => m.opCode === 8)).at(-1);
-    if (!result) return false;
-    const end = result.json<{ reason?: string; outcome?: string }>();
+    const end = this.matchResults.get(pair.matchId);
+    if (!end) return false;
     this.matchEnds.push({ matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), reason: end.reason ?? 'unspecified', outcome: end.outcome ?? 'unspecified', replacement: this.replacements });
     clearInterval(pair.timer);
     const proof = this.rounds.find(value => value.matchBindingHash === sha256(pair.matchId));
@@ -227,7 +236,7 @@ export class BackgroundTraffic {
   private async maintainRound(): Promise<boolean> {
     const signal = this.lifetimeSignal!;
     if (this.stopping || signal.aborted) return false;
-      const ended = this.pairs.filter(pair => pair.seats.some(seat => seat.mail.some(message => message.opCode === 8)));
+      const ended = this.pairs.filter(pair => this.matchResults.has(pair.matchId));
       await Promise.all(ended.map(async pair => {
         this.replacing.add(pair.slot); const startedMonoMs = performance.now();
         let outcome: 'ready' | 'failed' = 'ready', reason: string | null = null;
@@ -263,7 +272,7 @@ export class BackgroundTraffic {
   async observe(signal: AbortSignal): Promise<void> {
     if (this.observing) throw new InstrumentationFailure('previous_background_observation_active');
     this.observing = true;
-    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, observedEndingSlots: 0, replacingSlots: this.replacing.size, replacements: this.replacements };
+    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, observedEndingSlots: 0, replacingSlots: this.replacing.size, replacements: this.replacements, endCensoredMetricReads: 0 };
     const pending = new Set<number>();
     const finalize = oneShotCoverage(() => ({ ...coverage, activeSlots: this.pairs.length, replacingSlots: this.replacing.size, replacements: this.replacements,
       closure: this.lifetimeSignal?.aborted || this.stopping ? 'measurement_window_closed' as const : signal.aborted ? 'sample_deadline' as const : 'sample_complete' as const, pendingMetricSlots: [...pending] }), value => this.coverage.push(value));
@@ -275,19 +284,36 @@ export class BackgroundTraffic {
       if (this.controlFailure) throw new InstrumentationFailure(this.controlFailure);
       if (this.pairs.length + this.replacing.size < this.targetMatches) throw new InstrumentationFailure('background_slot_missing_without_control');
       const outcomes = await Promise.allSettled([...this.pairs].map(async pair => {
-        const ended = () => pair.seats.some(seat => seat.mail.some(message => message.opCode === 8));
+        const ended = () => this.matchResults.has(pair.matchId);
         if (ended()) { coverage.observedEndingSlots++; return; }
         this.reading.add(pair.slot); pending.add(pair.slot); coverage.attemptedMetrics++;
         const readStarted = performance.now(); let readStage = 'rpc_pending', readOutcome = 'pending', httpStatus: number | null = null;
         const finishRead = oneShotCoverage(() => ({ slot: pair.slot, matchBindingHash: sha256(pair.matchId), startedMonoMs: readStarted, finishedMonoMs: performance.now(), elapsedMs: performance.now() - readStarted,
-          stage: readStage, outcome: signal.aborted ? this.lifetimeSignal?.aborted || this.stopping ? 'measurement_window_closed' : 'sample_signal_aborted' : readOutcome, httpStatus,
+          stage: readStage, outcome: readOutcome === 'confirmed_match_end' ? readOutcome : signal.aborted ? this.lifetimeSignal?.aborted || this.stopping ? 'measurement_window_closed' : 'sample_signal_aborted' : readOutcome, httpStatus,
           signalDefinition: 'parent_sampler_shared_5s_readonly_observation_budget' }), value => { if (this.metricReads.length < 20000) this.metricReads.push(value); });
+        const readLifetime = createMetricReadLifetime({ matchBindingHash: sha256(pair.matchId), parentSignal: signal });
+        this.pendingMetricReads.set(pair.matchId, readLifetime);
+        let endCensorRecorded = false;
+        const closeOnResult = () => {
+          const proof = readLifetime.finish();
+          if (proof.closeReason !== 'authoritative_result' || endCensorRecorded) return;
+          const result = this.matchResults.get(pair.matchId);
+          if (!result) return;
+          endCensorRecorded = true; coverage.endCensoredMetricReads++;
+          this.metricEndCensors.push(Object.freeze({ ...proof, slot: pair.slot, authoritativeEventObservedMonoMs: result.observedMonoMs }));
+          readOutcome = 'confirmed_match_end'; this.reading.delete(pair.slot); pending.delete(pair.slot); finishRead();
+        };
+        readLifetime.signal.addEventListener('abort', closeOnResult, { once: true });
         signal.addEventListener('abort', finishRead, { once: true });
         try {
           if (this.metricReads.length >= 20000) throw new InstrumentationFailure('metric_read_evidence_bound');
           let reply;
-          try { reply = await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal }); }
-          catch { readOutcome = signal.aborted ? 'sample_signal_aborted' : 'transport_exception'; throw new InstrumentationFailure(signal.aborted ? 'pvp_metric_read_deadline' : 'pvp_metric_transport_exception'); }
+          try {
+            const disposition = await settleMetricRead(call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal: readLifetime.signal }), readLifetime);
+            if (disposition.kind === 'end_censored') return;
+            reply = disposition.value;
+          }
+          catch (error) { if (endCensorRecorded) return; const parentClosed = error instanceof MetricReadParentAborted || signal.aborted; readOutcome = parentClosed ? 'sample_signal_aborted' : 'transport_exception'; throw new InstrumentationFailure(parentClosed ? 'pvp_metric_read_deadline' : 'pvp_metric_transport_exception'); }
           readStage = 'response_validation'; httpStatus = reply.status; readOutcome = 'response_received';
           if (reply.status >= 500) throw new SutUnavailable(`pvp_metrics_http_${reply.status}`);
           const body = object(reply.body);
@@ -309,7 +335,7 @@ export class BackgroundTraffic {
           if (this.matchObservations.length >= 10000) throw new InstrumentationFailure('match_observation_bound_exceeded');
           coverage.successfulMetrics++; readStage = 'completed'; readOutcome = 'observed';
           this.matchObservations.push({ slot: pair.slot, createdMonoMs: pair.createdMonoMs, replacement: pair.replacement, observedMonoMs: performance.now(), matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), n: values[0], p50: values[1], p95: values[2], max: values[3], tick: values[4], phase: String(body.phase), endReason: String(body.endReason ?? ''), outcome: String(body.outcome ?? ''), seatInputs, observer: 'shooter.metrics' });
-        } finally { signal.removeEventListener('abort', finishRead); finishRead(); this.reading.delete(pair.slot); pending.delete(pair.slot); }
+        } finally { readLifetime.signal.removeEventListener('abort', closeOnResult); readLifetime.finish(); if (this.pendingMetricReads.get(pair.matchId) === readLifetime) this.pendingMetricReads.delete(pair.matchId); signal.removeEventListener('abort', finishRead); finishRead(); this.reading.delete(pair.slot); pending.delete(pair.slot); }
       }));
       for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
     } finally {

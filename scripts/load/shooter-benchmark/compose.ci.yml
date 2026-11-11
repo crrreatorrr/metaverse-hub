@@ -1,5 +1,13 @@
 # CI instrumentation only. No credentials, Docker socket or verifier mounts.
 services:
+  coordinator:
+    environment:
+      GITHUB_ACTIONS: "true"
+      HUB_SHOOTER_FIXTURE: benchmark
+      SHOOTER_BENCHMARK_GATEWAY_OBSERVER: "1"
+      NODE_OPTIONS: --import=/app/scripts/load/shooter-benchmark/gateway-observer.mjs
+    volumes:
+      - ../scripts/load/shooter-benchmark/gateway-observer.mjs:/app/scripts/load/shooter-benchmark/gateway-observer.mjs:ro
   metrics-observer:
     profiles: [shooter-verification]
     image: node:22-bookworm-slim

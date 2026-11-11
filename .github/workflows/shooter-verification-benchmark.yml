@@ -33,6 +33,8 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/container-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/result-validation.test.ts
           npx tsx scripts/load/shooter-benchmark/coverage.test.ts
+          npx tsx scripts/load/shooter-benchmark/metric-read-disposition.test.ts
+          npx tsx scripts/load/shooter-benchmark/metric-read-lifetime.test.ts
           npx tsx scripts/load/shooter-benchmark/background-policy.test.ts
           npx tsx scripts/load/shooter-benchmark/control.test.ts
           npx tsx scripts/load/shooter-benchmark/rpc.test.ts
@@ -44,6 +46,7 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
           node --test scripts/load/shooter-benchmark/worker-lifecycle.test.mjs
           node scripts/load/shooter-benchmark/metrics-collector.test.mjs
+          node scripts/load/shooter-benchmark/gateway-observer.test.mjs
           npx tsx scripts/load/shooter-benchmark/legacy-policy.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark

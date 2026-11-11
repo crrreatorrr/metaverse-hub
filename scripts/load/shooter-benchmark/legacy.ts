@@ -130,6 +130,7 @@ export class LegacyPipeline implements CampaignAdapter {
   backgroundCoverage() { return this.background.coverage; }
   backgroundTransitions() { return this.background.controlTransitions; }
   backgroundRejections() { return this.background.rejectionCounts; }
+  backgroundMetricEndCensors() { return this.background.metricEndCensors; }
   backgroundParticipants() { return this.background.participantEvidence(); }
   backgroundMetricReads() { return this.background.metricReads; }
 }
