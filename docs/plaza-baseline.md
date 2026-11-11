@@ -37,6 +37,11 @@ The Coin adds an instance to the existing gem draw and requires no additional do
 
 1. Open `/hub/` without saved state. Verify login/sign-up tabs, field errors, guest entry and
    loading progress. With a local test account, sign in, reload and check the account persists.
+   Geometry check (plan item A1): at 1280×720, 1366×768 and 1366×650, with the form showing,
+   `document.getElementById(id).getBoundingClientRect().bottom < innerHeight` holds for
+   `login-submit` and `login-guest`, and neither is clipped by a scrolling ancestor. The guest row
+   (`#login-actions`) sits outside the scrolling `.login-view`; below 800 px of height the static
+   field hints show only for the focused field or an error.
 2. Verify default south spawn `(0, 1.775, 42)`, facing the monument. Walk with arrows, sprint with
    Shift, jump with Space, move with WASD or the arrows, turn with the mouse or Z / C, and check camera collision and pitch limits.
 3. Open `/hub/#from=hpos10i`, `#from=nobu`, `#from=peoples-bitcoin`, and `#from=sproto`.

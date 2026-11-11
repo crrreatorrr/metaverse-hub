@@ -472,6 +472,14 @@ body.gated #hud {
   background: repeating-linear-gradient(90deg, var(--blue-2) 0 8px, transparent 8px 12px);
 }
 
+/* The guest row: fixed under the scrolling view, above the load footer. */
+.login-actions {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  margin: 0 4px;
+}
+
 .login-guest {
   margin: 4px;
   padding: 12px 14px 10px;
@@ -651,10 +659,81 @@ body.gated #hud {
   }
 }
 
-@media (max-height: 760px) {
+/* ---------- Short screens: keep Create account and Continue as guest above the fold ----------
+   The guest row sits outside the scrolling view (see index.html). Below 800px the static
+   hints show only for the focused field or an error; below 700px the tabs lose their icons.
+   The view still scrolls as a fallback under 600px. */
+
+@media (max-height: 800px) {
+  .login-panel {
+    margin-top: 16px;
+    margin-bottom: 8px;
+  }
+
   .login-tab-icon {
     width: 36px;
     height: 36px;
+  }
+
+  .login-hint:not(.is-error) {
+    display: none;
+  }
+
+  .login-field:focus-within .login-hint {
+    display: block;
+  }
+
+  .login-tabs {
+    margin-bottom: 10px;
+  }
+
+  .login-lede {
+    margin-bottom: 10px;
+  }
+
+  .login-form {
+    gap: 10px;
+  }
+
+  .login-or {
+    margin: 8px 4px 6px;
+  }
+}
+
+@media (max-height: 700px) {
+  .login-tab {
+    flex-direction: row;
+    justify-content: center;
+    padding: 10px 2px 8px;
+  }
+
+  .login-tab-icon {
+    display: none;
+  }
+
+  .login-lede {
+    display: none;
+  }
+
+  .login-view {
+    padding-top: 8px;
+  }
+
+  .login-label {
+    margin-bottom: 4px;
+  }
+
+  .login-form {
+    gap: 6px;
+  }
+
+  .login-submit {
+    padding: 10px 14px 8px;
+  }
+
+  .login-foot {
+    margin-top: 4px;
+    padding-top: 6px;
   }
 }
 

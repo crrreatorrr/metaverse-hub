@@ -37,6 +37,7 @@ import { runHubGate } from './hub_gate.ts';
 import { runMigrations } from './migrations.ts';
 import { runHold } from './hold.ts';
 import { runPets } from './pets.ts';
+import { runHubExchange } from './hub_exchange.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
 import { runShop } from './shop.ts';
@@ -199,8 +200,8 @@ function grantFailure(flow: RelicFlow, body: RpcBody | undefined): string | null
   return `expected ${flow.relicId}, got ${detail}`;
 }
 
-/** Architect hold (0033 grant_hold). Cone, Tinubu, Breakwater, HPOS10I Core (0043), Marina Anchor, and Dragon Scale stay live. */
-const HELD_RELICS = new Set(['genesis_shard', 'tidebreaker_belt']);
+/** Architect hold (0033 grant_hold). 0061_relic_unhold released the last two held Relics (Genesis Block Shard, Tidebreaker Belt): every Relic flow is live. */
+const HELD_RELICS = new Set<string>();
 
 function isHeldRelic(flow: RelicFlow): boolean {
   return HELD_RELICS.has(flow.relicId);
@@ -1155,10 +1156,18 @@ async function hposExtras(): Promise<void> {
     assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
-  await test('score', 'hpos10i_act_time from an unranked session posts nothing', async () => {
+  // Unranked (plaza-entered) HPOS10I sessions post to the "open" half of the board, for accounts
+  // only. login() is a device guest, so its post is refused; bounds are checked before that.
+  await test('score', 'hpos10i_act_time from an unranked guest session posts nothing, and a time under the floor is refused', async () => {
     const session = await login('hpos10i');
     const skipped = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 1 } }, session.gameToken);
-    assert.deepEqual(skipped.body, { accepted: false, reason: 'unranked' });
+    assert.deepEqual(skipped.body, { accepted: false, reason: 'guest' });
+    for (const value of [0, 22.9, 1800.5]) {
+      const refused = await call('score.submit', { boardId: 'hpos10i_act_time', value, meta: { zone, act: 1 } }, session.gameToken);
+      assert.equal(refused.body.error, 'implausible_score', `${value} ${JSON.stringify(refused.body)}`);
+    }
+    const otherAct = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 2 } }, session.gameToken);
+    assert.equal(otherAct.body.error, 'bad_variant', JSON.stringify(otherAct.body));
     assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}'`), 0);
   });
 
@@ -1172,7 +1181,7 @@ async function hposExtras(): Promise<void> {
     const tooSoon = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30, meta }, session.gameToken);
     assert.equal(tooSoon.body.error, 'rate_limited', JSON.stringify(tooSoon.body));
     await sleep(SCORE_GAP_MS);
-    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta: { zone, act: 2 } }, session.gameToken);
+    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta }, session.gameToken);
     assert.equal(worse.body.error, undefined, JSON.stringify(worse.body));
     assert.equal(worse.body.value, 40);
     assert.equal(worse.body.posted, false);
@@ -1728,7 +1737,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 export function report(items: readonly Outcome[] = outcomes): number {
-  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
+  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hub-exchange', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
   console.log('\nDuplication suite');
   let failed = items.filter((item) => item.status === 'fail').length;
   for (const category of categories) {
@@ -2040,6 +2049,7 @@ export async function main(): Promise<void> {
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test);
     if (selected('pets')) await runPets(test);
+    if (selected('hub-exchange')) await runHubExchange(test);
     if (selected('hold')) await runHold(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);

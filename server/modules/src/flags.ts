@@ -20,7 +20,6 @@ namespace Flags {
     "shooter_pvp_ranked",
     "hub_exchange",
     "verse_store",
-    "relic_unhold",
     "diagnostics_prompt",
     "maint",
   ];

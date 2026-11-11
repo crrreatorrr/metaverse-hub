@@ -127,6 +127,8 @@ export interface Chat {
   detach(): void;
   /** Controller prompts (View opens chat) or keyboard prompts (Enter). */
   setPad(on: boolean): void;
+  /** Float a line over your own head without sending or logging it (an emote). */
+  floatOwn(parsed: ParsedChat): void;
 }
 
 export function createChat(options: ChatOptions): Chat {
@@ -354,6 +356,9 @@ export function createChat(options: ChatOptions): Chat {
     get open() { return open; },
     show,
     hide: () => close(false),
+    floatOwn(parsed: ParsedChat) {
+      float(parsed);
+    },
     setPad(on: boolean) {
       prompt.textContent = on ? 'Press View to chat' : 'Press Enter to chat';
       prompt.classList.toggle('pad', on);

@@ -19,8 +19,12 @@ import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './barLe
 import { addHallOfChampions } from './hallOfChampions';
 import { addLivingPortals } from '../../m3/livingPortals';
 
-import type { LeaderboardProvider, OrbitAvatar } from '../../m3/types';
+import { NO_SCORES_TEXT, type LeaderboardProvider, type OrbitAvatar } from '../../m3/types';
 import { spawnFor, defaultPortalPlacements } from './layout';
+import { portalPosition } from '../../layout';
+import { BAR_MARKER_LABEL } from '../../guide/markers';
+import { championRows, presenceRows } from '../../m3/life';
+import type { NakamaClient } from '@metaverse/hub-sdk';
 import { STAND_Y } from '../../physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
@@ -85,7 +89,7 @@ export interface HubWorld {
   setLook: (look: AvatarLook) => void;
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
-  setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
+  setBoard: (title: string, rows: readonly (readonly [string, string])[]) => void;
   /** Live Bar screen data (production); dev keeps the stub provider. */
   setLeaderboardProvider: (provider: LeaderboardProvider) => void;
   /** True once the Bar screen shows boards (dev stub or live), replacing the wall screen and its tabs. */
@@ -516,16 +520,58 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   if (gate) { outdoor.add(gate.root); interactions.push(gate.interaction); }
   if (ARCADE_GAMES.some(game => game.id === parseReturnGame(window.location.hash))) arcadeReturn = true;
 
+  /**
+   * Real gate counts and the Hall roster (plan E3, E4), in place of the dev stubs. Both RPCs are
+   * hub scope and cached on the server; an older server answers 404 and the boards stay empty.
+   */
+  const PRESENCE_POLL_MS = 30_000;
+  let lifeTimer: number | null = null;
+  function startPlazaLife(session: { client: NakamaClient; token: string }): void {
+    if (lifeTimer !== null) window.clearInterval(lifeTimer);
+    const pollPresence = (): void => {
+      if (document.visibilityState === 'hidden') return;
+      void session.client.rpc<{ counts?: Record<string, number> }>('hub.presence', {}, { token: session.token }).then(
+        (answer) => living.setPresence(presenceRows(answer.counts ?? {}, PORTALS.map((portal) => portal.id))),
+        () => undefined,
+      );
+    };
+    pollPresence();
+    lifeTimer = window.setInterval(pollPresence, PRESENCE_POLL_MS);
+    void session.client.rpc<{ champions?: { order?: number; userId?: string; name?: string }[] }>('hub.champions', {}, { token: session.token }).then(
+      (answer) => hall.setChampions(championRows(answer.champions ?? [])),
+      () => undefined,
+    );
+  }
+
+  /** HUD markers (plan D2): the five entrances at sign height, and the Bar with its three cabinet games. */
+  const WAYPOINT_HEIGHT = 5.4;
+  const gateWaypoints = PORTALS.map((portal) => {
+    const at = portalPosition(portal.angle, portal.distance);
+    return { id: portal.id, label: portal.label, x: at.x, y: WAYPOINT_HEIGHT, z: at.z };
+  });
+  const barWaypoint = { id: 'bar', label: BAR_MARKER_LABEL, x: 0, y: WAYPOINT_HEIGHT, z: 0 };
+  const barSlot = slots.find((slot) => slot.key === 'club');
+  if (barSlot) {
+    const fallback = portalPosition(barSlot.a, barSlot.front);
+    barWaypoint.x = fallback.x;
+    barWaypoint.z = fallback.z;
+  }
+  const allWaypoints = [...gateWaypoints, barWaypoint];
+  function waypoints(): readonly { id: string; label: string; x: number; y: number; z: number }[] {
+    if (inside) return [];
+    // Once the Bar has loaded, point at its real street door.
+    const door = barSlot?.door;
+    if (door) {
+      door.getWorldPosition(tmp);
+      barWaypoint.x = tmp.x;
+      barWaypoint.z = tmp.z;
+    }
+    return allWaypoints;
+  }
+
   type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
   type EarnedRow = VerseRow;
 
-  const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
-    hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
-    nobu: [['cone-kid', 30], ['morelight', 12]],
-    'peoples-bitcoin': [['morelight', 50], ['cone-kid', 20]],
-    sproto: [['sproto', 36], ['morelight', 14]],
-    total: [['morelight', 116], ['cone-kid', 50], ['sproto', 36], ['guest-17', 18], ['dusk-walker', 6]],
-  };
   const TAB_TITLE: Record<BoardTab, string> = {
     hpos10i: 'HPOS10I',
     nobu: 'NOBU',
@@ -548,12 +594,14 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       : boardRows
         .filter((row) => row.gameId === tab && typeof row.lifetime === 'number' && row.name)
         .map((row) => [row.name as string, row.lifetime as number] as const);
-    const sample = real.length === 0;
-    const rows = (sample ? SAMPLE[tab] : real)
-      .slice()
-      .sort((a, b) => b[1] - a[1])
-      .map((row) => [row[0], formatVerse(row[1])] as const);
-    setBoard(TAB_TITLE[tab], rows, sample);
+    // No invented names: an empty tab says so (plan item A4).
+    const rows = real.length === 0
+      ? [[NO_SCORES_TEXT, ''] as const]
+      : real
+        .slice()
+        .sort((a, b) => b[1] - a[1])
+        .map((row) => [row[0], formatVerse(row[1])] as const);
+    setBoard(TAB_TITLE[tab], rows);
     for (const button of document.querySelectorAll<HTMLButtonElement>('#bar-tabs button')) {
       button.classList.toggle('on', button.dataset.tab === tab);
     }
@@ -572,8 +620,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   }
   paintBar('total');
 
-  function setBoard(title: string, rows: readonly (readonly [string, string])[], sample: boolean): void {
-    void title; void sample;
+  function setBoard(title: string, rows: readonly (readonly [string, string])[]): void {
+    void title;
     wallBoardRows = rows;
     applyBoard();
   }
@@ -653,6 +701,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     groundHeight: () => inside ? -300 : 0,
     portals: [...PORTALS, ...STATUE_PORTALS],
     portalsEnabled: () => !inside,
+    waypoints,
+    atLauncher: () => zone === 'arcade',
     interactions,
     handleKey: event => sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
     overlayOpen: () => arcadePicker.open || sprotelTalk.open,
@@ -668,6 +718,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
         innerBoards = createLiveLeaderboardProvider(session.client, () => session.token);
         liveBoards = true;
         hideWallScreen();
+        startPlazaLife(session);
       }
     },
     resize: engine.resize,

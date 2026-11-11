@@ -75,6 +75,16 @@ interface PortalState {
 }
 
 /**
+ * The line under a gate's name. Live counts are an estimate (open game sessions redeemed in the last
+ * 30 minutes, from hub.presence), so they read "about N playing"; nobody inside says so plainly.
+ */
+export function gateCountText(count: number, placeholder: boolean): string {
+  const n = Math.max(0, Math.floor(count));
+  if (placeholder) return n === 1 ? '1 player inside' : `${n} players inside`;
+  return n === 0 ? 'Nobody inside right now' : `About ${n} playing`;
+}
+
+/**
  * Living portal placeholders. One instanced torus and one instanced cylinder
  * cover every gate. Each gate also has a canvas label and a canvas banner.
  * Firework motes are one instanced icosahedron.
@@ -151,7 +161,7 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
     ctx.fillText(fitText(ctx, state.placement.label, w - 48), w / 2, 48);
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 28px sans-serif';
-    const inside = state.count === 1 ? '1 player inside' : `${state.count} players inside`;
+    const inside = gateCountText(state.count, opts.placeholder === true);
     ctx.fillText(inside, w / 2, 92);
     ctx.font = '600 22px sans-serif';
     ctx.fillStyle = '#d7e1ff';
