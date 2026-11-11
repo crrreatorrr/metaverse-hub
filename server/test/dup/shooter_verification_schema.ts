@@ -104,7 +104,7 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     const economy = psql(ECONOMY);
     compose(['stop', 'nakama']);
     try {
-      psql(`${legacy}; DROP TABLE game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
+      psql(`${legacy}; DROP TABLE IF EXISTS game.shooter_verification_attempt_result,game.shooter_verification_attempt,game.shooter_verification_scheduler_account,game.shooter_verification_scheduler,game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
         DELETE FROM game.schema_migrations WHERE id ~ '^[0-9]+_shooter_(verification|verified|v2)_';`);
     } finally {
       compose(['up', '-d', 'nakama']);
