@@ -171,10 +171,10 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
   });
 
   await test('shooter-metrics', 'idle scoped maintenance closes expired empty admission without a claim and late key expiry rolls every derived change back', async () => {
-    isolate(); const login = await openGame((await guest()).token, 'sproto-shooter'), w = await principal();
+    isolate(); enable(); const login = await openGame((await guest()).token, 'sproto-shooter'), w = await principal();
     psql(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${login.hub.userId}')`);
     const issued = obj((await call('shooter.run.issue', { key: randomUUID(), canonicalBoss: 'sahil' }, login.gameToken)).body);
-    assert.equal(issued.state, 'issued'); const run = String(issued.runId);
+    assert.equal(issued.state, 'issued', JSON.stringify(issued)); const run = String(issued.runId);
     psql(`UPDATE game.shooter_verification_run SET issued_at=now()-interval '46 minutes',upload_deadline=now()-interval '1 minute' WHERE run_id='${run}'`);
     const before = psql(`SELECT to_jsonb(x)::text FROM game.shooter_verification_run x WHERE run_id='${run}'`);
     const retained = num('SELECT retained_runs FROM game.shooter_verification_admission');
@@ -212,7 +212,8 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
     installFaultHooks();
     try {
       enable(); arm(f.login.hub.userId, 'earn.after_wallet', 'raise');
-      assert.equal((await rpc(f.worker, 'repair', proof(f))).paid, false); assert.equal(credits(f), 0); assert.equal(receipt(f), null);
+      const failed = await rpc(f.worker, 'repair', proof(f)); assert.equal(failed.state, 'pending_retryable'); assert.notEqual(failed.paid, true);
+      assert.equal(credits(f), 0); assert.equal(receipt(f), null);
       assert.equal(psql(`SELECT payment_state FROM game.shooter_verification_run WHERE run_id='${f.run}'`), 'pending');
     } finally { disarm(f.login.hub.userId); dropFaultHooks(); }
     rotate(f.worker); const p = proof(f);
@@ -264,7 +265,9 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
         for (const p of refs) {
           assert.ok(!seen.has(String(p.resultRequestId)), 'keyset never repeats attempted proof in one sweep'); seen.add(String(p.resultRequestId));
           const target = fixtures.find(f => f.last.requestId === p.resultRequestId); assert.ok(target, 'cursor never exposes another worker');
-          const repaired = await rpc(w, 'repair', p); assert.equal(repaired.paid, target === fixtures[32]);
+          const repaired = await rpc(w, 'repair', p);
+          if (target === fixtures[32]) assert.equal(repaired.paid, true);
+          else { assert.equal(repaired.state, 'pending_retryable'); assert.notEqual(repaired.paid, true); }
         }
         next = obj(page.nextCursor); assert.deepEqual(Object.keys(next).sort(), ['afterCreatedAt', 'afterRequestId']);
         assert.ok(++pages <= 9, 'finite4-proof pages reach all33');

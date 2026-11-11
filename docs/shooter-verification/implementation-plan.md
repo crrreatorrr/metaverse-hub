@@ -1,8 +1,8 @@
 # Campaign reward verification implementation handoff
 
-Status: PR 00 baseline only. The owner requested implementation on November 10, 2026; the original planning-only authorization statement below describes the document’s preparation, not that later request. Explicit decision gates and the prohibition on deployment, credentials, hosting purchases and production changes remain in effect.
+Implementation is underway; see the [execution ledger](execution-ledger.md) for merged work, evidence and remaining gates. The owner requested implementation on November 10, 2026; the original planning-only authorization statement below describes the document’s preparation, not that later request. Explicit decision gates and the prohibition on deployment, credentials, hosting purchases and production changes remain in effect.
 
-Start with [baseline](baseline.md) and [decisions](decisions.md). No feature implementation is claimed by this document. PR 01 must resolve the contract decisions before dependent implementation. Current source evidence supersedes stale source assumptions in the original handoff.
+Start with the historical [baseline](baseline.md), accepted [decisions](decisions.md), and current [execution ledger](execution-ledger.md). Current source evidence supersedes stale source assumptions in the original handoff.
 
 The supplied handoff is preserved verbatim below for traceability.
 
