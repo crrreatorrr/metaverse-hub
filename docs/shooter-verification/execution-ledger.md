@@ -262,11 +262,18 @@ guards passed; full economic regression remains pending. The historical broad
 failure is retained, and neither that run nor all economic checks are claimed
 green.
 
-PR21 still requires intended-hardware measurements, hosting approval and an
-explicit browser-provenance product decision. Legal protocol-only emulators are
-accepted by design; this is not official-browser attestation. PR22 depends on 21.
-No production resource limits, public activation or paid infrastructure decision
-is inferred from CI timings or from merging code.
+On 2026-11-11 the owner explicitly accepted: “Accept server-verified legal
+inputs, including bots/emulators.” The [provenance product decision](decisions.md#product-decision-before-public-activation)
+is fulfilled for humans, legal bots and protocol-only emulators that satisfy
+server verification; it makes no official-client attestation claim.
+
+PR21 still requires authorized intended-host benchmark execution and hosting
+approval. Host, region and specifications, together with authorization to run
+that benchmark, remain pending. The failed primary-client result and pending
+full economic regression above remain unchanged. PR22 depends on PR21. This
+acceptance authorizes no production deployment, public activation, hosting
+purchase or production resource limits; CI timings and code merges supply no
+such authorization.
 
 The retained private executable remains source
 `05f7a0a245af921fc65a99588564175c19658e38`, SHA256

@@ -1,6 +1,6 @@
 # Campaign verification decisions and gates
 
-Status: **PR 01 contract prepared; owner decisions D01/D02 recorded.** See [baseline](baseline.md), [protocol v2](protocol-v2.md), [threat model](threat-model.md) and the [full handoff](implementation-plan.md). Protocol review and GitHub CI are still required before dependent implementation is treated as approved.
+Status: **Owner decisions D01/D02 and browser-provenance acceptance recorded.** See the [current execution ledger](execution-ledger.md) for merged implementation and scoped evidence, alongside [baseline](baseline.md), [protocol v2](protocol-v2.md), [threat model](threat-model.md) and the [full handoff](implementation-plan.md).
 
 The owner's implementation request authorizes development and GitHub PRs. It does not authorize deployment, public activation, purchasing hosting, creating production credentials or applying production migrations. New paths remain default-off. Each security-sensitive PR needs independent review. Required long-run tests must not be shortened, validation weakened or timeouts increased to pass.
 
@@ -24,7 +24,7 @@ This supersedes the original handoff's proposed ability to finish payment after 
 
 **Browser actions are not proof that the official client ran.** Authenticated live sessions and legal replayed inputs can be imitated by a protocol-only emulator. Client hashes, Origin, WebAssembly, JavaScript secrets and timing do not attest provenance. Humans and bots controlling legal client inputs remain supported; reward eligibility is server-owned. Do not describe this architecture as secure official-client-only rewards.
 
-Before public activation, the owner must explicitly accept server-verified gameplay with that limitation, or redirect to a separate hosted-client/native-attestation design. No acceptance has been inferred. Development may prepare dormant functionality after contract gates; public rollout remains blocked.
+On **2026-11-11**, the owner explicitly decided: **“Accept server-verified legal inputs, including bots/emulators.”** This fulfills the browser-provenance product decision for humans, legal bots and protocol-only emulators whose inputs satisfy server verification. It does not attest that the official client ran, authorize production deployment/public activation or approve hosting purchases. Intended-host measurements, hosting approval and the remaining rollout gates still apply; public rollout remains blocked.
 
 ## Measurement and operational gates
 
