@@ -133,7 +133,7 @@ export function migrationIds(): string[] {
   }
   return ids
     .map((id, index) => ({ id, index, n: Number(id.split('_')[0]) }))
-    .sort((a, b) => a.n - b.n || a.index - b.index)
+    .sort((a, b) => a.n - b.n || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((row) => row.id);
 }
 

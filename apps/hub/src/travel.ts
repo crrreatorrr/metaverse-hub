@@ -3,14 +3,14 @@ import { canonicalGameId, type GameId } from '@metaverse/hub-sdk';
 import { type PortalConfig } from './config';
 import { portalPosition } from './layout';
 
-/** Seconds inside the ring before the hub opens the game. A shorter visit does not enter. */
+/** Seconds inside the entrance before the hub opens the game. A shorter visit does not enter. */
 export const PORTAL_ENTER_DWELL = 1;
 
 export interface PortalDwell {
   id: GameId | null;
   /** Seconds spent continuously inside `id`. */
   elapsed: number;
-  /** Stays set after a finished dwell until the player leaves that ring. */
+  /** Stays set after a finished dwell until the player leaves that entrance. */
   held: boolean;
 }
 
@@ -20,7 +20,7 @@ export function initialDwell(): PortalDwell {
 
 /**
  * One step of the portal dwell. `ready` is true on the single frame the wait finishes.
- * Leaving the ring clears it. The plaza resets the dwell while a text field is focused.
+ * Leaving the entrance clears it. The plaza resets the dwell while a text field is focused.
  */
 export function stepPortalDwell(state: PortalDwell, id: GameId | null, dt: number): { state: PortalDwell; ready: boolean } {
   if (!id) return { state: initialDwell(), ready: false };

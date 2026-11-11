@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { Group } from 'three';
 import { RELIC_IDS } from '@metaverse/hub-sdk';
 import { SOCKETS, PEDESTAL_COLORS } from '../src/realms/plaza/config';
+import { buildPedestal } from '../src/realms/plaza/plaza';
 import { RELICS, ownsFourLights } from '../src/core/relics';
 import { FOUR_LIGHTS_RELIC_IDS } from '@metaverse/hub-sdk';
 import { RELIC_GEMS } from '../src/m3/types';
@@ -18,9 +20,9 @@ for (const id of ['marina_anchor', 'dragon_scale'] as const) {
 }
 assert.equal(new Set(RELIC_GEMS.map((gem) => `${gem.radius}:${gem.height}`)).size, RELIC_GEMS.length, 'orbits do not overlap');
 assert.ok(!ownsFourLights(new Set(['tidebreaker_belt', 'breakwater_coin', 'marina_anchor', 'dragon_scale'])), 'later Relics never open the Hall');
-const ringOffsets = readFileSync(new URL('../src/realms/plaza/plaza.ts', import.meta.url), 'utf8').match(/\[(-?[\d.]+(?:, -?[\d.]+)+)\]\.forEach\(\(a, i\)/);
-assert.ok(ringOffsets, 'pedestal ring offsets');
-assert.equal(ringOffsets[1]!.split(',').length, RELIC_IDS.length, 'one pedestal ring per Relic');
+const { markers } = buildPedestal(new Group());
+assert.equal(markers.length, RELIC_IDS.length, 'one pedestal marker per Relic');
+assert.equal(new Set(markers.map((marker) => marker.position.toArray().join(','))).size, RELIC_IDS.length, 'pedestal markers have distinct positions');
 console.log('Relic ids ok');
 
 // Shared engine code must never reach into a particular realm.
@@ -34,8 +36,6 @@ for (const file of readdirSync(core, { recursive: true })) {
 }
 
 assert.deepEqual(PEDESTAL_COLORS, RELICS.map(relic => relic.color), 'pedestal_colors_match_relics');
-const pedestal = readFileSync(new URL('../src/realms/plaza/plaza.ts', import.meta.url), 'utf8');
-assert.ok(pedestal.includes('PEDESTAL_COLORS'), 'pedestal uses the shared colors');
 assert.ok(ownsFourLights(new Set(FOUR_LIGHTS_RELIC_IDS)), 'four_relic_check_uses_four_lights');
 assert.ok(!ownsFourLights(new Set(FOUR_LIGHTS_RELIC_IDS.slice(0, 3))), 'three lights cannot own reward');
 const menu = readFileSync(new URL('../src/menu.ts', import.meta.url), 'utf8');

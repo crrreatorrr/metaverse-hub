@@ -33,6 +33,7 @@ Claude Code, Codex, Cursor and Grok Bot all work on this repo.
 - On the owner's machine, `agent-task new metaverse-hub <slug> --agent <name>` creates that branch in
   its own worktree.
 - Don't edit files that another active task is changing.
+- Before choosing a migration number, check `docs/migration-allocations.md` and open PRs; unmerged reservations also count.
 - Run the checks before opening a pull request, and report any you could not run.
 - A different agent reviews the work: `agent-task review <path>`, or `/codex:adversarial-review` in
   Claude Code.

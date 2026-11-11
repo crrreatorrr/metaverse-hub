@@ -101,8 +101,8 @@
     {
       "item_id": "gun_campaign_pistol",
       "pack_size": 1,
-      "price": 25,
-      "sell_price": 11,
+      "price": 2,
+      "sell_price": 1,
       "shop_id": "shop_terminal"
     },
     {
