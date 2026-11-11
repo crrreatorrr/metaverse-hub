@@ -124,11 +124,11 @@ HubSchema.register({
       IF vf IS NULL OR sf IS NULL OR vb IS NULL OR va IS NULL OR af IS NULL OR ab IS NULL OR aa IS NULL
         OR vf<=run.verified_tick OR vf>job.tick_end OR vf>run.accepted_tick OR sf<run.simulation_tick OR sf>vf
         OR af<>batch.tick0+batch.frame_count OR af>run.accepted_tick OR ab<>batch.sequence+1
-        OR vb<>CASE WHEN vf=batch.tick0+batch.frame_count THEN batch.sequence+1 ELSE batch.sequence END
+        OR vb<>(CASE WHEN vf=batch.tick0+batch.frame_count THEN batch.sequence+1 ELSE batch.sequence END)
         OR (accounting->>'framesTextBytes')::bigint<>af::bigint*16 OR (accounting->>'verifiedFramesTextBytes')::bigint<>vf::bigint*16
-        OR aa<>CASE WHEN run.checkpoint_json IS NULL THEN batch.action_count
+        OR aa<>(CASE WHEN run.checkpoint_json IS NULL THEN batch.action_count
           WHEN (run.checkpoint_json->'accounting'->>'batches')::int=batch.sequence+1 THEN (run.checkpoint_json->'accounting'->>'actions')::int
-          ELSE (run.checkpoint_json->'accounting'->>'actions')::int+batch.action_count END
+          ELSE (run.checkpoint_json->'accounting'->>'actions')::int+batch.action_count END)
         OR va<>run.verified_actions+(SELECT count(*) FROM jsonb_array_elements(batch.actions) x WHERE batch.tick0+(x->>0)::int>=run.verified_tick AND batch.tick0+(x->>0)::int<vf)
         OR (cp->'snapshot'->'counters'->>'frames')::int<>vf OR (cp->'snapshot'->'counters'->>'segments')::int<>vb
         OR (cp->'snapshot'->'state'->>'tick')::int<>sf
