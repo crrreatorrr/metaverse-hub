@@ -95,6 +95,7 @@ export async function fixture(name = 'broccoli-success-7', options: Options = {}
     const work = obj(claimed.work); assert.equal(obj(work.claim).runId, run);
     const result = replay(work), body = { manifest: MANIFEST, result }, requestId = randomUUID();
     assert.ok(result.privateCheckpoint, JSON.stringify(result.publicResult));
+    const beforeVerified = options.progressEvidence === 'stored-ack' ? receiptTick : num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
     const returned = await rpc(w, 'result', body, requestId);
     const raw = psql(`SELECT acknowledgment::text FROM game.shooter_verification_gateway_receipt WHERE worker_id='${w.workerId}' AND request_id='${requestId}'`);
     assert.ok(raw, JSON.stringify(returned)); const acknowledgment = obj(JSON.parse(raw));
@@ -103,6 +104,9 @@ export async function fixture(name = 'broccoli-success-7', options: Options = {}
       const nextTick = acknowledgment.verifiedTick;
       assert.ok(typeof nextTick === 'number' && Number.isSafeInteger(nextTick) && nextTick > receiptTick && nextTick <= n + tail, 'immutable stored ACK must advance its exact bounded replay cursor');
       receiptTick = nextTick;
+    } else {
+      const afterVerified = num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`);
+      assert.ok(afterVerified > beforeVerified, `worker result must advance verified tick: ${beforeVerified} -> ${afterVerified}`);
     }
     submissions.push({ worker: w, requestId, body, acknowledgment, returned });
     if (options.stopAfterTerminal && acknowledgment.state === 'terminal_verified') break;
