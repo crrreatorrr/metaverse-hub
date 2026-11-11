@@ -15528,7 +15528,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "83cfe165c669507633cf90d766e3e97e9b64249b";
+  var SOURCE_COMMIT = "7960d8525627a56ef2415ba9ff70e7ffe7784465";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
