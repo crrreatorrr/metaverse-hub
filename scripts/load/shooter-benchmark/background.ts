@@ -5,6 +5,11 @@ import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
 import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
 import { sha256 } from './contracts.ts';
+type Encoder = (input: Record<string, unknown>) => Uint8Array;
+function object(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('background response is not an object');
+  return value as Record<string, unknown>;
+}
 interface Live { rt: HubRealtime; match: MatchHandle; timer?: ReturnType<typeof setInterval> }
 interface Seat extends Live { account: string; mail: MatchData[]; seat: number; seq: number; sentTick: number }
 interface Pair { matchId: string; token: string; seats: Seat[] }
@@ -19,7 +24,7 @@ export class BackgroundTraffic {
   private pairs: Pair[] = [];
   private frames: ReturnType<typeof setInterval>[] = [];
   private stopping = false;
-  private readonly encode: (input: Record<string, unknown>) => Uint8Array;
+  private readonly encode: Encoder;
   private readonly pin: { protocol: number; sim: number; contentFingerprint: string };
   readonly matchObservations: MatchQuantiles[] = [];
   constructor(private base: string, private seed: string) {
@@ -30,7 +35,7 @@ export class BackgroundTraffic {
     const artifact = readFileSync('server/modules/vendor/shooter-pvp-sim.js');
     if (sha256(artifact) !== pin.sha256) throw new Error('background PvP artifact hash mismatch');
     vm.runInContext(artifact.toString('utf8'), sandbox);
-    this.encode = (sandbox.SprotoShooterPvp as { encodeInput: typeof this.encode }).encodeInput;
+    this.encode = (sandbox.SprotoShooterPvp as { encodeInput: Encoder }).encodeInput;
   }
   private socket(token: string): HubRealtime { return createRealtime({ serverUrl: this.base, getToken: () => token, reconnect: false }); }
   async start(hubUsers: number, freePvpMatches: number, signal: AbortSignal): Promise<void> {
@@ -56,9 +61,9 @@ export class BackgroundTraffic {
   }
   private async pair(signal: AbortSignal): Promise<void> {
     const a = await openGame((await guest()).token, 'sproto-shooter'), b = await openGame((await guest()).token, 'sproto-shooter');
-    const created = (await call('shooter.room_create', {}, a.gameToken, { signal })).body;
+    const created = object((await call('shooter.room_create', {}, a.gameToken, { signal })).body);
     if (created.error || created.stake !== 0 || typeof created.matchId !== 'string') throw new Error('free PvP background room unavailable');
-    const joined = (await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal })).body;
+    const joined = object((await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal })).body);
     if (joined.matchId !== created.matchId) throw new Error('free PvP background join failed');
     const seats: Seat[] = [];
     for (const login of [a, b]) {
@@ -89,7 +94,7 @@ export class BackgroundTraffic {
   }
   async observe(signal: AbortSignal): Promise<void> {
     for (const pair of this.pairs) {
-      const body = (await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal })).body;
+      const body = object((await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal })).body);
       if (body.error) throw new Error('actual match metrics unavailable');
       const values = ['n', 'p50', 'p95', 'max', 'tick'].map(key => Number(body[key]));
       if (!values.every(n => Number.isFinite(n) && n >= 0)) throw new Error('invalid match metric quantiles');
