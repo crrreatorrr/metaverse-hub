@@ -292,6 +292,10 @@ export async function runShooterVerificationSettlement(test: TestFn): Promise<vo
     const refused = JSON.parse(psql(`SELECT game.settle_shooter_verified_result('${f.worker.login.userId}','${f.worker.workerId}','${f.worker.keyId}','${f.worker.hash}','${f.last.requestId}')::text`)) as Obj;
     assert.equal(refused.reason, 'verification_receipt_unavailable');
     psql(`UPDATE game.shooter_verification_run SET checkpoint_sha256='${original}' WHERE run_id='${f.run}'`);
+    psql(`UPDATE game.shooter_verification_run SET checkpoint_json=jsonb_set(checkpoint_json,'{snapshot,state,time}',to_jsonb((checkpoint_json->'snapshot'->'state'->>'time')::numeric+1)) WHERE run_id='${f.run}'`);
+    await retry(f); assert.equal(financialSnapshot(f.login.hub.userId), before); assert.equal(credits(f), 0, 'body corruption cannot reuse unchanged metadata hashes');
+    psql(`UPDATE game.shooter_verification_run SET checkpoint_json=jsonb_set(checkpoint_json,'{snapshot,state,time}',to_jsonb((checkpoint_json->'snapshot'->'state'->>'time')::numeric-1)) WHERE run_id='${f.run}'`);
+    assert.equal(psql(`SELECT encode(sha256(convert_to(checkpoint_json::text,'UTF8')),'hex') FROM game.shooter_verification_run WHERE run_id='${f.run}'`), original, 'fixture restored exact committed body');
     await retry(f); assert.equal(credits(f), 1);
   });
   await test('shooter-payments', 'upload deadline stops input but does not add an unapproved payment deadline to a live original session', async () => {
