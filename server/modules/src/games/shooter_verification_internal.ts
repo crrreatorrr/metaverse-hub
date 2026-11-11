@@ -99,6 +99,12 @@ namespace ShooterVerificationInternal {
     if (op==="result" && typeof ShooterVerificationSettlement!=="undefined") {
       ShooterVerificationSettlement.afterResult(ctx,_logger,nk,parsed.workerId,parsed.keyId,hash,parsed.requestId,result);
     }
+    // Independent derived lifecycle maintenance after the scoped transaction has
+    // committed; never nest session/run locks under gateway/scheduler locks.
+    if (op==="claim" && (result.state==="leased" || result.reason==="no_capacity_or_ready_work")) {
+      try { ShooterVerificationLifecycle.reap(nk,null); }
+      catch (_e) { _logger.error("shooter lifecycle maintenance operational failure"); }
+    }
     return JSON.stringify(result);
   }
   export function safe(ctx: nkruntime.Context,logger: nkruntime.Logger,nk: nkruntime.Nakama,payload: string,op: string): string {
