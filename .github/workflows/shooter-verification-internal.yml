@@ -46,6 +46,9 @@ jobs:
         run: npm run test:dup
         env:
           DUP_ONLY: shooter-verification,shooter-ingest,shooter-leases,shooter-internal
+      - name: Diagnose ephemeral stack failure
+        if: failure()
+        run: docker compose -f server/docker-compose.yml logs --no-color --tail 150 nakama postgres
       - name: Stop test services
         if: always()
         run: docker compose -f server/docker-compose.yml down --volumes

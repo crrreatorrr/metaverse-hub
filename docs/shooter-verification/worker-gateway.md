@@ -58,7 +58,7 @@ Private checkpoint validation here is deliberately transport/schema-level; PR11
 must validate complete critical state, hashes, versions and monotonic counters.
 
 Request digest is SHA256(operation + newline + stable sorted-key JSON body),
-excluding credential/request ID. Identical authorized request IDs return the
+excluding credential/request ID. Request IDs are namespaced by logical worker ID, independently of rotating key/account IDs; the original issuing account/key remain immutable audit fields. A currently authorized replacement key for that same worker can recover the original receipt after old-key revocation. Identical authorized request IDs return the
 original immutable receipt; conflicting operation/body rejects. Claim and its
 full server-owned private work acknowledgment are stored **in the same SQL
 transaction**, so a lost response cannot claim another job. The projection uses

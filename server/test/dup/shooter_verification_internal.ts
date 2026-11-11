@@ -81,6 +81,21 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}'`),3*20971520);
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
   });
+  await test('shooter-internal','lost claim remains the same attempt across key rotation and original-key revocation',async()=>{
+    isolate();const p=await principal();await fixture();await fixture();const rid=crypto.randomUUID();
+    const first=await rpc(p,'claim',{},rid);assert.equal(first.state,'leased');
+    const token2=randomBytes(32).toString('base64url');
+    psql(`UPDATE game.shooter_verification_principal SET revoked_at=clock_timestamp() WHERE worker_id='${p.workerId}' AND key_id='key1';
+      INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+      VALUES('${p.account.userId}','${p.workerId}','key2','${hash('shooter-worker-token-v1\n'+token2)}',ARRAY['claim','renew'],clock_timestamp()-interval '1 second',clock_timestamp()+interval '1 minute')`);
+    const replacement={...p,keyId:'key2',token:token2};
+    assert.deepEqual(await rpc(replacement,'claim',{},rid),first);
+    assert.equal((await rpc(p,'claim',{},rid)).state,'authorization_denied');
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_job WHERE lease_owner='${p.workerId}' AND state='leased'`),1);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND request_id='${rid}'`),1);
+    assert.equal(psql(`SELECT key_id FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND request_id='${rid}'`),'key1','originalcredentialauditretained');
+    assert.equal(num(`SELECT reserved_receipt_bytes FROM game.shooter_verification_principal WHERE worker_id='${p.workerId}' AND key_id='key2'`),0,'recoverydoesnotduplicatereservation');
+  });
   await test('shooter-internal','result authentication binds digest/fence/manifest; PR10 explicitly does not commit checkpoints or pay',async()=>{
     isolate();const p=await principal(),run=await fixture(),ack=await rpc(p,'claim'),work=ack.work as Row,result=workerResult(work);
     assert.equal((result.publicResult as Row).status,'verified');const body={manifest:work.manifest,result};

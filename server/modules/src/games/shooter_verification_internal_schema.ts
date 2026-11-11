@@ -30,7 +30,7 @@ HubSchema.register({
       request_sha256 text NOT NULL CHECK(request_sha256 ~ '^[0-9a-f]{64}$'),
       acknowledgment jsonb NOT NULL CHECK(jsonb_typeof(acknowledgment)='object' AND octet_length(acknowledgment::text)<=20971520),
       created_at timestamptz NOT NULL,
-      PRIMARY KEY(account_id,worker_id,key_id,request_id),
+      PRIMARY KEY(worker_id,request_id),
       FOREIGN KEY(account_id,worker_id,key_id) REFERENCES game.shooter_verification_principal(account_id,worker_id,key_id)
     )`,
     `CREATE OR REPLACE FUNCTION game.shooter_verification_gateway_receipt_immutable()
@@ -129,7 +129,7 @@ HubSchema.register({
         END IF;
         IF rid !~ '^[A-Za-z0-9_.:@|-]{1,80}$' OR digest !~ '^[0-9a-f]{64}$' OR op NOT IN ('claim','renew','retry','result') THEN
           RETURN jsonb_build_object('state','invalid','reason','malformed'); END IF;
-        SELECT * INTO old FROM game.shooter_verification_gateway_receipt WHERE account_id=a AND worker_id=w AND key_id=k AND request_id=rid;
+        SELECT * INTO old FROM game.shooter_verification_gateway_receipt WHERE worker_id=w AND request_id=rid;
         IF FOUND THEN
           IF old.operation<>op OR old.request_sha256<>digest THEN RETURN jsonb_build_object('state','invalid','reason','request_conflict'); END IF;
           RETURN old.acknowledgment;
