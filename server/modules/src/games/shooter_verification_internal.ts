@@ -93,6 +93,11 @@ namespace ShooterVerificationInternal {
     var result=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_internal($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::jsonb)::text AS result",
       [ctx.userId,parsed.workerId,parsed.keyId,hash,op,parsed.requestId,nk.sha256Hash(op+"\n"+stable(parsed.body)),JSON.stringify(parsed.body)]);
     if (op==="result") HubFault.apply(ctx,nk,ctx.userId,"shooter.worker.after_commit");
+    // The first SQL query has returned and COMMITTED. Payment is a separate
+    // transaction; its economic/session locks never nest under checkpoint locks.
+    if (op==="result" && typeof ShooterVerificationSettlement!=="undefined") {
+      ShooterVerificationSettlement.afterResult(ctx,_logger,nk,parsed.workerId,parsed.keyId,hash,parsed.requestId,result);
+    }
     return JSON.stringify(result);
   }
   export function safe(ctx: nkruntime.Context,logger: nkruntime.Logger,nk: nkruntime.Nakama,payload: string,op: string): string {
