@@ -9,7 +9,7 @@ const body={protocol:2,runId:run,lastSequence:-1,lastTick:0};
   const ack={...body,state:'sealed',sealedAt:'2026-11-11T00:00:00Z'};
   m.nk.onSql('game.shooter_verification_finish',(args)=>{captured.push(args);return [{result:JSON.stringify(ack)}];});
   assert.deepEqual(m.call('shooter.run.finish',ctx,body),ack);
-  assert.deepEqual(captured,[[user,sid,run,-1,0]],'only original auth and accepted highwater reach SQL');
+  assert.deepEqual(captured.map(args=>Array.from(args)),[[user,sid,run,-1,0]],'only original auth and accepted highwater reach SQL');
   for (const value of [{...body,checkpoint:{}},{...body,outcome:'clear'},{...body,lastSequence:0},{...body,lastTick:1},{...body,lastTick:0.5},{...body,protocol:1}]) {
     assert.equal(m.call<Record<string,unknown>>('shooter.run.finish',ctx,value).state,'invalid');
   }

@@ -272,13 +272,15 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         const n = nearBySlot.get(slot);
         if (!petsHidden && p && EQUIPPABLE_PET_IDS.includes(p.pet)) {
           v.set(r.x, r.y, r.z);
-          if (n?.detailedPet) n.pet.update(dt, v, STAND_Y, r.anim === 2);
+          const spawnYaw = Math.PI - r.yaw;
+          if (n?.detailedPet) n.pet.update(dt, v, STAND_Y, r.anim === 2, spawnYaw);
           else {
             let motion = petMotions.get(slot);
             if (!motion) { motion = createPetMotion(opts.petCollision); petMotions.set(slot, motion); }
             motion.setFollowSpeed(PET_SPEEDS.get(p.pet) ?? 8);
-            motion.update(dt, v, STAND_Y);
-            v.copy(motion.position).y += (0.28 + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04) * PET_SCALE;
+            motion.update(dt, v, STAND_Y, spawnYaw);
+            const hoverHeight = p.pet === 'pet_mecha' ? 0.78 : 0.28;
+            v.copy(motion.position).y += (hoverHeight + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04) * PET_SCALE;
             q.identity();
             m.compose(v, q, s);
             farPets.setMatrixAt(petCount++, m);
