@@ -58,13 +58,15 @@ jobs:
         run: |
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
+          npx tsx scripts/load/shooter-benchmark/client-validation.test.ts
+          node --test scripts/load/shooter-benchmark/browser-drain.test.mjs
           node --check scripts/load/shooter-benchmark/public-browsers.mjs
           node --check scripts/load/shooter-benchmark/browser-ci.mjs
           node --check scripts/load/shooter-benchmark/client-browser.mjs
           node --test scripts/load/shooter-benchmark/instrument-result-stages.test.mjs
           node --test scripts/load/shooter-benchmark/result-stage-collector.test.mjs
       - name: Lint browser benchmark and observation boundaries
-        run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/client-browser.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs
+        run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/client-browser.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs scripts/load/shooter-benchmark/browser-drain.mjs scripts/load/shooter-benchmark/browser-drain.test.mjs scripts/load/shooter-benchmark/client-validation.ts scripts/load/shooter-benchmark/client-validation.test.ts
       - name: Throwaway credentials for disposable stack
         run: |
           set -eu
