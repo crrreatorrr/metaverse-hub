@@ -304,6 +304,8 @@ function InitModule(
   // >>> game: sproto-shooter registrations
   initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
   initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  initializer.registerRpc("shooter.run.append", rpcShooterRunAppend);
+  initializer.registerRpc("shooter.run.status", rpcShooterRunStatus);
   initializer.registerMatch("sproto_shooter_free", { matchInit: sprotoShooterFreeInit, matchJoinAttempt: sprotoShooterFreeJoinAttempt, matchJoin: sprotoShooterFreeJoin, matchLeave: sprotoShooterFreeLeave, matchLoop: sprotoShooterFreeLoop, matchTerminate: sprotoShooterFreeTerminate, matchSignal: sprotoShooterFreeSignal });
   initializer.registerRpc("shooter.version", rpcShooterVersion);
   initializer.registerRpc("shooter.room_create", rpcShooterRoomCreate);
