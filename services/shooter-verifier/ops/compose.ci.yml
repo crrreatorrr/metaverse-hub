@@ -11,6 +11,10 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     pids_limit: 32
     mem_limit: 512m
     memswap_limit: 512m
@@ -32,6 +36,10 @@ services:
     read_only: true
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     pids_limit: 24
     mem_limit: 384m
     memswap_limit: 384m

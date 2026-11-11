@@ -23,13 +23,13 @@ export async function runFilteredNakama({configFile='/run/nakama-launch.json',he
   let args;
   try {
     const fd=openSync(configFile,constants.O_RDONLY|constants.O_NOFOLLOW);
-    try {const st=fstatSync(fd);if(!st.isFile()||(st.mode&0o077)!==0||st.size>65536)throw new Error();
+    try {const st=fstatSync(fd);if(!st.isFile()||(st.mode&0o077)!==0||st.size>65536||st.uid!==process.getuid())throw new Error();
       const cfg=JSON.parse(readFileSync(fd,'utf8'));
       if(!cfg||Object.keys(cfg).length!==1||!Array.isArray(cfg.serverArgs))throw new Error();
       args=checkedNakamaArguments(cfg.serverArgs);
     } finally {closeSync(fd);}
     await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(healthPort,'127.0.0.1',resolve);});
-  } catch {emit('runtime_failed',{reason:'configuration'});server.close();return{code:1};}
+  } catch (error) {emit('runtime_failed',{reason:error?.code==='EACCES'?'credentials':'configuration'});server.close();return{code:1};}
   const stop=()=>{if(stopping)return;stopping=true;lastHealthyAt=0;probe?.destroy();child?.kill('SIGTERM');
     killTimer=setTimeout(()=>child?.kill('SIGKILL'),10000);killTimer.unref();};
   process.on('SIGTERM',stop);process.on('SIGINT',stop);

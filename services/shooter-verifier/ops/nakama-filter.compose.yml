@@ -14,6 +14,9 @@ services:
       retries: 30
     tmpfs: [/var/lib/postgresql/data]
   nakama:
+    # A mode0600 host secret must be owned by this exact application UID.
+    # Dropped capabilities intentionally cannot bypass another owner's file.
+    user: "${NAKAMA_FILTER_UID:?launch file owner UID required}:${NAKAMA_FILTER_GID:?launch file owner GID required}"
     build:
       context: ../../..
       dockerfile: services/shooter-verifier/ops/Dockerfile.nakama-filter
@@ -22,6 +25,10 @@ services:
     init: false
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
     tmpfs: [/tmp]
     volumes:
       - ${NAKAMA_LAUNCH_FILE:?absolute private launch JSON path required}:/run/nakama-launch.json:ro
