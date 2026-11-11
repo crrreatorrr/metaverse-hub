@@ -2,6 +2,11 @@ import assert from 'node:assert/strict';
 import { loadModule } from '../unit/harness';
 
 const m = loadModule();
+const schema = m.global.HubSchema as { all(): { id: string; statements: string[] }[] };
+const migration = schema.all().find((entry) => entry.id === '0055_shooter_verification_settlement')!;
+const clock = migration.statements.find((statement) => statement.includes('FUNCTION game.shooter_verification_payment_now()'))!;
+assert.match(clock, /^CREATE OR REPLACE FUNCTION game\.shooter_verification_payment_now\(\)\s+RETURNS timestamptz LANGUAGE sql VOLATILE AS \$clock\$SELECT clock_timestamp\(\)\$clock\$$/,
+  'production financial time has no caller argument, table, configuration or fixture override');
 const worker = 'a0550000-0000-4000-8000-000000000001';
 const ack = { state: 'terminal_verified', runId: 'untrusted-echo-is-not-the-sql-target', terminalRevision: 1, revision: 3 };
 const before = JSON.stringify(ack);

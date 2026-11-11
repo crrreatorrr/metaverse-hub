@@ -33,6 +33,10 @@ HubSchema.register({
     `ALTER TABLE game.shooter_verification_run ADD COLUMN IF NOT EXISTS payment_first_denial jsonb
       CHECK(payment_first_denial IS NULL OR (jsonb_typeof(payment_first_denial)='object' AND octet_length(payment_first_denial::text)<=2048))`,
     "ALTER TABLE game.shooter_verification_run ADD COLUMN IF NOT EXISTS payment_attempted_at timestamptz",
+    // No argument/configuration can change production time. A disposable CI
+    // fixture may replace/restore this private function to test UTC lock races.
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_payment_now()
+      RETURNS timestamptz LANGUAGE sql VOLATILE AS $clock$SELECT clock_timestamp()$clock$`,
     `CREATE OR REPLACE FUNCTION game.settle_shooter_verified_result(a uuid,w text,k text,h text,rid text)
     RETURNS jsonb LANGUAGE plpgsql AS $fn$
     <<settlement>>
@@ -58,7 +62,7 @@ HubSchema.register({
       -- This transaction never changes gateway counters. Do not hold its global
       -- scheduling lock across a single account's financial row waits.
       SELECT * INTO gateway FROM game.shooter_verification_gateway WHERE singleton;
-      t:=clock_timestamp();
+      t:=game.shooter_verification_payment_now();
       IF principal.revoked_at IS NOT NULL OR principal.not_before>t OR principal.expires_at<=t
         OR NOT 'result'=ANY(principal.scopes) OR NOT game.shooter_verification_hash_equal(principal.token_sha256,h) THEN
         RETURN jsonb_build_object('state','pending_retryable','reason','worker_authorization'); END IF;
@@ -76,7 +80,7 @@ HubSchema.register({
       SELECT * INTO game_session_row FROM game.game_session WHERE session_id=original_session FOR UPDATE;
       SELECT * INTO legacy FROM game.shooter_run WHERE run_id=target FOR UPDATE;
       SELECT * INTO run FROM game.shooter_verification_run WHERE run_id=target FOR UPDATE;
-      t:=clock_timestamp();
+      t:=game.shooter_verification_payment_now();
       IF principal.expires_at<=t OR principal.not_before>t THEN RETURN jsonb_build_object('state','pending_retryable','reason','worker_authorization'); END IF;
       IF run.user_id IS DISTINCT FROM owner OR run.session_id IS DISTINCT FROM original_session
         OR legacy.user_id IS DISTINCT FROM owner OR legacy.session_id IS DISTINCT FROM original_session
@@ -119,8 +123,8 @@ HubSchema.register({
         OR run.terminal_result->>'ranked' IS DISTINCT FROM 'true' OR run.terminal_result->>'canonicalCount' IS DISTINCT FROM '1' THEN
         v_response:=jsonb_build_object('state','ineligible','reason','ineligible','paid',false,'tickets',0,'ticketsMinted',0);
         UPDATE game.shooter_verification_run SET payment_state='ineligible',payment_reason='ineligible',payment_ack=v_response,
-          payment_first_denial=COALESCE(payment_first_denial,jsonb_build_object('reason','ineligible','at',clock_timestamp())),
-          payment_attempted_at=clock_timestamp(),updated_at=clock_timestamp() WHERE run_id=target;
+          payment_first_denial=COALESCE(payment_first_denial,jsonb_build_object('reason','ineligible','at',game.shooter_verification_payment_now())),
+          payment_attempted_at=game.shooter_verification_payment_now(),updated_at=game.shooter_verification_payment_now() WHERE run_id=target;
         UPDATE game.shooter_run SET status='closed' WHERE run_id=target AND status='open';
         RETURN v_response;
       END IF;
@@ -146,11 +150,11 @@ HubSchema.register({
         SELECT req_hash,rpc INTO existing_hash,existing_rpc FROM game.idempotency WHERE user_id=owner AND key=idem FOR UPDATE;
         IF existing_hash IS DISTINCT FROM decode(evidence,'hex') OR existing_rpc IS DISTINCT FROM 'tickets.earn' THEN
           RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='history_conflict'; END IF;
-        v_day:=(clock_timestamp() AT TIME ZONE 'UTC')::date;
+        v_day:=(game.shooter_verification_payment_now() AT TIME ZONE 'UTC')::date;
         FOR tries IN 1..3 LOOP
           INSERT INTO game.earn_window(user_id,bucket,day,amount) VALUES(owner,'tickets:sproto-shooter',v_day,0) ON CONFLICT DO NOTHING;
           SELECT e.amount INTO day_used FROM game.earn_window e WHERE user_id=owner AND bucket='tickets:sproto-shooter' AND e.day=v_day FOR UPDATE;
-          t:=clock_timestamp(); final_day:=(t AT TIME ZONE 'UTC')::date;
+          t:=game.shooter_verification_payment_now(); final_day:=(t AT TIME ZONE 'UTC')::date;
           IF final_day=v_day THEN clock_ready:=true; EXIT; END IF;
           v_day:=final_day;
         END LOOP;
@@ -182,8 +186,8 @@ HubSchema.register({
         IF session_earned+20>200 THEN RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='session_ticket_cap'; END IF;
         IF day_used+20>1000 THEN RAISE EXCEPTION USING ERRCODE='P5DEN',MESSAGE='daily_ticket_cap'; END IF;
         UPDATE game.tickets_balance SET balance=game.tickets_balance.balance+20 WHERE user_id=owner AND game_id='sproto-shooter' RETURNING game.tickets_balance.balance INTO v_balance;
-        INSERT INTO game.tickets_ledger(event_id,user_id,game_id,delta,balance_after,reason,ref_id,kind)
-          VALUES(gen_random_uuid(),owner,'sproto-shooter',20,v_balance,'srv_shooter_boss_clear',original_session,'earn');
+        INSERT INTO game.tickets_ledger(event_id,user_id,game_id,delta,balance_after,reason,ref_id,kind,created_at)
+          VALUES(gen_random_uuid(),owner,'sproto-shooter',20,v_balance,'srv_shooter_boss_clear',original_session,'earn',t);
         UPDATE game.earn_window SET amount=game.earn_window.amount+20 WHERE user_id=owner AND bucket='tickets:sproto-shooter' AND game.earn_window.day=v_day;
         UPDATE game.earn_window SET amount=game.earn_window.amount+1 WHERE user_id=owner AND bucket='boss:sproto-shooter:' || legacy.canonical_boss AND game.earn_window.day=legacy.day;
         v_response:=jsonb_build_object('ok',true,'paid',true,'replay',false,'tickets',20,'balance',v_balance,
@@ -194,10 +198,10 @@ HubSchema.register({
           meta=jsonb_build_object('protocol',1,'fingerprint','cea1f88b','runId',target,'stateHash',run.terminal_result->>'stateHash','version',1),
           session_id=original_session,updated_at=t
           WHERE user_id=owner AND board_id='shooter_story_clear_ms_v1' AND variant=legacy.canonical_boss AND value>clear_ms;
-        INSERT INTO game.shooter_receipt(user_id,game_id,canonical_boss,day,run_id,session_id,log_digest,state_hash,clear_ms,tickets,protocol,fingerprint,response)
-          VALUES(owner,'sproto-shooter',legacy.canonical_boss,legacy.day,target,original_session,evidence,run.terminal_result->>'stateHash',clear_ms,20,1,'cea1f88b',v_response);
-        INSERT INTO game.shooter_digest(user_id,digest,run_id) VALUES(owner,evidence,target);
-        UPDATE game.idempotency SET response=v_response WHERE user_id=owner AND key=idem;
+        INSERT INTO game.shooter_receipt(user_id,game_id,canonical_boss,day,run_id,session_id,log_digest,state_hash,clear_ms,tickets,protocol,fingerprint,response,created_at)
+          VALUES(owner,'sproto-shooter',legacy.canonical_boss,legacy.day,target,original_session,evidence,run.terminal_result->>'stateHash',clear_ms,20,1,'cea1f88b',v_response,t);
+        INSERT INTO game.shooter_digest(user_id,digest,run_id,created_at) VALUES(owner,evidence,target,t);
+        UPDATE game.idempotency SET response=v_response,created_at=t WHERE user_id=owner AND key=idem;
         UPDATE game.shooter_run SET status='settled' WHERE run_id=target;
         UPDATE game.shooter_verification_run SET payment_state='paid',payment_reason=NULL,payment_ack=v_response,payment_attempted_at=t,updated_at=t WHERE run_id=target;
         RETURN v_response;
