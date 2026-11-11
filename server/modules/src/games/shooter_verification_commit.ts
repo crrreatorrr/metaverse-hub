@@ -52,7 +52,7 @@ namespace ShooterVerificationCommit {
     var ids: { [key: string]: boolean } = {};
     function entity(e: Value): void { var p = object(e); var id = number(p.id); if (id >= next || ids[String(id)]) throw new Error("checkpoint_state"); ids[String(id)] = true; }
     Object.keys(players).forEach(function(k) {
-      var p = object(players[k]); if (String(p.id) !== k || p.kind !== "player") throw new Error("checkpoint_state");
+      var p = object(players[k]); if (String(p.id) !== k || p.kind !== "player" || typeof p.dead !== "boolean") throw new Error("checkpoint_state");
       ["pos", "prevPos", "vel"].forEach(function(f) { vector(p[f]); }); entity(p);
     });
     ["enemies", "allies", "projectiles", "pickups", "hazards"].forEach(function(k) { array(s[k]).forEach(entity); });

@@ -11,7 +11,9 @@ type Work = { claim: Claim; manifest: ObjectValue; issuance: ObjectValue; checkp
 const SHA = '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
 const MANIFEST = { artifact: 'shooter-sim', sourceCommit: '05f7a0a245af921fc65a99588564175c19658e38', sha256: SHA, protocol: 1, contentFingerprint: 'cea1f88b', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const context = vm.createContext({ console });
-vm.runInContext(readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url), 'utf8'), context);
+const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
+assert.equal(createHash('sha256').update(artifactBytes).digest('hex'), SHA);
+vm.runInContext(artifactBytes.toString('utf8'), context);
 function inSim(expression: string, input: unknown): unknown {
   context.__value = JSON.stringify(input);
   try { return JSON.parse(vm.runInContext(`JSON.stringify((function(v) { ${expression} })(JSON.parse(__value)))`, context) as string) as unknown; }
@@ -78,7 +80,8 @@ function history(run: string): string {
 function noPayment(run: string): void { assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`), 0); }
 function rehash(cp: ObjectValue): void {
   const { privateHash: _old, ...rest } = cp;
-  let h = 0x811c9dc5; for (const c of stable(rest)) h = Math.imul(h ^ c.charCodeAt(0), 0x01000193);
+  const encoded = stable(rest); let h = 0x811c9dc5;
+  for (let i = 0; i < encoded.length; i++) h = Math.imul(h ^ encoded.charCodeAt(i), 0x01000193);
   cp.privateHash = (h >>> 0).toString(16).padStart(8, '0');
 }
 export async function runShooterVerificationCommit(test: TestFn): Promise<void> {
@@ -126,6 +129,7 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
       (r) => { obj(r.privateCheckpoint).v = 99; },
       (r) => { const cp = obj(r.privateCheckpoint); obj(obj(cp.snapshot).state).version = 99; rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { obj(r.privateCheckpoint).privateHash = '00000000'; },
+      (r) => { const cp = obj(r.privateCheckpoint); const s = obj(obj(cp.snapshot).state); obj(obj(s.players)[String(s.localPlayerId)]).dead = 'yes'; rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); obj(obj(cp.snapshot).state).oversizedString = 'a'.repeat(16385); rehash(obj(cp.snapshot)); rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); obj(cp.accounting).verifiedFrames = 9; rehash(cp); },
       (r) => { const cp = obj(r.privateCheckpoint); obj(cp.issuance).seed = 8; rehash(cp); },
