@@ -1,6 +1,6 @@
 # PR20 benchmark tooling design (review draft)
 
-Status: design only, 2026-11-11. No benchmark, local test, deployment, infrastructure purchase, or production traffic is authorized or performed. Parent owns merges. Implementation starts in a new standalone clone/branch after design approval and PR18/19 interfaces stabilize; PR155 remains untouched. All executable verification goes through GitHub Actions.
+Status: approved method and implementation draft, 2026-11-11. Ephemeral CI harness verification is authorized; no target-host benchmark, local test, deployment, infrastructure purchase or production traffic is authorized or performed. Implementation is on its own branch; parent owns merges. All executable verification goes through GitHub Actions.
 
 ## Purpose and boundary with PR21
 
