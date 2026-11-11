@@ -288,6 +288,9 @@ server verification; it makes no official-client attestation claim.
 PR21 still requires authorized intended-host benchmark execution and hosting
 approval. Host, region and specifications, together with authorization to run
 that benchmark, remain pending. The failed primary-client result remains unchanged.
+The [rollout preparation](rollout-preparation.md) records the existing control
+matrix, unset dashboard fields, activation gates and an unexecuted staging drill.
+It implements no shadow financial policy and does not complete PR21 or PR22.
 The exact-head economic proof and its three existing pending cases above remain
 scoped to that run. PR22 depends on PR21. This
 acceptance authorizes no production deployment, public activation, hosting
