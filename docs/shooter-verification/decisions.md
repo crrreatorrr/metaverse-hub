@@ -1,6 +1,6 @@
 # Campaign verification decisions and gates
 
-Status: **PR 00 baseline; PR 01 contract not approved.** See [baseline](baseline.md) and the [full handoff](implementation-plan.md).
+Status: **PR 01 contract prepared; owner decisions D01/D02 recorded.** See [baseline](baseline.md), [protocol v2](protocol-v2.md), [threat model](threat-model.md) and the [full handoff](implementation-plan.md). Protocol review and GitHub CI are still required before dependent implementation is treated as approved.
 
 The owner's implementation request authorizes development and GitHub PRs. It does not authorize deployment, public activation, purchasing hosting, creating production credentials or applying production migrations. New paths remain default-off. Each security-sensitive PR needs independent review. Required long-run tests must not be shortened, validation weakened or timeouts increased to pass.
 
@@ -8,11 +8,17 @@ The owner's implementation request authorizes development and GitHub PRs. It doe
 
 | ID | Decision | Proposal / current behavior | Status |
 | --- | --- | --- | --- |
-| D01 | Ordinary session expiry while valid accepted work is queued | Proposal: accept gameplay only with valid original authorization, retain original session accounting, allow settlement for up to 24 hours after ordinary expiry; revocation/fraud are distinct. Current SQL requires a live session at settlement. The authorization event and grace deadline must be durably stored, not inferred from client time. | Awaiting owner decision; no policy change implemented |
-| D02 | Encoded input and whole-run size | Proposal: 2 MiB per immutable batch and 64 MiB cumulative per run, separately bounded actions/batches and existing 45-minute frame ceiling. Alternative: retain 2 MiB whole-run limit and explicitly accept its earlier input ceiling. These are safety ceilings, not measured operating cadence/capacity recommendations. | Awaiting owner decision; no limits changed |
+| D01 | Ordinary session expiry while valid accepted work is queued | **No settlement grace.** Owner rejected the 24-hour proposal. Settlement must require the original session to remain open, redeemed and unexpired under the existing SQL rule. Accepted input and verified results remain durable; expiry is a separately reported authorization failure, not cheating. No replacement session can inherit a run or its cap accounting. | Owner answered **NO**; contract only, runtime unchanged |
+| D02 | Encoded input and whole-run size | **2 MiB per immutable batch; 64 MiB cumulative per run**, with separately bounded actions/batches and the existing 45-minute frame ceiling. These are safety ceilings, not measured operating cadence/capacity recommendations. | Owner answered **yes**; contract only, runtime unchanged |
 | D03 | Midnight accounting | Preserve existing split: boss/day uniqueness uses issuance UTC day; shared daily Ticket cap uses settlement UTC day; original session cap stays attached to issuance session. Delayed payment must remain transactional and idempotent. | Existing behavior to preserve; any change needs explicit approval |
 
-After D01/D02, PR 01 must also make the full lifecycle unambiguous: canonical boss-section start/loadout, fixed tick cadence and first terminal tick, post-terminal handling, pause/hitstop/hidden-tab rules, reconnect authorization, upload grace/run expiry, active-run bounds, artifact support lifetime, request/action/batch totals and operational timeout classification. These are not implicitly approved by this baseline. Do not start dependent PRs by inventing missing economic behavior.
+The protocol now specifies canonical boss-section start/loadout, fixed tick cadence and first terminal tick, post-terminal handling, pause/hitstop/hidden-tab rules, reconnect authorization, no expiry grace, active-run bounds, artifact support lifetime, request/action/batch totals and operational timeout classification. Numerical resource ceilings are dormant proposed defaults for review and later measurement, not a public capacity promise. Do not change economic policy during implementation.
+
+### Consequence of D01
+
+Timely acceptance does **not** reserve a future payment or bypass the live-session settlement predicate. A queued run can verify successfully after its original session expires and receive **no payment**. The client must explain this before rewarded play and show `session_expired`, distinct from `invalid_gameplay`, `revoked` and a retryable infrastructure failure. Preserve terminal evidence even when payment is denied. No hidden grace, automatic rebind or retroactive renewal is authorized. Ordinary token refresh is permitted only while the original underlying session remains valid; it cannot revive an expired run.
+
+This supersedes the original handoff's proposed ability to finish payment after ordinary expiry. The owner explicitly chose live-session settlement. PR 12 must test this denial path and the boundary race transactionally; the implementation must not claim every timely accepted valid run is guaranteed payment. Deployment-equivalent measurements must quantify the risk of sessions expiring in the queue before rollout approval.
 
 ## Product decision before public activation
 
