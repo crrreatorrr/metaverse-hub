@@ -42,6 +42,16 @@ The suite lives in `server/test/dup/`. `cases.ts` is the only table you add to. 
 
 `server/test/dup/audit.sql` must return no rows. The suite runs it after every case. CI runs it again after the job. `HUB_FAULT_INJECT=1` in this compose file arms nothing by itself; only rows in `game.fault_arm` (inserted by the suite) pause or abort a grant. Leave that flag unset on a production deploy.
 
+Postgres-only economy tests, with no Nakama:
+
+```bash
+HUB_PG_PORT=5432 npm run test:pg
+```
+
+`server/test/pg/` loads the built module in the offline harness and sends every `nk.sqlQuery` / `nk.sqlExec` to a Postgres 16 reached with `psql` (`HUB_PG_HOST`, `HUB_PG_PORT`, `HUB_PG_USER`, `PGPASSWORD`). Each file gets a throwaway database `hub_pg_<name>` with all migrations applied by the real runner, then drives the real RPC handlers and SQL functions, races them on separate connections, and runs `audit.sql`. It covers the hub's own economy rules (caps, idempotency, promotion); it does not replace `test:dup`, which also covers Nakama auth, HTTP and fault injection. It prints `test:pg NOT RUN` and exits 0 when Postgres is not reachable (`HUB_PG_REQUIRED=1` makes that a failure). Never point it at a database you care about.
+
+Hub-scope wallet (migration `0060_hub_exchange`): `tickets.balances {}` lists the Ticket balance and today's remaining Verse cap for all eight games, and `verse.exchange { game, tickets, key }` exchanges one game's Tickets from a hub session. It shares the `economy:<user>` lock, the `verse:<game>` bucket and the idempotency table with `tickets.exchange`, so the two together never pass 50 Verse per game per UTC day. HPOS10I exchanges only through the hub RPC. `verse.exchange` answers `exchange_off` until the `hub_exchange` launch flag is on for the account (seeded off by 0042; `UPDATE game.server_flags SET state = 'on' WHERE key = 'hub_exchange'`, or an allowlist or percent), and `tickets.balances` reports `exchangeEnabled` so the Wallet tab shows "Not open yet". Cases: `server/test/dup/hub_exchange.ts` (group `hub-exchange`) and `server/test/pg/hub_exchange.test.ts`.
+
 Three groups in `server/test/dup/gated.ts` stay pending until the matching code is present, then they run and must pass:
 
 - SDK outbox: export `HUB_OUTBOX_DB` (`hub-outbox`) and use `indexedDB` in `packages/hub-sdk/src/live.ts`.

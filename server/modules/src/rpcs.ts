@@ -633,6 +633,73 @@ namespace HubRpc {
     return ok(result);
   }
 
+  /** The eight games with a Ticket wallet, in the Wallet tab's order. vcoin has none. */
+  export var WALLET_GAMES: string[] = ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle"];
+  export var VERSE_DAILY_CAP = 50;
+  export var TICKETS_PER_VERSE = 10;
+
+  /**
+   * tickets.balances (hub scope, read only): one row per game with the Ticket balance and the
+   * Verse this game can still give today. Game-scope sessions keep tickets.balance.
+   */
+  export function ticketsBalances(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
+    var userId = requireHub(ctx);
+    var rows = queryList(
+      nk,
+      "SELECT COALESCE(jsonb_agg(jsonb_build_object("
+        + "'game', g.id,"
+        + " 'balance', COALESCE((SELECT balance FROM game.tickets_balance b WHERE b.user_id = $1::uuid AND b.game_id = g.id), 0),"
+        + " 'verseCapLeft', GREATEST(0, $3::int - COALESCE((SELECT amount FROM game.earn_window w WHERE w.user_id = $1::uuid AND w.bucket = 'verse:' || g.id AND w.day = (now() AT TIME ZONE 'utc')::date), 0))"
+        + ") ORDER BY g.ord), '[]'::jsonb)::text AS result"
+        + " FROM unnest(string_to_array($2::text, ',')) WITH ORDINALITY AS g(id, ord)",
+      [userId, WALLET_GAMES.join(","), VERSE_DAILY_CAP],
+    );
+    var verse = nk.sqlQuery("SELECT COALESCE((SELECT balance FROM game.verse_wallet WHERE user_id = $1::uuid), 0)::text AS verse", [userId]);
+    return ok({
+      wallets: rows,
+      verse: verse && verse.length ? Number(verse[0].verse) || 0 : 0,
+      ticketsPerVerse: TICKETS_PER_VERSE,
+      verseDailyCap: VERSE_DAILY_CAP,
+      // Launch flag hub_exchange (0042, seeded off): the Wallet tab shows balances either way.
+      exchangeEnabled: Flags.on(nk, "hub_exchange", userId, _logger),
+    });
+  }
+
+  /**
+   * verse.exchange (hub scope): turn one game's Tickets into Verse from the plaza. The SQL is
+   * game.exchange_tickets_hub (0060): same lock, bucket, cap and ledger rows as tickets.exchange.
+   * A game-scope token is refused, so a game page cannot drain another game's wallet.
+   */
+  export function verseExchange(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    rejectAnonymousWrite(ctx, "verse.exchange");
+    var userId = requireHub(ctx);
+    // Off until the owner turns the hub_exchange flag on (state on, an allowlist or a percent).
+    // A missing row or a read error is off: nothing is exchanged.
+    if (!Flags.on(nk, "hub_exchange", userId, _logger)) return fail("exchange_off", "The plaza exchange is not open yet");
+    var body = parse(payload);
+    var key = text(body, "key");
+    var game = text(body, "game");
+    var raw = body.tickets;
+    if (!key || key.length > 80) return fail("bad_key", "Idempotency key is required");
+    if (WALLET_GAMES.indexOf(game) < 0) return fail("bad_game", "Unknown game");
+    if (typeof raw !== "number" || !isFinite(raw) || raw <= 0 || raw > 1000000) return fail("bad_amount", "Exchange amount must be positive");
+    var tickets = Math.floor(raw);
+    HubFault.apply(ctx, nk, userId, "exchange.before_rpc");
+    var reqHash = nk.sha256Hash("verse.exchange\n" + stable({ game: game, tickets: tickets }));
+    var result = queryJson(
+      nk,
+      "SELECT game.exchange_tickets_hub($1::uuid, $2::text, $3::numeric::bigint, $4::text, $5::text)::text AS result",
+      [userId, game, tickets, key, reqHash],
+    );
+    if (result.error) {
+      var failed: { [key: string]: unknown } = { error: String(result.error), message: String(result.error) };
+      if (typeof result.verseCapLeft === "number") failed.verseCapLeft = result.verseCapLeft;
+      return JSON.stringify(failed);
+    }
+    HubFault.apply(ctx, nk, userId, "exchange.after_commit");
+    return ok(result);
+  }
+
   function shopBody(ctx: nkruntime.Context, payload: string): { session: { userId: string; game: string; sid: string }; shopId: string; itemId: string; packs: number; key: string } | string {
     var session = requireGame(ctx);
     var body = parse(payload);

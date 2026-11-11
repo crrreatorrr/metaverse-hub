@@ -84,6 +84,14 @@ function rpcTicketsBalance(ctx: nkruntime.Context, logger: nkruntime.Logger, nk:
   return guard(HubRpc.ticketsBalance, ctx, logger, nk, payload);
 }
 
+function rpcTicketsBalances(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsBalances, ctx, logger, nk, payload);
+}
+
+function rpcVerseExchange(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.verseExchange, ctx, logger, nk, payload);
+}
+
 function rpcRecoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.recoveryCreate, ctx, logger, nk, payload);
 }
@@ -106,6 +114,14 @@ function rpcSprotoDevReplay(ctx: nkruntime.Context, logger: nkruntime.Logger, nk
 
 function rpcHubJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRealtimeRpc.join, ctx, logger, nk, payload);
+}
+
+function rpcHubPresence(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.presence, ctx, logger, nk, payload);
+}
+
+function rpcHubChampions(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.champions, ctx, logger, nk, payload);
 }
 
 function rpcChatReport(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
@@ -241,6 +257,8 @@ function InitModule(
   initializer.registerRpc("tickets.spend", rpcTicketsSpend);
   initializer.registerRpc("tickets.sell", rpcTicketsSell);
   initializer.registerRpc("tickets.balance", rpcTicketsBalance);
+  initializer.registerRpc("tickets.balances", rpcTicketsBalances);
+  initializer.registerRpc("verse.exchange", rpcVerseExchange);
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
@@ -260,6 +278,8 @@ function InitModule(
     matchSignal: sprotoDuelSignal,
   });
   initializer.registerRpc("hub.join", rpcHubJoin);
+  initializer.registerRpc("hub.presence", rpcHubPresence);
+  initializer.registerRpc("hub.champions", rpcHubChampions);
   initializer.registerRpc("chat.report", rpcChatReport);
   initializer.registerRpc("feedback.can", rpcFeedbackCan);
   initializer.registerRpc("feedback.submit", rpcFeedbackSubmit);

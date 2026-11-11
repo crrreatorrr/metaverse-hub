@@ -95,4 +95,82 @@ namespace HubRealtimeRpc {
     logger.info("chat report " + userId + " -> " + target);
     return JSON.stringify({ ok: true });
   }
+  // ---------------------------------------------------------------- plaza life (gameplay plan E3, E4)
+
+  var PRESENCE_GAMES: string[] = ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle"];
+  export var PRESENCE_WINDOW_MINUTES = 30;
+  export var PRESENCE_CACHE_SECONDS = 15;
+  export var PRESENCE_PER_MINUTE = 12;
+  export var CHAMPIONS_LIMIT = 50;
+  export var CHAMPIONS_CACHE_SECONDS = 60;
+  var FOUR_LIGHTS: string[] = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown"];
+
+  function cached(nk: nkruntime.Nakama, key: string): string | null {
+    var hit = nk.localcacheGet(key);
+    return typeof hit === "string" && hit !== "" ? hit : null;
+  }
+
+  /**
+   * hub.presence {} → { counts: { <game>: n }, windowMinutes }. Hub scope, read only.
+   * An estimate ("about N playing"): accounts with an open game session whose portal ticket was
+   * redeemed in the last 30 minutes. Entering another game closes the previous session, so nobody
+   * is counted twice. The answer is cached for 15 s as one string (localcache takes scalars only).
+   */
+  export function presence(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
+    if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
+    var userId = hubUser(ctx);
+    if (!userId) return fail("wrong_scope");
+    if (!allow(nk, "hubpresence:" + userId, PRESENCE_PER_MINUTE, 60000, Date.now())) return fail("rate_limited");
+    var hit = cached(nk, "hub:presence");
+    if (hit) return hit;
+    var rows = nk.sqlQuery(
+      "SELECT game_id, count(DISTINCT user_id)::int AS n FROM game.game_session"
+        + " WHERE state = 'open' AND lease_until > now() AND ticket_redeemed_at IS NOT NULL"
+        + " AND ticket_redeemed_at > now() - ($1::int * interval '1 minute')"
+        + " GROUP BY game_id",
+      [PRESENCE_WINDOW_MINUTES],
+    ) || [];
+    var counts: { [game: string]: number } = {};
+    for (var g = 0; g < PRESENCE_GAMES.length; g++) counts[PRESENCE_GAMES[g]] = 0;
+    for (var i = 0; i < rows.length; i++) {
+      var game = String(rows[i].game_id);
+      var n = Number(rows[i].n);
+      if (Object.prototype.hasOwnProperty.call(counts, game) && isFinite(n) && n > 0) counts[game] = Math.floor(n);
+    }
+    var out = JSON.stringify({ counts: counts, windowMinutes: PRESENCE_WINDOW_MINUTES });
+    nk.localcachePut("hub:presence", out, PRESENCE_CACHE_SECONDS);
+    return out;
+  }
+
+  /**
+   * hub.champions {} → { champions: [{ order, userId, name }] }. Hub scope, read only.
+   * The first 50 accounts that hold all four Four Lights Relics, ordered by the time of their
+   * fourth claim. Names are cleaned like board names (never the raw username). Cached for 60 s.
+   */
+  export function champions(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
+    if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
+    var userId = hubUser(ctx);
+    if (!userId) return fail("wrong_scope");
+    if (!allow(nk, "hubchampions:" + userId, PRESENCE_PER_MINUTE, 60000, Date.now())) return fail("rate_limited");
+    var hit = cached(nk, "hub:champions");
+    if (hit) return hit;
+    var rows = nk.sqlQuery(
+      "SELECT c.user_id::text AS user_id, COALESCE(u.username, '') AS name"
+        + " FROM (SELECT user_id, max(claimed_at) AS done FROM game.relic_claim"
+        + "       WHERE relic_id IN ('" + FOUR_LIGHTS.join("', '") + "')"
+        + "       GROUP BY user_id HAVING count(DISTINCT relic_id) = " + String(FOUR_LIGHTS.length) + ") c"
+        + " LEFT JOIN users u ON u.id = c.user_id"
+        + " ORDER BY c.done, c.user_id LIMIT $1::int",
+      [CHAMPIONS_LIMIT],
+    ) || [];
+    var list: { order: number; userId: string; name: string }[] = [];
+    for (var i = 0; i < rows.length; i++) {
+      var row = { userId: String(rows[i].user_id), name: String(rows[i].name === null || rows[i].name === undefined ? "" : rows[i].name) };
+      HubBoards.cleanRowName(row);
+      list.push({ order: i + 1, userId: row.userId, name: row.name });
+    }
+    var out = JSON.stringify({ champions: list });
+    nk.localcachePut("hub:champions", out, CHAMPIONS_CACHE_SECONDS);
+    return out;
+  }
 }

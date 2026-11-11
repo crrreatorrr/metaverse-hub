@@ -64,6 +64,14 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 `#from=` accepts `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-shooter`, `sproto-fighter`, `sproto-arcade`, or `sproto-coop-battle`. `#from=sproto-fighter`, `#from=sproto-arcade` and `#from=sproto-coop-battle` load the Bar and put the avatar at the arcade cabinet.
 
+**Finding and launching games.** HUD markers name the five entrances and the Bar with the distance in metres, and fade when you are within 20 m. The Esc menu opens on **Games**: all eight games with their Relic, your Tickets and a Play button (Esc then Enter relaunches the last one). A first-visit card walks a new player through gate, Relic and return, and the **?** button explains Tickets, Verse and Relics. People's Bitcoin asks "18+ satire. Enter?" once per browser. Coming back from a game shows what the trip earned.
+
+**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migration `0060_hub_exchange` and the `hub_exchange` launch flag turned on; until then the tab lists balances and its buttons read "Not open yet".
+
+**Emotes.** Keys 1, 2 and 3 wave, dance and cheer: a short line over your head that players near you see too (one per second).
+
+**Vertical look** is inverted by default; Menu → Items → Vertical look switches it for the mouse, the R / F keys and the camera stick.
+
 **The Bar cabinet** holds three games. Press **E** at it to pick **Sproto Arcade** (story mode, `/play/sproto-arcade/`), **Sproto Fighter** or **Sproto Coop Battle** with 1–3 or the arrows and Enter; Esc steps away. Each choice mints its own portal ticket. Sproto Arcade is a static classic-script game. Its `Web build` workflow uploads a trimmed `web-build` artifact (`tools/build-web.mjs`, about 140 MB of the repo's 200 MB, most of it scrolling level scenery). `npm run fetch:sproto-arcade` installs it at `/play/sproto-arcade/` for dev, or symlink a Sproto-Arcade checkout there, or set `VITE_GAME_URL_SPROTO_ARCADE`. Production serves it at `play.<domain>/sproto-arcade/` (`deploy-game.sh sproto-arcade <dist>`). Its build takes the client server key from the `NAKAMA_SERVER_KEY` secret in the Sproto-Arcade repo.
 
 **Sproto Fighter** has no ring. Walk into the Bar, stand at the arcade cabinet on the back wall and press **E**. The hub mints the same portal ticket as a ring and opens `/play/sproto-fighter/#t=<ticket>`. The **Tidebreaker Belt** stands on a plinth beside the cabinet and lights up once you own it. It also has the fifth socket on the monument and orbits your avatar like the other Relics, but it does not count toward the Hall of Champions or the Four Lights Sproto pet, which still need the original four. Like every Relic it unlocks one item in each other game: Fighter's Might (Sproto Duel staff: 2× bolt damage, 1.85× slower firing, fist bolt), Champion's Crown (NOBU head: triple jump, 1.4× bite radius), Champion Sproto (People's Bitcoin summon that throws rocks), and the Tidebreaker skin (HPOS10I: 3 spin-dash charge per press instead of 2).
@@ -136,6 +144,8 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `arcade.boss_defeated` with boss `bront` (god mode counts) | `breakwater_coin` |
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle, god mode counts) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter Wave Mode, god mode counts) | `dragon_scale` |
+
+Since migration `0061_relic_unhold`, every Relic in this table is granted on the qualifying event (the Genesis Block Shard and Tidebreaker Belt were held until then, and claims recorded while they were held were promoted). The only grant still held is the Life Medal item.
 
 The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`). `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
 

@@ -956,7 +956,7 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(verseBalance(duel.hub.userId), 0);
   });
 
-  await runner.test('regress', 'the held pairs still land in the pending tables and pay 0', async () => {
+  await runner.test('regress', 'the pairs 0061_relic_unhold released grant live once and pay 0', async () => {
     const pairs: { game: string; eventId: string; data: object; kind: 'relic' | 'item'; id: string }[] = [
       { game: 'sproto-fighter', eventId: 'fighter.story_level_complete', data: { world: 1 }, kind: 'relic', id: 'tidebreaker_belt' },
       { game: 'peoples-bitcoin', eventId: 'pb.quest_complete', data: { questId: 'quest_tutorial' }, kind: 'relic', id: 'genesis_shard' },
@@ -973,20 +973,25 @@ export async function runHubGate(runner: Runner): Promise<void> {
         const before = purse(user, pair.game);
         const result = await fire(session, pair.eventId, pair.data);
         assertNoPay(result, user, pair.game, before);
-        assert.equal(result.body.granted, undefined, JSON.stringify(result.body));
-        assert.deepEqual(grantedItems(result.body), [], JSON.stringify(result.body));
+        // A second qualifying clear with a new key grants nothing more.
+        const again = await fire(session, pair.eventId, pair.data);
+        assertNoPay(again, user, pair.game, before);
         if (pair.kind === 'relic') {
-          assert.equal(relicPending(user, pair.id), 1, pair.id);
-          assert.equal(relicClaims(user, pair.id), 0, pair.id);
+          assert.equal(result.body.granted, pair.id, JSON.stringify(result.body));
+          assert.equal(again.body.granted, undefined, JSON.stringify(again.body));
+          assert.equal(relicPending(user, pair.id), 0, pair.id);
+          assert.equal(relicClaims(user, pair.id), 1, pair.id);
           assert.equal(
             num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND relic_id = '${slug(pair.id)}'`),
-            0,
+            1,
             pair.id,
           );
         } else {
-          assert.equal(pendingCount(user, pair.id), 1, pair.id);
-          assert.equal(ownedCount(user, pair.id), 0, pair.id);
-          assert.equal(itemGrants(user, pair.id), 0, pair.id);
+          assert.deepEqual(grantedItems(result.body), [pair.id], JSON.stringify(result.body));
+          assert.deepEqual(grantedItems(again.body), [], JSON.stringify(again.body));
+          assert.equal(pendingCount(user, pair.id), 0, pair.id);
+          assert.equal(ownedCount(user, pair.id), 1, pair.id);
+          assert.equal(itemGrants(user, pair.id), 1, pair.id);
         }
       } catch (error) {
         problems.push(`${pair.id}: ${error instanceof Error ? error.message : String(error)}`);
@@ -995,14 +1000,15 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(problems.length, 0, problems.join('\n'));
   });
 
-  await runner.test('regress', 'a replayed belt and two tabs leave one pending belt', async () => {
+  await runner.test('regress', 'a replayed belt and two tabs mint one live belt', async () => {
     const session = await login('sproto-fighter');
     const key = crypto.randomUUID();
     const first = await fire(session, 'fighter.story_level_complete', { world: 1 }, key);
     const replay = await fire(session, 'fighter.story_level_complete', { world: 1 }, key);
     assert.equal(canonical(replay.body), canonical(first.body));
-    assert.equal(relicPending(session.hub.userId, 'tidebreaker_belt'), 1);
-    assert.equal(relicClaims(session.hub.userId, 'tidebreaker_belt'), 0);
+    assert.equal(first.body.granted, 'tidebreaker_belt');
+    assert.equal(relicPending(session.hub.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicClaims(session.hub.userId, 'tidebreaker_belt'), 1);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-fighter'), 0);
 
     const who = await guest();
@@ -1011,8 +1017,8 @@ export async function runHubGate(runner: Runner): Promise<void> {
       fire(tabs, 'fighter.story_level_complete', { world: 1 }),
       fire(tabs, 'fighter.story_level_complete', { world: 1 }),
     ]);
-    assert.equal(relicPending(who.userId, 'tidebreaker_belt'), 1);
-    assert.equal(relicClaims(who.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicPending(who.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicClaims(who.userId, 'tidebreaker_belt'), 1);
     assert.equal(ticketBalance(who.userId, 'sproto-fighter'), 0);
     assert.equal(verseBalance(who.userId), 0);
   });
