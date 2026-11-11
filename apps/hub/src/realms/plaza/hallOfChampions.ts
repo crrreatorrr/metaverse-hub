@@ -1,11 +1,8 @@
 import {
-  AdditiveBlending,
   BufferAttribute,
   BufferGeometry,
   BoxGeometry,
-  CircleGeometry,
   Color,
-  CylinderGeometry,
   Group,
   InstancedMesh,
   Mesh,
@@ -13,7 +10,6 @@ import {
   Object3D,
   OctahedronGeometry,
   PlaneGeometry,
-  TorusGeometry,
 } from 'three';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { STAND_Y } from '../../physics';
@@ -24,7 +20,7 @@ import { RELIC_GEMS, type ChampionEntry } from '../../m3/types';
 export const HALL_ROOM_ORIGIN = { x: 0, y: -600, z: 0 } as const;
 
 /**
- * v2 pedestal is three 1.3 m tiers (top at 3.9). The arch sits on that top,
+ * v2 pedestal is three 1.3 m tiers (top at 3.9). The entrance sits on that top,
  * on the south side, so it does not occupy the statue.
  */
 export const HALL_DOOR_POSE = { x: 0, y: 3.9, z: 4.2, rotationY: 0 } as const;
@@ -57,7 +53,7 @@ export interface HallOfChampions {
 /**
  * Hall of Champions. The room shell is one merged box mesh. Relic markers
  * above the plinths are one instanced octahedron. The roster and the door
- * plaque are canvases. The arch, seal, and open-door beam are primitives.
+ * plaque are canvases. The entrance uses a plain frame and door panel.
  */
 /** Relic gems spread evenly across the room (9 m), however many Relics there are. */
 function gemX(index: number): number {
@@ -106,14 +102,19 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
   door.position.set(HALL_DOOR_POSE.x, HALL_DOOR_POSE.y, HALL_DOOR_POSE.z);
   door.rotation.y = HALL_DOOR_POSE.rotationY;
 
-  const archGeo = new TorusGeometry(1.45, 0.08, 6, 24);
-  const archMat = new MeshBasicMaterial({ color: '#6d4eb5', toneMapped: false });
-  const arch = new Mesh(archGeo, archMat);
-  arch.name = 'm3-hall-arch';
-  arch.position.y = 1.55;
-  door.add(arch);
+  const postGeo = new BoxGeometry(0.18, 3, 0.2);
+  const lintelGeo = new BoxGeometry(2.96, 0.18, 0.2);
+  const frameMat = new MeshBasicMaterial({ color: '#71635c', toneMapped: false });
+  for (const x of [-1.39, 1.39]) {
+    const post = new Mesh(postGeo, frameMat);
+    post.position.set(x, 1.5, 0);
+    door.add(post);
+  }
+  const lintel = new Mesh(lintelGeo, frameMat);
+  lintel.position.y = 3.03;
+  door.add(lintel);
 
-  const sealGeo = new CircleGeometry(1.28, 20);
+  const sealGeo = new PlaneGeometry(2.6, 2.93);
   const sealMat = new MeshBasicMaterial({ color: '#140a22', toneMapped: false });
   const seal = new Mesh(sealGeo, sealMat);
   seal.name = 'm3-hall-seal';
@@ -126,20 +127,6 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
   plaque.name = 'm3-hall-plaque';
   plaque.position.set(0, 3.35, 0.06);
   door.add(plaque);
-
-  const beamGeo = new CylinderGeometry(0.18, 0.42, 8, 6, 1, true);
-  const beamMat = new MeshBasicMaterial({
-    color: '#ffd21f',
-    transparent: true,
-    opacity: 0.65,
-    blending: AdditiveBlending,
-    depthWrite: false,
-    toneMapped: false,
-  });
-  const beam = new Mesh(beamGeo, beamMat);
-  beam.name = 'm3-hall-beam';
-  beam.position.y = 5.4;
-  door.add(beam);
 
   scene.add(room);
   scene.add(door);
@@ -232,8 +219,7 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
     open = next;
     room.visible = open;
     seal.visible = !open;
-    beam.visible = open;
-    archMat.color.set(open ? '#ffd21f' : '#6d4eb5');
+    frameMat.color.set(open ? '#c1a47e' : '#71635c');
     paintPlaque();
   }
 
@@ -261,15 +247,14 @@ export function addHallOfChampions(scene: Object3D, opts: HallOfChampionsOptions
     rosterPaint.texture.dispose();
     gemGeo.dispose();
     gemMat.dispose();
-    archGeo.dispose();
-    archMat.dispose();
+    postGeo.dispose();
+    lintelGeo.dispose();
+    frameMat.dispose();
     sealGeo.dispose();
     sealMat.dispose();
     plaque.geometry.dispose();
     plaqueMat.dispose();
     plaquePaint.texture.dispose();
-    beamGeo.dispose();
-    beamMat.dispose();
   }
 
   setChampions(opts.champions ?? []);

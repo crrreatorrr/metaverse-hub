@@ -8,7 +8,7 @@ import { ARCADE_GAMES, PORTALS, STATUE_PORTALS } from './config';
 import { ARCADE_PROMPT } from './arcade-layout';
 import type { EngineOptions } from '../../core/engine';
 import type { RealmContent, FrameState, RealmContext } from '../../core/realm';
-import { Box3, BoxGeometry, CanvasTexture, Euler, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PerspectiveCamera, Quaternion, RepeatWrapping, Scene, SphereGeometry, Sprite, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
+import { Box3, BoxGeometry, CanvasTexture, Euler, Group, InstancedMesh, Matrix4, Mesh, MeshBasicMaterial, MeshStandardMaterial, Object3D, PerspectiveCamera, Quaternion, RepeatWrapping, Scene, Sprite, SRGBColorSpace, Vector3, WebGLRenderer } from 'three';
 
 import { FOUR_LIGHTS_RELIC_IDS } from '@metaverse/hub-sdk';
 
@@ -24,8 +24,8 @@ import { spawnFor, defaultPortalPlacements } from './layout';
 import { STAND_Y } from '../../physics';
 import { buildPlazaCollider } from './plaza-collider';
 import type { Collider } from './collider';
-import { glow, instanced, neonMat, part, upgradeToLod0 } from '../../v2/core';
-import { castle, club, greenHill, kennel, whiteHouse } from './buildings';
+import { instanced, part, upgradeToLod0 } from '../../v2/core';
+import { buildPlazaEntrance, castle, club, greenHill, kennel, whiteHouse } from './buildings';
 import { buildClubInterior, type ClubInteriorBuild } from './club-interior';
 import { buildArcade, type ArcadeBuild } from './arcade';
 import { ARCADE_RETURN, atArcade } from './arcade-layout';
@@ -33,8 +33,7 @@ import { INTERIOR_ORIGIN } from './interior';
 import { CLUB_INTERIOR_SCALE } from './club-interior-scale';
 import { SPROTEL_PROMPT } from './sprotel-npc';
 import { barBillboard } from './billboard';
-import { buildFloor, buildPedestal, buildPortal } from './plaza';
-import { portalPosition } from '../../layout';
+import { buildFloor, buildPedestal } from './plaza';
 import { loadSignFont } from '../../v2/signs';
 
 
@@ -118,7 +117,6 @@ interface SlotState {
   a: number;
   front: number;
   sc: number;
-  tint: string;
   build: () => Promise<SlotBuild>;
   phase: 'idle' | 'loading' | 'ready';
   group?: Group;
@@ -130,10 +128,10 @@ const NEAR = 120;
 const FAR = 400;
 
 export const PLAZA_ENGINE_OPTIONS: EngineOptions = {
-  fog: { color: '#5a1f62', near: 260, far: 820 },
-  sky: { top: '#1c0b45', mid: '#a3268f', horizon: '#ff9a4a' },
-  environmentIntensity: 0.7,
-  hemi: { sky: '#c9b6ff', ground: '#3a1a40', intensity: 1.3 },
+  fog: { color: '#77748c', near: 260, far: 820 },
+  sky: { top: '#343758', mid: '#87718e', horizon: '#dfae89' },
+  environmentIntensity: 0.85,
+  hemi: { sky: '#e2ddf4', ground: '#87766f', intensity: 1.5 },
   sun: { color: '#ffd9b8', intensity: 2.6, position: [-120, 160, 140] },
   bloom: 1.6,
 };
@@ -147,31 +145,17 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   scene.add(outdoor);
 
   const slots: SlotState[] = [
-    { key: 'castle', a: 0 * PLAZA_SLOT + PLAZA_YAW, front: 112, sc: 1.45, tint: '#7b5cff', phase: 'idle', build: async () => castle() },
-    { key: 'whitehouse', a: 1 * PLAZA_SLOT + PLAZA_YAW, front: 116, sc: 1.3, tint: '#ffc233', phase: 'idle', build: async () => whiteHouse() },
-    { key: 'hills', a: 2 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.25, tint: '#39ff6a', phase: 'idle', build: async () => greenHill() },
-    { key: 'club', a: 3 * PLAZA_SLOT + PLAZA_YAW, front: 113, sc: 1.25, tint: '#ff3bd4', phase: 'idle', build: async () => club() },
-    { key: 'kennel', a: 4 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.2, tint: '#ff8a1f', phase: 'idle', build: async () => kennel() },
+    { key: 'castle', a: 0 * PLAZA_SLOT + PLAZA_YAW, front: 112, sc: 1.45, phase: 'idle', build: async () => castle() },
+    { key: 'whitehouse', a: 1 * PLAZA_SLOT + PLAZA_YAW, front: 116, sc: 1.3, phase: 'idle', build: async () => whiteHouse() },
+    { key: 'hills', a: 2 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.25, phase: 'idle', build: async () => greenHill() },
+    { key: 'club', a: 3 * PLAZA_SLOT + PLAZA_YAW, front: 113, sc: 1.25, phase: 'idle', build: async () => club() },
+    { key: 'kennel', a: 4 * PLAZA_SLOT + PLAZA_YAW, front: 114, sc: 1.2, phase: 'idle', build: async () => kennel() },
   ];
-  buildFloor(outdoor, slots.map((slot) => ({ a: slot.a, tint: slot.tint, paws: slot.key === 'kennel' })));
+  buildFloor(outdoor);
   const pedestal = buildPedestal(outdoor);
+  for (const portal of [...PORTALS, ...STATUE_PORTALS]) outdoor.add(buildPlazaEntrance(portal));
 
-  const lampT: { p: [number, number, number]; r: number }[] = [];
   const benchT: { p: [number, number, number]; r: number }[] = [];
-  for (let k = 0; k < 40; k += 1) {
-    const a = (k / 40) * Math.PI * 2;
-    if (slots.some((slot) => Math.abs(Math.atan2(Math.sin(a - slot.a), Math.cos(a - slot.a))) < 0.07)) continue;
-    lampT.push({ p: [Math.sin(a) * 104, 0, -Math.cos(a) * 104], r: -a });
-  }
-  for (const slot of slots) {
-    const ux = Math.sin(slot.a);
-    const uz = -Math.cos(slot.a);
-    const nx = -uz;
-    const nz = ux;
-    for (let r = 36; r < 92; r += 14) {
-      for (const w of [-9, 9]) lampT.push({ p: [ux * r + nx * w, 0, uz * r + nz * w], r: -slot.a });
-    }
-  }
   for (const slot of slots) {
     const a = slot.a + Math.PI / 5;
     for (const r of [52, 80]) {
@@ -190,45 +174,15 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     });
   }
 
-  const [statue, portals, statuePortals, lamps, benches, palms, billboard] = await Promise.all([
-    part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0.2, level: 'lod1' }),
-    Promise.all(slots.map((slot) => buildPortal(slot.tint, 8))),
-    Promise.all(STATUE_PORTALS.map((gate) => buildPortal(gate.color, 8))),
-    instanced('P1-lamp', lampT, { h: 7.5, glow: 0.3 }),
-    instanced('P2-bench', benchT, { h: 1.1, glow: 0.15 }),
-    instanced('B5-palm', palmT, { h: 20 }),
+  const [statue, benches, palms, billboard] = await Promise.all([
+    part('S1-statue', { h: 30, yaw: -Math.PI / 2, glow: 0, level: 'lod1' }),
+    instanced('P2-bench', benchT, { h: 1.1, glow: 0 }),
+    instanced('B5-palm', palmT, { h: 20, glow: 0 }),
     barBillboard(),
   ]);
   statue.position.y = pedestal.top;
   statue.name = 'sproto-statue';
-  outdoor.add(statue);
-  portals.forEach((portal, index) => {
-    const slot = slots[index];
-    if (!slot) return;
-    const ux = Math.sin(slot.a);
-    const uz = -Math.cos(slot.a);
-    portal.position.set(ux * 96, 0, uz * 96);
-    portal.rotation.y = Math.atan2(-ux, -uz);
-    outdoor.add(portal);
-  });
-  statuePortals.forEach((portal, index) => {
-    const gate = STATUE_PORTALS[index];
-    if (!gate) return;
-    const at = portalPosition(gate.angle, gate.distance);
-    portal.position.set(at.x, 0, at.z);
-    portal.rotation.y = Math.atan2(-Math.sin(gate.angle), Math.cos(gate.angle));
-    portal.name = `statue-portal-${gate.id}`;
-    outdoor.add(portal);
-  });
-  outdoor.add(lamps);
-  outdoor.add(benches);
-  outdoor.add(palms);
-  outdoor.add(billboard);
-  const lampGlow = new InstancedMesh(new SphereGeometry(0.45, 10, 8), neonMat('#7fe9ff', 5), lampT.length);
-  lampGlow.name = 'lamp-glow';
-  lampT.forEach((lamp, i) => lampGlow.setMatrixAt(i, new Matrix4().makeTranslation(lamp.p[0], 7.1, lamp.p[2])));
-  lampGlow.computeBoundingSphere();
-  outdoor.add(glow(lampGlow));
+  outdoor.add(statue, benches, palms, billboard);
   outdoor.add(skyline());
 
   const { rig, bob, avatar, shadow, shadowMat } = engine;
@@ -257,7 +211,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
   const devPreview = import.meta.env.DEV;
-  const living = addLivingPortals(outdoor, { placeholder: devPreview, placements: defaultPortalPlacements() });
+  const living = addLivingPortals(outdoor, { placeholder: devPreview, placements: defaultPortalPlacements(), effects: false });
   const hall = addHallOfChampions(scene, { placeholder: devPreview, open: false });
   outdoor.add(hall.door);
   let hallOpen = false;
@@ -419,7 +373,6 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   }
 
   function update(dt: number, state: FrameState): void {
-    for (const socket of sockets) socket.mesh.rotation.y += dt * (socket.on ? 1.6 : 0.2);
     elapsed += dt;
     gate?.update(dt, state);
     const player = rig.position;
@@ -530,7 +483,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   // Wizard is larger than the previous avatar, so it stays out of this snapshot.
   engine.loadAvatar();
 
-  const sockets = pedestal.rings.map((mesh) => ({ mesh, on: false }));
+  const sockets = pedestal.markers.map((mesh) => ({ mesh, on: false }));
 
   const arcadePicker = createArcadePicker(ARCADE_GAMES, game => ctx.travel(game));
   // Sprotel's talk panel. It opens on every open request and clears the store flag when it closes.
@@ -650,13 +603,12 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
         hallOpen = FOUR_LIGHTS_RELIC_IDS.every((id) => owned.has(id));
         hall.setOpen(hallOpen);
       }
-      pedestal.rings.forEach((ring, index) => {
-        const on = owned.has(SOCKETS[index]?.id ?? '');
-        const material = ring.material as MeshStandardMaterial;
-        material.emissiveIntensity = on ? 8 : 5;
-        ring.scale.setScalar(on ? 1.25 : 1);
-        const socket = sockets[index];
-        if (socket) socket.on = on;
+      sockets.forEach((socket, index) => {
+        const relic = SOCKETS[index];
+        if (!relic) return;
+        socket.on = owned.has(relic.id);
+        const material = socket.mesh.material as MeshStandardMaterial;
+        material.color.set(relic.color).multiplyScalar(socket.on ? 0.9 : 0.27);
       });
     },
     setHiddenRelics: engine.setHiddenRelics,
@@ -726,11 +678,8 @@ function skyline(): InstancedMesh {
   const towers = new InstancedMesh(
     new BoxGeometry(1, 1, 1),
     new MeshStandardMaterial({
-      color: '#140c26',
+      color: '#857a7e',
       map: windowsTex(),
-      emissive: '#ffffff',
-      emissiveMap: windowsTex(),
-      emissiveIntensity: 0.9,
       roughness: 0.6,
     }),
     90,
@@ -755,12 +704,12 @@ function windowsTex(): CanvasTexture {
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d context unavailable');
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = '#555159';
   ctx.fillRect(0, 0, 64, 256);
   for (let r = 0; r < 32; r += 1) {
     for (let k = 0; k < 4; k += 1) {
       if (Math.random() < 0.35) {
-        ctx.fillStyle = Math.random() < 0.5 ? '#7a5cff' : '#ff6ad5';
+        ctx.fillStyle = Math.random() < 0.5 ? '#696670' : '#7c7476';
         ctx.fillRect(4 + k * 15, 4 + r * 8, 9, 4);
       }
     }
