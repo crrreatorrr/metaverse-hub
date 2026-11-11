@@ -57,6 +57,7 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
   await test('shooter-internal','scoped principal auth rejects forged worker/key/token and expired/revoked credentials; rotation is explicit',async()=>{
     isolate();const p=await principal();
     for(const patch of [{workerId:'forged'},{keyId:'unknown'},{token:'x'.repeat(43)}])assert.equal(((await call('shooter.internal.claim',{...env(p),...patch},p.account.token)).body as Row).state,'authorization_denied');
+    assert.equal(((await call('shooter.internal.claim',env(p))).body as Row).state,'authorization_denied','adminHTTPkey plus servicebearer still lacks boundaccountidentity');
     const other=await guest();assert.equal(((await call('shooter.internal.claim',env(p),other.token)).body as Row).state,'authorization_denied');
     psql(`UPDATE game.shooter_verification_principal SET expires_at=clock_timestamp()-interval '1 millisecond' WHERE worker_id='${p.workerId}'`);
     assert.equal((await rpc(p,'claim')).state,'authorization_denied');
