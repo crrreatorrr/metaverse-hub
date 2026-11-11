@@ -1,5 +1,6 @@
 import { performance } from 'node:perf_hooks';
 import { sha256, summarizeActors, validatePlan, type ActorResult, type Assignment, type Phase, type Plan } from './contracts.ts';
+import { CohortPreparation, type PreparationEvidence } from './cohort-preparation.ts';
 
 export class OperationFailure extends Error {
   constructor(readonly reason: string) {
@@ -56,6 +57,7 @@ export interface RunResult {
   observations: { elapsedMs: number; ok: boolean; category: 'observed' | 'sut_unavailable' | 'instrumentation_failure' | 'censored'; rawReason: string | null; sourceSampleWallMs: number | null; context: Record<string, unknown> | null }[];
   arrivals: { phase: Phase['kind']; wave: number; plannedElapsedMs: number; actualElapsedMs: number; lagMs: number }[];
   phaseLifecycles: { phase: Phase['kind']; evidence: Record<string, unknown> }[];
+  preparationEvidence: PreparationEvidence;
   observerFailures: number;
   instrumentationObserverFailures: number;
   coordinationFailures: Record<string, unknown>[];
@@ -92,6 +94,8 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
   let currentPhase = 'startup', operation = 'background_start';
   const harnessFailures: RunResult['harnessFailures'] = [];
   const phaseLifecycles: RunResult['phaseLifecycles'] = [];
+  const preparation = new CohortPreparation();
+  let preparationEvidence: PreparationEvidence | null = null;
   const allWork: Promise<void>[] = [];
   const actors: ActorResult[] = [], observations: RunResult['observations'] = [], arrivals: RunResult['arrivals'] = [];
   let observerFailures = 0, instrumentationObserverFailures = 0, harnessStatus: RunResult['harnessStatus'] = 'complete', wave = 0;
@@ -130,7 +134,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
       const prepared: { wave: number; bindings: Binding[]; pending: ActorResult[] }[] = [];
       for (let i = 0; i < phase.waves; i++, wave++) {
         const waveNumber = wave;
-        const bindings = await bounded(Promise.all(plan.assignments.map(a => adapter.prepare(a, waveNumber, signal))), signal);
+        const bindings = await bounded(preparation.prepare(plan.assignments, a => adapter.prepare(a, waveNumber, signal), { phase: phase.kind, wave: waveNumber, signal }), signal);
         const pending = bindings.map((binding, actor): ActorResult => ({ ...binding, wave: waveNumber, actor, caseId: plan.assignments[actor].caseId, sourceInputSha256: plan.assignments[actor].inputSha256, sourceFrames: plan.assignments[actor].frames, submittedInputSha256: null, submittedHashMeaning: null, submittedFrames: 0, acceptedTick: 0, verifiedTick: 0, status: 'not_started', rawReason: null, attempted: false, durablyVerified: false, payable: false, everObservedEligible: false, observedPaid: false, paid: false }));
         summarizeActors([...actors, ...pending]);
         actors.push(...pending); prepared.push({ wave: waveNumber, bindings, pending });
@@ -171,6 +175,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
     accountingOpen = false;
     if (signal.aborted && harnessStatus === 'complete') harnessStatus = 'interrupted';
     clearTimeout(timeout); controller.abort(); observerController.abort();
+    preparationEvidence = preparation.close();
     externalSignal?.removeEventListener('abort', abort);
     await Promise.allSettled(allWork);
     await observationLoop;
@@ -181,5 +186,5 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
   if (coordinationFailures.length) { harnessStatus = 'failed'; harnessFailures.push({ phase: 'wave', operation: 'synchronized_finish', rawReason: 'wave_upload_synchronization_lost' }); }
   const expected = plan.phases.reduce((n, p) => n + p.waves * 20, 0);
   if (actors.length !== expected || instrumentationObserverFailures) harnessStatus = 'failed';
-  return { actors, summary: { ...summarizeActors(actors), plannedActors: expected, accountedActors: actors.length, unboundActors: expected - actors.length, unstartedActors: expected - actors.filter(a => a.attempted).length, observerAttempts: observations.length, observerSuccessful: observations.filter(o => o.ok).length, observerUnavailable: observations.filter(o => o.category === 'sut_unavailable').length, observerInstrumentationFailures: instrumentationObserverFailures, observerCensored: observations.filter(o => o.category === 'censored').length }, elapsedMs: performance.now() - start, startedMonoMs: start, harnessStatus, assignmentSha256: sha256(JSON.stringify(plan.assignments)), observations, arrivals, phaseLifecycles, observerFailures, instrumentationObserverFailures, harnessFailures, coordinationFailures };
+  return { actors, summary: { ...summarizeActors(actors), plannedActors: expected, accountedActors: actors.length, unboundActors: expected - actors.length, unstartedActors: expected - actors.filter(a => a.attempted).length, observerAttempts: observations.length, observerSuccessful: observations.filter(o => o.ok).length, observerUnavailable: observations.filter(o => o.category === 'sut_unavailable').length, observerInstrumentationFailures: instrumentationObserverFailures, observerCensored: observations.filter(o => o.category === 'censored').length }, elapsedMs: performance.now() - start, startedMonoMs: start, harnessStatus, assignmentSha256: sha256(JSON.stringify(plan.assignments)), observations, arrivals, phaseLifecycles, preparationEvidence: preparationEvidence ?? preparation.close(), observerFailures, instrumentationObserverFailures, harnessFailures, coordinationFailures };
 }

@@ -31,6 +31,7 @@ jobs:
     env:
       HUB_SHOOTER_FIXTURE: benchmark
       SHOOTER_OPS_CI_DIRECTORY: /tmp/shooter-benchmark-client-${{ github.run_id }}
+      SHOOTER_BENCHMARK_RESULT_TRACE: '1'
     steps:
       - uses: actions/checkout@v4
         with:
@@ -57,11 +58,16 @@ jobs:
         run: |
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
+          npx tsx scripts/load/shooter-benchmark/client-validation.test.ts
+          npx tsx scripts/load/shooter-benchmark/cohort-preparation.test.ts
+          node --test scripts/load/shooter-benchmark/browser-drain.test.mjs
           node --check scripts/load/shooter-benchmark/public-browsers.mjs
           node --check scripts/load/shooter-benchmark/browser-ci.mjs
           node --check scripts/load/shooter-benchmark/client-browser.mjs
+          node --test scripts/load/shooter-benchmark/instrument-result-stages.test.mjs
+          node --test scripts/load/shooter-benchmark/result-stage-collector.test.mjs
       - name: Lint browser benchmark and observation boundaries
-        run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/client-browser.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs
+        run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/client-browser.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs scripts/load/shooter-benchmark/browser-drain.mjs scripts/load/shooter-benchmark/browser-drain.test.mjs scripts/load/shooter-benchmark/client-validation.ts scripts/load/shooter-benchmark/client-validation.test.ts scripts/load/shooter-benchmark/cohort-preparation.ts scripts/load/shooter-benchmark/cohort-preparation.test.ts scripts/load/shooter-benchmark/runner.ts
       - name: Throwaway credentials for disposable stack
         run: |
           set -eu
@@ -73,7 +79,9 @@ jobs:
           done
       - name: Boot ephemeral Nakama and PostgreSQL
         id: stack
-        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180 postgres nakama
+        run: |
+          node scripts/load/shooter-benchmark/instrument-result-stages.mjs --manifest "$RUNNER_TEMP/shooter-result-stage-manifest.json"
+          docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180 postgres nakama
       - name: Explicit finite fixture config and scoped principal
         run: |
           npx tsx scripts/load/shooter-benchmark/ci.ts prepare
@@ -88,7 +96,7 @@ jobs:
           VITE_NAKAMA_SERVER_KEY: ${{ env.NAKAMA_SERVER_KEY }}
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npm run build
       - name: Serve actual production Game on loopback
         run: |

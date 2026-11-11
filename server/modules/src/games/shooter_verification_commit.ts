@@ -26,8 +26,9 @@ namespace ShooterVerificationCommit {
     if (v.privateHash !== fnv(stable(body))) throw new Error("checkpoint_hash");
   }
   function fnv(encoded: string): string {
-    var h = 0x811c9dc5;
-    for (var i = 0; i < encoded.length; i++) h = Math.imul(h ^ encoded.charCodeAt(i), 0x01000193);
+    // Resolve the native multiply and immutable length once for large checkpoints.
+    var h = 0x811c9dc5, multiply = Math.imul, length = encoded.length;
+    for (var i = 0; i < length; i++) h = multiply(h ^ encoded.charCodeAt(i), 0x01000193);
     return ("00000000" + (h >>> 0).toString(16)).slice(-8);
   }
   function quantized(v: Value): Value {
