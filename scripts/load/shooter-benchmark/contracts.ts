@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 
-export type Mode = 'legacy_full_goja' | 'segmented_goja' | 'bounded_v8_same_host' | 'bounded_v8_remote';
+export type Mode = 'legacy_full_goja' | 'legacy_segmented_goja' | 'bounded_v8_same_host' | 'bounded_v8_remote';
 export type Profile = 'trusted_fixture_time_aged' | 'public_browser_real_time';
 export interface CorpusCase {
   id: string;
@@ -67,6 +67,7 @@ export interface ActorResult {
   attempted: boolean;
   durablyVerified: boolean;
   payable: boolean;
+  everObservedEligible: boolean;
   paid: boolean;
 }
 export interface Measurement {
@@ -131,6 +132,7 @@ export function validatePlan(plan: Plan): void {
   invariant(plan.actorsPerWave === 20 && plan.assignments.length === 20, '20 independent assignments per wave');
   invariant(plan.maxDurationMs > 0 && plan.maxDurationMs <= 900000, 'duration outside tooling hard maximum');
   invariant(plan.maxQueuedBytes > 0 && plan.maxQueuedBytes <= 64 * 1024 * 1024, 'queued bytes outside tooling hard maximum');
+  invariant(plan.maxQueuedBytes >= Math.max(...plan.assignments.map(a => a.frames * 16 + 2048)), 'body budget cannot hold the largest full source request');
   invariant(plan.requestRetryLimit >= 0 && plan.requestRetryLimit <= 3, 'retry budget outside tooling hard maximum');
   invariant(plan.legacyReplayBudgetMs === 15000, 'legacy budget must remain 15 seconds');
   invariant(plan.phases.reduce((n, p) => n + p.waves, 0) <= 6, 'too many waves');
@@ -154,15 +156,15 @@ export function summarizeActors(actors: readonly ActorResult[]): Record<string, 
     invariant(Number.isSafeInteger(a.submittedFrames) && a.submittedFrames >= 0 && a.submittedFrames <= a.sourceFrames, 'submitted frame accounting');
     invariant(a.submittedFrames === 0 ? a.submittedInputSha256 === null : typeof a.submittedInputSha256 === 'string' && SHA.test(a.submittedInputSha256) && typeof a.submittedHashMeaning === 'string', 'submitted input identity');
     invariant(Number.isSafeInteger(a.acceptedTick) && Number.isSafeInteger(a.verifiedTick) && a.verifiedTick >= 0 && a.verifiedTick <= a.acceptedTick && a.acceptedTick <= a.submittedFrames, 'accepted/verified cursor accounting');
-    invariant(!a.durablyVerified || a.verifiedTick === a.submittedFrames, 'durable status must cover submitted prefix');
-    invariant(!a.paid || (a.payable && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
+    invariant(!a.durablyVerified || a.submittedFrames > 0 && a.verifiedTick === a.submittedFrames, 'durable status must cover submitted prefix');
+    invariant(!a.paid || (a.payable && a.everObservedEligible && a.submittedFrames > 0 && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
     invariant(!a.durablyVerified || a.attempted, 'verification without attempt');
     invariant(!['timeout', 'operational_failure', 'unsupported', 'censored', 'abandoned', 'not_started'].includes(a.status) || !a.paid, 'failure cannot count as paid throughput');
     const reason = `${a.status}:${a.rawReason ?? 'unspecified'}`;
     rawReasonCounts[reason] = (rawReasonCounts[reason] ?? 0) + 1;
   }
   const count = (p: (a: ActorResult) => boolean) => actors.filter(p).length;
-  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts, sourceFrames: actors.reduce((n, a) => n + a.sourceFrames, 0), submittedFrames: actors.reduce((n, a) => n + a.submittedFrames, 0), acceptedFrames: actors.reduce((n, a) => n + a.acceptedTick, 0), verifiedFrames: actors.reduce((n, a) => n + a.verifiedTick, 0), fullSourceActorsVerified: count(a => a.verifiedTick === a.sourceFrames) };
+  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), eligible: count(a => a.everObservedEligible), eligibleUnpaid: count(a => a.everObservedEligible && !a.paid), eligibleCensored: count(a => a.everObservedEligible && !a.paid && a.status === 'censored'), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts, sourceFrames: actors.reduce((n, a) => n + a.sourceFrames, 0), submittedFrames: actors.reduce((n, a) => n + a.submittedFrames, 0), acceptedFrames: actors.reduce((n, a) => n + a.acceptedTick, 0), verifiedFrames: actors.reduce((n, a) => n + a.verifiedTick, 0), fullSourceActorsVerified: count(a => a.verifiedTick === a.sourceFrames) };
 }
 export function unobserved(unit: string, observer: string, reason: string): Measurement {
   invariant(reason.length > 0, 'null metric needs reason');

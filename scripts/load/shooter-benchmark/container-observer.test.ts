@@ -9,4 +9,7 @@ assert.equal(cpuDelta(before, { ...before, cpuUsageMicros: 0 }).cpuSeconds, null
 assert.equal(parseCgroup('postgres', '', before.observedAt).unavailableReason, 'cgroup_v2_counter_unavailable');
 assert.throws(() => parseCgroup('verifier', 'x'.repeat(20000), before.observedAt), /bound/);
 await assert.rejects(observeContainer('verifier', 'not-an-id'), /container ID|restricted/);
+const { parseLimits } = await import('./container-observer.ts');
+assert.deepEqual(parseLimits('verifier', 'cpu.max=200000 100000\ncpuset.cpus.effective=0-3\nmemory.max=536870912\npids.max=32'), { role: 'verifier', cpuMax: '200000 100000', cpuset: '0-3', memoryMax: '536870912', pidsMax: '32', unavailableReason: null });
+assert.equal(parseLimits('nakama', '').unavailableReason, 'per_role_cgroup_v2_limits_unavailable');
 console.log('server CPU observer parser tests passed; actual container telemetry still requires integration lane');

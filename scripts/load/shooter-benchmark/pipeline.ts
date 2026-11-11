@@ -2,7 +2,8 @@
 // exclusively to the separately running PR19 coordinator/offline containers.
 import { performance } from 'node:perf_hooks';
 import { call, guest, openGame, psqlAsync } from '../../../server/test/dup/harness.ts';
-import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures.ts';
+import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures';
+import { ByteBudget } from './budget.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, type Assignment, type Phase, type Plan } from './contracts.ts';
 import { OperationFailure, type Binding, type CampaignAdapter, type Execution, type SubmissionProgress } from './runner.ts';
@@ -20,6 +21,10 @@ export interface ActorObservation {
   appendAttempts: number;
   receivedWallMs: number | null;
   verifiedWallMs: number | null;
+  finishAckWallMs: number | null;
+  firstEligiblePendingWallMs: number | null;
+  firstEligiblePendingToPaidMs: number | null;
+  finishAckToPaidMs: number | null;
   rewardWallMs: number | null;
   paymentCensored: boolean;
   terminalOutcome: string | null;
@@ -30,8 +35,12 @@ export class PublicPipeline implements CampaignAdapter {
   private readonly actors = new Map<string, { actor: TrustedActor; wave: number }>();
   private readonly gates = new Map<number, { count: number; promise: Promise<void>; release: () => void; fail: () => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly background: BackgroundTraffic;
+  private readonly budget: ByteBudget;
+  private readonly inputReleases = new Map<string, () => void>();
+  private readonly runIds = new Set<string>();
   constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>) {
     this.background = new BackgroundTraffic(base, plan.seed);
+    this.budget = new ByteBudget(plan.maxQueuedBytes);
   }
   async prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding> {
     if (signal.aborted) throw new Error('aborted');
@@ -39,6 +48,9 @@ export class PublicPipeline implements CampaignAdapter {
     const actor = await prepareTrustedActor(assignment.caseId, login, { ageMs: 1200000 });
     if (actor.trace.definition.frames !== assignment.frames || actor.trace.definition.fixtureSha256 !== assignment.caseSha256 || actor.trace.definition.legacyInputEnvelopeSha256 !== assignment.inputSha256) throw new Error('prepared trace differs from assignment');
     const binding = { accountBindingHash: sha256(login.hub.userId), sessionBindingHash: sha256(login.sessionId), runBindingHash: sha256(actor.runId) };
+    if (signal.aborted) throw new Error('aborted');
+    this.inputReleases.set(binding.runBindingHash, this.budget.reserve(Buffer.byteLength(actor.trace.frames) + Buffer.byteLength(JSON.stringify(actor.trace.actions))));
+    this.runIds.add(actor.runId);
     this.actors.set(binding.runBindingHash, { actor, wave });
     return binding;
   }
@@ -52,32 +64,44 @@ export class PublicPipeline implements CampaignAdapter {
     if (batches.length !== 1) throw new Error('fixture batch contract changed; require pre-worker upload barrier');
     const original = batches[0], n = assignment.behavior === 'abandon' ? Math.min(120, original.n) : original.n;
     const batch = n === original.n ? original : { ...original, n, frames: original.frames.slice(0, n * 16), actions: original.actions.filter(a => a[0] < n) };
-    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
+    const releaseWire = this.budget.reserve(Buffer.byteLength(JSON.stringify(batch)));
+    try {
+    const observation: ActorObservation = { runBindingHash: binding.runBindingHash, submittedFrames: n, sourceFrames: assignment.frames, appendAttempts: 0, receivedWallMs: null, verifiedWallMs: null, finishAckWallMs: null, firstEligiblePendingWallMs: null, firstEligiblePendingToPaidMs: null, finishAckToPaidMs: null, rewardWallMs: null, paymentCensored: false, terminalOutcome: null };
     this.observations.set(binding.runBindingHash, observation);
-    const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0 };
+    const submission: SubmissionProgress = { submittedFrames: n, submittedInputSha256: appendDigest(batch), submittedHashMeaning: 'v2_canonical_append_body_sha256', acceptedTick: 0, verifiedTick: 0, durablyVerified: false, payable: false, everObservedEligible: false };
     progress(submission);
     // Lost-response storm discards successful acknowledgments then repeats the
     // exact frozen canonical body (same run/sequence/digest), never a new run.
     const attempts = phase.kind === 'retry_storm' ? this.plan.requestRetryLimit + 1 : 1;
     for (let attempt = 0; attempt < attempts; attempt++) {
       observation.appendAttempts++;
-      const ack = object((await call('shooter.run.append', batch, actor.login.gameToken, { signal })).body);
+      const ack = object((await call('shooter.run.append', batch, actor.login.gameToken, { signal: AbortSignal.any([signal, AbortSignal.timeout(20000)]) })).body);
+      if (signal.aborted) throw new Error('aborted');
       if (ack.state !== 'received' || ack.digest !== appendDigest(batch) || Number(ack.acceptedTick) !== n) throw new Error('actual append acknowledgment mismatch');
       submission.acceptedTick = n; progress({ ...submission });
     }
     observation.receivedWallMs = performance.now() - start;
     await this.finishBarrier(wave, signal);
     await finishActor(actor, batch.sequence, n);
+    if (signal.aborted) throw new Error('aborted');
+    observation.finishAckWallMs = performance.now() - start;
     for (;;) {
       if (signal.aborted) throw new Error('aborted');
       const status = await observeActor(actor), verified = object(status.verified), terminal = status.terminal ? object(status.terminal) : null, payment = object(status.payment);
-      submission.verifiedTick = Number(verified.tick); progress({ ...submission });
+      if (signal.aborted) throw new Error('aborted');
+      submission.verifiedTick = Number(verified.tick);
       const durable = submission.verifiedTick === n;
+      submission.durablyVerified = durable;
+      submission.everObservedEligible ||= durable && ['paid', 'pending', 'authorization_denied'].includes(String(payment.state));
+      submission.payable = durable && ['paid', 'pending'].includes(String(payment.state));
+      progress({ ...submission });
       if (durable && observation.verifiedWallMs === null) observation.verifiedWallMs = performance.now() - start;
       if (terminal) observation.terminalOutcome = String(terminal.outcome);
       if (payment.state === 'paid') {
         if (!durable || Number(payment.tickets) !== 20) throw new Error('paid public status lacks full verified fixed20 receipt');
         observation.rewardWallMs = performance.now() - start;
+        observation.finishAckToPaidMs = observation.rewardWallMs - observation.finishAckWallMs;
+        observation.firstEligiblePendingToPaidMs = observation.firstEligiblePendingWallMs === null ? null : observation.rewardWallMs - observation.firstEligiblePendingWallMs;
         return { status: 'paid', rawReason: null, durablyVerified: true, payable: true, paid: true };
       }
       if (durable && payment.state === 'authorization_denied') return { status: 'authorization_denied', rawReason: String(payment.reason ?? 'unspecified'), durablyVerified: true, payable: false, paid: false };
@@ -86,12 +110,14 @@ export class PublicPipeline implements CampaignAdapter {
       // A fixed measured payment observation window censors eligible pending
       // latency. It does not extend a worker replay budget or declare a valid
       // run permanently failed. This window is part of the benchmark manifest.
-      if (durable && payment.state === 'pending' && performance.now() - start >= 120000) {
+      if (durable && payment.state === 'pending' && observation.firstEligiblePendingWallMs === null) observation.firstEligiblePendingWallMs = performance.now() - start;
+      if (durable && payment.state === 'pending' && observation.firstEligiblePendingWallMs !== null && performance.now() - start - observation.firstEligiblePendingWallMs >= 120000) {
         observation.paymentCensored = true;
         return { status: 'payment_pending', rawReason: String(payment.reason ?? 'observation_window'), durablyVerified: true, payable: true, paid: false };
       }
       await delay(500, signal);
     }
+    } finally { releaseWire(); this.inputReleases.get(binding.runBindingHash)?.(); this.inputReleases.delete(binding.runBindingHash); this.actors.delete(binding.runBindingHash); }
   }
   private async finishBarrier(wave: number, signal: AbortSignal): Promise<void> {
     let gate = this.gates.get(wave);
@@ -109,10 +135,10 @@ export class PublicPipeline implements CampaignAdapter {
     finally { signal.removeEventListener('abort', abort); }
   }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
-  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); await this.background.stop(); }
+  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); for (const release of this.inputReleases.values()) release(); this.inputReleases.clear(); this.actors.clear(); await this.background.stop(); }
   async observe(signal: AbortSignal): Promise<void> { await Promise.all([this.sampleServer(signal), this.background.observe(signal)]); }
   async checkpointSizes(): Promise<Record<string, unknown>[]> {
-    const ids = [...this.actors.values()].map(value => value.actor.runId);
+    const ids = [...this.runIds];
     if (!ids.length) return [];
     if (ids.length > 120 || ids.some(id => !/^[a-f0-9-]{36}$/.test(id))) throw new Error('bounded actual run IDs required');
     const sqlIds = ids.map(id => `'${id}'`).join(',');
@@ -121,4 +147,7 @@ export class PublicPipeline implements CampaignAdapter {
   }
   matchMetrics() { return this.background.matchObservations; }
   matchEnds() { return this.background.matchEnds; }
+  inputBudget() { return this.budget.observation(); }
+  backgroundCoverage() { return this.background.coverage; }
+  backgroundRejections() { return this.background.rejectionCounts; }
 }

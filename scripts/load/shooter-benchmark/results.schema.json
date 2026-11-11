@@ -47,7 +47,7 @@
     "mode": {
       "enum": [
         "legacy_full_goja",
-        "segmented_goja",
+        "legacy_segmented_goja",
         "bounded_v8_same_host",
         "bounded_v8_remote"
       ]
@@ -388,7 +388,8 @@
         "submittedHashMeaning",
         "submittedFrames",
         "acceptedTick",
-        "verifiedTick"
+        "verifiedTick",
+        "everObservedEligible"
       ],
       "properties": {
         "accountBindingHash": {
@@ -457,6 +458,9 @@
         "verifiedTick": {
           "type": "integer",
           "minimum": 0
+        },
+        "everObservedEligible": {
+          "type": "boolean"
         }
       }
     },

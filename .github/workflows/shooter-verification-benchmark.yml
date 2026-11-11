@@ -32,9 +32,12 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/observers.test.ts
           npx tsx scripts/load/shooter-benchmark/container-observer.test.ts
           npx tsx scripts/load/shooter-benchmark/result-validation.test.ts
+          npx tsx scripts/load/shooter-benchmark/coverage.test.ts
+          npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark
   twenty-independent-real-pipeline:
+    needs: contracts
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
@@ -71,7 +74,7 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/ci.ts prepare
           sudo chown -R 1000:1000 "$SHOOTER_OPS_CI_DIRECTORY/socket" "$SHOOTER_OPS_CI_DIRECTORY/journal" "$SHOOTER_OPS_CI_DIRECTORY/shooter-worker.json"
       - name: Actual fenced coordinator and network-isolated replay containers
-        run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification up -d --build replay coordinator
+        run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification up -d --build --no-deps replay coordinator
       - name: Full twenty independent authenticated actors with Hub and free PvP observers
         run: npx tsx scripts/load/shooter-benchmark/ci.ts run
         env:

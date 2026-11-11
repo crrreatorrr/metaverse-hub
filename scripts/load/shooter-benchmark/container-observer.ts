@@ -63,3 +63,27 @@ export function cpuDelta(before: CgroupSample, after: CgroupSample): { cpuSecond
   if (after.cpuUsageMicros < before.cpuUsageMicros) return { cpuSeconds: null, wallSeconds, unavailableReason: 'counter reset or container restart' };
   return { cpuSeconds: (after.cpuUsageMicros - before.cpuUsageMicros) / 1000000, wallSeconds, unavailableReason: null };
 }
+export interface ContainerLimits {
+  role: ServerRole;
+  cpuMax: string | null;
+  cpuset: string | null;
+  memoryMax: string | null;
+  pidsMax: string | null;
+  unavailableReason: string | null;
+}
+export function parseLimits(role: ServerRole, text: string): ContainerLimits {
+  if (Buffer.byteLength(text) > 4096) throw new Error('container limit observation exceeds bound');
+  const entries = new Map(text.trim().split('\n').map(line => { const at = line.indexOf('='); return [line.slice(0, at), line.slice(at + 1).trim()]; }));
+  const safe = (key: string, pattern: RegExp) => { const value = entries.get(key); return value && pattern.test(value) ? value : null; };
+  const limits: ContainerLimits = { role, cpuMax: safe('cpu.max', /^(max|\d+) \d+$/), cpuset: safe('cpuset.cpus.effective', /^[0-9,-]+$/), memoryMax: safe('memory.max', /^(max|\d+)$/), pidsMax: safe('pids.max', /^(max|\d+)$/), unavailableReason: null };
+  if (!limits.cpuMax || !limits.memoryMax || !limits.pidsMax) limits.unavailableReason = 'per_role_cgroup_v2_limits_unavailable';
+  return limits;
+}
+export async function observeContainerLimits(role: ServerRole, containerId: string): Promise<ContainerLimits> {
+  if (process.env.GITHUB_ACTIONS !== 'true' || !/^[a-f0-9]{64}$/.test(containerId)) throw new Error('ephemeral full container ID required');
+  try {
+    const script = `for f in cpu.max cpuset.cpus.effective memory.max pids.max; do printf '%s=' "$f"; cat "/sys/fs/cgroup/$f" 2>/dev/null || printf '\\n'; done`;
+    const { stdout } = await exec('docker', ['exec', containerId, 'sh', '-c', script], { timeout: 5000, maxBuffer: 4096, encoding: 'utf8' });
+    return parseLimits(role, stdout);
+  } catch { return { role, cpuMax: null, cpuset: null, memoryMax: null, pidsMax: null, unavailableReason: 'bounded_container_limit_observer_failed' }; }
+}
