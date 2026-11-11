@@ -84,7 +84,9 @@ try {
   const abandonedLogin = await openGame((await guest()).token, 'sproto-shooter');
   const abandoned = await prepareTrustedActor('sahil-success-7', abandonedLogin);
   psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${abandonedLogin.sessionId}'`);
-  ops(['up', '-d', '--build', 'replay', 'coordinator']); started = true;
+  // The base Hub is already healthy and owns live SDK connections. Starting
+  // worker services must not recreate that dependency underneath those calls.
+  ops(['up', '-d', '--build', '--no-deps', 'replay', 'coordinator']); started = true;
   await waitUntil(() => {
     try { return JSON.parse(ops(['exec', '-T', 'coordinator', 'node', '-e', "fetch('http://127.0.0.1:9476/ready').then(async r=>{if(!r.ok)process.exit(1);process.stdout.write(await r.text())}).catch(()=>process.exit(1))"])).ready === true; }
     catch { return false; }
