@@ -3,6 +3,8 @@
 HubSchema.register({
   id: "0053_shooter_verification_internal",
   statements: [
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_gateway_receipt_budget()
+      RETURNS bigint LANGUAGE sql IMMUTABLE AS $fn$ SELECT 65536::bigint $fn$`,
     `CREATE TABLE IF NOT EXISTS game.shooter_verification_gateway (
       singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton), enabled boolean NOT NULL DEFAULT false,
       global_attempts_per_minute integer CHECK(global_attempts_per_minute BETWEEN 1 AND 1000000),
@@ -10,8 +12,8 @@ HubSchema.register({
       rate_window timestamptz, rate_attempts integer NOT NULL DEFAULT 0 CHECK(rate_attempts>=0),
       max_requests bigint CHECK(max_requests BETWEEN 1 AND 10000000),
       max_principal_requests bigint CHECK(max_principal_requests BETWEEN 1 AND 1000000),
-      max_receipt_bytes bigint CHECK(max_receipt_bytes BETWEEN 20971520 AND 1099511627776),
-      max_principal_receipt_bytes bigint CHECK(max_principal_receipt_bytes BETWEEN 20971520 AND 1099511627776),
+      max_receipt_bytes bigint CHECK(max_receipt_bytes BETWEEN game.shooter_verification_gateway_receipt_budget() AND 1099511627776),
+      max_principal_receipt_bytes bigint CHECK(max_principal_receipt_bytes BETWEEN game.shooter_verification_gateway_receipt_budget() AND 1099511627776),
       retained_requests bigint NOT NULL DEFAULT 0 CHECK(retained_requests>=0),
       reserved_receipt_bytes bigint NOT NULL DEFAULT 0 CHECK(reserved_receipt_bytes>=0),
       CHECK(NOT enabled OR (global_attempts_per_minute IS NOT NULL AND account_attempts_per_minute IS NOT NULL AND max_requests IS NOT NULL AND max_principal_requests IS NOT NULL AND max_receipt_bytes IS NOT NULL AND max_principal_receipt_bytes IS NOT NULL))
@@ -75,7 +77,7 @@ HubSchema.register({
       request_id text NOT NULL CHECK(request_id ~ '^[A-Za-z0-9_.:@|-]{1,80}$'),
       operation text NOT NULL CHECK(operation IN ('claim','renew','retry','result')),
       request_sha256 text NOT NULL CHECK(request_sha256 ~ '^[0-9a-f]{64}$'),
-      acknowledgment jsonb NOT NULL CHECK(jsonb_typeof(acknowledgment)='object' AND octet_length(acknowledgment::text)<=20971520),
+      acknowledgment jsonb NOT NULL CHECK(jsonb_typeof(acknowledgment)='object' AND octet_length(acknowledgment::text)<=game.shooter_verification_gateway_receipt_budget() AND NOT (acknowledgment ? 'work')),
       created_at timestamptz NOT NULL,
       PRIMARY KEY(worker_id,request_id),
       FOREIGN KEY(account_id,worker_id,key_id) REFERENCES game.shooter_verification_principal(account_id,worker_id,key_id)
@@ -162,7 +164,7 @@ HubSchema.register({
     `CREATE OR REPLACE FUNCTION game.shooter_verification_internal(a uuid,w text,k text,h text,op text,rid text,digest text,body jsonb)
       RETURNS jsonb LANGUAGE plpgsql AS $fn$
       DECLARE p game.shooter_verification_principal%ROWTYPE; cfg game.shooter_verification_gateway%ROWTYPE;
-        old game.shooter_verification_gateway_receipt%ROWTYPE; ack jsonb; t timestamptz; c jsonb;
+        old game.shooter_verification_gateway_receipt%ROWTYPE; ack jsonb; t timestamptz;
       BEGIN
         -- Lock order principal -> gateway config -> scheduler -> account -> run -> job.
         -- Preflight is only an optimization; authorization is rechecked here.
@@ -182,26 +184,13 @@ HubSchema.register({
           IF old.operation<>op OR old.request_sha256<>digest THEN RETURN jsonb_build_object('state','invalid','reason','request_conflict'); END IF;
           RETURN old.acknowledgment;
         END IF;
-        -- Reserve a complete maximum20MiB response per retained receipt. No GC.
+        -- Reserve only the immutable small acknowledgment; private work is transient.
         IF cfg.retained_requests>=cfg.max_requests OR p.retained_requests>=cfg.max_principal_requests
-          OR cfg.reserved_receipt_bytes+20971520>cfg.max_receipt_bytes OR p.reserved_receipt_bytes+20971520>cfg.max_principal_receipt_bytes THEN
+          OR cfg.reserved_receipt_bytes+game.shooter_verification_gateway_receipt_budget()>cfg.max_receipt_bytes OR p.reserved_receipt_bytes+game.shooter_verification_gateway_receipt_budget()>cfg.max_principal_receipt_bytes THEN
           RETURN jsonb_build_object('state','pending_retryable','reason','gateway_capacity'); END IF;
         BEGIN
           IF op='claim' THEN
             ack:=game.shooter_verification_claim(w);
-            IF ack->>'state'='leased' THEN
-              c:=ack->'claim';
-              BEGIN
-                ack:=ack || jsonb_build_object('work',game.shooter_verification_private_work(c,w));
-              EXCEPTION WHEN raise_exception THEN
-                IF SQLERRM<>'private_work_unavailable' THEN RAISE; END IF;
-                -- Preserve claim/attempt/fairness, then release through the same
-                -- live fence into finite durable backoff/quarantine. Never leak
-                -- corrupt CP or repeatedly roll back the scheduler's last-turn.
-                ack:=game.shooter_verification_retry((c->>'jobId')::uuid,w,(c->>'fence')::bigint,(c->>'expectedRevision')::bigint,'database_issue')
-                  || jsonb_build_object('reason','private_work_unavailable','claim',c);
-              END;
-            END IF;
           ELSIF op='renew' THEN
             ack:=game.shooter_verification_renew((body->>'jobId')::uuid,w,(body->>'fence')::bigint,(body->>'expectedRevision')::bigint);
           ELSIF op='retry' THEN
@@ -212,11 +201,11 @@ HubSchema.register({
           -- A claim/renew can have waited on downstream locks across key expiry.
           -- Raising inside this subtransaction rolls back ALL queue mutations.
           IF p.expires_at<=clock_timestamp() OR p.not_before>clock_timestamp() THEN RAISE EXCEPTION 'gateway_auth_expired'; END IF;
-          IF octet_length(ack::text)>20971520 THEN RAISE EXCEPTION 'private_work_unavailable'; END IF;
+          IF octet_length(ack::text)>game.shooter_verification_gateway_receipt_budget() THEN RAISE EXCEPTION 'private_work_unavailable'; END IF;
           INSERT INTO game.shooter_verification_gateway_receipt(account_id,worker_id,key_id,request_id,operation,request_sha256,acknowledgment,created_at)
             VALUES(a,w,k,rid,op,digest,ack,clock_timestamp());
-          UPDATE game.shooter_verification_gateway SET retained_requests=retained_requests+1,reserved_receipt_bytes=reserved_receipt_bytes+20971520 WHERE singleton;
-          UPDATE game.shooter_verification_principal SET retained_requests=retained_requests+1,reserved_receipt_bytes=reserved_receipt_bytes+20971520
+          UPDATE game.shooter_verification_gateway SET retained_requests=retained_requests+1,reserved_receipt_bytes=reserved_receipt_bytes+game.shooter_verification_gateway_receipt_budget() WHERE singleton;
+          UPDATE game.shooter_verification_principal SET retained_requests=retained_requests+1,reserved_receipt_bytes=reserved_receipt_bytes+game.shooter_verification_gateway_receipt_budget()
             WHERE account_id=a AND worker_id=w AND key_id=k;
           RETURN ack;
         EXCEPTION WHEN raise_exception THEN
@@ -229,6 +218,58 @@ HubSchema.register({
         -- to Nakama's SQL adapter (which otherwise logs its argument array).
         -- Connection/driver cancellation errors need deployment log filtering.
         RETURN jsonb_build_object('state','pending_retryable','reason','gateway_unavailable');
+      END; $fn$`,
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_private_response(a uuid,w text,k text,h text,rid text,digest text)
+      RETURNS jsonb LANGUAGE plpgsql AS $fn$
+      DECLARE p game.shooter_verification_principal%ROWTYPE; cfg game.shooter_verification_gateway%ROWTYPE;
+        saved game.shooter_verification_gateway_receipt%ROWTYPE; j game.shooter_verification_job%ROWTYPE;
+        r game.shooter_verification_run%ROWTYPE; c jsonb; response jsonb; work jsonb; t timestamptz;
+      BEGIN
+        -- Separate from immutable receipt commit. Identity/reference arguments
+        -- contain no checkpoint; authorize again before reading private state.
+        SELECT * INTO p FROM game.shooter_verification_principal WHERE account_id=a AND worker_id=w AND key_id=k FOR UPDATE;
+        IF NOT FOUND THEN RETURN jsonb_build_object('work',NULL,'workState','authorization_denied','workReason','unauthorized'); END IF;
+        SELECT * INTO cfg FROM game.shooter_verification_gateway WHERE singleton FOR UPDATE;
+        t:=clock_timestamp();
+        IF cfg.singleton IS NULL OR NOT cfg.enabled THEN RETURN jsonb_build_object('work',NULL,'workState','pending_retryable','workReason','gateway_disabled'); END IF;
+        IF p.revoked_at IS NOT NULL OR p.not_before>t OR p.expires_at<=t OR NOT 'claim'=ANY(p.scopes)
+          OR NOT game.shooter_verification_hash_equal(p.token_sha256,h) THEN
+          RETURN jsonb_build_object('work',NULL,'workState','authorization_denied','workReason','unauthorized'); END IF;
+        SELECT * INTO saved FROM game.shooter_verification_gateway_receipt WHERE worker_id=w AND request_id=rid;
+        IF NOT FOUND OR saved.operation<>'claim' OR saved.request_sha256<>digest OR saved.acknowledgment->>'state'<>'leased' THEN
+          RETURN jsonb_build_object('work',NULL,'workState','stale','workReason','stale_claim'); END IF;
+        c:=saved.acknowledgment->'claim';
+        PERFORM 1 FROM game.shooter_verification_scheduler WHERE singleton FOR UPDATE;
+        SELECT * INTO j FROM game.shooter_verification_job WHERE job_id=(c->>'jobId')::uuid;
+        PERFORM 1 FROM game.shooter_verification_scheduler_account WHERE user_id=(SELECT user_id FROM game.shooter_verification_run WHERE run_id=j.run_id) FOR UPDATE;
+        SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=j.run_id FOR UPDATE;
+        SELECT * INTO j FROM game.shooter_verification_job WHERE job_id=(c->>'jobId')::uuid FOR UPDATE;
+        IF p.expires_at<=clock_timestamp() OR p.not_before>clock_timestamp() THEN RAISE EXCEPTION 'gateway_auth_expired'; END IF;
+        IF NOT game.shooter_verification_fence_live(j.job_id,w,(c->>'fence')::bigint,(c->>'expectedRevision')::bigint)
+          OR c->>'runId' IS DISTINCT FROM j.run_id OR c->>'accountId' IS DISTINCT FROM r.user_id::text OR c->>'sessionId' IS DISTINCT FROM r.session_id::text
+          OR c->>'inputSha256' IS DISTINCT FROM j.input_sha256 OR (c->>'initialRevision')::bigint IS DISTINCT FROM j.initial_revision
+          OR (c->>'tick0')::int IS DISTINCT FROM j.tick0 OR (c->>'tickEnd')::int IS DISTINCT FROM j.tick_end
+          OR (c->>'continuationTick')::int IS DISTINCT FROM j.continuation_tick THEN
+          RETURN jsonb_build_object('work',NULL,'workState','stale','workReason','stale_claim'); END IF;
+        BEGIN
+          work:=game.shooter_verification_private_work(c,w);
+          IF octet_length(work::text)>20971520 THEN RAISE EXCEPTION 'private_work_unavailable'; END IF;
+          response:=jsonb_build_object('work',work,'workState','ready','workReason',NULL);
+        EXCEPTION WHEN raise_exception THEN
+          IF SQLERRM<>'private_work_unavailable' THEN RAISE; END IF;
+          -- Keep the already-committed reference immutable; release its exact
+          -- failed attempt through bounded backoff without retaining CP copies.
+          PERFORM game.shooter_verification_retry(j.job_id,w,(c->>'fence')::bigint,(c->>'expectedRevision')::bigint,'database_issue');
+          response:=jsonb_build_object('work',NULL,'workState','pending_retryable','workReason','private_work_unavailable');
+        END;
+        IF p.expires_at<=clock_timestamp() OR p.not_before>clock_timestamp() THEN RAISE EXCEPTION 'gateway_auth_expired'; END IF;
+        IF response->>'workState'='ready' AND NOT game.shooter_verification_fence_live(j.job_id,w,(c->>'fence')::bigint,(c->>'expectedRevision')::bigint) THEN
+          RETURN jsonb_build_object('work',NULL,'workState','stale','workReason','stale_claim'); END IF;
+        RETURN response;
+      EXCEPTION WHEN raise_exception THEN
+        IF SQLERRM='gateway_auth_expired' THEN RETURN jsonb_build_object('work',NULL,'workState','authorization_denied','workReason','unauthorized'); END IF;
+        RETURN jsonb_build_object('work',NULL,'workState','pending_retryable','workReason','gateway_unavailable');
+      WHEN OTHERS THEN RETURN jsonb_build_object('work',NULL,'workState','pending_retryable','workReason','gateway_unavailable');
       END; $fn$`,
   ],
 });

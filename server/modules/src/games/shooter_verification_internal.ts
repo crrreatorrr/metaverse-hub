@@ -91,9 +91,20 @@ namespace ShooterVerificationInternal {
     if (!bounded(parsed.body) || !bodyOk(op,parsed.body)) return fail("invalid","malformed");
     if (op==="result" && !ShooterVerificationCommit.valid(nk,parsed.body)) return fail("pending_retryable","bad_worker_checkpoint");
     if (op==="result") HubFault.apply(ctx,nk,ctx.userId,"shooter.worker.before_commit");
+    var digest=nk.sha256Hash(op+"\n"+stable(parsed.body));
     var result=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_internal($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::jsonb)::text AS result",
-      [ctx.userId,parsed.workerId,parsed.keyId,hash,op,parsed.requestId,nk.sha256Hash(op+"\n"+stable(parsed.body)),JSON.stringify(parsed.body)]);
+      [ctx.userId,parsed.workerId,parsed.keyId,hash,op,parsed.requestId,digest,JSON.stringify(parsed.body)]);
     if (op==="result") HubFault.apply(ctx,nk,ctx.userId,"shooter.worker.after_commit");
+    if (op==="claim" && result.state==="leased") {
+      var projection=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_private_response($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text)::text AS result",
+        [ctx.userId,parsed.workerId,parsed.keyId,hash,parsed.requestId,digest]);
+      // The immutable acknowledgment is historical. Only this separately
+      // authorized, live-fence projection may add transient private work.
+      result.work=projection.work===undefined?null:projection.work;
+      result.workState=typeof projection.workState==="string"?projection.workState:"pending_retryable";
+      result.workReason=typeof projection.workReason==="string"?projection.workReason:null;
+    }
+
     return JSON.stringify(result);
   }
   export function safe(ctx: nkruntime.Context,logger: nkruntime.Logger,nk: nkruntime.Nakama,payload: string,op: string): string {

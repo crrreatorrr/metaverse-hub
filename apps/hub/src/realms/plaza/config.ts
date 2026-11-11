@@ -12,14 +12,13 @@ export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'nobu', label: 'NOBU: Saviour Dog', place: 'The Kennel', angle: 4 * PLAZA_SLOT + PLAZA_YAW, color: '#ff8a1f' },
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'peoples-bitcoin', label: "The People's Bitcoin", place: 'The White House', angle: 1 * PLAZA_SLOT + PLAZA_YAW, color: '#ffc233', mature: true },
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto', label: 'Sproto Duel', place: 'The Castle', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
-  // Empty artist slot: the portal gate already standing in front of the Bar. No new building.
+  // The Range entrance stands in front of the Bar.
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 * PLAZA_SLOT + PLAZA_YAW, color: '#ff5ec4' },
 ];
 
 /**
- * Extra gates that are not artist slots. The statue head faces south toward the spawn, so its back
- * is north. This green gate stands on the ground just past the pedestal (radius 25) on that side,
- * as a second way into Sproto Shooter. Returns from the game still land at the Range ring.
+ * A second Shooter entrance stands north of the statue, just past the pedestal.
+ * Returns from the game land at the Range entrance.
  */
 export const STATUE_PORTAL_DISTANCE = 31;
 export const STATUE_PORTALS: readonly PortalConfig[] = [
@@ -27,9 +26,8 @@ export const STATUE_PORTALS: readonly PortalConfig[] = [
 ];
 
 /**
- * Sproto Fighter, Sproto Arcade and Sproto Coop Battle have no ring on the plaza. They share the
- * arcade cabinet inside the Bar: stand at the machine, press E and pick one. Same portal ticket
- * flow as the rings (`portal.enter`, then `#t=`).
+ * Sproto Fighter, Sproto Arcade and Sproto Coop Battle share the arcade cabinet inside the Bar.
+ * Press E at the cabinet and pick a game to launch it with a portal ticket.
  */
 export const ARCADE_GAME = { id: 'sproto-fighter', label: 'Sproto Fighter', place: 'The Bar arcade', color: '#ff3d6e' } as const;
 export const ARCADE_STORY_GAME = { id: 'sproto-arcade', label: 'Sproto Arcade', place: 'The Bar arcade', color: '#ffcc59' } as const;

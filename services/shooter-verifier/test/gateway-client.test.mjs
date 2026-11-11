@@ -37,7 +37,30 @@ test('cross-host TLS uses normal certificate validation; self-signed certificate
 test('historical claim must renew exact live fence before replay; no implicit rebind',async()=>{
   const c=new GatewayClient({url:'http://127.0.0.1:7350',...auth});let executes=0;
   const pool={execute:async()=>{executes++;return {};}};
-  assert.equal((await c.replayClaim({state:'leased',leaseUntil:'invalid-date',claim:{},work:{}},pool)).reason,'stale_claim');
+  assert.equal((await c.replayClaim({state:'leased',leaseUntil:'invalid-date',claim:{},work:null},pool)).reason,'stale_claim');
   c.renew=async()=>({state:'stale'});
-  assert.equal((await c.replayClaim({state:'leased',leaseUntil:new Date(Date.now()+1000).toISOString(),claim:{},work:{}},pool)).reason,'stale_claim');assert.equal(executes,0);
+  assert.equal((await c.replayClaim({state:'leased',leaseUntil:new Date(Date.now()+1000).toISOString(),claim:{},workState:'ready',work:{}},pool)).reason,'stale_claim');assert.equal(executes,0);
+  const claim={jobId:'job',fence:1,expectedRevision:0};let renews=0;
+  c.renew=async(value)=>{assert.deepEqual(value,claim);renews++;return{state:'leased',leaseUntil:new Date(Date.now()+1000).toISOString()};};
+  pool.execute=async(text)=>{assert.equal(JSON.parse(text).operation,'step');executes++;return{kind:'replayed',privateCheckpoint:{}};};
+  const historical={state:'leased',leaseUntil:new Date(Date.now()-10000).toISOString(),claim,workState:'ready',work:{claim,checkpoint:{pending:{}},maxWorkFrames:1}};
+  assert.equal((await c.replayClaim(historical,pool)).kind,'replayed');assert.equal(renews,1);assert.equal(executes,1);
+});
+
+test('tiny and zero-byte fragments cannot create unbounded coordinator chunk metadata',async()=>{
+  const original=globalThis.fetch;
+  try{
+    for(const size of [0,1]){
+      let reads=0,cancelled=false;
+      const tiny=new Uint8Array(size).fill(32);
+      globalThis.fetch=async()=>({ok:true,headers:new Headers(),body:{getReader:()=>({
+        read:async()=>{reads++;return reads<=5000?{done:false,value:tiny}:reads===5001?{done:false,value:new TextEncoder().encode('{}')}:{done:true};},
+        cancel:async()=>{cancelled=true;},
+      })}});
+      const c=new GatewayClient({url:'http://127.0.0.1:7350',...auth});
+      const result=await c.claim('bounded-fragment-fixture');
+      assert.equal(result.reason,'response_stream_limit');assert.equal(cancelled,true);
+      assert.ok(reads<=4097,'finitefragmentreadsdespitesmallbytecount');
+    }
+  }finally{globalThis.fetch=original;}
 });

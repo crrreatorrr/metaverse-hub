@@ -30,7 +30,7 @@ export function createBootSupport(rig: Object3D, pivot: Object3D, avatar: Object
         if (weights.getComponent(i, j) > weights.getComponent(i, dominant)) dominant = j;
       }
       const bone = mesh.skeleton.bones[joints.getComponent(i, dominant)];
-      if (!bone || !/^(?:(?:mixamorig:?)?(?:Left|Right)(?:Leg|Foot|ToeBase)|[LR]_(?:Foot|ToeBase))$/.test(bone.name)) continue;
+      if (!bone || !/^(?:(?:mixamorig:?)?(?:Left|Right)(?:Leg|Foot|ToeBase)|[LR]_(?:Foot|ToeBase)|leg_lower_[LR])$/.test(bone.name)) continue;
       vertices.push(i);
       rest.push(positions.getX(i), positions.getY(i), positions.getZ(i));
       for (let j = 0; j < 4; j += 1) {
