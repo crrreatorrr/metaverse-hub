@@ -83,6 +83,15 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.deepEqual(ids.filter((id) => Number(id.split('_')[0]) <= 12).slice(-2), ['0011_ranked_scores', '0012_chat_moderation']);
   const nums = ids.map((id) => Number(id.split('_')[0]));
   assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
+  assert.deepEqual(ids.filter((id) => id.startsWith('0050_')), [
+    '0050_pb_campaign_pistol_price', '0050_shooter_verification_queue',
+  ], 'the released independent pair has deterministic order');
+  for (const id of ['0050_unrelated_collision', '0050_pb_campaign_pistol_price', '0050_shooter_verification_queue']) {
+    const isolated = loadModule({ noInit: true });
+    const schema = isolated.global.HubSchema as typeof HubSchema;
+    schema.register({ id, statements: ['SELECT 1'] });
+    assert.throws(() => schema.all(), /duplicate schema migration (id|number)/, id);
+  }
   const fresh = loadModule({ noInit: true });
   const S = fresh.global.HubSchema as typeof HubSchema;
   // Test ids outside every reserved range (hub 0011-0012, PB 0013-0019, sproto 0020-0024).
