@@ -98,17 +98,25 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
   });
 
   await test('shooter-commit', 'partial first-batch progress keeps one immutable logical range and advances its fenced continuation', async () => {
-    isolate(); const f = await fixture(20); const w = await worker(); const first = await claim(w);
+    isolate(); const f = await fixture(20, { frames: Buffer.alloc(240).toString('base64'), actions: [[0, 1], [19, 1]] });
+    await append(f.login, f.run, 1, 20, 5, { frames: Buffer.alloc(60).toString('base64'), actions: [[0, 1]] });
+    const w = await worker(); const first = await claim(w);
     const result = replay(first, 1); const ack = await submit(w, result);
-    assert.equal(ack.jobComplete, false, JSON.stringify(ack)); assert.equal(history(f.run), '1:1:1:-1:16:0');
+    assert.equal(ack.jobComplete, false, JSON.stringify(ack)); assert.equal(history(f.run), '1:1:1:-1:16:1');
+    assert.equal(obj(obj(result.privateCheckpoint).accounting).actions, 2);
+    assert.equal(obj(obj(result.privateCheckpoint).accounting).verifiedActions, 1);
+    assert.equal(psql(`SELECT accepted_tick||':'||accepted_actions FROM game.shooter_verification_run WHERE run_id='${f.run}'`), '25:3', 'Hub accepted history can be ahead of the source prefix');
     assert.equal(psql(`SELECT tick0||':'||tick_end||':'||initial_revision||':'||expected_revision||':'||continuation_tick FROM game.shooter_verification_job WHERE job_id='${first.claim.jobId}'`), '0:20:0:1:1');
     await sleep(1100); const second = await claim(w); assert.equal(second.claim.jobId, first.claim.jobId); assert.equal(second.claim.fence, 2); assert.equal(second.claim.expectedRevision, 1);
     const before = history(f.run);
     assert.equal((await submit(w, { ...result, publicResult: { ...obj(result.publicResult), reason: 'conflicting_branch' } })).state, 'authorization_denied');
     assert.equal(history(f.run), before);
-    const final = await submit(w, replay(second)); assert.equal(final.jobComplete, true); assert.equal(history(f.run), '2:20:20:0:320:0');
+    const final = await submit(w, replay(second)); assert.equal(final.jobComplete, true); assert.equal(history(f.run), '2:20:20:0:320:2');
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_job WHERE run_id='${f.run}'`), 1);
-    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${first.claim.jobId}'`), 2); noPayment(f.run);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${first.claim.jobId}'`), 2);
+    const tail = await claim(w); await submit(w, replay(tail));
+    assert.equal(history(f.run), '3:25:25:1:400:3', 'new-batch accepted and verified action prefixes increment exactly once');
+    assert.equal(num(`SELECT accepted_actions FROM game.shooter_verification_run WHERE run_id='${f.run}'`), 3); noPayment(f.run);
   });
 
   await test('shooter-commit', 'changed artifact input digest checkpoint schema state hash and accounting never mutate predecessor', async () => {
