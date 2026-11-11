@@ -7,6 +7,7 @@ import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
 import type { MoveStick } from './core/gamepad';
+import { HELD_NOTE, HELD_PET_NOTE, grantBadge, isHeld, storePriceLine } from './v2/store-info';
 
 export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets';
 
@@ -97,8 +98,8 @@ const PETS: readonly PetInfo[] = [
   { id: 'pet_presidential_sproto', name: 'Presidential Sproto', from: 'Sproto Duel: defeat Obama' },
   { id: 'pet_moon_sproto', name: 'Moon Sproto', from: "People's Bitcoin: Moonward quest" },
   { id: 'pet_sproto_pup', name: 'Sproto Pup', from: "People's Bitcoin: Hatchery quest" },
-  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: 'Store: 400 Verse' },
-  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: 'Store: 600 Verse' },
+  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: storePriceLine('pet_hopium_sproto') },
+  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: storePriceLine('pet_coom_sproto') },
 ];
 
 export interface MenuOptions {
@@ -420,6 +421,7 @@ export function createMenu(options: MenuOptions): Menu {
       el('span', 'relic-how', info.how),
       el('span', 'relic-unlock', `Unlocks: ${unlocks.join(' · ')}`),
     );
+    if (isHeld(socket.id)) text.append(el('span', 'relic-held', HELD_NOTE));
     const state = el('span', 'relic-badge', 'Locked');
     const toggle = el('button', 'relic-toggle');
     toggle.type = 'button';
@@ -534,7 +536,8 @@ export function createMenu(options: MenuOptions): Menu {
         });
         card.append(deploy);
       } else {
-        card.append(el('span', 'pet-state', has ? 'Model soon' : 'Locked'));
+        card.append(el('span', 'pet-state', grantBadge(pet.id, has, 'Model soon')));
+        if (!has && isHeld(pet.id)) text.append(el('span', 'pet-from pet-held', HELD_PET_NOTE));
       }
       petGrid.append(card);
     }
@@ -546,7 +549,9 @@ export function createMenu(options: MenuOptions): Menu {
       const on = relics.has(id);
       card.classList.toggle('owned', on);
       const badge = card.querySelector('.relic-badge');
-      if (badge) badge.textContent = on ? 'Owned' : 'Locked';
+      if (badge) badge.textContent = grantBadge(id, on);
+      const heldNote = card.querySelector<HTMLElement>('.relic-held');
+      if (heldNote) heldNote.hidden = on;
       // Only an owned Relic has a gem to switch off.
       const toggle = card.querySelector<HTMLButtonElement>('.relic-toggle');
       if (toggle) {

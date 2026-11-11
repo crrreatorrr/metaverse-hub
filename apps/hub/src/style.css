@@ -1560,6 +1560,14 @@ button:disabled {
   color: #ffb3a8;
 }
 
+/* A grant the server is holding: the clear is recorded, the reward is not out yet. */
+.relic-held,
+.pet-held {
+  font-size: 18px;
+  line-height: 0.95;
+  color: var(--yellow-2);
+}
+
 .relic-badge {
   flex: none;
   align-self: flex-start;

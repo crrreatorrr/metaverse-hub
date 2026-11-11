@@ -7,6 +7,7 @@ import { buildPedestal } from '../src/realms/plaza/plaza';
 import { RELICS, ownsFourLights } from '../src/core/relics';
 import { FOUR_LIGHTS_RELIC_IDS } from '@metaverse/hub-sdk';
 import { RELIC_GEMS } from '../src/m3/types';
+import { HELD_BADGE, HELD_PET_IDS, HELD_RELIC_IDS, grantBadge, isHeld } from '../src/v2/store-info';
 
 assert.deepEqual(RELIC_GEMS.map(({ id }) => id), [...RELIC_IDS], 'relic_ids_all_have_gems');
 assert.deepEqual(SOCKETS.map(({ id }) => id), [...RELIC_IDS], 'relic_ids_all_have_sockets');
@@ -40,3 +41,18 @@ assert.ok(ownsFourLights(new Set(FOUR_LIGHTS_RELIC_IDS)), 'four_relic_check_uses
 assert.ok(!ownsFourLights(new Set(FOUR_LIGHTS_RELIC_IDS.slice(0, 3))), 'three lights cannot own reward');
 const menu = readFileSync(new URL('../src/menu.ts', import.meta.url), 'utf8');
 assert.ok(menu.includes('ownsFourLights(relics)'), 'menu fallback uses the four-light rule');
+
+// A3: every grant the server holds shows the pending badge, never "Locked"; an owned one says so.
+{
+  const schema = readFileSync(new URL('../../../server/modules/src/schema.ts', import.meta.url), 'utf8');
+  for (const id of [...HELD_RELIC_IDS, ...HELD_PET_IDS]) {
+    assert.equal(grantBadge(id, false), HELD_BADGE, `${id} shows the pending badge`);
+    assert.equal(grantBadge(id, true), 'Owned', `${id} owned`);
+    assert.ok(isHeld(id));
+    assert.ok(schema.includes(`'${id}'`), `${id} is a server rule`);
+  }
+  for (const id of HELD_RELIC_IDS) assert.ok(RELICS.some((relic) => relic.id === id), `${id} is a Relic`);
+  assert.equal(grantBadge('cones_tip', false), 'Locked');
+  assert.equal(grantBadge('pet_nobu', true, 'Model soon'), 'Model soon');
+}
+console.log('held badges ok');

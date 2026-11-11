@@ -1,4 +1,5 @@
 import { pickerKey, type PickerState } from './arcade-picker';
+import { STORE_PET_PRICES } from './store-info';
 
 /**
  * Sprotel Bitcoin's talk panel in the Bar. Pressing E in his trigger opens it; he answers from a
@@ -27,7 +28,7 @@ export const SPROTEL_TOPICS: readonly TalkTopic[] = [
   {
     id: 'store',
     ask: 'What are you selling?',
-    answer: "The Verse store isn't open yet. When it is, I'll have Hopium Sproto for 400 Verse and Coom Sproto for 600. Save up.",
+    answer: `The Verse store isn't open yet. When it is, I'll have Hopium Sproto for ${STORE_PET_PRICES.pet_hopium_sproto} Verse and Coom Sproto for ${STORE_PET_PRICES.pet_coom_sproto}. Save up.`,
   },
   {
     id: 'verse',
