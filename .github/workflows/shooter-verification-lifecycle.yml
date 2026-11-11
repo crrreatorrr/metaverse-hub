@@ -53,7 +53,7 @@ jobs:
             echo 'Expected selected lifecycle suite without matching tests to fail'
             exit 1
           fi
-          rg --fixed-strings 'shooter-lifecycle: category produced no pass, failing the suite' /tmp/lifecycle-empty-suite.log
+          grep -F 'shooter-lifecycle: category produced no pass, failing the suite' /tmp/lifecycle-empty-suite.log
         env:
           DUP_ONLY: shooter-lifecycle
           DUP_NAME: intentionally-unmatched-zero-pass-sentinel
