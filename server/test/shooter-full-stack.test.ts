@@ -8,8 +8,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
-import { guest, openGame, psql, num, sleep, waitReady } from './dup/harness.ts';
-import { appendActor, appendDigest, finishActor, integrationCases, integrationManifest, observeActor, prepareTrustedActor, type PublicBatch, type TrustedActor } from './dup/shooter_verification_e2e_fixtures.ts';
+import { guest, openGame, psql, num, sleep, waitReady } from './dup/harness';
+import { appendActor, appendDigest, finishActor, integrationCases, integrationManifest, observeActor, prepareTrustedActor, type PublicBatch, type TrustedActor } from './dup/shooter_verification_e2e_fixtures';
 
 type Obj = Record<string, unknown>;
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));

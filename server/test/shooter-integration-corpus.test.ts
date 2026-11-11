@@ -1,6 +1,6 @@
 // Input preservation gate only. Full-stack execution is a separate PR18 stage.
 import assert from 'node:assert/strict';
-import { integrationCases, loadFrozenTrace, reboundBatches, type TrustedActor } from './dup/shooter_verification_e2e_fixtures.ts';
+import { integrationCases, loadFrozenTrace, reboundBatches, type TrustedActor } from './dup/shooter_verification_e2e_fixtures';
 
 const runId = 'a0180000-0000-4000-8000-000000000001';
 let cases = 0;

@@ -5,7 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import vm from 'node:vm';
-import type { GameLogin } from './harness.ts';
+import type { GameLogin } from './harness';
 
 type Obj = Record<string, unknown>;
 export type CorpusCase = Readonly<{
@@ -102,7 +102,7 @@ export function buildCanonicalFixtureIssuance(input: Obj): Obj {
 
 export async function prepareTrustedActor(caseId: string, login: GameLogin, options: { runId?: string; key?: string; ageMs?: number } = {}): Promise<TrustedActor> {
   fixtureGuard();
-  const { psqlAsync } = await import('./harness.ts');
+  const { psqlAsync } = await import('./harness');
   const trace = loadFrozenTrace(caseId), runId = options.runId === undefined ? randomUUID() : options.runId, key = options.key === undefined ? 'e2e:' + runId : options.key, ageMs = options.ageMs === undefined ? 0 : options.ageMs;
   assert.match(login.hub.userId, UUID); assert.match(login.sessionId, UUID); assert.match(runId, UUID);
   assert.match(key, /^[A-Za-z0-9_.:@|-]{1,80}$/);
@@ -139,7 +139,7 @@ export function appendDigest(batch: PublicBatch): string {
   return hash(JSON.stringify({ actions: batch.actions, frames: batch.frames, n: batch.n, protocol: 2, runId: batch.runId, sequence: batch.sequence, tick0: batch.tick0 }));
 }
 export async function appendActor(actor: TrustedActor, batchFrames = 28800): Promise<readonly PublicBatch[]> {
-  const { call } = await import('./harness.ts');
+  const { call } = await import('./harness');
   const batches = reboundBatches(actor, batchFrames);
   // For multi-batch full frozen input, the caller pauses the worker until every
   // batch is accepted. Never shorten a trace after an early terminal latch.
@@ -151,14 +151,14 @@ export async function appendActor(actor: TrustedActor, batchFrames = 28800): Pro
   return batches;
 }
 export async function finishActor(actor: TrustedActor, lastSequence: number, lastTick = actor.trace.definition.frames): Promise<Obj> {
-  const { call } = await import('./harness.ts');
+  const { call } = await import('./harness');
   const ack = object((await call('shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence, lastTick }, actor.login.gameToken)).body);
   assert.equal(ack.state, 'sealed', JSON.stringify(ack)); assert.equal(ack.runId, actor.runId);
   assert.equal(ack.lastSequence, lastSequence); assert.equal(ack.lastTick, lastTick);
   return ack;
 }
 export async function observeActor(actor: TrustedActor): Promise<Obj> {
-  const { call } = await import('./harness.ts');
+  const { call } = await import('./harness');
   const status = object((await call('shooter.run.status', { runId: actor.runId }, actor.login.hub.token)).body);
   assert.equal(status.protocol, 2); assert.equal(status.runId, actor.runId);
   return status;

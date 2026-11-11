@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { appendDigest, integrationCases, reboundBatches, type TrustedActor } from '../dup/shooter_verification_e2e_fixtures.ts';
+import { appendDigest, integrationCases, reboundBatches, type TrustedActor } from '../dup/shooter_verification_e2e_fixtures';
 
 assert.equal(integrationCases.length, 12);
 assert.equal(new Set(integrationCases.map(row => row.boss)).size, 5);
