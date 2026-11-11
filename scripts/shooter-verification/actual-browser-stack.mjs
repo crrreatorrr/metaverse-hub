@@ -116,13 +116,23 @@ try {
   const a = await initActualRewardPage({ browser, url, session: await realSession(login) });
   try {
     await installCapture(a.page); await a.start({ boss: 'sahil' });
+    await a.page.locator('#view canvas').click();
+    await a.page.waitForFunction(() => document.pointerLockElement !== null);
     await a.page.keyboard.down('KeyW'); await a.page.mouse.move(180, 110); await a.page.mouse.down();
     await a.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().recordedTick >= 120, null, { timeout: 180000 });
-    await a.page.keyboard.up('KeyW'); await a.page.mouse.up(); await a.page.keyboard.press('Escape');
+    await a.page.keyboard.up('KeyW'); await a.page.mouse.up();
+    // CDP Escape does not reliably perform Chromium's native pointer-lock
+    // release. Use the browser's native release API, then actual production
+    // pause/status DOM controls. Never set Game.paused/state/clock directly.
+    await a.page.evaluate(() => document.exitPointerLock());
+    const pauseStatus = a.page.locator('[data-p="rewarded"]');
+    await pauseStatus.waitFor({ state: 'visible' });
+    await pauseStatus.click();
     const state = await safeSnapshot(a.page); assert.ok(state.snapshot.runId);
+    assert.equal(state.snapshot.paused, true, 'actual status panel stops Game ticks before the final state capture');
     const observedCommands = decodeFrames(state.captured.frames, state.captured.n, state.captured.actions).commands;
     assert.ok(observedCommands?.some(command => command.moveZ !== 0), 'real DOM movement reached recorded canonical input');
-    await a.page.locator('[data-reward-status]').click(); await a.page.locator('[data-reward-action="back"]').click();
+    await a.page.locator('[data-reward-action="back"]').click();
     const proof = await assertStoredProof(state.snapshot.runId, state, a, state.captured.n);
     console.log('PASS actual-browser public random-seed DOM prefix/finish retained05f parity ' + JSON.stringify(proof));
   } finally { await a.close(); }
