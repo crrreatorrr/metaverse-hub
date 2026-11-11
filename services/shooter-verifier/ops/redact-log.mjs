@@ -4,6 +4,8 @@ const known=new Map([
   ['Node','runtime_started'],['Server startup completed','runtime_ready'],['Startup done','runtime_ready'],
   ['JavaScript runtime modules loaded','runtime_ready'],['Go runtime modules loaded','runtime_info'],
   ['Failed to exec db query.','db_error_redacted'],['Server shutdown complete','runtime_stopped'],
+  ['Could not parse command line arguments','runtime_failed'],['Could not setup logging','runtime_failed'],
+  ['Error connecting to database','runtime_failed'],['Failed to connect to database','runtime_failed'],
 ]);
 export class LogFilter {
   constructor(write){this.write=write;this.buffer=Buffer.alloc(MAX_LINE);this.at=0;this.dropping=false;this.counters={lines:0,redacted:0,oversized:0,unstructured:0};}

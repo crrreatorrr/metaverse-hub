@@ -15,6 +15,7 @@ COPY --from=nakama /nakama/nakama /nakama/nakama
 COPY --from=modules /src/build/index.js /nakama/data/modules/index.js
 COPY services/shooter-verifier/ops/redact-log.mjs services/shooter-verifier/ops/nakama-filter.mjs services/shooter-verifier/ops/safe-metrics.mjs /app/
 ENTRYPOINT ["node","/app/nakama-filter.mjs"]
+CMD []
 
 # This target exists only for the disposable driver-fault workflow. It is never
 # selected by the example profile default, and contains a deliberately failing

@@ -280,45 +280,6 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
     } finally { for (const f of fixtures.slice(0, 32)) disarm(f.login.hub.userId); dropFaultHooks(); }
   });
 
-  await test('shooter-metrics', 'truncated blocked queue is explicitly unknown and an actual claim progresses the later approved healthy replay', async () => {
-    isolate(); const f = await fixture('broccoli-success-7', { tail: 10, stopAfterTerminal: true });
-    const prefix = `metrics-blocked-${randomUUID()}-`;
-    // Trusted metadata-only fixture for the scheduler/observation sampling
-    // boundary. These1000 runs are already quarantined and never simulated or
-    // submitted as payment evidence. The later healthy trace remains the full
-    // approved fixture with its genuine checkpoint and accepted suffix.
-    psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
-      SELECT '${prefix}'||i,old.user_id,old.session_id,'${prefix}'||i,old.day,old.canonical_boss,old.seed,
-        (old.issuance_json::jsonb||jsonb_build_object('runId','${prefix}'||i))::text
-      FROM game.shooter_run old CROSS JOIN generate_series(1,1000) i WHERE old.run_id='${f.run}';
-      INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline,
-        lifecycle,accepted_sequence,accepted_tick,accepted_bytes,accepted_batches)
-      SELECT '${prefix}'||i,r.user_id,r.session_id,r.simulator_protocol,r.checkpoint_schema,r.economy_policy,r.artifact_sha256,r.source_commit,r.content_fingerprint,
-        now()-interval '40 minutes',now()+interval '5 minutes','expired',0,1,16,1
-      FROM game.shooter_verification_run r CROSS JOIN generate_series(1,1000) i WHERE r.run_id='${f.run}';
-      INSERT INTO game.shooter_verification_batch(run_id,sequence,tick0,frame_count,frames,encoded_bytes,actions,action_count,request_sha256,received_ack,authorized_lease_until)
-      SELECT '${prefix}'||i,0,0,1,'AAAAAAAAAAAAAAAA',16,'[]',0,repeat('d',64),jsonb_build_object('state','received','runId','${prefix}'||i),now()+interval '1 minute' FROM generate_series(1,1000)i;
-      INSERT INTO game.shooter_verification_job(job_id,run_id,sequence_from,sequence_to,tick0,tick_end,expected_revision,input_sha256,max_attempts,state)
-      SELECT gen_random_uuid(),'${prefix}'||i,0,0,0,1,0,repeat('d',64),3,'quarantined' FROM generate_series(1,1000)i;
-      DO $bound$ BEGIN BEGIN UPDATE game.shooter_verification_scheduler SET max_leased=10001;RAISE EXCEPTION 'missing finite lease cap';
-        EXCEPTION WHEN check_violation THEN NULL;END;END;$bound$;`);
-    const before = durable(), observed = await rpc(f.worker, 'ops'); assert.equal(observed.state, 'observed');
-    assert.equal(observed.queueDepth, 1000); assert.equal(observed.queueTruncated, true); assert.equal(observed.eligible, false);
-    assert.equal(observed.eligibilityUnknown, true); assert.equal(durable(), before, 'unknown hint is still nonmutating');
-    const claimed = await rpc(f.worker, 'claim'); assert.equal(claimed.state, 'leased'); const work = obj(claimed.work);
-    assert.equal(obj(work.claim).runId, f.run, 'authoritative scheduler can see past blocked sample');
-    const replayed = obj(JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL('../../../services/shooter-verifier/test/restore-continuation.mjs', import.meta.url))], {
-      input: JSON.stringify(work), encoding: 'utf8', timeout: 20000, maxBuffer: 20 * 1024 * 1024, env: { NODE_ENV: 'test' },
-    })));
-    assert.equal(replayed.kind, 'replayed');
-    const committed = await rpc(f.worker, 'result', { manifest: work.manifest, result: replayed });
-    assert.equal(committed.state, 'terminal_verified'); assert.equal(committed.verifiedTick, f.tick);
-    assert.equal(num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${f.run}'`), f.tick);
-    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id LIKE '${prefix}%' AND frames IS NOT NULL`), 1000);
-    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_job WHERE run_id LIKE '${prefix}%' AND state='quarantined'`), 1000);
-    assert.equal(credits(f), 0); assert.equal(receipt(f), null);
-  });
-
   await test('shooter-metrics', 'real migration backfills preexisting immutable pending proofs and repeated boot preserves all proof and financial history', async () => {
     assert.equal(process.env.GITHUB_ACTIONS, 'true', 'historical fixture restricted to disposable Actions DB');
     assert.equal(process.env.HUB_OBSERVATIONS_FIXTURE, 'pending-backfill');
@@ -349,4 +310,65 @@ export async function runShooterVerificationMetrics(test: TestFn): Promise<void>
     const after = durable(); compose(['restart', 'nakama']); await waitReady(); assert.equal(durable(), after);
     enable(); assert.equal((await rpc(f.worker, 'repair', p)).paid, true); assert.equal(credits(f), 1); assert.equal(receipt(f)?.tickets, 20);
   });
+  await test('shooter-metrics', 'truncated blocked queue is explicitly unknown and an actual claim progresses the later approved healthy replay', async () => {
+    isolate(); const f = await fixture('broccoli-success-7', { tail: 10, stopAfterTerminal: true });
+    const prefix = `metrics-blocked-${randomUUID()}-`;
+    const owners = [];
+    for (let i = 0; i < 5; i++) owners.push(await openGame((await guest()).token, 'sproto-shooter'));
+    const ownerRows = owners.map((o, i) => `(${i},'${o.hub.userId}'::uuid,'${o.sessionId}'::uuid)`).join(',');
+    const ids = `WITH owners(n,user_id,session_id) AS(VALUES${ownerRows}),ids AS(SELECT '${prefix}'||i AS run_id,user_id,session_id FROM generate_series(1,1000)i JOIN owners ON n=(i-1)%5)`;
+    const retainedBefore = num('SELECT retained_runs FROM game.shooter_verification_admission');
+    const bytesBefore = num('SELECT reserved_bytes FROM game.shooter_verification_admission');
+    const batchesBefore = num('SELECT reserved_batches FROM game.shooter_verification_admission');
+    // Trusted metadata-only fixture for the scheduler/observation sampling
+    // boundary. These1000 runs are already quarantined and never simulated or
+    // submitted as payment evidence. The later healthy trace remains the full
+    // approved fixture with its genuine checkpoint and accepted suffix.
+    // The real admission trigger reserves64MiB/4096batches per retained run.
+    // Five actual accounts keep each819200-batch reservation below its hard
+    // one-million bound. This final fixture retains those finite reservations;
+    // no accounting/evidence reset is used to accommodate the test.
+    // These are explicit trusted CI settings for a truncation regression, not
+    // a capacity measurement or operating-limit recommendation. Keep this case
+    // last, and this category after every other v2 fixture in the full suite.
+    psql(`UPDATE game.shooter_verification_admission SET max_global_runs=10000,max_global_batches=10000000,max_account_runs=4096,max_account_bytes=1099511627776,max_account_batches=1000000;
+      ${ids} INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
+      SELECT x.run_id,x.user_id,x.session_id,x.run_id,old.day,old.canonical_boss,old.seed,
+        (old.issuance_json::jsonb||jsonb_build_object('runId',x.run_id,'accountId',x.user_id,'sessionId',x.session_id))::text
+      FROM game.shooter_run old CROSS JOIN ids x WHERE old.run_id='${f.run}';
+      ${ids} INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline,
+        lifecycle,accepted_sequence,accepted_tick,accepted_bytes,accepted_batches)
+      SELECT x.run_id,x.user_id,x.session_id,r.simulator_protocol,r.checkpoint_schema,r.economy_policy,r.artifact_sha256,r.source_commit,r.content_fingerprint,
+        now()-interval '40 minutes',now()+interval '5 minutes','expired',0,1,16,1
+      FROM game.shooter_verification_run r CROSS JOIN ids x WHERE r.run_id='${f.run}';
+      INSERT INTO game.shooter_verification_batch(run_id,sequence,tick0,frame_count,frames,encoded_bytes,actions,action_count,request_sha256,received_ack,authorized_lease_until)
+      SELECT '${prefix}'||i,0,0,1,'AAAAAAAAAAAAAAAA',16,'[]',0,repeat('d',64),jsonb_build_object('state','received','runId','${prefix}'||i),now()+interval '1 minute' FROM generate_series(1,1000)i;
+      INSERT INTO game.shooter_verification_job(job_id,run_id,sequence_from,sequence_to,tick0,tick_end,expected_revision,input_sha256,max_attempts,state)
+      SELECT gen_random_uuid(),'${prefix}'||i,0,0,0,1,0,repeat('d',64),3,'quarantined' FROM generate_series(1,1000)i;
+      DO $bound$ BEGIN BEGIN UPDATE game.shooter_verification_scheduler SET max_leased=10001;RAISE EXCEPTION 'missing finite lease cap';
+        EXCEPTION WHEN check_violation THEN NULL;END;END;$bound$;`);
+    assert.equal(num('SELECT retained_runs FROM game.shooter_verification_admission'), retainedBefore + 1000);
+    assert.equal(num('SELECT reserved_bytes FROM game.shooter_verification_admission'), bytesBefore + 1000 * 67108864);
+    assert.equal(num('SELECT reserved_batches FROM game.shooter_verification_admission'), batchesBefore + 1000 * 4096);
+    for (const o of owners) {
+      assert.equal(num(`SELECT retained_runs FROM game.shooter_verification_admission_account WHERE user_id='${o.hub.userId}'`), 200);
+      assert.equal(num(`SELECT reserved_batches FROM game.shooter_verification_admission_account WHERE user_id='${o.hub.userId}'`), 200 * 4096);
+    }
+    const before = durable(), observed = await rpc(f.worker, 'ops'); assert.equal(observed.state, 'observed');
+    assert.equal(observed.queueDepth, 1000); assert.equal(observed.queueTruncated, true); assert.equal(observed.eligible, false);
+    assert.equal(observed.eligibilityUnknown, true); assert.equal(durable(), before, 'unknown hint is still nonmutating');
+    const claimed = await rpc(f.worker, 'claim'); assert.equal(claimed.state, 'leased'); const work = obj(claimed.work);
+    assert.equal(obj(work.claim).runId, f.run, 'authoritative scheduler can see past blocked sample');
+    const replayed = obj(JSON.parse(execFileSync(process.execPath, [fileURLToPath(new URL('../../../services/shooter-verifier/test/restore-continuation.mjs', import.meta.url))], {
+      input: JSON.stringify(work), encoding: 'utf8', timeout: 20000, maxBuffer: 20 * 1024 * 1024, env: { NODE_ENV: 'test' },
+    })));
+    assert.equal(replayed.kind, 'replayed');
+    const committed = await rpc(f.worker, 'result', { manifest: work.manifest, result: replayed });
+    assert.equal(committed.state, 'terminal_verified'); assert.equal(committed.verifiedTick, f.tick);
+    assert.equal(num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${f.run}'`), f.tick);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id LIKE '${prefix}%' AND frames IS NOT NULL`), 1000);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_job WHERE run_id LIKE '${prefix}%' AND state='quarantined'`), 1000);
+    assert.equal(credits(f), 0); assert.equal(receipt(f), null);
+  });
+
 }

@@ -7,12 +7,23 @@ import vm from 'node:vm';
 import { loadApprovedArtifact } from '../src/artifacts.mjs';
 import { replayText } from '../src/replay.mjs';
 import { APPROVED } from '../src/approved.mjs';
+import { safeEvent } from '../ops/safe-metrics.mjs';
 assert.equal(process.env.GITHUB_ACTIONS,'true','driver fault is CI-only');
 assert.equal(process.env.NAKAMA_FILTER_TARGET,'nakama-filter-fixture','requires test-only image target');
 const vars=Object.fromEntries(readFileSync('server/.env','utf8').trim().split('\n').map(line=>{const at=line.indexOf('=');return[line.slice(0,at),line.slice(at+1)];}));
 const compose=['compose','--env-file','server/.env','-f','services/shooter-verifier/ops/nakama-filter.compose.yml'];
 const docker=args=>execFileSync('docker',[...compose,...args],{encoding:'utf8',timeout:15000,maxBuffer:8*1024*1024}).trim();
-if(process.argv[2]==='config'){
+if(process.argv[2]==='diagnose'){
+  // Independently revalidate diagnostic output even if the wrapper itself
+  // failed before it could filter. Never print arbitrary captured log bytes.
+  const id=docker(['ps','-aq','nakama']);
+  if(id){const logs=spawnSync('docker',['logs',id],{encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024});
+    for(const line of (String(logs.stdout||'')+String(logs.stderr||'')).split('\n').slice(0,1000)){
+      let event;try{event=JSON.parse(line);}catch{event={event:'runtime_log_dropped',reason:'unstructured_line'};}
+      process.stdout.write(safeEvent(event?.event,{reason:event?.reason,count:event?.count}));
+    }
+  }else process.stdout.write(safeEvent('runtime_failed',{reason:'startup'}));
+}else if(process.argv[2]==='config'){
   assert.equal(process.argv.length,3);
   const serverArgs=['--name','filtered-ci','--database.address',`postgres:${vars.POSTGRES_PASSWORD}@postgres:5432/nakama`,
     '--logger.level','INFO','--socket.server_key',vars.NAKAMA_SERVER_KEY,'--runtime.http_key',vars.NAKAMA_HTTP_KEY,

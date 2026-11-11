@@ -36,6 +36,9 @@ jobs:
         run: docker compose --env-file server/.env -f services/shooter-verifier/ops/nakama-filter.compose.yml up -d --build --wait --wait-timeout 240
       - name: Actual private-argument driver termination and Docker sink assertion
         run: node services/shooter-verifier/test/nakama-filter-driver.mjs
+      - name: Fixed-event startup diagnostics without raw log fields
+        if: failure()
+        run: node services/shooter-verifier/test/nakama-filter-driver.mjs diagnose
       - name: Remove private launch file and disposable services
         if: always()
         run: |

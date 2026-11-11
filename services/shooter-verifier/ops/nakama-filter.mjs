@@ -36,7 +36,7 @@ export async function runFilteredNakama({configFile='/run/nakama-launch.json',he
   // One bounded fixed-origin probe. Readiness expires if the loop stalls.
   const check=()=>{
     if(probing||!alive||stopping)return;probing=true;
-    const request=http.get({hostname:'127.0.0.1',port:7350,path:'/healthcheck',timeout:750,maxHeaderSize:4096},res=>{
+    const request=http.get({hostname:'127.0.0.1',port:7350,path:'/',timeout:750,maxHeaderSize:4096},res=>{
       let size=0;res.on('data',c=>{size+=c.length;if(size>1024)res.destroy();});
       res.once('end',()=>{if(res.statusCode===200&&size<=1024&&alive&&!stopping)lastHealthyAt=Date.now();else lastHealthyAt=0;});
       res.once('error',()=>{lastHealthyAt=0;});
@@ -52,7 +52,7 @@ export async function runFilteredNakama({configFile='/run/nakama-launch.json',he
       const filter=new LogFilter(text=>{if(!process.stdout.write(text)&&!waiting){waiting=true;stream.pause();process.stdout.once('drain',()=>{waiting=false;stream.resume();});}});filters.push(filter);
       stream.on('data',c=>filter.push(c));stream.on('end',()=>filter.end());}
     child.once('spawn',()=>{if(stopping)child.kill('SIGTERM');});
-    child.once('error',()=>{alive=false;lastHealthyAt=0;});
+    child.once('error',()=>{alive=false;lastHealthyAt=0;emit('runtime_failed',{reason:'startup'});});
     child.once('exit',()=>{alive=false;lastHealthyAt=0;});
     // close waits for both filtered pipes, including final partial lines.
     child.once('close',code=>resolve(code===0?0:1));
