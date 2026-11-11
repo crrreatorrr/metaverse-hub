@@ -104,7 +104,7 @@ The coordinator `GatewayClient` has a server-configured default literal loopback
 URL. Plain HTTP is allowed only for literal127.0.0.1 or::1; cross-host transport
 requires HTTPS with standard certificate/hostname validation. Embedded URL
 credentials/query/fragments, redirects, unbounded bodies and missing deadlines
-are refused. No insecure TLS option exists. No production URL/configuration is
+are refused. Responses permit at most4096 stream fragments, including zero-byte fragments; the reader is canceled on either fragment or byte overflow, bounding coordinator metadata independently of byte count. No insecure TLS option exists. No production URL/configuration is
 installed. Private routing/TLS configuration remains separately approved.
 Replay processes retain PR09 network-none, read-only and resource-limit contract;
 networked coordination is a distinct component, never a reason to give simulator

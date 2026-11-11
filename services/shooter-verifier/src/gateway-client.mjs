@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { operational } from './replay.mjs';
 const LIMIT = 20 * 1024 * 1024;
+const MAX_RESPONSE_CHUNKS = 4096;
 const ID = /^[A-Za-z0-9_.:@|-]{1,80}$/;
 const validID = (value) => typeof value === 'string' && ID.test(value);
 export function gatewayURL(value) {
@@ -34,9 +35,11 @@ export class GatewayClient {
         headers: { Authorization: `Bearer ${this.#accountToken}`, 'Content-Type': 'application/json' }, body: text });
       if (!response.ok || !response.body) return operational('gateway_unavailable');
       if (Number(response.headers.get('content-length') || 0) > LIMIT) { await response.body.cancel(); return operational('response_oversized'); }
-      const reader = response.body.getReader(), chunks = []; let bytes = 0;
+      const reader = response.body.getReader(), chunks = []; let bytes = 0, reads = 0;
       while (true) {
         const { value, done } = await reader.read(); if (done) break;
+        // Bound metadata/CPU even for tiny or zero-byte stream fragments.
+        if (++reads > MAX_RESPONSE_CHUNKS) { await reader.cancel(); return operational('response_stream_limit'); }
         bytes += value.byteLength;
         if (bytes > LIMIT) { await reader.cancel(); return operational('response_oversized'); }
         chunks.push(Buffer.from(value));

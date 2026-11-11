@@ -41,3 +41,21 @@ test('historical claim must renew exact live fence before replay; no implicit re
   c.renew=async()=>({state:'stale'});
   assert.equal((await c.replayClaim({state:'leased',leaseUntil:new Date(Date.now()+1000).toISOString(),claim:{},work:{}},pool)).reason,'stale_claim');assert.equal(executes,0);
 });
+
+test('tiny and zero-byte fragments cannot create unbounded coordinator chunk metadata',async()=>{
+  const original=globalThis.fetch;
+  try{
+    for(const size of [0,1]){
+      let reads=0,cancelled=false;
+      const tiny=new Uint8Array(size).fill(32);
+      globalThis.fetch=async()=>({ok:true,headers:new Headers(),body:{getReader:()=>({
+        read:async()=>{reads++;return reads<=5000?{done:false,value:tiny}:reads===5001?{done:false,value:new TextEncoder().encode('{}')}:{done:true};},
+        cancel:async()=>{cancelled=true;},
+      })}});
+      const c=new GatewayClient({url:'http://127.0.0.1:7350',...auth});
+      const result=await c.claim('bounded-fragment-fixture');
+      assert.equal(result.reason,'response_stream_limit');assert.equal(cancelled,true);
+      assert.ok(reads<=4097,'finitefragmentreadsdespitesmallbytecount');
+    }
+  }finally{globalThis.fetch=original;}
+});
