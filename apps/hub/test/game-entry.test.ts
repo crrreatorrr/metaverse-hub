@@ -18,6 +18,7 @@ import { ARCADE_PROMPT, ARCADE_RETURN, ARCADE_WALKUP } from '../src/realms/plaza
 import { gameUrl } from '../src/games';
 import { spawnFor, spawnForArrival } from '../src/realms/plaza/layout';
 import { parseReturnGame, portalContaining } from '../src/travel';
+import { GATE_LOCKED_TEXT, LAUNCH_TIMEOUT_MS, LaunchTimeoutError, SERVER_SILENT_TEXT, launchErrorText, serverSilent, withTimeout } from '../src/core/launch-errors';
 
 const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
 
@@ -121,6 +122,39 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(relics['sproto-arcade'], 'breakwater_coin');
   assert.equal(JSON.stringify(PORTALS).includes('vcoin'), false);
   assert.equal(JSON.stringify(ARCADE_GAMES).includes('vcoin'), false);
+}
+
+// A2: a failed launch reads as a sentence, never a raw status code, and never hangs.
+{
+  const sdkError = (code: string, message: string, status?: number) => Object.assign(new Error(message), { code, status });
+  assert.equal(launchErrorText(sdkError('http', 'HTTP 502', 502), 'NOBU'), SERVER_SILENT_TEXT);
+  assert.equal(launchErrorText(sdkError('http', 'HTTP 503'), 'NOBU'), SERVER_SILENT_TEXT);
+  assert.equal(launchErrorText(new TypeError('Failed to fetch'), 'NOBU'), SERVER_SILENT_TEXT);
+  assert.equal(launchErrorText(new SyntaxError('Unexpected token <'), 'NOBU'), SERVER_SILENT_TEXT);
+  assert.equal(launchErrorText(new LaunchTimeoutError(), 'NOBU'), SERVER_SILENT_TEXT);
+  assert.equal(
+    launchErrorText(sdkError('rate_limited', 'Too many portal entries. Try again in a minute.', 400), 'NOBU'),
+    'Too many portal entries. Try again in a minute.',
+  );
+  assert.equal(launchErrorText(sdkError('GATE_LOCKED', 'GATE_LOCKED', 400), 'NOBU'), GATE_LOCKED_TEXT);
+  assert.equal(launchErrorText(sdkError('bad_game', 'unknown game', 400), 'Sproto Duel'), 'Could not open Sproto Duel.');
+  assert.equal(launchErrorText('boom', 'Sproto Duel'), 'Could not open Sproto Duel.');
+  assert.equal(serverSilent(sdkError('bad_game', 'unknown game', 400)), false);
+  for (const text of [SERVER_SILENT_TEXT, GATE_LOCKED_TEXT, launchErrorText(sdkError('x', 'HTTP 404', 404), 'NOBU')]) {
+    assert.equal(/HTTP|\b[45]\d\d\b|Nakama/.test(text), false, text);
+  }
+  assert.equal(LAUNCH_TIMEOUT_MS, 10_000);
+
+  // Timeout: a request that never settles fails when the timer fires; a settled one clears it.
+  let fire: (() => void) | null = null;
+  let cleared = 0;
+  const timers = { set: (fn: () => void) => { fire = fn; return 1; }, clear: () => { cleared += 1; } };
+  const hung = withTimeout(new Promise<never>(() => undefined), 10, timers);
+  (fire as (() => void) | null)?.();
+  await assert.rejects(hung, LaunchTimeoutError);
+  assert.equal(await withTimeout(Promise.resolve(7), 10, timers), 7);
+  await assert.rejects(withTimeout(Promise.reject(new Error('no')), 10, timers), /no/);
+  assert.equal(cleared, 2);
 }
 
 console.log('game entry ok');

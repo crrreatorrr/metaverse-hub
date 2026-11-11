@@ -43,6 +43,7 @@ import { createCameraFollow } from './camera-follow';
 import { createCameraArm, createCameraPitch, createCameraPreview, createCameraTarget } from './camera-motion';
 import { PAD, PAD_TUNING, createPadReader, loadMoveStick, padPrompt, rumble, saveMoveStick, stickClicks, type MoveStick, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
+import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, withTimeout } from './launch-errors';
 import type { RealmDefinition, RealmContent } from './realm';
 
 /** loadout.set_hub reply (server/modules/src/pets.ts `ack`). */
@@ -879,12 +880,17 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     wipe.classList.add('on');
     const shownAt = performance.now();
     try {
-      const session = await boot();
-      const entered = await session.client.rpc<PortalEnterResult>(
-        'portal.enter',
-        { game: portal.id, ranked: false },
-        { token: session.token },
-      );
+      // One timer covers the session and the ticket, so a hung request cannot leave the wipe up.
+      const entered = await withTimeout((async () => {
+        const session = await boot();
+        return session.client.rpc<PortalEnterResult>(
+          'portal.enter',
+          { game: portal.id, ranked: false },
+          { token: session.token },
+        );
+      })(), LAUNCH_TIMEOUT_MS);
+      // The timer may have fired and cleared the wipe while this was still resolving.
+      if (!traveling) return;
       plaza?.travel(portal.id);
       const remain = ENTER_FADE_MS - (performance.now() - shownAt);
       if (remain > 0) {
@@ -896,7 +902,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     } catch (error) {
       traveling = false;
       wipe.classList.remove('on');
-      portalError = error instanceof Error ? error.message : 'Could not open that portal';
+      portalError = launchErrorText(error, portal.label);
       portalErrorAt = performance.now();
       hint.textContent = portalError;
       console.error(error);
@@ -1016,7 +1022,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     } catch (error) {
       sessionPromise = null;
       if (status) {
-        status.textContent = 'Nakama offline';
+        status.textContent = OFFLINE_STATUS_TEXT;
         status.dataset.state = 'offline';
       }
       throw error;
@@ -1225,14 +1231,55 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     startBots(remoteWorld, botCount, undefined, new URLSearchParams(location.search).has('botPets'));
   }
 
-  void boot()
-    .then((session) => {
-      sessionLabel = session.username ? `Signed in as ${session.username}` : 'Guest linked';
-      if (!botCount) void startPlaza(session);
-    })
-    .catch((error: unknown) => {
-      hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
-    });
+  /** True once a session has started the plaza socket; a retry must not start a second one. */
+  let plazaStarted = false;
+  let sessionRetry: number | null = null;
+  let toldOffline = false;
+
+  function firstSession(): void {
+    void boot()
+      .then((session) => {
+        sessionLabel = session.username ? `Signed in as ${session.username}` : 'Guest linked';
+        if (!botCount && !plazaStarted) {
+          plazaStarted = true;
+          void startPlaza(session);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('[hub] no session yet', error);
+        // Say it once; the status line keeps "Offline: playing solo" while the retries run.
+        if (!toldOffline && !portalError) {
+          toldOffline = true;
+          portalError = SERVER_SILENT_TEXT;
+          portalErrorAt = performance.now();
+        }
+        scheduleSessionRetry();
+      });
+  }
+
+  /** After a failed first session, try again every 15 s while the tab is visible. */
+  function scheduleSessionRetry(): void {
+    if (sessionRetry !== null) return;
+    sessionRetry = window.setTimeout(() => {
+      sessionRetry = null;
+      if (document.visibilityState === 'hidden') {
+        document.addEventListener('visibilitychange', scheduleSessionRetry, { once: true });
+        return;
+      }
+      firstSession();
+    }, SESSION_RETRY_MS);
+  }
+
+  // Back from a game through the browser's page cache: the page resumes mid-trip, with the
+  // wipe still up and `traveling` set. Clear both so the plaza is usable again.
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    traveling = false;
+    dwell = initialDwell();
+    wipe.classList.remove('on');
+  });
+
+  firstSession();
 
   function createDebug(): HubDebugState & { element: HTMLElement } {
     const element = document.querySelector('#debug');
