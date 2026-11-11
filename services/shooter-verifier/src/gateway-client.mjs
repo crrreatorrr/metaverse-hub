@@ -52,7 +52,7 @@ export class GatewayClient {
   retry(claim, reason, requestId) { return this.request('retry', { jobId: claim.jobId, fence: claim.fence, expectedRevision: claim.expectedRevision, reason }, requestId); }
   result(manifest, result, requestId) { return this.request('result', { manifest, result }, requestId); }
   async replayClaim(ack, pool) {
-    if (ack?.state !== 'leased' || !ack.work || !ack.claim || (!Number.isFinite(Date.parse(ack.leaseUntil)) || Date.parse(ack.leaseUntil) <= Date.now())) return operational('stale_claim');
+    if (ack?.state !== 'leased' || ack.workState !== 'ready' || !ack.work || !ack.claim) return operational('stale_claim');
     // A stored claim acknowledgment is historical. Recheck its exact live fence
     // before executing; never silently substitute another job/current checkpoint.
     const live = await this.renew(ack.claim);

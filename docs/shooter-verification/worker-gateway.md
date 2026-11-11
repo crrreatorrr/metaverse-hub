@@ -62,33 +62,57 @@ must validate complete critical state, hashes, versions and monotonic counters.
 The Node claim helper requires a caller-supplied request ID; it refuses a missing ID before any HTTP request. The coordinator must durably save that ID before sending and reuse it after timeouts/lost responses, including credential rotation. Never generate a replacement claim ID merely because a response was lost. Explicitly retained IDs are also recommended for renew/retry/result retries.
 
 Request digest is SHA256(operation + newline + stable sorted-key JSON body),
-excluding credential/request ID. Request IDs are namespaced by logical worker ID, independently of rotating key IDs within its fixed owning account; the original issuing account/key remain immutable audit fields. A currently authorized replacement key for that same worker can recover the original receipt after old-key revocation. Identical authorized request IDs return the
-original immutable receipt; conflicting operation/body rejects. Claim and its
-full server-owned private work acknowledgment are stored **in the same SQL
-transaction**, so a lost response cannot claim another job. The projection uses
-legacy canonical issuance, immutable accepted full public batch/digest, exact
-retained manifest and authoritative checkpoint. It never reads a client snapshot.
-A missing original issuance/manifest/predecessor or mismatched stored checkpoint SHA yields operational pending. Stored checkpoint integrity uses SHA256 of the exact PostgreSQL JSONB text representation, matching the PR11 writer. Projection failure retains its claimed attempt/fairness turn and releases the exact live fence through durable PR08 database_issue backoff; finite exhaustion quarantines evidence. It never forwards corrupt state or rolls back scheduling forever to starve another account. Credential expiry still rolls back the entire unauthorized mutation.
+excluding credential/request ID. Request IDs are namespaced by logical worker ID,
+independently of rotating keys within its fixed owning account. Original issuing
+account/key remain immutable audit fields. A currently authorized replacement key
+can recover the same receipt after old-key revocation. Identical authorized
+request IDs return the original immutable acknowledgment; conflicting bodies or
+operations reject. Claim and its **small acknowledgment** (state, exact claim and
+initial lease metadata) commit together, so a lost response cannot lease another
+job. No private checkpoint, batch or frames are stored in gateway receipts.
 
-Stored full acknowledgments may retain a16MiB checkpoint and batch. Each receipt
-reserves a conservative **20MiB** globally and per principal before mutation,
-regardless of actual acknowledgment size; SQL checks its actual JSONB UTF8 text
-size before commit. Explicit finite attempt-rate, retained-count **and byte** limits must all exist to
+After that commit the claim RPC makes a separate authenticated SQL work read,
+passing only service identity, credential fingerprint and immutable request
+reference/digest. It locks principal/config/scheduler/account/run/job, checks
+current scope/revocation/expiry, and projects private work **only** for the same
+currently live fence, predecessor revision and continuation cursor. It rechecks
+authorization and lease time after downstream waits. A key revoked between the
+acknowledgment and work read cannot receive a checkpoint. The projection uses
+server-owned canonical issuance, immutable accepted batch/digest, retained exact
+manifest and authoritative predecessor checkpoint. The wire response adds
+transient `work`, `workState`, `workReason`; those fields are not part of the stored
+immutable acknowledgment. After progress, lease expiry or reassignment it returns
+`work:null` and explicit stale status, without substituting another checkpoint or
+claiming new work. Repeating a lost claim cannot silently follow a newer revision.
+
+All durable gateway acknowledgments are at most **64KiB**. The immutable SQL
+helper `game.shooter_verification_gateway_receipt_budget()` returns65536; quota
+reservation and readiness checks use that value. Each new receipt reserves64KiB
+globally and against its original principal; recovering an existing receipt under
+a rotated key adds no reservation. Network request/private-work response limits
+remain20MiB. This separates bounded metadata history from the one authoritative
+checkpoint slot. It avoids copying a large checkpoint into every claim receipt.
+Explicit finite attempt rates, retained counts and byte budgets are required to
 enable the gateway. Reservations are not measured physical database/RAM usage or
-hosting capacity. Even renewals and pending responses consume a receipt slot;
-new issuance/benchmarks must account for this deliberately conservative tradeoff.
-At capacity new operations return pending without deleting evidence. No receipt,
-input, checkpoint or ledger garbage collection is introduced here.
+hosting capacity. At capacity new operations return pending without deleting
+evidence; no garbage collection is introduced here.
 
-The saved claim, fence and checkpoint are historical and can become stale.
-The Node client renews the **same exact fence** before executing a saved claim;
-it never substitutes a newer checkpoint or silently claims a different job.
-PR11 must recheck current fence/revision again at result commit. Workers receive
-one immutable planned range, initial revision, mutable predecessor revision and
-continuation, plus the original full-batch digest. Partial work does not invent
-new public batches, acknowledgments or payout authority. Terminal-tail permission
-must use the terminal accepted high-water added by PR11; if unavailable, terminal
-work projection fails closed. Current accepted counters are not an alternative.
+Stored checkpoint integrity uses SHA256 of PostgreSQL JSONB text, matching PR11.
+Corrupt or unavailable projection retains the already-committed claim reference,
+then releases its exact failed fence through bounded PR08 database_issue backoff;
+finite exhaustion quarantines evidence. It neither forwards corrupt state nor
+rolls back the scheduler's fairness turn forever. Credential expiry during that
+read rolls back the read transaction's mutation, while the earlier legitimately
+committed small claim acknowledgment remains historical.
+
+The client must renew the exact claim before executing transient work. It does
+not reject solely because the **initial** lease timestamp in an old acknowledgment
+has passed: the same live fence may have been renewed. A missing/stale private
+work projection is refused. PR11 still rechecks the current fence and revision at
+result commit. Workers receive one immutable planned range, initial revision and
+continuation plus the original full-batch digest; partial slices create no new
+public batches or payout authority. Terminal-tail permission uses PR11's terminal
+accepted high-water; if absent, terminal work projection fails closed.
 
 ## Result dependency and network boundary
 
