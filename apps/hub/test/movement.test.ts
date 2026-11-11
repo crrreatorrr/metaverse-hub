@@ -25,7 +25,8 @@ assert.equal(CAPSULE_LENGTH, MOVEMENT.capsuleLength * MOVEMENT.bodyScale);
 assert.equal(STAND_Y, MOVEMENT.standHeight);
 assert.ok(Math.abs(STAND_Y - 1.775) < 1e-12);
 assert.deepEqual([WALK_SPEED, SPRINT_SPEED, CAMERA_ARM, CAMERA_FOV, AVATAR_SCALE], [7.8, 16, 7.6, 78, 1.25]);
-const collider = buildPlazaCollider();
+// Preserve the authored-size contact regressions; club-interior.test.ts checks the resized live room.
+const collider = buildPlazaCollider(1);
 const player = createPlayerController(collider.bvh);
 const speeds = { walk: MOVEMENT.walk, sprint: MOVEMENT.sprint };
 const idle = { forward: 0, strafe: 0, sprint: false, jump: false, yaw: 0 };
