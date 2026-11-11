@@ -110,7 +110,15 @@ try {
       || (row.name === 'checkpoint_snapshot' && expectedHash !== cp.snapshot.privateHash)) refuse();
     const expectedCanonicalSHA = row.kind === 'canonical' ? sha(canonical) : null;
     expectations.push({ kind: row.kind, codeUnits: canonical.length, expectedHash, expectedCanonicalSHA });
-    return { ...row, expectedHash, expectedCanonicalSHA };
+    let transportedValue = row.value;
+    if (row.kind === 'text') {
+      if (row.value.length > 262144) refuse();
+      transportedValue = [];
+      // Index UTF16 units, never code points: Array.from(string) would merge
+      // valid surrogate pairs and silently change the intended FNV input.
+      for (let index = 0; index < row.value.length; index++) transportedValue.push(row.value.charCodeAt(index));
+    } else if (row.name === 'canonical_edges') transportedValue = null;
+    return { ...row, value: transportedValue, expectedHash, expectedCanonicalSHA };
   });
   const input = JSON.stringify({ version: 1, cases });
   if (Buffer.byteLength(input) > 16 * 1024 * 1024) refuse();
@@ -124,7 +132,8 @@ try {
     provenance: { nakamaVersion: '3.41.0', gojaModule: revision, productionSourceSHA256: sha(production), extractedFunctionsSHA256: sha(originalJS), fixtureSourceSHA256: sha(source),
       approvedArtifactSHA256: '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9', fullFrozenFrames: 24000, predecessorFrames: 22000 },
     methodology: { canonical: 'exact_production_stable; object_sorted_UTF16_keys_and_JSON_stringify; root_privateHash_omitted_only', fnv: 'UTF16_code_units; fixed_original_then_cached_then_shift_order; cold1_warm2_each',
-      exclusions: 'input_generation_parse_compile_SHA_and_JSON_output_outside_timed_functions; source_build_and_process_cold_not_measured; actual_Nakama_integration_still_required' } };
+      fixtureTransport: 'synthetic_text_validated_bounded_UTF16_unit_arrays_and_fixed_canonical_edges_reconstructed_before_timing; approved_CP_native_Goja_JSON_parse_unchanged; no_production_parser_change',
+      exclusions: 'input_generation_UTF16_reconstruction_parse_compile_SHA_and_JSON_output_outside_timed_functions; source_build_and_process_cold_not_measured; actual_Nakama_integration_still_required' } };
   const text = JSON.stringify(report);
   if (Buffer.byteLength(text) > 262144) refuse();
   phase = 'write_report';
