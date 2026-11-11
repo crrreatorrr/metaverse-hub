@@ -93,6 +93,7 @@ jobs:
         timeout-minutes: 120
         env:
           HUB_RECOVERY_FIXTURE: retention-restore
+          HUB_OBSERVATIONS_FIXTURE: pending-backfill
       - run: npm run test:rt
         timeout-minutes: 10
       - name: Coop authoritative match
