@@ -216,6 +216,11 @@ export async function runShooterVerificationSettlement(test: TestFn): Promise<vo
     f.worker.keyId = 'two'; f.worker.token = randomBytes(32).toString('base64url'); f.worker.hash = createHash('sha256').update(`shooter-worker-token-v1\n${f.worker.token}`).digest('hex');
     psql(`INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
       VALUES('${f.worker.login.userId}','${f.worker.workerId}','two','${f.worker.hash}',ARRAY['result'],clock_timestamp()-interval '1 second',clock_timestamp()+interval '10 minutes')`);
+    const redirected = structuredClone(f.last.body);
+    obj(obj(redirected.result).binding).runId = randomUUID();
+    const conflict = await rpc(f.worker, 'result', redirected, f.last.requestId);
+    assert.equal(conflict.reason, 'request_conflict', 'rotation does not let the same logical request ID select another target');
+    assert.equal(financialSnapshot(f.login.hub.userId), before);
     assert.deepEqual(await retry(f), f.last.acknowledgment); assert.equal(credits(f), 1);
   });
   await test('shooter-payments', 'session close and payment serialize at the locked live predicate and a paid receipt survives later expiry and disablement', async () => {

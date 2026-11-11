@@ -8,7 +8,7 @@ const before = JSON.stringify(ack);
 const hook = m.global.ShooterVerificationSettlement as { afterResult: (...args: unknown[]) => void };
 const calls: unknown[][] = [];
 m.nk.onSql('SELECT game.settle_shooter_verified_result', (args) => {
-  calls.push(args);
+  calls.push(Array.from(args)); // Own host-realm array for the assertion boundary.
   throw new Error('private-checkpoint-or-credential-must-never-enter-logs');
 });
 hook.afterResult(m.ctx({ userId: worker }), m.logger, m.nk, 'worker', 'key', 'a'.repeat(64), 'committed-receipt-reference', ack);

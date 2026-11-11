@@ -48,6 +48,10 @@ jobs:
           SHOOTER_CORPUS: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
           TEST_TLS_KEY: /tmp/test-worker.key
           TEST_TLS_CERT: /tmp/test-worker.crt
+      - name: Show bounded SQL error context on failure
+        if: failure()
+        run: |
+          docker compose -f server/docker-compose.yml logs --no-color --tail 60 postgres | python3 -c 'import sys; [print(line[:1000].rstrip()) for line in sys.stdin if "ERROR:" in line or "CONTEXT:" in line]'
       - name: Stop test services
         if: always()
         run: docker compose -f server/docker-compose.yml down --volumes
