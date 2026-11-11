@@ -5,6 +5,7 @@ import { performance } from 'node:perf_hooks';
 import { initActualRewardPage } from '../../shooter-verification/real-browser-helper.mjs';
 import { boundOwnerStatus, browserActorCounts, recordPaymentFacts, successfulPaid, safeReason, clientStartOutcome, serviceOutcome, outcomeError } from './browser-accounting.mjs';
 import { installBrowserFrameObserver, stopBrowserFrameObserver } from './browser-observer.mjs';
+import { createDrainObservations, readDrainOwnerStatus, waitDrainPoll } from './browser-drain.mjs';
 const hash = value => createHash('sha256').update(value).digest('hex');
 const SHA = /^[a-f0-9]{64}$/;
 const MAX_FRAME_SAMPLES = 4096;
@@ -167,6 +168,7 @@ async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, dec
       recordedFrames: null, recordedInputSha256: null, recordedHashUnavailableReason: 'Game record byte observer not installed; submitted wire is separately observed',
       submittedFrames: null, submittedInputSha256: null, acceptedTick: null, verifiedTick: null, liveCursorResamples: 0,
       finalPausedProof: false, finalCoherentProof: false, finishRequested: false, finishAckObserved: false, serverClosed: false,
+      drainServiceObservations: createDrainObservations(),
       everObservedEligible: false, eligibilityState: 'unknown', eligibilityEvidence: null, paymentObservation: 'not_observed', observedPaid: false, paid: false, paymentCensored: false,
       milestones: {}, nativeControlsRecordedBaseline: null, positiveRecordingObserved: { firstMonoMs: null, lastMonoMs: null, samples: 0, sampleMonoMs: [], sampleLimit: 256, truncated: false, clockDomain: 'node_performance_monotonic', meaning: 'time of readonly post-controls positive recording snapshot, not first-frame event time' }, controlObservations: { total: 0, visible: 0, focused: 0, pointerLocked: 0, inputEnabled: 0 }, clientFrames: { value: null, sampleCount: 0, unavailableReason: 'not observed' } };
     results[i] = row;
@@ -270,7 +272,16 @@ async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, dec
       // run afterwards, so never replace this immutable count with a later0.
       for (;;) {
         operation('drain_owner_status');
-        const status = await bounded(readOwnerStatus(i, runId, scope), scope);
+        const paymentDeadlineMonoMs = row.everObservedEligible ? start + row.milestones.firstEligibleObservedMs + paymentObservationMs : null;
+        let status;
+        try {
+          status = await readDrainOwnerStatus({ read: oneSignal => readOwnerStatus(i, runId, oneSignal), runId, signal: scope, observations: row.drainServiceObservations, paymentDeadlineMonoMs });
+        } catch (error) {
+          if (!scope.aborted && row.everObservedEligible && error?.message === 'drain_payment_observation_window') {
+            row.status = 'payment_pending'; row.paymentCensored = true; row.rawReason = 'payment_observation_window'; break;
+          }
+          throw error;
+        }
         recordPaymentFacts(row, status, runId, performance.now() - start);
         // Flush prior CDP request notifications before reading capture.
         operation('drain_cdp_readback');
@@ -290,7 +301,14 @@ async function runBrowserPopulation({ browser, url, actors, readOwnerStatus, dec
         if (row.everObservedEligible && performance.now() - start - row.milestones.firstEligibleObservedMs >= paymentObservationMs) {
           row.status = 'payment_pending'; row.paymentCensored = true; row.rawReason = 'payment_observation_window'; break;
         }
-        await pause(500, scope);
+        try {
+          await waitDrainPoll({ signal: scope, paymentDeadlineMonoMs: row.everObservedEligible ? start + row.milestones.firstEligibleObservedMs + paymentObservationMs : null });
+        } catch (error) {
+          if (!scope.aborted && row.everObservedEligible && error?.message === 'drain_payment_observation_window') {
+            row.status = 'payment_pending'; row.paymentCensored = true; row.rawReason = 'payment_observation_window'; break;
+          }
+          throw error;
+        }
       }
     } catch (error) {
       row.failedOperation = row.operation ? { ...row.operation } : { name: row.stage, startedMonoMs: null };

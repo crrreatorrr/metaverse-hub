@@ -261,6 +261,12 @@ function InitModule(
   });
   initializer.registerRpc("hub.join", rpcHubJoin);
   initializer.registerRpc("chat.report", rpcChatReport);
+  initializer.registerRpc("feedback.can", rpcFeedbackCan);
+  initializer.registerRpc("feedback.submit", rpcFeedbackSubmit);
+  initializer.registerRpc("feedback.admin.login", rpcFeedbackAdminLogin);
+  initializer.registerRpc("feedback.admin.list", rpcFeedbackAdminList);
+  initializer.registerRpc("feedback.admin.get", rpcFeedbackAdminGet);
+  initializer.registerRpc("feedback.admin.update", rpcFeedbackAdminUpdate);
   initializer.registerMatch("hub", {
     matchInit: hubInit,
     matchJoinAttempt: hubJoinAttempt,

@@ -214,6 +214,35 @@ export function migrationIds(): string[] {
     .map((row) => row.id);
 }
 
+/**
+ * Historical fixtures rebuild a database from before some migration by deleting ledger rows and
+ * rebooting. The runner refuses to apply a migration below a recorded newer one, and a database
+ * from before `id` has no later migrations either. So later rows outside the Shooter verification
+ * family (independent of it: 0059_feedback and after) are removed for the replay; the boot applies
+ * them again in order, and `restore` checks they came back unchanged and puts back applied_at.
+ * A later migration inside the family is never removed here: that still fails the caller's guard.
+ */
+export function parkLaterMigrations(id: string): { ids: string[]; remove(): void; restore(): void } {
+  const floor = Number(id.split('_')[0]);
+  const ids = migrationIds().filter((other) => Number(other.split('_')[0]) > floor && !VERIFICATION_ID.test(other));
+  const rows = ids.map((other) => ({ id: other, row: psql(`SELECT checksum||'|'||applied_at::text FROM game.schema_migrations WHERE id='${other}'`) }));
+  for (const { id: other, row } of rows) assert.match(row, /^[0-9a-f]{64}\|\d{4}-\d{2}-\d{2} [0-9:.+-]+$/, `${other} is recorded before the replay`);
+  return {
+    ids,
+    remove(): void {
+      for (const other of ids) deleteLedgerRow(other);
+    },
+    restore(): void {
+      for (const { id: other, row } of rows) {
+        const [checksum, appliedAt] = row.split('|') as [string, string];
+        assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${other}'`), checksum, `${other} replays with the same checksum`);
+        assert.equal(checksum, fileChecksum(other), `${other} replay uses unchanged code`);
+        psql(`UPDATE game.schema_migrations SET applied_at=timestamptz '${appliedAt}' WHERE id='${other}' AND checksum='${checksum}'`);
+      }
+    },
+  };
+}
+
 function latestMigration(): string {
   const ids = migrationIds();
   return ids[ids.length - 1] as string;
