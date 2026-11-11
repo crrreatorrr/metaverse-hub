@@ -358,6 +358,8 @@ export async function runShooterVerificationSettlement(test: TestFn): Promise<vo
         INSERT INTO game.tickets_balance(user_id,game_id,balance) VALUES('${user}','sproto-shooter',1000) ON CONFLICT(user_id,game_id) DO UPDATE SET balance=1000;
         INSERT INTO game.tickets_ledger(event_id,user_id,game_id,delta,balance_after,reason,ref_id,kind,created_at)
           VALUES(gen_random_uuid(),'${user}','sproto-shooter',1000,1000,'seed_utc','${randomUUID()}','earn','${a}'::timestamptz-interval '1 minute');
+        INSERT INTO game.idempotency(user_id,key,rpc,req_hash,response,created_at)
+          VALUES('${user}','seed-utc','tickets.earn',decode(repeat('b',64),'hex'),'{"balance":1000}','${a}'::timestamptz-interval '1 minute');
         INSERT INTO game.earn_window(user_id,bucket,day,amount) VALUES('${user}','tickets:sproto-shooter','${dayA}',1000),('${user}','tickets:sproto-shooter','${dayB}',0)`);
       fixtureCreated = true;
       holders.push(holder('pay-utc-A', dayA), holder('pay-utc-B', dayB));

@@ -6,6 +6,7 @@ on:
       - server/test/dup/shooter_verification_*.ts
       - server/test/dup/suite.ts
       - server/test/games/shooter_verification_settlement.test.ts
+      - server/test/unit/dup-reporter.test.ts
       - .github/workflows/shooter-verification-settlement.yml
 permissions:
   contents: read
@@ -28,6 +29,10 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Financial boundary and actual reporter process canaries
+        run: |
+          npx tsx server/test/games/shooter_verification_settlement.test.ts
+          npx tsx server/test/unit/dup-reporter.test.ts
       - name: Throwaway TLS certificate for gateway refusal cases
         run: openssl req -x509 -newkey rsa:2048 -nodes -keyout /tmp/test-worker.key -out /tmp/test-worker.crt -days 1 -subj /CN=localhost
       - name: Generate throwaway test-stack credentials
