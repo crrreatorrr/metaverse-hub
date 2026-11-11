@@ -654,8 +654,8 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
   const session = await login('sproto-fighter');
   const user = session.hub.userId;
   seedTickets(session, 40, 40);
-  const liveCount = owned ? 1 : 0;
-  const pendingCount = owned ? 0 : 1;
+  const liveCount = 1;
+  const pendingCount = 0;
   if (owned) plantRelic(user, session.sessionId, 'tidebreaker_belt', 'sproto-fighter');
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40);
   const granted = await call('session.event', {
@@ -664,8 +664,8 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
     key: 'belt-once',
   }, session.gameToken);
   assert.equal(body(granted).error, undefined, JSON.stringify(granted.body));
-  assert.equal(body(granted).granted, undefined, JSON.stringify(granted.body));
-  assert.equal(pendingRelics(user, 'tidebreaker_belt'), pendingCount, 'held stays pending; a live Belt has no pending shadow');
+  assert.equal(body(granted).granted, owned ? undefined : 'tidebreaker_belt', JSON.stringify(granted.body));
+  assert.equal(pendingRelics(user, 'tidebreaker_belt'), pendingCount, 'a live Belt has no pending shadow');
   assert.equal(body(granted).tickets, undefined, JSON.stringify(granted.body));
   assert.equal(ticketBalance(user, 'sproto-fighter'), 40, 'NULL Belt tickets changed the balance');
   assert.equal(creditCount(user, 'sproto-fighter'), 1, 'NULL Belt tickets wrote a ledger row');
@@ -690,11 +690,11 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
   assert.equal(relicClaims(user, 'tinubu_crown'), 1);
   const spec = BOSSES[0]!;
   const before = purse(user, 'sproto');
-  const silent = await defeat(sproto.gameToken, spec, 'not_a_boss', 'belt-still-held');
+  const silent = await defeat(sproto.gameToken, spec, 'not_a_boss', 'belt-still-live');
   assert.equal(body(silent).error, undefined, JSON.stringify(silent.body));
   assert.equal(body(silent).tickets, undefined, JSON.stringify(silent.body));
   assert.equal(body(silent).granted, undefined, JSON.stringify(silent.body));
-  assertPurse(user, 'sproto', before, 'silent boss after a held or live Belt and live Crown');
+  assertPurse(user, 'sproto', before, 'silent boss after a live Belt and live Crown');
   assert.equal(relicClaims(user, 'tidebreaker_belt'), liveCount, 'a silent boss event changed Belt ownership');
   assert.equal(mints(user, 'tidebreaker_belt'), liveCount);
   assert.equal(pendingRelics(user, 'tidebreaker_belt'), pendingCount);
@@ -716,7 +716,7 @@ export async function runStoryBoss(test: TestFn): Promise<void> {
     await test('story-boss', `${spec.game} unknown boss is a silent 0 and a client amount or item writes nothing`, () => unknownBoss(spec));
   }
   await test('story-boss', 'another user token or session writes nothing', otherUser);
-  await test('story-boss', 'NULL Belt tickets add 0 and a held Belt or live Crown stays owned', () => nullBeltTickets(false));
+  await test('story-boss', 'NULL Belt tickets add 0 and a live Belt or Crown stays owned', () => nullBeltTickets(false));
   await test('story-boss', 'NULL Belt tickets add 0 and a live Belt or Crown stays owned', () => nullBeltTickets(true));
   await test('story-boss', 'tinubu_crown still grants on session_ticket_cap exactly once', () => capPath('session_ticket_cap'));
   await test('story-boss', 'tinubu_crown still grants on daily_ticket_cap exactly once', () => capPath('daily_ticket_cap'));

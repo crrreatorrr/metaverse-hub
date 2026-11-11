@@ -3573,6 +3573,17 @@ namespace HubSchema {
          $own$`,
       ],
     },
+    {
+      // The first Fighter story victory (Halloween 2008) grants the Belt immediately.
+      // Keep the legacy world-1 event contract and existing live ownership. Old held
+      // claims are discarded; a fresh qualifying victory grants through the live path.
+      id: "0050_fighter_belt_live",
+      statements: [
+        `UPDATE game.event_rule SET grant_hold = false
+         WHERE game_id = 'sproto-fighter' AND event_type = 'fighter.story_level_complete' AND relic_id = 'tidebreaker_belt'`,
+        "DELETE FROM game.relic_claim_pending WHERE relic_id = 'tidebreaker_belt'",
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3693,6 +3704,7 @@ namespace HubSchema {
   // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
   // 0046_shooter_wager_escrow is the hub's (MIGRATIONS above): Shooter-only 10-Ticket escrow.
   // It does not change Fighter wagers. 0036 and 0038 stay unused.
+  // 0050_fighter_belt_live releases the Belt hold for the first story rival.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

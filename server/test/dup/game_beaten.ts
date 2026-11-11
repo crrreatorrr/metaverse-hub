@@ -36,7 +36,7 @@ interface Trigger {
   relicId: string;
 }
 
-const HELD_RELICS = new Set(['genesis_shard', 'tidebreaker_belt']);
+const HELD_RELICS = new Set(['genesis_shard']);
 
 const TRIGGERS: Trigger[] = [
   {

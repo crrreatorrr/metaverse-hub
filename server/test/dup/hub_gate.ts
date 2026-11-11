@@ -958,7 +958,6 @@ export async function runHubGate(runner: Runner): Promise<void> {
 
   await runner.test('regress', 'the held pairs still land in the pending tables and pay 0', async () => {
     const pairs: { game: string; eventId: string; data: object; kind: 'relic' | 'item'; id: string }[] = [
-      { game: 'sproto-fighter', eventId: 'fighter.story_level_complete', data: { world: 1 }, kind: 'relic', id: 'tidebreaker_belt' },
       { game: 'peoples-bitcoin', eventId: 'pb.quest_complete', data: { questId: 'quest_tutorial' }, kind: 'relic', id: 'genesis_shard' },
       { game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z1_retro_rush_hills', act: 2, time: 12 }, kind: 'item', id: 'pet_honk_sproto' },
       { game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z2_wizard_academy', act: 2, time: 12 }, kind: 'item', id: 'pet_spiral_sproto' },
@@ -995,14 +994,15 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(problems.length, 0, problems.join('\n'));
   });
 
-  await runner.test('regress', 'a replayed belt and two tabs leave one pending belt', async () => {
+  await runner.test('regress', 'a replayed belt and two tabs mint one live belt', async () => {
     const session = await login('sproto-fighter');
     const key = crypto.randomUUID();
     const first = await fire(session, 'fighter.story_level_complete', { world: 1 }, key);
     const replay = await fire(session, 'fighter.story_level_complete', { world: 1 }, key);
     assert.equal(canonical(replay.body), canonical(first.body));
-    assert.equal(relicPending(session.hub.userId, 'tidebreaker_belt'), 1);
-    assert.equal(relicClaims(session.hub.userId, 'tidebreaker_belt'), 0);
+    assert.equal(first.body.granted, 'tidebreaker_belt');
+    assert.equal(relicPending(session.hub.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicClaims(session.hub.userId, 'tidebreaker_belt'), 1);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-fighter'), 0);
 
     const who = await guest();
@@ -1011,8 +1011,8 @@ export async function runHubGate(runner: Runner): Promise<void> {
       fire(tabs, 'fighter.story_level_complete', { world: 1 }),
       fire(tabs, 'fighter.story_level_complete', { world: 1 }),
     ]);
-    assert.equal(relicPending(who.userId, 'tidebreaker_belt'), 1);
-    assert.equal(relicClaims(who.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicPending(who.userId, 'tidebreaker_belt'), 0);
+    assert.equal(relicClaims(who.userId, 'tidebreaker_belt'), 1);
     assert.equal(ticketBalance(who.userId, 'sproto-fighter'), 0);
     assert.equal(verseBalance(who.userId), 0);
   });
