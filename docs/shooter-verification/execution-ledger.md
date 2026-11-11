@@ -287,15 +287,34 @@ server verification; it makes no official-client attestation claim.
 
 PR21 still requires authorized intended-host benchmark execution and hosting
 approval. Host, region and specifications, together with authorization to run
-that benchmark, remain pending. The failed primary-client result remains unchanged.
+that benchmark, remain pending. The earlier failed primary-client report remains
+recorded above.
 The [rollout preparation](rollout-preparation.md) records the existing control
-matrix, unset dashboard fields, activation gates and an unexecuted staging drill.
+matrix, unset dashboard fields, activation gates and the unexecuted full operator
+drill alongside the executed core CI subset below.
 It implements no shadow financial policy and does not complete PR21 or PR22.
 The exact-head economic proof and its three existing pending cases above remain
 scoped to that run. PR22 depends on PR21. This
 acceptance authorizes no production deployment, public activation, hosting
 purchase or production resource limits; CI timings and code merges supply no
 such authorization.
+
+The combined **core CI** rollout drill passed at exact
+`e7d4200db7ef4641e4ac5fa371fc5c4201404223`,
+[run 43068973510](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43068973510/job/130691406543).
+Three independent actors verified their full 2,959-frame Broccoli traces
+(47,344 encoded frame-text bytes per actor); baseline/live/expired credits were
+20/20/0. The single fixture
+proved stop-new with continued append/finish, lost-ACK recovery, uncertain durable
+RESULT proof recovery after real coordinator restart, payment pause/resume with
+original-session expiry denial, stable history/financial evidence after another
+restart, and clean fixture cleanup with new issuance stopped. Its bounded report is
+retained as `shooter-core-rollout-drill`; elapsed fixture time was 46.93 seconds.
+This does not execute the full eight-step operator drill or prove active renewal,
+active SIGTERM in this fixture, permanent shadow semantics, target capacity,
+alert thresholds or public activation. Earlier primary/benchmark failures and
+their exact-head limitations remain unchanged. See the linked preparation for
+the report method and remaining gates; PR21 and PR22 remain incomplete.
 
 The retained private executable remains source
 `05f7a0a245af921fc65a99588564175c19658e38`, SHA256

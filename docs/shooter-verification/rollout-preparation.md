@@ -1,8 +1,8 @@
 # Rollout preparation: controls and staging drill
 
-Status: **documentation only; drill not executed; public activation blocked.**
-This prepares PR22 without completing PR21 or PR22. It changes no runtime,
-configuration, schema, financial policy or deployment. The [original plan](implementation-plan.md)
+Status: **core CI subset executed; full operator drill unexecuted; public activation blocked.**
+This prepares PR22 without completing PR21 or PR22. It changes no production
+runtime, configuration, schema, financial policy or deployment. The [original plan](implementation-plan.md)
 requires intended-host measurements before selecting operating limits and a
 staging demonstration before rollout. Running that demonstration against an
 external host, deploying, applying production migrations, creating production
@@ -40,8 +40,9 @@ path too, they must retain evidence and report the backlog and expiry risk.
 
 ## Staging-only rollback drill specification
 
-**Unexecuted.** First implement/review an isolated Actions fixture or obtain
-explicit authorization for a staging target. Use disposable accounts and the
+**Full eight-step operator drill unexecuted.** The executed core CI subset below
+does not complete this specification. Obtain explicit authorization before
+execution against an external staging target. Use disposable accounts and the
 actual public APIs/coordinator/offline worker. Do not run these steps on
 production by copying this document. Record exact source/image/artifact hashes,
 configuration snapshots, original session bindings and bounded sanitized results.
@@ -83,8 +84,38 @@ in an operator report.
    step, including unknown/unexecuted cases. Preserve failures and operator
    interventions; do not call the rollout drill passed from unit tests alone.
 
-Existing issuance, retention, financial and compatibility tests cover individual
-invariants. They are not a claim that this combined operator drill ran. See
+## Executed core CI subset
+
+At exact head `e7d4200db7ef4641e4ac5fa371fc5c4201404223`, the
+[combined core drill](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43068973510/job/130691406543)
+passed in one isolated Actions fixture, using
+[`shooter-rollout-drill.test.ts`](../../server/test/shooter-rollout-drill.test.ts).
+Three independent actors each verified the full frozen Broccoli trace of 2,959
+frames / 47,344 encoded frame-text bytes through the actual coordinator/offline
+worker and retained05f oracle. The fixture took 46.93 seconds; this is not a
+capacity or target-host timing result.
+
+The sequence proved an already-paid baseline, stop-new with retained v2 issue-key
+recovery and continued public append/finish, exact lost-append acknowledgment
+recovery, and a real uncertain committed RESULT followed by coordinator kill and
+restart. Its original request digest/immutable acknowledgment survived, with one
+observed journal recovery. Payment pause preserved financial state; resuming
+paid the original live-session actor 20 once and denied the expired-session actor
+with zero. The baseline remained paid 20. A second restart preserved accepted
+history, verification/terminal/artifact and financial digests; cleanup passed
+with new issuance stopped.
+
+The run retains `shooter-core-rollout-drill`, containing the closed report with
+phase completion, binding/proof digests and 20/20/0 credit outcomes. It contains
+no raw input, private checkpoint, journal, credential or raw error. Evidence is
+scoped to that exact head; it is not an automatic proof of later candidates.
+This fixture does not demonstrate active-lease renewal while claims are disabled,
+active SIGTERM drain, the historical legacy-key case, permanent shadow policy,
+external operator rollout, measured alert thresholds or intended-host capacity.
+The complete operator checklist remains open; PR21 and PR22 are not complete.
+
+Existing issuance, retention, financial and compatibility tests separately cover
+individual invariants. See
 [lifecycle](lifecycle.md), [settlement](deferred-settlement.md),
 [retention](recovery-retention.md) and the [worker runbook](../../services/shooter-verifier/ops/README.md).
 
@@ -104,9 +135,9 @@ each alert, its action, and an approved limit before activation.
 | Online/client health | Before/after Hub/free-PvP latency and both-seat input coverage; actual client frame quantiles with viewport/preset/DPR/hardware and sample scope. Separate client, load-generator and verifier CPU. |
 | Authorization/artifact lifetime | Scoped key expiry/rotation, original-session time remaining, supported manifest inventory and unresolved work requiring old logical-worker identities/artifacts. |
 
-Draft [PR170](https://github.com/crrreatorrr/metaverse-hub/pull/170) proposes CI-only
-result-stage diagnostic tooling; it is not a production dashboard, deployment
-instruction or measured alert threshold.
+[PR170](https://github.com/crrreatorrr/metaverse-hub/pull/170)'s CI-only result-stage
+tracing provides diagnostic evidence; it is not a production dashboard,
+deployment instruction or measured alert threshold.
 
 ## Shadow mode remains a separate contract
 
