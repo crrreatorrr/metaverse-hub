@@ -15,7 +15,8 @@
 //   vendor/sproto-sim.js  Sproto Fighter simulation for verifying online matches
 //                          (generated in the Sproto-Fighter repo by
 //                          scripts/build-sim-bundle.mjs --out <this path>)
-//   vendor/pb-sim.js      People's Bitcoin world simulation (PB repo)
+//   vendor/pb-sim.js      People's Bitcoin world simulation (PB repo). Its zod
+//                          globals are kept off globalThis (see pbZodGlobals).
 // Vendor bundles must do no heavy work at load: every match VM evaluates the whole file.
 import { appendFileSync, readFileSync, readdirSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -37,8 +38,26 @@ function lazyPvp(source) {
   return `\nlet __shooterPvpApi = null;\nfunction __loadSprotoShooterPvp() {\nif (__shooterPvpApi) return;\n${patched}\n}\nfunction __sprotoShooterPvp() {\n__loadSprotoShooterPvp();\nreturn __shooterPvpApi;\n}\n`;
 }
 
+/**
+ * pb-sim.js loads on the first world, after Nakama has frozen the global. Its bundled zod
+ * keeps __zod_globalConfig and __zod_globalRegistry on globalThis, so the first pb.worlds
+ * call threw "Cannot add property __zod_globalConfig, object is not extensible". Those
+ * accesses go to a holder made inside load() instead, which is created after the freeze
+ * and stays writable (zod's config() assigns into it).
+ */
+function pbZodGlobals(source) {
+  const load = 'function load() {';
+  const access = /globalThis(\)?\.__zod_)/g;
+  const count = source.match(access)?.length ?? 0;
+  if (source.split(load).length !== 2 || count === 0) {
+    throw new Error('pb-sim.js no longer has the lazy load() and zod globals the loader rewrites');
+  }
+  return `\n${source.replace(load, `${load}\nvar __pbZodGlobals = {};`).replace(access, '__pbZodGlobals$1')}`;
+}
+
 export function vendorChunk(name, source) {
   if (name === 'shooter-pvp-sim.js') return lazyPvp(source);
+  if (name === 'pb-sim.js') return pbZodGlobals(source);
   if (name !== 'shooter-sim.js') return `\n${source}`;
   const flag = 'globalThis.__SPROTO_VERIFY_BUNDLE = true;';
   const clone = 'globalThis.structuredClone = pureClone;';
