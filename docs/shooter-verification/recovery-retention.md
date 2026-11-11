@@ -1,0 +1,35 @@
+# PR17 recovery and retention draft (0057)
+
+## Boundary
+
+All new operational/cleanup controls default OFF with finite explicit quotas. No production cleanup, backup access, credentials or deployment occurs. Existing applied0050–0056 bodies/IDs/checksums stay unchanged. Operator actions have narrow account-bound credentials/scopes and append-only audit, not a generic SQL/pay endpoint or administrator HTTP-key authority. Initially unused SQL/module helpers are acceptable; no public operator RPC is registered by this PR.
+
+## Preserve evidence and exact identities
+
+Never delete run/batch/job/attempt/terminal/receipt/ledger rows, an unresolved artifact, current complete checkpoint, or worker request acknowledgments. Retained row/receipt/checkpoint quotas remain hard backpressure, so this PR does not promise indefinite issuance on a finite database. In particular historical full claim responses cannot be silently redacted or deleted: they participate in exact request recovery. No request-ID tombstone protocol change is inferred.
+
+Only redundant raw input payload may retire, after all of: complete committed checkpoint covers the full immutable batch, immutable verified range acknowledgment exists, stored checkpoint SHA/manifest/cursors are valid, an authenticated immutable backup/restore/replay certificate covers that checkpoint/range, and an explicitly configured minimum retention interval elapsed. Unverified payload (even an expired session/run), uncertain history, and batches only partly covered by a checkpoint never retire. Pending payment and terminal denial facts remain untouched; a retired verified prefix is not payment authority.
+
+Add nullable frames/actions plus retired_at to the batch table through0057 alterations, retaining original encoded_bytes/action_count/digest/range/received_ack. Replace its immutable trigger additively with one narrowly authorized nulling transition backed by an immutable retirement audit/certificate; every other update/delete still fails. Cleanup is idempotent and transactional; global/account retained frame/action payload counters decrement exactly once, while run accepted/verified counters and retained metadata/batch slots remain historical and unchanged. Reserved input/checkpoint/request budgets are not spuriously released while their retained objects still exist.
+
+An identical append retry against a retired batch must still recover its original received_ack after the same live original-session/run authorization checks. A new wrapper derives canonical strong digest in the existing trusted runtime and compares digest plus immutable metadata; changed bytes conflict. The original0051 migration body is not edited. Worker continuation selects only the current unverified batch, whose payload remains intact;0054's cumulative action accounting already uses the authoritative predecessor and current batch, not deleted old payloads.
+
+## Restore certificates
+
+A bounded immutable certificate binds backup identifier+SHA, restore/replay receipt SHA, run/owner/session, artifact manifest, complete checkpoint SHA/revision/verified tick and its immutable committed acknowledgment. Only a scoped trusted restore operator may certify; this is an explicit operator attestation, not cryptographic proof that a backup exists. The runbook requires actual isolated PostgreSQL restore and approved-artifact continuation before certification. Production enabling/provisioning remains separately approved. Cleanup cannot use a certificate beyond its verified range or from a different run/artifact/checkpoint branch.
+
+CI performs the actual proof: persist a real approved checkpoint and unverified suffix, dump the database to a throwaway file, restore into an isolated database, resume the approved simulator from restored private checkpoint plus preserved suffix, compare final state/counters/terminal/receipt evidence with a control. Then retire the redundant verified prefix in the original and test continued replay, duplicate cleanup and cleanup-vs-commit serialization. No raw backup is published as an artifact; bounded receipt hashes/results suffice for review.
+
+## Bounded recovery without erasing attempts
+
+Original max_attempts, attempts, fencing token, original input range/digest/initial revision and all attempt evidence never reset. Add a bounded additive recovery_budget and recovery_grants, backed by append-only operator grants, with an absolute cumulative hard ceiling (proposal: at most4 grants, at most8 additional attempts each, at most32 extra attempts/job). Existing attempts count against the total. No operator may raise the original max_attempts or replace the job with an equivalent fresh range to evade history.
+
+An explicit expected-revision/current-cursor grant can requeue only quarantined operational work whose predecessor remains authoritative; it cannot overturn deterministic invalid gameplay or first terminal evidence. A currently quarantined active run is conservatively sealed at its accepted highwater before requeue (no new upload is revived); expired/terminal lifecycle stays released, avoiding active-account collisions. No session/deadline is extended, no payment is issued, and existing settlement always rechecks original live-session authorization with no grace.
+
+Effective attempt ceiling is original max_attempts + audited recovery_budget. New0057 function versions must consistently use that ceiling in claim/expiry/retry/partial-progress quarantine decisions, preserving0054/55/56 hooks and lock order. Prefer explicit reviewed wrappers/function definitions; if exact-body anchor installation is used, require unique known anchors/counts and fail closed on any drift. This needs independent security review and real cumulative-bound tests.
+
+## Locks and tests
+
+Operator principal/config/audit admission -> input admission/account -> scheduler/account -> run -> batch/job. Never acquire economy/session/legacy locks after the verification run. Worker commit remains principal/gateway/scheduler/account/run/job. Input cleanup serializes with append and commit; no simulation or backup I/O occurs under database locks. Inspection is bounded, indexed, allowlisted and redacts inputs/checkpoints/tokens.
+
+Required real PostgreSQL cases: expiry/reclaim/backoff; exhausted job grants without reset/fence regression; duplicate/conflicting operator requests; hard cumulative grant/attempt/audit quotas; unauthorized/scopeless/expired/revoked operators; old expired run plus newer open account slot; no automatic expiry/payment revival; partial/unverified/uncertified payload refusal; pending payment and terminal denial evidence preservation; exact received retry after retirement; duplicate cleanup counters; cleanup vs commit; populated restart counters/audit; actual backup restoration plus approved replay continuation and immutable receipt proof. Tests/builds run only in GitHub Actions. Full older PR integration is not canceled.
