@@ -241,6 +241,18 @@ evidence addendum is in the [evidence map](integration-evidence.md#final-benchma
 Earlier failed histories above remain visible. This documentation changes no
 benchmark source, workflow, simulator artifact or production setting.
 
+## Owner-requested client settings
+
+On 2026-11-11 the owner requested High/Mid/Low graphics settings for different
+resolutions as the client-facing PR21 deliverable. The [preset companion](client-graphics-presets.md)
+records delivered Shooter [114](https://github.com/crrreatorrr/sproto-shooter/pull/114),
+normal merge `d8596be6c36f413f0fbb4d0d618d8764d1dd097c` preserving tested
+`90f08b671927ffc91544426e3d3ee446d3732f9f`: all four source workflows passed,
+including four graphics-policy cases and actual local browser pause/resize/save/
+reload. These client controls did not require waiting for intended-host
+measurements. Server capacity and operating limits remain unmeasured/deferred;
+presets do not establish 60 FPS or resolve the failed primary result RPCs.
+
 ## Policy and external gates
 
 The original game session must be live at actual post-lock time for a new payment;
@@ -258,9 +270,15 @@ migration cases and Shooter cases passed. The owner explicitly chose to keep
 buy 2 / sell 1. [166](https://github.com/crrreatorrr/metaverse-hub/pull/166), normal
 merge `afc2c6d6495aedcacc6014753f173598f298dad7` preserving `160432d`, documents
 and tests that exact exception without changing prices. Verify and both artifact
-guards passed; full economic regression remains pending. The historical broad
-failure is retained, and neither that run nor all economic checks are claimed
-green.
+guards passed. Its original full [duplication job](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43025978878/job/130540663818)
+at exact `160432dd9fcd068785dfecc04a37bdf4022582f4` also completed successfully:
+537 passed, zero failed and three existing pending cases. The literal Campaign
+Pistol exception passed; wallet 38, Shooter backend 65, lifecycle 20, retention
+seven and migration ten cases had no failures or pending cases. Downstream RT,
+Coop authoritative, Shooter free, both H5 and economy-audit steps succeeded.
+The three pending cases remain two PB HubFault hooks (`before_rpc`/`after_commit`)
+and one Hub direct-join gate; none is claimed passed. The historical PR163 failure
+is retained, and this exact-head proof does not automatically validate later heads.
 
 On 2026-11-11 the owner explicitly accepted: “Accept server-verified legal
 inputs, including bots/emulators.” The [provenance product decision](decisions.md#product-decision-before-public-activation)
@@ -269,8 +287,9 @@ server verification; it makes no official-client attestation claim.
 
 PR21 still requires authorized intended-host benchmark execution and hosting
 approval. Host, region and specifications, together with authorization to run
-that benchmark, remain pending. The failed primary-client result and pending
-full economic regression above remain unchanged. PR22 depends on PR21. This
+that benchmark, remain pending. The failed primary-client result remains unchanged.
+The exact-head economic proof and its three existing pending cases above remain
+scoped to that run. PR22 depends on PR21. This
 acceptance authorizes no production deployment, public activation, hosting
 purchase or production resource limits; CI timings and code merges supply no
 such authorization.
