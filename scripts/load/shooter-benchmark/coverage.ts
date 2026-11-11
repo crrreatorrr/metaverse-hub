@@ -25,3 +25,21 @@ export function inputCoverage(rows: readonly InputSample[], startedMonoMs: numbe
   const replacementAfterObserverDeadline = growth(rows.filter(r => r.replacement && r.observedMonoMs - r.createdMonoMs >= 6000), 1000);
   return { definition: 'authoritative applied input counters for both seats, not server loop ticks', perSlot, replacementAfterObserverDeadline, complete: perSlot.every(s => s.earlyInputGrowth && s.lateInputGrowth) && replacementAfterObserverDeadline };
 }
+
+// Freeze a partial sample once, including an in-flight window closure. A late
+// RPC may finish cleanup, but cannot change the retained sample or denominator.
+export function oneShotCoverage<T extends Record<string, unknown>>(read: () => T, retain: (value: Readonly<T>) => void): () => void {
+  let closed = false;
+  return () => { if (closed) return; closed = true; retain(Object.freeze(structuredClone(read()))); };
+}
+
+export function shortInputCoverage(rows: readonly InputSample[], slots: number) {
+  const perSlot = Array.from({ length: slots }, (_, slot) => {
+    const samples = rows.filter(row => row.slot === slot);
+    const proven = samples.some(first => samples.some(last => last.matchBindingHash === first.matchBindingHash
+      && last.observedMonoMs - first.observedMonoMs >= 1000 && first.seatInputs.length === 2 && last.seatInputs.length === 2
+      && last.seatInputs.every((seat, i) => seat.applied > first.seatInputs[i].applied)));
+    return { slot, observedSamples: samples.length, bothSeatAppliedGrowth: proven };
+  });
+  return { scope: 'at_least_one_second_actual_both_seat_input_growth_per_slot', perSlot, complete: perSlot.every(slot => slot.bothSeatAppliedGrowth) };
+}

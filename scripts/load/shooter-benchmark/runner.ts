@@ -37,6 +37,7 @@ export interface CampaignAdapter {
   observe(signal: AbortSignal): Promise<void>;
   observationContext?(): Record<string, unknown>;
   phaseLifecycle?(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>>;
+  phaseLifecycleComplete?(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>>;
 }
 export interface RunResult {
   actors: ActorResult[];
@@ -70,7 +71,7 @@ function bounded<T>(operation: Promise<T>, signal: AbortSignal): Promise<T> {
 }
 export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSignal?: AbortSignal): Promise<RunResult> {
   validatePlan(plan);
-  if (plan.phases.some(p => p.kind === 'cold_burst' || p.kind === 'warm_burst') && !adapter.phaseLifecycle) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
+  if (plan.phases.some(p => p.kind === 'cold_burst' || p.kind === 'warm_burst') && (!adapter.phaseLifecycle || !adapter.phaseLifecycleComplete)) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
   if (adapter.mode !== plan.mode) throw new Error('adapter mode differs from plan');
   const controller = new AbortController(), observerController = new AbortController();
   const abort = () => controller.abort();
@@ -146,6 +147,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
         phaseWork.push(work); allWork.push(work);
       }
       await Promise.all(phaseWork);
+      if (phase.kind === 'cold_burst' || phase.kind === 'warm_burst') phaseLifecycles.push({ phase: phase.kind, evidence: await bounded(adapter.phaseLifecycleComplete!(phase, signal), signal) });
     }
   } catch { harnessStatus = signal.aborted ? 'interrupted' : 'failed'; }
   finally {

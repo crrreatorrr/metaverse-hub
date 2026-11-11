@@ -113,3 +113,19 @@ assert.throws(() => validatePlan({ ...plan, phases: [{ kind: 'finish_burst', wav
 await assert.rejects(runPlan(plan, adapter), /instrumentation failed/);
 assert.throws(() => summarizeActors([{ ...actors[0], durablyVerified: true, submittedFrames: 0, submittedInputSha256: null, submittedHashMeaning: null, acceptedTick: 0, verifiedTick: 0 }]), /durable status/);
 console.log('benchmark contract tests passed; synthetic accounting tests only, no capacity evidence');
+
+const lifecycleCalls: string[] = [];
+const lifecycleResult = await runPlan({ ...plan, phases: [{ kind: 'cold_burst', waves: 1, arrivalIntervalMs: 0 }, { kind: 'warm_burst', waves: 1, arrivalIntervalMs: 0 }] }, {
+  ...adapter,
+  async phaseLifecycle(phase) { lifecycleCalls.push('before:' + phase.kind); return { observed: 'test_only_start' }; },
+  async phaseLifecycleComplete(phase) { lifecycleCalls.push('after:' + phase.kind); return { observed: 'test_only_actual_usage' }; },
+});
+assert.deepEqual(lifecycleCalls, ['before:cold_burst', 'after:cold_burst', 'before:warm_burst', 'after:warm_burst']);
+assert.equal(lifecycleResult.phaseLifecycles.length, 4);
+assert.equal(lifecycleResult.actors.length, 40);
+
+const { assertFixtureCohortFits, FIXTURE_RESERVED_BYTES } = await import('./fixture-config.ts');
+assert.equal(FIXTURE_RESERVED_BYTES, 4294967296);
+assert.doesNotThrow(() => assertFixtureCohortFits(20, 3));
+assert.throws(() => assertFixtureCohortFits(20, 3, 64, 2147483648), /durable admission reservation/);
+assert.throws(() => assertFixtureCohortFits(20, 4), /durable admission reservation/);

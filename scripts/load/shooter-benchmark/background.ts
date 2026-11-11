@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
 import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
 import { sha256 } from './contracts.ts';
+import { oneShotCoverage } from './coverage.ts';
 import { runLifetimeControl } from './control.ts';
 import { SutUnavailable, InstrumentationFailure } from './runner.ts';
 type Encoder = (input: Record<string, unknown>) => Uint8Array;
@@ -40,8 +41,9 @@ export class BackgroundTraffic {
   private readonly pin: { protocol: number; sim: number; contentFingerprint: string };
   readonly matchObservations: MatchQuantiles[] = [];
   readonly matchEnds: { matchBindingHash: string; observedAt: string; reason: string; outcome: string; replacement: number }[] = [];
+  readonly metricReads: Readonly<{ slot: number; matchBindingHash: string; startedMonoMs: number; finishedMonoMs: number; elapsedMs: number; stage: string; outcome: string; httpStatus: number | null; signalDefinition: string }>[] = [];
   readonly rejectionCounts: Record<string, number> = {};
-  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number }[] = [];
+  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; observedEndingSlots: number; replacingSlots: number; replacements: number; closure: 'sample_complete' | 'sample_deadline' | 'measurement_window_closed'; pendingMetricSlots: number[] }[] = [];
   private replacements = 0;
   private readonly replacementLimit = 60;
   constructor(private base: string, private seed: string) {
@@ -165,7 +167,12 @@ export class BackgroundTraffic {
     if (this.observing) throw new InstrumentationFailure('previous_background_observation_active');
     this.observing = true;
     const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, observedEndingSlots: 0, replacingSlots: this.replacing.size, replacements: this.replacements };
+    const pending = new Set<number>();
+    const finalize = oneShotCoverage(() => ({ ...coverage, activeSlots: this.pairs.length, replacingSlots: this.replacing.size, replacements: this.replacements,
+      closure: this.lifetimeSignal?.aborted || this.stopping ? 'measurement_window_closed' as const : signal.aborted ? 'sample_deadline' as const : 'sample_complete' as const, pendingMetricSlots: [...pending] }), value => this.coverage.push(value));
+    signal.addEventListener('abort', finalize, { once: true });
     try {
+      if (signal.aborted) { finalize(); throw new InstrumentationFailure('background_observation_cancelled'); }
       if (this.coverage.length >= 2000) throw new InstrumentationFailure('background_coverage_bound_exceeded');
       if (!this.started) return;
       if (this.controlFailure) throw new InstrumentationFailure(this.controlFailure);
@@ -173,17 +180,24 @@ export class BackgroundTraffic {
       const outcomes = await Promise.allSettled([...this.pairs].map(async pair => {
         const ended = () => pair.seats.some(seat => seat.mail.some(message => message.opCode === 8));
         if (ended()) { coverage.observedEndingSlots++; return; }
-        this.reading.add(pair.slot); coverage.attemptedMetrics++;
+        this.reading.add(pair.slot); pending.add(pair.slot); coverage.attemptedMetrics++;
+        const readStarted = performance.now(); let readStage = 'rpc_pending', readOutcome = 'pending', httpStatus: number | null = null;
+        const finishRead = oneShotCoverage(() => ({ slot: pair.slot, matchBindingHash: sha256(pair.matchId), startedMonoMs: readStarted, finishedMonoMs: performance.now(), elapsedMs: performance.now() - readStarted,
+          stage: readStage, outcome: signal.aborted ? this.lifetimeSignal?.aborted || this.stopping ? 'measurement_window_closed' : 'sample_signal_aborted' : readOutcome, httpStatus,
+          signalDefinition: 'parent_sampler_shared_5s_readonly_observation_budget' }), value => { if (this.metricReads.length < 20000) this.metricReads.push(value); });
+        signal.addEventListener('abort', finishRead, { once: true });
         try {
+          if (this.metricReads.length >= 20000) throw new InstrumentationFailure('metric_read_evidence_bound');
           let reply;
           try { reply = await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal }); }
-          catch { throw new InstrumentationFailure(signal.aborted ? 'pvp_metric_read_deadline' : 'pvp_metric_transport_exception'); }
+          catch { readOutcome = signal.aborted ? 'sample_signal_aborted' : 'transport_exception'; throw new InstrumentationFailure(signal.aborted ? 'pvp_metric_read_deadline' : 'pvp_metric_transport_exception'); }
+          readStage = 'response_validation'; httpStatus = reply.status; readOutcome = 'response_received';
           if (reply.status >= 500) throw new SutUnavailable(`pvp_metrics_http_${reply.status}`);
           const body = object(reply.body);
           if (body.error === 'match_missing') {
             const untilEnd = Date.now() + 1000;
             while (!signal.aborted && Date.now() < untilEnd && !ended()) await wait(25);
-            if (!signal.aborted && ended()) { coverage.confirmedEndMetricMisses++; return; }
+            if (!signal.aborted && ended()) { coverage.confirmedEndMetricMisses++; readOutcome = 'confirmed_match_end'; return; }
             throw new SutUnavailable('pvp_metric_missing_without_result_proof');
           }
           if (body.error) throw new InstrumentationFailure('pvp_metrics_error_response');
@@ -196,14 +210,14 @@ export class BackgroundTraffic {
           });
           if (signal.aborted || this.stopping) throw new InstrumentationFailure('background_observation_cancelled');
           if (this.matchObservations.length >= 10000) throw new InstrumentationFailure('match_observation_bound_exceeded');
-          coverage.successfulMetrics++;
+          coverage.successfulMetrics++; readStage = 'completed'; readOutcome = 'observed';
           this.matchObservations.push({ slot: pair.slot, createdMonoMs: pair.createdMonoMs, replacement: pair.replacement, observedMonoMs: performance.now(), matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), n: values[0], p50: values[1], p95: values[2], max: values[3], tick: values[4], phase: String(body.phase), endReason: String(body.endReason ?? ''), outcome: String(body.outcome ?? ''), seatInputs, observer: 'shooter.metrics' });
-        } finally { this.reading.delete(pair.slot); }
+        } finally { signal.removeEventListener('abort', finishRead); finishRead(); this.reading.delete(pair.slot); pending.delete(pair.slot); }
       }));
       for (const outcome of outcomes) if (outcome.status === 'rejected') throw outcome.reason;
     } finally {
       this.observing = false;
-      if (!this.stopping && !this.lifetimeSignal?.aborted) { coverage.activeSlots = this.pairs.length; coverage.replacingSlots = this.replacing.size; coverage.replacements = this.replacements; this.coverage.push(coverage); }
+      signal.removeEventListener('abort', finalize); finalize();
     }
   }
   async stop(): Promise<void> {

@@ -35,6 +35,8 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/coverage.test.ts
           npx tsx scripts/load/shooter-benchmark/control.test.ts
           npx tsx scripts/load/shooter-benchmark/browser-observer.test.ts
+          npx tsx scripts/load/shooter-benchmark/browser-accounting.test.ts
+          node --test scripts/load/shooter-benchmark/worker-lifecycle.test.mjs
           node scripts/load/shooter-benchmark/metrics-collector.test.mjs
           npx tsx scripts/load/shooter-benchmark/legacy-policy.test.ts
       - name: Lint benchmark tooling
@@ -43,6 +45,10 @@ jobs:
     needs: contracts
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        command: [run, run-lifecycle, run-sustained, run-legacy-full, run-legacy-segmented]
     env:
       HUB_SHOOTER_FIXTURE: benchmark
       SHOOTER_OPS_CI_DIRECTORY: /tmp/shooter-benchmark-${{ github.run_id }}
@@ -79,14 +85,14 @@ jobs:
       - name: Actual fenced coordinator and network-isolated replay containers
         run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml -f scripts/load/shooter-benchmark/compose.ci.yml --profile shooter-verification up -d --build --no-deps replay coordinator metrics-observer
       - name: Full twenty independent authenticated actors with Hub and free PvP observers
-        run: npx tsx scripts/load/shooter-benchmark/ci.ts run
+        run: npx tsx scripts/load/shooter-benchmark/ci.ts ${{ matrix.command }}
         env:
           SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
       - name: Retain safe advisory report only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: shooter-ci-advisory-benchmark
+          name: shooter-ci-advisory-benchmark-${{ matrix.command }}
           path: /tmp/shooter-benchmark-${{ github.run_id }}/benchmark-report.json
           if-no-files-found: warn
       - name: Stop and delete disposable stack

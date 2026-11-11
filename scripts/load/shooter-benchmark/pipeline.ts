@@ -41,9 +41,17 @@ export class PublicPipeline implements CampaignAdapter {
   private readonly inputReleases = new Map<string, () => void>();
   private readonly activeExecutions = new Set<string>();
   private readonly runIds = new Set<string>();
-  constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>) {
+  constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>, private lifecycle?: { prepareCold(signal: AbortSignal): Promise<Record<string, unknown>>; assertWarm(signal: AbortSignal): Promise<Record<string, unknown>>; observe(signal: AbortSignal): Promise<Record<string, unknown>> }) {
     this.background = new BackgroundTraffic(base, plan.seed);
     this.budget = new ByteBudget(plan.maxQueuedBytes);
+  }
+  async phaseLifecycle(phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (!this.lifecycle) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
+    return phase.kind === 'cold_burst' ? this.lifecycle.prepareCold(signal) : this.lifecycle.assertWarm(signal);
+  }
+  async phaseLifecycleComplete(_phase: Phase, signal: AbortSignal): Promise<Record<string, unknown>> {
+    if (!this.lifecycle) throw new InstrumentationFailure('unsupported_worker_lifecycle_phase');
+    return this.lifecycle.observe(signal);
   }
   async prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding> {
     const estimate = sourceInputReservation(assignment.frames, assignment.actions);
@@ -105,6 +113,7 @@ export class PublicPipeline implements CampaignAdapter {
       if (signal.aborted) throw new Error('aborted');
       submission.verifiedTick = Number(verified.tick);
       const durable = submission.verifiedTick === n;
+      if (payment.state === 'paid' && (!durable || terminal?.outcome !== 'clear' || Number(payment.tickets) !== 20)) throw new InstrumentationFailure('public_paid_projection_invalid');
       submission.durablyVerified = durable;
       submission.everObservedEligible ||= positiveEligibilityProof(durable, terminal?.outcome, payment.state);
       submission.payable = positiveEligibilityProof(durable, terminal?.outcome, payment.state);
@@ -113,7 +122,6 @@ export class PublicPipeline implements CampaignAdapter {
       if (durable && observation.verifiedWallMs === null) observation.verifiedWallMs = performance.now() - start;
       if (terminal) observation.terminalOutcome = String(terminal.outcome);
       if (payment.state === 'paid') {
-        if (!durable || terminal?.outcome !== 'clear' || Number(payment.tickets) !== 20) throw new Error('paid public status lacks full verified fixed20 receipt');
         observation.rewardWallMs = performance.now() - start;
         observation.finishAckToPaidMs = observation.rewardWallMs - observation.finishAckWallMs;
         observation.firstEligiblePendingToPaidMs = observation.firstEligiblePendingWallMs === null ? null : observation.rewardWallMs - observation.firstEligiblePendingWallMs;
@@ -175,6 +183,7 @@ export class PublicPipeline implements CampaignAdapter {
     return JSON.parse(text) as Record<string, unknown>[];
   }
   matchMetrics() { return this.background.matchObservations; }
+  backgroundMetricReads() { return this.background.metricReads; }
   matchEnds() { return this.background.matchEnds; }
   inputBudget() { return this.budget.observation(); }
   backgroundCoverage() { return this.background.coverage; }
