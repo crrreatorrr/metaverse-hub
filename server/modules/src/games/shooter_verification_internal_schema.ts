@@ -14,6 +14,18 @@ HubSchema.register({
       CHECK(NOT enabled OR (max_requests IS NOT NULL AND max_principal_requests IS NOT NULL AND max_receipt_bytes IS NOT NULL AND max_principal_receipt_bytes IS NOT NULL))
     )`,
     "INSERT INTO game.shooter_verification_gateway(singleton) VALUES(true) ON CONFLICT DO NOTHING",
+    `CREATE TABLE IF NOT EXISTS game.shooter_verification_worker (
+      worker_id text PRIMARY KEY CHECK(worker_id ~ '^[A-Za-z0-9_.:@|-]{1,80}$'),
+      account_id uuid NOT NULL, UNIQUE(worker_id,account_id)
+    )`,
+    `CREATE OR REPLACE FUNCTION game.shooter_verification_worker_immutable()
+      RETURNS trigger LANGUAGE plpgsql AS $fn$ BEGIN RAISE EXCEPTION 'shooter_worker_identity_immutable'; END; $fn$`,
+    `DO $trigger$ BEGIN
+      IF NOT EXISTS(SELECT 1 FROM pg_trigger WHERE tgrelid='game.shooter_verification_worker'::regclass AND tgname='shooter_worker_identity_immutable') THEN
+        CREATE TRIGGER shooter_worker_identity_immutable BEFORE UPDATE OR DELETE ON game.shooter_verification_worker
+          FOR EACH ROW EXECUTE FUNCTION game.shooter_verification_worker_immutable();
+      END IF;
+    END; $trigger$`,
     `CREATE TABLE IF NOT EXISTS game.shooter_verification_principal (
       account_id uuid NOT NULL, worker_id text NOT NULL CHECK(worker_id ~ '^[A-Za-z0-9_.:@|-]{1,80}$'),
       key_id text NOT NULL CHECK(key_id ~ '^[A-Za-z0-9_.:@|-]{1,80}$'), token_sha256 text NOT NULL CHECK(token_sha256 ~ '^[0-9a-f]{64}$'),
@@ -21,7 +33,8 @@ HubSchema.register({
       not_before timestamptz NOT NULL, expires_at timestamptz NOT NULL CHECK(expires_at>not_before), revoked_at timestamptz,
       retained_requests bigint NOT NULL DEFAULT 0 CHECK(retained_requests>=0),
       reserved_receipt_bytes bigint NOT NULL DEFAULT 0 CHECK(reserved_receipt_bytes>=0),
-      PRIMARY KEY(account_id,worker_id,key_id), UNIQUE(worker_id,key_id)
+      PRIMARY KEY(account_id,worker_id,key_id), UNIQUE(worker_id,key_id),
+      FOREIGN KEY(worker_id,account_id) REFERENCES game.shooter_verification_worker(worker_id,account_id)
     )`,
     `CREATE TABLE IF NOT EXISTS game.shooter_verification_gateway_receipt (
       account_id uuid NOT NULL, worker_id text NOT NULL, key_id text NOT NULL,
@@ -30,7 +43,7 @@ HubSchema.register({
       request_sha256 text NOT NULL CHECK(request_sha256 ~ '^[0-9a-f]{64}$'),
       acknowledgment jsonb NOT NULL CHECK(jsonb_typeof(acknowledgment)='object' AND octet_length(acknowledgment::text)<=20971520),
       created_at timestamptz NOT NULL,
-      PRIMARY KEY(account_id,worker_id,key_id,request_id),
+      PRIMARY KEY(worker_id,request_id),
       FOREIGN KEY(account_id,worker_id,key_id) REFERENCES game.shooter_verification_principal(account_id,worker_id,key_id)
     )`,
     `CREATE OR REPLACE FUNCTION game.shooter_verification_gateway_receipt_immutable()
@@ -56,7 +69,7 @@ HubSchema.register({
         SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=j.run_id;
         SELECT * INTO b FROM game.shooter_verification_batch WHERE run_id=j.run_id AND sequence=j.sequence_from;
         SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;
-        IF j.state<>'leased' OR j.lease_owner<>owner_id OR j.fencing_token<>(c->>'fence')::bigint
+        IF j.job_id IS NULL OR r.run_id IS NULL OR b.run_id IS NULL OR j.state<>'leased' OR j.lease_owner<>owner_id OR j.fencing_token<>(c->>'fence')::bigint
           OR j.expected_revision<>r.revision OR j.continuation_tick<>r.verified_tick OR j.sequence_from<>j.sequence_to
           OR b.request_sha256<>j.input_sha256 OR j.tick0<b.tick0 OR j.tick_end>b.tick0+b.frame_count
           OR jsonb_typeof(issuance)<>'object' OR issuance->>'runId' IS DISTINCT FROM r.run_id
@@ -127,9 +140,9 @@ HubSchema.register({
           OR NOT game.shooter_verification_hash_equal(p.token_sha256,h) THEN
           RETURN jsonb_build_object('state','authorization_denied','reason','unauthorized');
         END IF;
-        IF rid !~ '^[A-Za-z0-9_.:@|-]{1,80}$' OR digest !~ '^[0-9a-f]{64}$' OR op NOT IN ('claim','renew','retry','result') THEN
+        IF op IS NULL OR rid IS NULL OR digest IS NULL OR rid !~ '^[A-Za-z0-9_.:@|-]{1,80}$' OR digest !~ '^[0-9a-f]{64}$' OR op NOT IN ('claim','renew','retry','result') THEN
           RETURN jsonb_build_object('state','invalid','reason','malformed'); END IF;
-        SELECT * INTO old FROM game.shooter_verification_gateway_receipt WHERE account_id=a AND worker_id=w AND key_id=k AND request_id=rid;
+        SELECT * INTO old FROM game.shooter_verification_gateway_receipt WHERE worker_id=w AND request_id=rid;
         IF FOUND THEN
           IF old.operation<>op OR old.request_sha256<>digest THEN RETURN jsonb_build_object('state','invalid','reason','request_conflict'); END IF;
           RETURN old.acknowledgment;

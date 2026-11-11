@@ -4,29 +4,32 @@ const LIMIT = 20 * 1024 * 1024;
 const ID = /^[A-Za-z0-9_.:@|-]{1,80}$/;
 export function gatewayURL(value) {
   const url = new URL(value);
+  if (url.protocol === 'http:' && !/^http:\/\/(?:127\.0\.0\.1|\[::1\])(?::[0-9]+)?(?:\/|$)/i.test(String(value))) throw new Error('unsafe_gateway_url');
   if (url.username || url.password || url.search || url.hash
     || (url.protocol !== 'https:' && !(url.protocol === 'http:' && ['127.0.0.1', '[::1]'].includes(url.hostname)))) throw new Error('unsafe_gateway_url');
   url.pathname = url.pathname.replace(/\/$/, '');
   return url;
 }
 export class GatewayClient {
+  #auth;
+  #accountToken;
   constructor({ url = 'http://127.0.0.1:7350', workerId, keyId, token, accountToken, timeoutMs = 10000 }) {
     this.url = gatewayURL(url);
     if (!ID.test(workerId || '') || !ID.test(keyId || '') || !/^[A-Za-z0-9_-]{43}$/.test(token || '')
       || typeof accountToken !== 'string' || accountToken.length > 8192 || !accountToken
       || !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 20000) throw new Error('bad_gateway_configuration');
-    this.auth = { workerId, keyId, token }; this.accountToken = accountToken; this.timeoutMs = timeoutMs;
+    this.#auth = { workerId, keyId, token }; this.#accountToken = accountToken; this.timeoutMs = timeoutMs;
   }
   async request(operation, body, requestId = randomUUID()) {
     if (!['claim', 'renew', 'retry', 'result'].includes(operation) || !ID.test(requestId)) return operational('bad_gateway_request');
     // Coordinator-owned plain JSON only; replay children receive no credentials.
     let text;
-    try { text = JSON.stringify({ ...this.auth, requestId, body }); } catch { return operational('bad_gateway_request'); }
+    try { text = JSON.stringify({ ...this.#auth, requestId, body }); } catch { return operational('bad_gateway_request'); }
     if (Buffer.byteLength(text) > (operation === 'result' ? LIMIT : 4096)) return operational('request_oversized');
     const url = new URL(this.url); url.pathname += `/v2/rpc/shooter.internal.${operation}`; url.search = 'unwrap=true';
     try {
       const response = await fetch(url, { method: 'POST', redirect: 'error', signal: AbortSignal.timeout(this.timeoutMs),
-        headers: { Authorization: `Bearer ${this.accountToken}`, 'Content-Type': 'application/json' }, body: text });
+        headers: { Authorization: `Bearer ${this.#accountToken}`, 'Content-Type': 'application/json' }, body: text });
       if (!response.ok || !response.body) return operational('gateway_unavailable');
       if (Number(response.headers.get('content-length') || 0) > LIMIT) { await response.body.cancel(); return operational('response_oversized'); }
       const reader = response.body.getReader(), chunks = []; let bytes = 0;
