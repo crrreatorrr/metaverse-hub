@@ -654,7 +654,7 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
   const session = await login('sproto-fighter');
   const user = session.hub.userId;
   seedTickets(session, 40, 40);
-  // 0060_relic_unhold: the Belt is live, so a first clear grants it and nothing is pending.
+  // 0061_relic_unhold: the Belt is live, so a first clear grants it and nothing is pending.
   const liveCount = 1;
   const pendingCount = 0;
   if (owned) plantRelic(user, session.sessionId, 'tidebreaker_belt', 'sproto-fighter');

@@ -1,8 +1,8 @@
-// B1: hub-scope exchange (0059_hub_exchange, verse.exchange, tickets.balances) on a real Postgres.
+// B1: hub-scope exchange (0060_hub_exchange, verse.exchange, tickets.balances) on a real Postgres.
 // Caps and idempotency are shared with the in-game tickets.exchange; these cases prove it,
 // including two connections racing for the same day's cap.
 import assert from 'node:assert/strict';
-import { addUser, count, freshPg, gameCtx, hubCtx, openGameSession, seedTickets, tickets, verse } from './rig';
+import { addUser, count, freshPg, gameCtx, hubCtx, openGameSession, seedTickets, setFlag, tickets, verse } from './rig';
 
 const pg = freshPg('hub_exchange');
 const { mod } = pg;
@@ -14,6 +14,39 @@ const hubExchange = (user: string, game: string, amount: number, key: string) =>
   mod.call<Exchange>('verse.exchange', hubCtx(user), { game, tickets: amount, key });
 const gameExchange = (user: string, game: string, sid: string, amount: number, key: string) =>
   mod.call<Exchange>('tickets.exchange', gameCtx(user, game, sid), { tickets: amount, key });
+
+// The hub_exchange launch flag is seeded off: the plaza exchange is closed after deploy until the
+// owner turns it on. Closed means refused with exchange_off, nothing moved, and balances still read.
+{
+  const user = addUser(pg, 'flag_off');
+  seedTickets(pg, user, 'nobu', 100);
+  assert.equal(pg.run("SELECT state FROM game.server_flags WHERE key = 'hub_exchange'")[0]?.state, 'off');
+  const closed = mod.call<Exchange & { message?: string }>('verse.exchange', hubCtx(user), { game: 'nobu', tickets: 100, key: 'closed-1' });
+  assert.deepEqual([closed.error, closed.message], ['exchange_off', 'The plaza exchange is not open yet']);
+  assert.equal(tickets(pg, user, 'nobu'), 100);
+  assert.equal(verse(pg, user), 0);
+  assert.equal(count(pg, "SELECT 1 FROM game.idempotency WHERE user_id = $1::uuid AND key = 'closed-1'", [user]), 0, 'a refused request leaves no key behind');
+  const listed = mod.call<Balances & { exchangeEnabled?: boolean }>('tickets.balances', hubCtx(user), {});
+  assert.equal(listed.exchangeEnabled, false);
+  assert.equal(listed.wallets.find((w) => w.game === 'nobu')?.balance, 100);
+  // The in-game exchange does not depend on this flag.
+  const sid = openGameSession(pg, user, 'nobu');
+  assert.equal(mod.call<Exchange>('tickets.exchange', gameCtx(user, 'nobu', sid), { tickets: 10, key: 'in-game-while-closed' }).verse, 1);
+  setFlag(pg, 'hub_exchange', 'on');
+  assert.equal(mod.call<Balances & { exchangeEnabled?: boolean }>('tickets.balances', hubCtx(user), {}).exchangeEnabled, true);
+  assert.equal(mod.call<Exchange>('verse.exchange', hubCtx(user), { game: 'nobu', tickets: 90, key: 'closed-1' }).gained, 9, 'the same key works once the flag is on');
+  // Allowlist: only listed accounts are in.
+  const outsider = addUser(pg, 'not_listed');
+  seedTickets(pg, outsider, 'nobu', 50);
+  pg.run("UPDATE game.server_flags SET state = 'allowlist', allowlist = ARRAY[$1::uuid] WHERE key = 'hub_exchange'", [user]);
+  setFlag(pg, 'hub_exchange', 'on');
+  pg.run("UPDATE game.server_flags SET state = 'allowlist' WHERE key = 'hub_exchange'");
+  for (const cached of [...mod.nk.localcache.keys()]) if (String(cached).startsWith('flag:')) mod.nk.localcache.delete(cached);
+  assert.equal(mod.call<Exchange>('verse.exchange', hubCtx(outsider), { game: 'nobu', tickets: 50, key: 'outsider' }).error, 'exchange_off');
+  assert.equal(tickets(pg, outsider, 'nobu'), 50);
+  setFlag(pg, 'hub_exchange', 'on');
+  pg.audit();
+}
 
 const GAMES = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle'];
 

@@ -21,3 +21,29 @@ export function clientOverlap(population: Record<string, unknown>, protocols: re
     protocolPopulation: 20, domPopulation: 1, clockDomain: 'same_load_generator_node_performance', clockValid, protocolTimingValid: timingValid, bindingDisjoint: disjoint, positiveRecordingSamples: samples.length,
     observedConcurrency: counts, maximumObservedActiveProtocolActors: maximum, complete: proof && disjoint && clockValid && timingValid && maximum === 20 };
 }
+
+type WorkloadReason = 'complete' | 'invalid_population' | 'invalid_binding' | 'incomplete_prefix' | 'missing_final_proof' | 'unresolved_outcome' | 'missing_payment_proof';
+// This success predicate is separate from sampled overlap/instrumentation. A
+// truthful service outcome can finish measurement while its workload is pending.
+export function clientWorkloadCompletion(population: Record<string, unknown>): { complete: boolean; reason: WorkloadReason; accountedActors: number } {
+  const actors = Array.isArray(population.actors) ? population.actors.map(object) : [];
+  const accountedActors = actors.length;
+  const result = (reason: WorkloadReason) => ({ complete: reason === 'complete', reason, accountedActors });
+  const summary = object(population.summary);
+  if (!accountedActors || accountedActors > 20 || summary.accountedActors !== accountedActors || summary.harnessStatus !== 'complete') return result('invalid_population');
+  const bindings = ['accountBindingHash','sessionBindingHash','runBindingHash'];
+  if (bindings.some(key => actors.some(actor => !hash(actor[key])) || new Set(actors.map(actor => actor[key])).size !== accountedActors)) return result('invalid_binding');
+  for (const actor of actors) {
+    const recorded = actor.recordedFrames;
+    if (!Number.isSafeInteger(recorded) || Number(recorded) <= 0 || Number(recorded) > 162000
+      || actor.submittedFrames !== recorded || actor.acceptedTick !== recorded || actor.verifiedTick !== recorded || !hash(actor.submittedInputSha256)) return result('incomplete_prefix');
+    if (['finalPausedProof','finalCoherentProof','finishRequested','finishAckObserved','serverClosed'].some(key => actor[key] !== true)) return result('missing_final_proof');
+    if (actor.paymentCensored !== false || typeof actor.status !== 'string' || !['paid','verified_nonpayable'].includes(actor.status)) return result('unresolved_outcome');
+    if (actor.status === 'paid') {
+      if (actor.paid !== true || actor.observedPaid !== true || actor.everObservedEligible !== true
+        || actor.eligibilityState !== 'observed_eligible' || actor.paymentObservation !== 'paid') return result('missing_payment_proof');
+    } else if (actor.paid !== false || actor.observedPaid !== false || actor.eligibilityState !== 'observed_nonpayable'
+      || actor.paymentObservation !== 'ineligible' || typeof actor.rawReason !== 'string' || !['clear','assisted','fail','incomplete'].includes(actor.rawReason)) return result('missing_payment_proof');
+  }
+  return result('complete');
+}

@@ -2,6 +2,9 @@ name: shooter-verification-e2e
 on:
   pull_request:
     paths:
+      - server/modules/src/games/shooter_verification*.ts
+      - server/modules/src/main.ts
+      - services/shooter-verifier/**
       - server/test/dup/shooter_verification_e2e_fixtures.ts
       - server/test/games/shooter_integration_fixture_contract.test.ts
       - server/test/shooter-integration-corpus.test.ts
@@ -126,7 +129,7 @@ jobs:
         working-directory: .ci-browser-client
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npm run build
         env:
           VITE_SHOOTER_REWARDED: 'true'

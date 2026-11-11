@@ -66,7 +66,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 **Finding and launching games.** HUD markers name the five entrances and the Bar with the distance in metres, and fade when you are within 20 m. The Esc menu opens on **Games**: all eight games with their Relic, your Tickets and a Play button (Esc then Enter relaunches the last one). A first-visit card walks a new player through gate, Relic and return, and the **?** button explains Tickets, Verse and Relics. People's Bitcoin asks "18+ satire. Enter?" once per browser. Coming back from a game shows what the trip earned.
 
-**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migration `0059_hub_exchange`.
+**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migration `0060_hub_exchange` and the `hub_exchange` launch flag turned on; until then the tab lists balances and its buttons read "Not open yet".
 
 **Emotes.** Keys 1, 2 and 3 wave, dance and cheer: a short line over your head that players near you see too (one per second).
 
@@ -145,13 +145,13 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle, god mode counts) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter Wave Mode, god mode counts) | `dragon_scale` |
 
-Since migration `0060_relic_unhold`, every Relic in this table is granted on the qualifying event (the Genesis Block Shard and Tidebreaker Belt were held until then, and claims recorded while they were held were promoted). The only grant still held is the Life Medal item.
+Since migration `0061_relic_unhold`, every Relic in this table is granted on the qualifying event (the Genesis Block Shard and Tidebreaker Belt were held until then, and claims recorded while they were held were promoted). The only grant still held is the Life Medal item.
 
 The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`). `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).
 
-Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.6.4; see its README for the realtime API and the mock server for game tests.
+Same idempotency key and same body returns the stored response. A reused key with a different body throws. Boards: HPOS10I and Sproto boards need a ranked session (`reason: 'unranked'` otherwise); NOBU time trials (`nobu_trial_time`, `meta.level` 1–3, integer ms) count from any session; `sproto_wins` is written by the server only. A score with `meta.godMode: true` posts nothing. The SDK is at 0.7.0, which adds the in-game feedback window (`docs/feedback.md`); see its README for the realtime API and the mock server for game tests.
 
 `installHubSdk()` sets `window.hubSdk` for HPOS10I's JavaScriptBridge. The plaza does not install it.
 

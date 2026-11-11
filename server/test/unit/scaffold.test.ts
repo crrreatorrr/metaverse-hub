@@ -121,6 +121,21 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.ok(mod.registered.rpcs.has('verse.exchange'), 'verse.exchange registered');
   const hub = { userId: USER_A, vars: { scope: 'hub' } };
   const game = { userId: USER_A, vars: { scope: 'game', game: 'nobu', sid: SID, ranked: '0' } };
+  // The hub_exchange launch flag gates the exchange. Off (the seeded state, or no row): refused
+  // before anything else is read, and tickets.balances says so.
+  let flagState = 'off';
+  mod.nk.onSql('FROM game.server_flags WHERE key', (args) => (args[0] === 'hub_exchange' ? [{ result: JSON.stringify({ state: flagState, allowlist: [], percent: 0 }) }] : []));
+  const flush = () => { for (const key of [...mod.nk.localcache.keys()]) if (String(key).startsWith('flag:')) mod.nk.localcache.delete(key); };
+  let reached = 0;
+  mod.nk.onSql('game.exchange_tickets_hub', () => { reached += 1; return [{ result: '{}' }]; });
+  assert.deepEqual(plain(mod.call('verse.exchange', hub, { game: 'nobu', tickets: 10, key: 'closed' })), { error: 'exchange_off', message: 'The plaza exchange is not open yet' });
+  assert.equal(reached, 0, 'a closed exchange never reaches SQL');
+  mod.nk.onSql('unnest(string_to_array', () => [{ result: '[]' }]);
+  mod.nk.onSql('FROM game.verse_wallet WHERE user_id', () => [{ verse: '0' }]);
+  assert.equal(mod.call<{ exchangeEnabled?: boolean }>('tickets.balances', hub, {}).exchangeEnabled, false);
+  flagState = 'on';
+  flush();
+  assert.equal(mod.call<{ exchangeEnabled?: boolean }>('tickets.balances', hub, {}).exchangeEnabled, true);
   for (const rpc of ['tickets.balances', 'verse.exchange']) {
     const body = { game: 'nobu', tickets: 10, key: 'k' };
     assert.equal(mod.call<{ error?: string }>(rpc, game, body).error, 'not_hub_session', `${rpc} game scope`);
@@ -160,7 +175,7 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   // The in-game exchange keeps its HPOS10I refusal.
   assert.equal(mod.call<{ error?: string }>('tickets.exchange', { userId: USER_A, vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { tickets: 10, key: 'k' }).error, 'exchange_not_allowed');
   const ids = plain((mod.global.HubSchema as { all(): { id: string }[] }).all().map((m) => m.id));
-  assert.ok(ids.includes('0059_hub_exchange'));
+  assert.ok(ids.includes('0060_hub_exchange'));
 }
 
 // HubEconomy: same SQL and request hash as the RPCs; input validation.

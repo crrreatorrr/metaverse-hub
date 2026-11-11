@@ -73,7 +73,7 @@ function assertGrantedItem(userId: string, itemId: string, result: RpcResult): v
   assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(userId)}' AND item_id = '${itemId}'`), 1);
 }
 
-// 0060_relic_unhold released the act-2 pets: the first qualifying clear grants the pet, once.
+// 0061_relic_unhold released the act-2 pets: the first qualifying clear grants the pet, once.
 async function honkOnce(): Promise<void> {
   const session = await login(HPOS);
   const user = session.hub.userId;
@@ -159,7 +159,7 @@ async function profileAndLoadout(): Promise<void> {
   await clear(session, 'z1_retro_rush_hills', 2, crypto.randomUUID());
   const profile = await call('profile.get', {}, hub.token);
   // The Z1A1 clear grants hpos10i_core (live since 0043), which derives the Speed and Runner pets.
-  // The act-2 clear grants pet_honk_sproto (live since 0060_relic_unhold).
+  // The act-2 clear grants pet_honk_sproto (live since 0061_relic_unhold).
   assert.deepEqual(
     (profile.body as { pets?: ProfilePets; relics?: string[] }).pets,
     { owned: ['pet_honk_sproto', 'pet_pepe_bull', 'pet_runner', 'pet_speed_sproto', 'pet_starter'], active: 'pet_pepe_bull' },

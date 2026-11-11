@@ -52,12 +52,12 @@ assert.ok(menu.includes('ownsFourLights(relics)'), 'menu fallback uses the four-
     assert.ok(isHeld(id));
     assert.ok(schema.includes(`'${id}'`), `${id} is a server rule`);
   }
-  // 0033 held these six; 0060_relic_unhold released them, so none may be listed as held here.
-  const at = schema.indexOf('id: "0060_relic_unhold"');
-  assert.ok(at > 0, '0060_relic_unhold is registered');
+  // 0033 held these six; 0061_relic_unhold released them, so none may be listed as held here.
+  const at = schema.indexOf('id: "0061_relic_unhold"');
+  assert.ok(at > 0, '0061_relic_unhold is registered');
   const released = schema.slice(at, schema.indexOf('$chk$`', at));
   for (const id of ['genesis_shard', 'tidebreaker_belt', 'pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup']) {
-    assert.ok(released.includes(`'${id}'`), `0060 releases ${id}`);
+    assert.ok(released.includes(`'${id}'`), `0061 releases ${id}`);
     assert.equal(isHeld(id), false, `${id} is no longer shown as pending`);
     assert.equal(grantBadge(id, false), 'Locked');
   }

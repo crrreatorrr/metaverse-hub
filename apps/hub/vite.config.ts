@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
@@ -72,6 +73,18 @@ function dropFetchedBuilds(): Plugin {
     };
   }
 
+/** Short commit for feedback notes: CI's GITHUB_SHA, else the local checkout, else `dev`. */
+function hubBuild(command: string): string {
+  if (command === 'serve') return 'dev';
+  const sha = process.env.GITHUB_SHA;
+  if (sha) return sha.slice(0, 10);
+  try {
+    return execFileSync('git', ['rev-parse', '--short=10', 'HEAD'], { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] }).toString().trim() || 'dev';
+  } catch {
+    return 'dev';
+  }
+}
+
 function realmPages(): Plugin {
   let pages: string[] = [];
   return {
@@ -137,6 +150,7 @@ function realmPages(): Plugin {
     },
     define: {
       __NAKAMA_SERVER_KEY__: JSON.stringify(nakamaServerKeyFromEnv({ command, mode, isPreview }, __dirname)),
+      __HUB_BUILD__: JSON.stringify(hubBuild(command)),
     },
     build: {
       target: 'es2022',
@@ -145,6 +159,7 @@ function realmPages(): Plugin {
       rollupOptions: {
         input: {
           hub: resolve(__dirname, 'hub/index.html'),
+          admin: resolve(__dirname, 'admin/index.html'),
           sandbox: resolve(__dirname, 'realm/sandbox/index.html'),
           sproto: resolve(__dirname, 'play/sproto/index.html'),
         },

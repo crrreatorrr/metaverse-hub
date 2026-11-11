@@ -53,6 +53,11 @@ for (const id of BAR_BOARD_IDS) {
 if (BAR_BOARD_IDS.includes('verse_by_game_hpos10i')) {
   assert.ok(rpcs.includes('exchange_tickets_hub'), 'hub-scope exchange exists before the HPOS10I Verse page returns');
 }
+// B4: the Bar shows HPOS10I's open board (what hub sessions post); the ranked rows are not a Bar page.
+assert.ok(BAR_BOARD_IDS.includes('hpos10i_act_time:open'));
+assert.deepEqual(serverBoard('hpos10i_act_time:open'), { board: 'hpos10i_act_time', variant: 'open' });
+assert.deepEqual([...BAR_DEAD_BOARD_IDS], ['hpos10i_act_time']);
+assert.match(leaderboard, /HPOS_OPEN_VARIANT = "open"/);
 for (const id of BAR_DEAD_BOARD_IDS) assert.equal(BAR_BOARD_IDS.includes(id), false, `${id} stays out of the cycle`);
 
 // Classic NOBU pages cycle only when they have rows.

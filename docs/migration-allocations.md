@@ -15,8 +15,9 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0056 | Verification issuance/finish lifecycle companion, #156 |
 | 0057 | Recovery, retention and operational cleanup, #159 |
 | 0058 | Worker observations/own-proof recovery, #160 |
-| 0059 | `0059_hub_exchange`: hub-scope Ticket exchange function `game.exchange_tickets_hub` (gameplay plan B1), branch `claude/trusting-ramanujan-63h582` |
-| 0060 | `0060_relic_unhold`: releases the held Genesis Block Shard, Tidebreaker Belt and four held pets and promotes their pending claims (gameplay plan B3), branch `claude/trusting-ramanujan-63h582`. Overlaps open PR #140, which proposed the Belt half as `0050_fighter_belt_live` |
+| 0059 | In-game feedback notes, screenshots, history and the admin row (`games/hub_feedback.ts`) |
+| 0060 | `0060_hub_exchange`: hub-scope Ticket exchange function `game.exchange_tickets_hub` (gameplay plan B1), branch `claude/trusting-ramanujan-63h582` |
+| 0061 | `0061_relic_unhold`: releases the held Genesis Block Shard, Tidebreaker Belt and four held pets and promotes their pending claims (gameplay plan B3), branch `claude/trusting-ramanujan-63h582`. Overlaps open PR #140, which proposed the Belt half as `0050_fighter_belt_live` |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied

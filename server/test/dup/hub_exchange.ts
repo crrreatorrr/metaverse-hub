@@ -1,5 +1,5 @@
 /**
- * Hub-scope exchange (migration 0059_hub_exchange, RPCs verse.exchange and tickets.balances;
+ * Hub-scope exchange (migration 0060_hub_exchange, RPCs verse.exchange and tickets.balances;
  * gameplay plan B1). The plaza turns one game's Tickets into Verse without a game session.
  * It shares the economy:<user> lock, the verse:<game> bucket (50 Verse per game per UTC day)
  * and the idempotency table with the in-game tickets.exchange, so these cases replay it,
@@ -14,6 +14,8 @@ import {
   login,
   num,
   openGame,
+  psql,
+  sleep,
   sqlId,
   ticketBalance,
   verseBalance,
@@ -72,7 +74,35 @@ function verseWindow(userId: string, game: string): number {
   );
 }
 
+/** The flag row as the owner sets it in SQL. Flags are cached for 5 s per node, so wait that out. */
+async function setHubExchange(state: 'on' | 'off'): Promise<void> {
+  psql(`UPDATE game.server_flags SET state = '${state}', updated_at = now() WHERE key = 'hub_exchange'`);
+  await sleep(5500);
+}
+
 export async function runHubExchange(test: TestFn): Promise<void> {
+  await test('hub-exchange', 'the exchange is closed while the hub_exchange flag is off', async () => {
+    await setHubExchange('off');
+    const session = await fundNobu(1, 'hx-closed');
+    const userId = session.hub.userId;
+    const closed = await hubExchange(session, NOBU, 100, 'hx-closed');
+    assert.equal(body(closed).error, 'exchange_off', JSON.stringify(closed.body));
+    const listed = (await call('tickets.balances', {}, session.hub.token)).body as BalancesBody & { exchangeEnabled?: boolean };
+    assert.equal(listed.exchangeEnabled, false);
+    assert.equal(listed.wallets?.find((wallet) => wallet.game === NOBU)?.balance, SESSION_CAP);
+    assert.equal(exchangeCount(userId), 0);
+    assert.equal(ticketBalance(userId, NOBU), SESSION_CAP);
+    assert.equal(verseBalance(userId), 0);
+  });
+  await setHubExchange('on');
+  try {
+    await hubExchangeOpen(test);
+  } finally {
+    await setHubExchange('off');
+  }
+}
+
+async function hubExchangeOpen(test: TestFn): Promise<void> {
   await test('hub-exchange', 'same key x6 sequential then x6 concurrent is one exchange', async () => {
     const session = await fundNobu(1, 'hx-seq');
     const userId = session.hub.userId;

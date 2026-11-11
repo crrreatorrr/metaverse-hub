@@ -93,18 +93,54 @@ for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as con
   assert.deepEqual(submit(game('sproto', '1'), { boardId: 'meta', value: 1 }), { accepted: false, reason: 'server_board' });
   assert.equal(submit({ userId: U, vars: { scope: 'hub' } }, { boardId: 'nobu_trial_time', value: 20000, meta: { level: 1 } }).error, 'not_game_session');
   assert.equal(submit(game('hpos10i'), { boardId: 'nope', value: 1 }).error, 'bad_board');
-  const hp = submit(game('hpos10i', '1'), { boardId: 'hpos10i_act_time', value: 40.4, meta: { act: 1 } });
+  const hp = submit(game('hpos10i', '1'), { boardId: 'hpos10i_act_time', value: 40.4, meta: { zone: 'z1_retro_rush_hills', act: 1 } });
   assert.equal(hp.value, 40, 'other boards round');
   assert.equal(submitted.at(-1)![8], '', 'no variant');
   const sql = mod.nk.sqlCalls.find((c) => c.sql.startsWith('WITH sess'))!.sql;
   // B4: only sproto still needs a ranked session; an unranked HPOS10I session posts its act time.
   assert.match(sql, /IN \('sproto'\) THEN 'unranked'/, 'hpos10i and nobu are not ranked-gated');
   assert.doesNotMatch(sql, /'hpos10i'[^)]*\) THEN 'unranked'/);
-  const unranked = submit({ userId: '00000000-0000-4000-8000-00000000bbbb', vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { boardId: 'hpos10i_act_time', value: 61.2, meta: { zone: 'z1_retro_rush_hills', act: 1 } });
+  const z1a1 = { zone: 'z1_retro_rush_hills', act: 1 };
+  const hposUser = (tail: string, ranked = '0', email = true) => {
+    const userId = `00000000-0000-4000-8000-0000000${tail}`;
+    if (email) mod.nk.accounts.set(userId, { user: { userId, username: `u${tail}` }, email: `${tail}@example.test` });
+    return { userId, vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked } };
+  };
+  const unranked = submit(hposUser('0bbbb'), { boardId: 'hpos10i_act_time', value: 61.2, meta: z1a1 });
   assert.deepEqual(unranked, { accepted: true, posted: true, value: 61, order: 'asc' });
   assert.deepEqual(plain(submitted.at(-1)!.slice(2, 7)), [false, 'hpos10i', 'hpos10i_act_time', 'asc', 61]);
+  // The SQL, not the client, picks the board half: unranked sessions write variant "open", which meta skips.
+  assert.match(sql, /game_id FROM sess\) = 'hpos10i' AND NOT COALESCE\(\(SELECT ranked FROM sess\), false\) THEN 'open' ELSE \$9::text END AS variant/);
+  assert.match(sql, /variant = \(SELECT variant FROM v\)/);
+  const HubBoards = mod.global.HubBoards as { recomputeMeta(nk: unknown, l: unknown): unknown; HPOS_FLOOR_S: number; HPOS_CEIL_S: number };
+  mod.nk.onSql('WITH scored AS', () => [{ result: '{"players":0,"updated":0}' }]);
+  mod.nk.onSql('DELETE FROM game.ranked_score AS m', () => [{ result: '{"removed":0}' }]);
+  HubBoards.recomputeMeta(mod.nk, mod.logger);
+  for (const call of mod.nk.sqlCalls.filter((c) => c.sql.startsWith('WITH scored AS') || c.sql.startsWith('WITH removed AS'))) {
+    assert.match(call.sql, /NOT \((s\.)?board_id = 'hpos10i_act_time' AND (s\.)?variant = 'open'\)/, 'open rows never feed meta');
+  }
+  // Bounds: nothing under the floor (the act at the physics speed cap) or over the ceiling reaches SQL.
+  assert.deepEqual([HubBoards.HPOS_FLOOR_S, HubBoards.HPOS_CEIL_S], [23, 1800]);
+  let tail = 0;
+  const next = () => hposUser(`c${String(++tail).padStart(4, '0')}`);
+  for (const value of [0, 1, 22.9, 1800.5, 99999]) {
+    const writes = submitted.length;
+    assert.equal(submit(next(), { boardId: 'hpos10i_act_time', value, meta: z1a1 }).error, 'implausible_score', String(value));
+    assert.equal(submitted.length, writes, `${value} never reaches SQL`);
+  }
+  assert.equal(submit(hposUser('0dddd', '1'), { boardId: 'hpos10i_act_time', value: 0, meta: z1a1 }).error, 'implausible_score', 'ranked posts are bounded too');
+  assert.equal(submit(next(), { boardId: 'hpos10i_act_time', value: 23, meta: z1a1 }).accepted, true, 'the floor itself is accepted');
+  assert.equal(submit(next(), { boardId: 'hpos10i_act_time', value: 1800, meta: z1a1 }).accepted, true);
+  // Only Zone 1 Act 1 is a board act.
+  for (const meta of [{}, { zone: 'z1_retro_rush_hills', act: 2 }, { zone: 'z2_wizard_academy', act: 1 }, { zone: 'z1_retro_rush_hills', act: '1' }]) {
+    assert.equal(submit(next(), { boardId: 'hpos10i_act_time', value: 60, meta }).error, 'bad_variant', JSON.stringify(meta));
+  }
+  // Guests (no email on the account) cannot post from an unranked session.
+  const writes = submitted.length;
+  assert.deepEqual(submit(hposUser('0eeee', '0', false), { boardId: 'hpos10i_act_time', value: 60, meta: z1a1 }), { accepted: false, reason: 'guest' });
+  assert.equal(submitted.length, writes, 'a guest post never reaches SQL');
   assert.deepEqual(
-    submit({ userId: '00000000-0000-4000-8000-00000000aaaa', vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { boardId: 'hpos10i_act_time', value: 50, godMode: true }),
+    submit(hposUser('0aaaa'), { boardId: 'hpos10i_act_time', value: 50, meta: z1a1, godMode: true }),
     { accepted: false, reason: 'god_mode' },
     'god mode still posts nothing',
   );
@@ -138,6 +174,12 @@ for (const [variant, floor] of [['4', 24000], ['6', 30000], ['5', 21000]] as con
     assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'coop_stage_clear_ms_v1', variant }).error, 'bad_variant', String(variant));
   }
   assert.equal(submit(game('sproto-coop-battle'), { boardId: 'coop_stage_clear_ms_v1', value: 1000, meta: {} }).error, 'bad_board');
+  // HPOS10I: "" is the ranked standings, "open" the hub-session rows.
+  mod.call('leaderboard.top', hub, { boardId: 'hpos10i_act_time', variant: 'open' });
+  assert.deepEqual(plain(topArgs), ['hpos10i_act_time', 'asc', U, 'open', 10]);
+  mod.call('leaderboard.top', hub, { boardId: 'hpos10i_act_time' });
+  assert.deepEqual(plain(topArgs), ['hpos10i_act_time', 'asc', U, '', 10]);
+  assert.equal(mod.call<Record<string, unknown>>('leaderboard.top', hub, { boardId: 'hpos10i_act_time', variant: 'ranked' }).error, 'bad_variant');
   mod.call('leaderboard.top', hub, { boardId: 'meta' });
   assert.deepEqual(plain(topArgs), ['meta', 'desc', U, '', 10]);
 }

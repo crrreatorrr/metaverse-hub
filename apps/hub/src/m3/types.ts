@@ -41,6 +41,8 @@ export interface OrbitAvatar {
 /** Bar wall screen, in cycle order. Verse boards are per game id plus the wallet total. */
 export const HUB_BOARD_IDS = [
   'hpos10i_act_time',
+  // What a normal (unranked) hub session posts: its own rows, kept out of the ranked standings and `meta`.
+  'hpos10i_act_time:open',
   // NOBU time trials: one server board (nobu_trial_time), one page per level (variant), values in integer ms.
   'nobu_trial_time:1v2',
   'nobu_trial_time:2v2',
@@ -69,12 +71,13 @@ export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
 /**
  * Pages the Bar wall cycles through (plan item A4). A page is listed only when a normal,
  * hub-entered session can put rows on it:
- * - `hpos10i_act_time` is back: the server accepts HPOS10I's unranked post (B4, leaderboard.ts).
+ * - `hpos10i_act_time` (the ranked rows) stays out: the plaza cannot open a ranked session. Normal
+ *   sessions post to `hpos10i_act_time:open` (B4, leaderboard.ts), which is the page shown.
  * - `verse_by_game_hpos10i` is back: HPOS10I Tickets exchange from the Wallet tab (B1, verse.exchange).
- * Nothing is excluded now. A page that can never fill goes here; apps/hub/test/boards.test.ts
- * fails when a listed page needs a ranked session the plaza cannot open.
+ * A page that can never fill goes here; apps/hub/test/boards.test.ts fails when a listed page
+ * needs a ranked session the plaza cannot open.
  */
-export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = [];
+export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = ['hpos10i_act_time'];
 export const BAR_BOARD_IDS: readonly HubBoardId[] = HUB_BOARD_IDS.filter((id) => !BAR_DEAD_BOARD_IDS.includes(id));
 
 /** The Classic NOBU layouts sit behind the current ones: a Classic page shows only when it has rows. */
@@ -111,7 +114,8 @@ export function barLoopLength(
 export const NO_SCORES_TEXT = 'No scores yet. Be the first.';
 
 export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'desc'; unit: string }> = {
-  hpos10i_act_time: { title: 'HPOS10I', order: 'asc', unit: 'best act time' },
+  hpos10i_act_time: { title: 'HPOS10I · RANKED', order: 'asc', unit: 'best act time' },
+  'hpos10i_act_time:open': { title: 'HPOS10I', order: 'asc', unit: 'best time, Retro Rush Hills act 1' },
   'nobu_trial_time:1v2': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:2v2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:3v2': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
@@ -165,6 +169,7 @@ export interface NewNumberOneEvent {
 export function gameForBoard(boardId: HubBoardId): GameId | null {
   switch (boardId) {
     case 'hpos10i_act_time':
+    case 'hpos10i_act_time:open':
     case 'verse_by_game_hpos10i':
       return 'hpos10i';
     case 'nobu_trial_time:1':
@@ -214,7 +219,7 @@ export function formatTrialMs(ms: number): string {
 
 export function formatBoardScore(boardId: HubBoardId, score: number): string {
   if (boardId.startsWith('nobu_trial_time') || boardId.startsWith('coop_stage_clear_ms_v1')) return formatTrialMs(score);
-  if (boardId === 'hpos10i_act_time') {
+  if (boardId === 'hpos10i_act_time' || boardId === 'hpos10i_act_time:open') {
     const safe = Number.isFinite(score) ? Math.max(0, score) : 0;
     const minutes = Math.floor(safe / 60);
     const seconds = safe - minutes * 60;

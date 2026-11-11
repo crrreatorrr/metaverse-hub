@@ -582,7 +582,7 @@ async function runPeoplesBitcoinHub(runner: GateRunner): Promise<void> {
       key: 'pb-relic-key',
     }, session.gameToken);
     const detail = JSON.stringify(granted.body);
-    // 0060_relic_unhold: the tutorial quest grants the Shard live, once, with no Tickets or Verse.
+    // 0061_relic_unhold: the tutorial quest grants the Shard live, once, with no Tickets or Verse.
     const shard = (table: string, column = 'relic_id') =>
       num(`SELECT count(*) FROM game.${table} WHERE user_id = '${sqlId(user)}' AND ${column} = 'genesis_shard'`);
     assert.equal(granted.body.error, undefined, detail);

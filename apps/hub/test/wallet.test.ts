@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { GAME_IDS, TICKETS_PER_VERSE, VERSE_DAILY_CAP } from '@metaverse/hub-sdk';
 import {
+  WALLET_CLOSED_TEXT,
   WALLET_GAMES,
   WALLET_RATE_LINE,
   applyExchange,
@@ -70,6 +71,15 @@ assert.ok(WALLET_RATE_LINE.includes('10 Tickets = 1 Verse') && WALLET_RATE_LINE.
   assert.deepEqual(after.rows.find((row) => row.game === 'sproto-coop-battle'), { game: 'sproto-coop-battle', label: 'Sproto Coop Battle', balance: 0, verseCapLeft: 2 });
   assert.equal(after.rows.find((row) => row.game === 'nobu')?.balance, 15, 'other rows untouched');
   assert.equal(walletFromAnswer({}).rows.every((row) => row.balance === 0 && row.verseCapLeft === 50), true);
+  // The hub_exchange flag: only an explicit true from the server opens the buttons.
+  assert.equal(state.exchangeEnabled, false, 'a missing field keeps the exchange closed');
+  assert.equal(walletFromAnswer({ exchangeEnabled: true }).exchangeEnabled, true);
+  assert.equal(walletFromAnswer({ exchangeEnabled: 'yes' as unknown as boolean }).exchangeEnabled, false);
+  assert.equal(applyExchange(walletFromAnswer({ exchangeEnabled: true }), 'nobu', { verse: 1, ticketsLeft: 0, verseCapLeft: 49 }).exchangeEnabled, true);
+  assert.equal(exchangeErrorText('exchange_off'), WALLET_CLOSED_TEXT);
+  const menu = readFileSync(new URL('../src/menu.ts', import.meta.url), 'utf8');
+  assert.match(menu, /const closed = !walletState\.exchangeEnabled;/);
+  assert.match(menu, /button\.disabled = closed \|\|/, 'a closed exchange disables every Exchange button');
 }
 
 // A retry reuses its key until the server answers; a new request after that gets a new key.
@@ -85,7 +95,7 @@ assert.ok(WALLET_RATE_LINE.includes('10 Tickets = 1 Verse') && WALLET_RATE_LINE.
   assert.equal(made, 4);
 }
 
-for (const code of ['verse_cap', 'insufficient_tickets', 'below_rate', 'rate_limited', 'anything_else']) {
+for (const code of ['exchange_off', 'verse_cap', 'insufficient_tickets', 'below_rate', 'rate_limited', 'anything_else']) {
   const text = exchangeErrorText(code);
   assert.ok(text.length > 10 && !text.includes('_'), text);
 }

@@ -1,20 +1,20 @@
 /**
- * Interim hold (0033) and its release (0060_relic_unhold).
+ * Interim hold (0033) and its release (0061_relic_unhold).
  * A row in `game.relic_claim_pending` or `game.item_owned_pending` is status
  * held (PK user + id, no status column). Promote deletes that row and writes
  * one live claim. init() is `profile.get`, which reads live tables only.
  *
- * Production state after 0060: only hub_life_medal is held. tidebreaker_belt,
+ * Production state after 0061: only hub_life_medal is held. tidebreaker_belt,
  * genesis_shard, pet_honk_sproto, pet_spiral_sproto, pet_moon_sproto and
  * pet_sproto_pup are live, and the claims that were pending for them were
  * promoted once. The first case below replays that migration on Nakama's real boot.
  *
- * The hold mechanism still guards hub_life_medal and is what 0060 promoted from,
+ * The hold mechanism still guards hub_life_medal and is what 0061 promoted from,
  * so the mechanism cases keep running: `armTestHolds` re-arms the Shard and Honk
  * rules for them and `runHold` puts the production state back in a finally block.
  * Live throughout: cones_tip, tinubu_crown, pet_presidential_sproto, pet_mecha_sproto,
  * pet_conehead_sproto, breakwater_coin, hpos10i_core (0043), marina_anchor,
- * dragon_scale, tidebreaker_belt (0060).
+ * dragon_scale, tidebreaker_belt (0061).
  */
 import assert from 'node:assert/strict';
 import {
@@ -49,7 +49,7 @@ const HELD_IDS = [
   'hub_life_medal',
 ] as const;
 
-/** The six grants 0060_relic_unhold released. */
+/** The six grants 0061_relic_unhold released. */
 const RELEASED_RELICS = ['genesis_shard', 'tidebreaker_belt'] as const;
 const RELEASED_PETS = ['pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup'] as const;
 
@@ -69,7 +69,7 @@ function armTestHolds(on: boolean): void {
   `);
 }
 
-/** Every hold 0033 set for the six released ids, as it was before 0060. */
+/** Every hold 0033 set for the six released ids, as it was before 0061. */
 function restorePre0060Holds(): void {
   psql(`
     UPDATE game.event_rule SET grant_hold = true WHERE relic_id IN (${quoted(RELEASED_RELICS)});
@@ -203,9 +203,9 @@ function seedLiveShard(userId: string, sessionId: string): string {
 }
 
 /**
- * 0060_relic_unhold on Nakama's real boot. Put the six rules back on hold, park claims the way
+ * 0061_relic_unhold on Nakama's real boot. Put the six rules back on hold, park claims the way
  * 0033 did (two clears each, as replays arrive), then delete the migration's ledger row and restart:
- * the runner applies 0060 again. Every pending claim must become exactly one live claim.
+ * the runner applies 0061 again. Every pending claim must become exactly one live claim.
  */
 async function migrationPromotesPending(): Promise<void> {
   const owner = await login('sproto-fighter');
@@ -245,12 +245,12 @@ async function migrationPromotesPending(): Promise<void> {
       }
     }
   } finally {
-    psql("DELETE FROM game.schema_migrations WHERE id = '0060_relic_unhold'");
+    psql("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
     compose(['restart', 'nakama']);
     compose(['up', '-d', '--no-recreate', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
     await waitReady();
   }
-  assert.equal(num("SELECT count(*) FROM game.schema_migrations WHERE id = '0060_relic_unhold'"), 1, '0060 was applied again on boot');
+  assert.equal(num("SELECT count(*) FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1, '0061 was applied again on boot');
   assert.equal(productionHolds(), 'hub_life_medal');
   assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE relic_id IN (${quoted(RELEASED_RELICS)})`), 0);
   assert.equal(num(`SELECT count(*) FROM game.item_owned_pending WHERE item_id IN (${quoted(RELEASED_PETS)})`), 0);
@@ -289,8 +289,8 @@ async function migrationPromotesPending(): Promise<void> {
 }
 
 export async function runHold(test: TestFn): Promise<void> {
-  await test('hold', '0060 promotes pending Belt, Shard and pet claims exactly once and keeps existing ownership', migrationPromotesPending);
-  await test('hold', 'after 0060 only hub_life_medal is held', async () => {
+  await test('hold', '0061 promotes pending Belt, Shard and pet claims exactly once and keeps existing ownership', migrationPromotesPending);
+  await test('hold', 'after 0061 only hub_life_medal is held', async () => {
     assert.equal(productionHolds(), 'hub_life_medal');
   });
   // The 0033 mechanism cases need a held Relic and a held pet: arm them for this block only.

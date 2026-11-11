@@ -3591,7 +3591,7 @@ namespace HubSchema {
       // per game per UTC day, the 10:1 rate, the idempotency table and the same five writes. The
       // in-game function is not replaced. No table changes, no new mint: it only debits Tickets the
       // account already holds.
-      id: "0059_hub_exchange",
+      id: "0060_hub_exchange",
       statements: [
         `CREATE OR REPLACE FUNCTION game.exchange_tickets_hub(
            p_user_id uuid, p_game_id text,
@@ -3693,14 +3693,25 @@ namespace HubSchema {
       //   Relics: genesis_shard (peoples-bitcoin, pb.quest_complete) and tidebreaker_belt
       //           (sproto-fighter, fighter.story_level_complete).
       //   Pets:   pet_honk_sproto, pet_spiral_sproto (hpos10i), pet_moon_sproto, pet_sproto_pup (peoples-bitcoin).
+      //
+      // The release is unconditional: it happens when this migration is applied, on deploy. The
+      // relic_unhold flag 0042 seeded was never read and cannot gate a migration. Nothing reads it:
+      // the key is gone from Flags.LAUNCH_FLAGS and its seeded row is left in place, inert.
+      //
       // Unlike 0043, which deleted pending Core claims, every pending row for these six ids is
-      // promoted with game.promote_pending_grant: the player already did the work. That function is
-      // earn-once (ON CONFLICT DO NOTHING on the live table, then it deletes the pending row), writes
-      // the same item_ledger row and game_beaten row as a live claim, and pays no Tickets or Verse.
-      // hub_life_medal stays held: it gates the Hatchery. The last statement fails the migration,
-      // and with it the boot, if any row for the six ids is still pending.
-      id: "0060_relic_unhold",
+      // promoted: the player already did the work. Promotion is set-based, with the same rows
+      // game.promote_pending_grant writes (one live claim, one item_ledger row, game_beaten for a
+      // Relic; no Tickets, no Verse) and ON CONFLICT DO NOTHING on the live tables, so an account
+      // that already owns the grant keeps its row and only loses the pending shadow. It does not
+      // call promote_pending_grant per row: that function takes one advisory lock per account, held
+      // to commit, and a large pending set would exhaust the shared lock table and fail every boot.
+      // Two table locks stand in for them. A promoted claim keeps the time the player qualified
+      // (the pending row's created_at) as claimed_at / acquired_at, so the Hall of Champions order
+      // follows who finished first. hub_life_medal stays held: it gates the Hatchery. The last
+      // statement fails the migration, and with it the boot, if any of the six is still pending.
+      id: "0061_relic_unhold",
       statements: [
+        "LOCK TABLE game.relic_claim_pending, game.item_owned_pending IN ACCESS EXCLUSIVE MODE",
         `UPDATE game.event_rule SET grant_hold = false
          WHERE (game_id, event_type, relic_id) IN (
            ('sproto-fighter', 'fighter.story_level_complete', 'tidebreaker_belt'),
@@ -3713,18 +3724,36 @@ namespace HubSchema {
            ('peoples-bitcoin', 'pb.quest_complete', 'pet_moon_sproto'),
            ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup')
          )`,
-        `SELECT game.promote_pending_grant(p.user_id, 'relic', p.relic_id)
-         FROM (
-           SELECT user_id, relic_id FROM game.relic_claim_pending
-           WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')
-           ORDER BY created_at, user_id, relic_id
-         ) p`,
-        `SELECT game.promote_pending_grant(p.user_id, 'item', p.item_id)
-         FROM (
-           SELECT user_id, item_id FROM game.item_owned_pending
-           WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
-           ORDER BY created_at, user_id, item_id
-         ) p`,
+        `WITH moved AS (
+           INSERT INTO game.relic_claim (user_id, relic_id, session_id, event_id, claimed_at)
+           SELECT p.user_id, p.relic_id, p.session_id, gen_random_uuid(), p.created_at
+           FROM game.relic_claim_pending p
+           WHERE p.relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ON CONFLICT (user_id, relic_id) DO NOTHING
+           RETURNING user_id, relic_id, session_id, event_id
+         ), ledger AS (
+           INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+           SELECT m.event_id, m.user_id, 'grant_relic', m.relic_id, p.game_id, m.session_id
+           FROM moved m
+           JOIN game.relic_claim_pending p ON p.user_id = m.user_id AND p.relic_id = m.relic_id
+         )
+         INSERT INTO game.game_beaten (user_id, game_id, relic_id)
+         SELECT m.user_id, p.game_id, m.relic_id
+         FROM moved m
+         JOIN game.relic_claim_pending p ON p.user_id = m.user_id AND p.relic_id = m.relic_id
+         ON CONFLICT (user_id, game_id) DO NOTHING`,
+        "DELETE FROM game.relic_claim_pending WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')",
+        `WITH moved AS (
+           INSERT INTO game.item_owned (user_id, item_id, source, ref_id, acquired_at)
+           SELECT p.user_id, p.item_id, 'event', gen_random_uuid(), p.created_at
+           FROM game.item_owned_pending p
+           WHERE p.item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ON CONFLICT (user_id, item_id) DO NOTHING
+           RETURNING user_id, item_id, ref_id
+         )
+         INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+         SELECT m.ref_id, m.user_id, 'grant_item', m.item_id, 'event', m.ref_id FROM moved m`,
+        "DELETE FROM game.item_owned_pending WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')",
         `DO $chk$
          BEGIN
            IF EXISTS (
@@ -3732,6 +3761,8 @@ namespace HubSchema {
            ) OR EXISTS (
              SELECT 1 FROM game.item_owned_pending
              WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ) OR EXISTS (
+             SELECT 1 FROM game.event_rule WHERE grant_hold AND relic_id IN ('genesis_shard', 'tidebreaker_belt')
            ) THEN
              RAISE EXCEPTION 'relic_unhold_left_pending';
            END IF;

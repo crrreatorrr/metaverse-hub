@@ -200,7 +200,7 @@ function grantFailure(flow: RelicFlow, body: RpcBody | undefined): string | null
   return `expected ${flow.relicId}, got ${detail}`;
 }
 
-/** Architect hold (0033 grant_hold). 0060_relic_unhold released the last two held Relics (Genesis Block Shard, Tidebreaker Belt): every Relic flow is live. */
+/** Architect hold (0033 grant_hold). 0061_relic_unhold released the last two held Relics (Genesis Block Shard, Tidebreaker Belt): every Relic flow is live. */
 const HELD_RELICS = new Set<string>();
 
 function isHeldRelic(flow: RelicFlow): boolean {
@@ -1156,10 +1156,18 @@ async function hposExtras(): Promise<void> {
     assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
-  await test('score', 'hpos10i_act_time from an unranked session posts nothing', async () => {
+  // Unranked (plaza-entered) HPOS10I sessions post to the "open" half of the board, for accounts
+  // only. login() is a device guest, so its post is refused; bounds are checked before that.
+  await test('score', 'hpos10i_act_time from an unranked guest session posts nothing, and a time under the floor is refused', async () => {
     const session = await login('hpos10i');
     const skipped = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 1 } }, session.gameToken);
-    assert.deepEqual(skipped.body, { accepted: false, reason: 'unranked' });
+    assert.deepEqual(skipped.body, { accepted: false, reason: 'guest' });
+    for (const value of [0, 22.9, 1800.5]) {
+      const refused = await call('score.submit', { boardId: 'hpos10i_act_time', value, meta: { zone, act: 1 } }, session.gameToken);
+      assert.equal(refused.body.error, 'implausible_score', `${value} ${JSON.stringify(refused.body)}`);
+    }
+    const otherAct = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 2 } }, session.gameToken);
+    assert.equal(otherAct.body.error, 'bad_variant', JSON.stringify(otherAct.body));
     assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}'`), 0);
   });
 
@@ -1173,7 +1181,7 @@ async function hposExtras(): Promise<void> {
     const tooSoon = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30, meta }, session.gameToken);
     assert.equal(tooSoon.body.error, 'rate_limited', JSON.stringify(tooSoon.body));
     await sleep(SCORE_GAP_MS);
-    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta: { zone, act: 2 } }, session.gameToken);
+    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta }, session.gameToken);
     assert.equal(worse.body.error, undefined, JSON.stringify(worse.body));
     assert.equal(worse.body.value, 40);
     assert.equal(worse.body.posted, false);

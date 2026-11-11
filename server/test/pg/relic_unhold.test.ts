@@ -1,4 +1,4 @@
-// B3: 0060_relic_unhold on a real Postgres. Held grants become live, pending claims are promoted
+// B3: 0061_relic_unhold on a real Postgres. Held grants become live, pending claims are promoted
 // exactly once, hub_life_medal stays held, and nothing pays Tickets or Verse.
 // B2: the ten Fighter story bosses pay 20 Tickets once per boss per UTC day.
 import assert from 'node:assert/strict';
@@ -38,7 +38,7 @@ const profile = (user: string) => mod.call<Profile>('profile.get', hubCtx(user),
 {
   assert.deepEqual(pg.run('SELECT relic_id FROM game.event_rule WHERE grant_hold ORDER BY 1').map((r) => r.relic_id), []);
   assert.deepEqual(pg.run('SELECT item_id FROM game.item_rule WHERE grant_hold ORDER BY 1').map((r) => r.item_id), ['hub_life_medal']);
-  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0060_relic_unhold'"), 1);
+  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1);
 }
 
 // A fresh account gets each of the six at once, exactly once, with no Tickets and no Verse.
@@ -79,7 +79,7 @@ for (const pet of PETS) {
 }
 
 // The migration itself: put the database back to the held state, park claims the way 0033 did,
-// then let the real runner apply 0060 again (delete its ledger row and boot a second module).
+// then let the real runner apply 0061 again (delete its ledger row and boot a second module).
 const HOLD_RELICS = `UPDATE game.event_rule SET grant_hold = true WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')`;
 const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')`;
 {
@@ -124,10 +124,10 @@ const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN 
   assert.equal(medalPending, 1);
   const ledgerBefore = count(pg, 'SELECT 1 FROM game.tickets_ledger') + count(pg, 'SELECT 1 FROM game.verse_ledger');
 
-  pg.run("DELETE FROM game.schema_migrations WHERE id = '0060_relic_unhold'");
+  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
   const rebooted = pg.reload();
   assert.deepEqual(rebooted.logger.lines.filter((line) => line.level === 'error'), []);
-  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0060_relic_unhold'"), 1);
+  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1);
 
   // Promoted exactly once: one live claim, one ledger mint, no pending row, game_beaten written.
   for (const relic of RELICS) {
@@ -175,10 +175,77 @@ const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN 
   }
 
   // Applying the migration once more changes nothing (no pending rows, same counts).
-  pg.run("DELETE FROM game.schema_migrations WHERE id = '0060_relic_unhold'");
+  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
   pg.reload();
   for (const relic of RELICS) assert.equal(mints(waiting, relic.id, 'grant_relic'), 1);
   for (const pet of PETS) assert.equal(mints(waiting, pet.id, 'grant_item'), 1);
+  pg.audit();
+}
+
+// A large pending set (QA: one advisory lock per account exhausted the shared lock table at 20,000
+// and then every boot failed). 25,000 accounts wait for the Shard, on Postgres's default
+// max_locks_per_transaction; 0061 must apply in one transaction and promote every one of them.
+{
+  pg.run(HOLD_RELICS);
+  pg.run(HOLD_PETS);
+  const BULK = 25_000;
+  assert.equal(pg.run('SHOW max_locks_per_transaction')[0]!.max_locks_per_transaction, '64', 'default lock table');
+  pg.run(
+    `INSERT INTO game.relic_claim_pending (user_id, relic_id, session_id, game_id, event_type, data, created_at)
+     SELECT ('20000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, 'genesis_shard', gen_random_uuid(),
+            'peoples-bitcoin', 'pb.quest_complete', '{"questId":"quest_tutorial"}'::jsonb,
+            timestamptz '2026-06-01 00:00:00+00' + (n * interval '1 second')
+     FROM generate_series(1, $1::int) n`,
+    [BULK],
+  );
+  pg.run(
+    `INSERT INTO game.item_owned_pending (user_id, item_id, session_id, game_id, event_type, data, created_at)
+     SELECT ('20000000-0000-4000-8000-' || lpad(n::text, 12, '0'))::uuid, 'pet_moon_sproto', gen_random_uuid(),
+            'peoples-bitcoin', 'pb.quest_complete', '{}'::jsonb, timestamptz '2026-06-01 00:00:00+00' + (n * interval '1 second')
+     FROM generate_series(1, 5000) n`,
+  );
+  // Hall order (QA): three accounts hold the other three Lights and wait for the Shard. They qualified
+  // in the order c, a, b; their uuids sort a, b, c. Promotion must keep the order they qualified in.
+  const hall = { a: '30000000-0000-4000-8000-00000000000a', b: '30000000-0000-4000-8000-00000000000b', c: '30000000-0000-4000-8000-00000000000c' };
+  const qualified: [string, string, string][] = [[hall.c, 'hall_c', '2026-07-01'], [hall.a, 'hall_a', '2026-07-02'], [hall.b, 'hall_b', '2026-07-03']];
+  for (const [id, name, day] of qualified) {
+    pg.run('INSERT INTO users (id, username) VALUES ($1::uuid, $2)', [id, name]);
+    for (const relic of ['hpos10i_core', 'cones_tip', 'tinubu_crown']) {
+      pg.run(
+        `WITH ev AS (SELECT gen_random_uuid() AS id), c AS (
+           INSERT INTO game.relic_claim (user_id, relic_id, session_id, event_id, claimed_at)
+           SELECT $1::uuid, $2, gen_random_uuid(), id, timestamptz '2026-01-01 00:00:00+00' FROM ev)
+         INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+         SELECT id, $1::uuid, 'grant_relic', $2, 'test', gen_random_uuid() FROM ev`,
+        [id, relic],
+      );
+    }
+    pg.run(
+      `INSERT INTO game.relic_claim_pending (user_id, relic_id, session_id, game_id, event_type, data, created_at)
+       VALUES ($1::uuid, 'genesis_shard', gen_random_uuid(), 'peoples-bitcoin', 'pb.quest_complete', '{}'::jsonb, $2::timestamptz)`,
+      [id, `${day} 00:00:00+00`],
+    );
+  }
+  const claimsBefore = count(pg, "SELECT 1 FROM game.relic_claim WHERE relic_id = 'genesis_shard'");
+  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+  const booted = pg.reload();
+  assert.deepEqual(booted.logger.lines.filter((line) => line.level === 'error'), [], 'the boot applies 0061 without running out of lock memory');
+  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1);
+  assert.equal(count(pg, "SELECT 1 FROM game.relic_claim WHERE relic_id = 'genesis_shard'"), claimsBefore + BULK + 3);
+  assert.equal(count(pg, "SELECT 1 FROM game.relic_claim_pending WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')"), 0);
+  assert.equal(count(pg, "SELECT 1 FROM game.item_owned_pending WHERE item_id <> 'hub_life_medal'"), 0);
+  assert.equal(count(pg, "SELECT 1 FROM game.item_owned WHERE item_id = 'pet_moon_sproto' AND user_id::text LIKE '20000000-%'"), 5000);
+  // One mint and one game_beaten row per promoted claim; the claim keeps the time the player qualified.
+  assert.equal(count(pg, "SELECT 1 FROM game.item_ledger WHERE op = 'grant_relic' AND item_id = 'genesis_shard' AND user_id::text LIKE '20000000-%'"), BULK);
+  assert.equal(count(pg, "SELECT 1 FROM game.game_beaten WHERE relic_id = 'genesis_shard' AND user_id::text LIKE '20000000-%'"), BULK);
+  assert.equal(count(pg, "SELECT 1 FROM game.item_ledger WHERE op = 'grant_item' AND item_id = 'pet_moon_sproto' AND user_id::text LIKE '20000000-%'"), 5000);
+  assert.equal(
+    pg.run("SELECT (claimed_at AT TIME ZONE 'utc')::text AS at FROM game.relic_claim WHERE user_id = '20000000-0000-4000-8000-000000000007' AND relic_id = 'genesis_shard'")[0]!.at,
+    '2026-06-01 00:00:07',
+  );
+  mod.nk.localcache.clear();
+  const champions = mod.call<{ champions: { name: string }[] }>('hub.champions', hubCtx(hall.a), {}).champions;
+  assert.deepEqual(champions.map((row) => row.name), ['hall_c', 'hall_a', 'hall_b'], 'Hall order is the order they qualified, not uuid order');
   pg.audit();
 }
 

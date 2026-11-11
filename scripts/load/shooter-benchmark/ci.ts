@@ -14,12 +14,13 @@ import { runPlan, InstrumentationFailure, SutUnavailable, CoordinatorMetricsUnav
 import { countPlannedCoordinatorUnavailable } from './control.ts';
 import { checkpointChanges, metricReadColumns } from './evidence-codec.ts';
 import { beginClientMeasurement, type ClientProbe } from './client-gate.ts';
-import { clientOverlap } from './client-validation.ts';
+import { clientOverlap, clientWorkloadCompletion } from './client-validation.ts';
 import { LEGACY_SEGMENT_FRAMES } from './budget.ts';
 import { inputCoverage, shortInputCoverage } from './coverage.ts';
 import { FIXTURE_MAX_RUNS, FIXTURE_RESERVED_BYTES, FIXTURE_CP_RESERVED_BYTES, assertFixtureCohortFits, assertFixtureRemainingCapacity, type FixtureCapacity } from './fixture-config.ts';
 import { createWorkerLifecycle } from './worker-lifecycle.mjs';
 import { validateResult, ResultValidationFailure } from './result-validation.ts';
+import { collectResultStages } from './result-stage-collector.mjs';
 const exec = promisify(execFile);
 let controllerStage = 'startup';
 let hardExitRequired = false;
@@ -29,6 +30,38 @@ function retainClientCleanup(value: unknown): void {
   if (state !== 'closed' && state !== 'forced') hardExitRequired = true;
 }
 let failureFacts: Record<string, unknown> = {};
+const resultTraceEnabled = process.env.SHOOTER_BENCHMARK_RESULT_TRACE === '1';
+let resultTraceContainer: string | null = null;
+let resultTraceManifest: Record<string, unknown> | null = null;
+let resultTraceCapture: Promise<Record<string, unknown>> | null = null;
+async function loadResultTraceManifest(): Promise<void> {
+  if (!resultTraceEnabled) return;
+  if (process.env.GITHUB_ACTIONS !== 'true' || process.env.HUB_SHOOTER_FIXTURE !== 'benchmark' || !process.env.RUNNER_TEMP) throw new InstrumentationFailure('result_stage_fixture_required');
+  const bytes = await readFile(join(process.env.RUNNER_TEMP, 'shooter-result-stage-manifest.json'));
+  if (bytes.length > 8192) throw new InstrumentationFailure('result_stage_manifest_invalid');
+  const raw = JSON.parse(bytes.toString('utf8'));
+  const paths = ['server/modules/src/games/shooter_verification_internal.ts', 'server/modules/src/games/shooter_verification_commit.ts'];
+  const hash = (value: unknown) => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+  if (!raw || raw.version !== 1 || raw.kind !== 'ci_result_stage_instrumentation' || !hash(raw.instrumenterSha256) || raw.instrumenterSha256 !== sha256(await readFile('scripts/load/shooter-benchmark/instrument-result-stages.mjs')) || !Array.isArray(raw.sources) || raw.sources.length !== 2) throw new InstrumentationFailure('result_stage_manifest_invalid');
+  const sources = [];
+  for (const path of paths) {
+    const entries = raw.sources.filter((entry: { path?: unknown }) => entry?.path === path);
+    if (entries.length !== 1 || !hash(entries[0].originalSha256) || !hash(entries[0].instrumentedSha256) || sha256(await readFile(path)) !== entries[0].instrumentedSha256) throw new InstrumentationFailure('result_stage_source_not_instrumented');
+    sources.push({ path, originalSha256: entries[0].originalSha256, instrumentedSha256: entries[0].instrumentedSha256 });
+  }
+  resultTraceManifest = { version: 1, kind: 'ci_result_stage_instrumentation', instrumenterSha256: raw.instrumenterSha256, sources };
+}
+function captureResultStages(): Promise<Record<string, unknown>> {
+  resultTraceCapture ??= (async () => {
+    if (!resultTraceEnabled) return { state: 'disabled' };
+    if (!resultTraceContainer) return { state: 'unavailable', reason: 'nakama_identity_unavailable', instrumentation: resultTraceManifest };
+    try {
+      const trace = await collectResultStages(resultTraceContainer);
+      return { state: trace.state === 'observed' && trace.counts.acceptedRecords > 0 ? 'observed' : 'unavailable', instrumentation: resultTraceManifest, scope: 'post_measurement_server_wall_events_do_not_reopen_actor_outcomes', trace };
+    } catch { return { state: 'unavailable', reason: 'bounded_stage_collector_failed', instrumentation: resultTraceManifest }; }
+  })();
+  return resultTraceCapture;
+}
 
 const composeFiles = ['-f', 'server/docker-compose.yml', '-f', 'services/shooter-verifier/ops/compose.ci.yml', '-f', 'scripts/load/shooter-benchmark/compose.ci.yml', '--profile', 'shooter-verification'];
 function directory(): string {
@@ -96,6 +129,7 @@ const metricsFile = (id: string, signal?: AbortSignal) => observerFile(id, 'metr
 async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode: 'bounded_v8_same_host' | 'legacy_full_goja' | 'legacy_segmented_goja' = 'bounded_v8_same_host', clientProbe?: ClientProbe): Promise<void> {
   controllerStage = 'load_plan';
   const root = directory();
+  await loadResultTraceManifest();
   const corpusBytes = await readFile('server/test/fixtures/shooter-integration-corpus.json');
   const plan = makePlan(JSON.parse(corpusBytes.toString('utf8')) as Corpus, corpusBytes, 'ci-twenty-independent-v1', mode);
   // Separate finite CI profiles retain full hard traces. None establishes
@@ -112,6 +146,7 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
     const id = await compose(['ps', '-q', service]);
     if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('missing actual container identity'); ids.set(service, id);
   }
+  resultTraceContainer = ids.get('nakama')!;
   const originalIds = JSON.parse(await readFile(join(root, 'stack-identities.json'), 'utf8'));
   if (originalIds.nakama !== ids.get('nakama') || originalIds.postgres !== ids.get('postgres')) throw new Error('worker startup replaced the measured Hub/database');
   const readyDeadline = Date.now() + 5000;
@@ -164,7 +199,7 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   const result = await runPlan(plan, pipeline);
   const plannedCoordinatorUnavailable = countPlannedCoordinatorUnavailable(result.observations, controlledOfflineIntervals);
   const unexpectedObserverFailures = result.observerFailures - plannedCoordinatorUnavailable;
-  failureFacts = { plannedActors: result.summary.plannedActors, harnessStatus: result.harnessStatus, actors: result.actors.map(actor => ({ actor: actor.actor, wave: actor.wave, caseId: actor.caseId, sourceFrames: actor.sourceFrames, sourceInputSha256: actor.sourceInputSha256, accountBindingHash: actor.accountBindingHash, sessionBindingHash: actor.sessionBindingHash, runBindingHash: actor.runBindingHash, status: actor.status, rawReason: actor.rawReason && /^[a-z0-9_:.|-]{1,80}$/.test(actor.rawReason) ? actor.rawReason : actor.rawReason === null ? null : 'redacted', submittedFrames: actor.submittedFrames, acceptedTick: actor.acceptedTick, verifiedTick: actor.verifiedTick, observedPaid: actor.observedPaid, paid: actor.paid })), observerAttempts: result.observations.length, observerFailures: result.observerFailures, plannedCoordinatorUnavailable, controlledOfflineIntervals, measurementAvailability: { serverSamples: samples.length, coordinatorSamples: queueSamples.length, checkpointSamples: checkpointSamples.length, matchMetrics: pipeline.matchMetrics().length, metricReads: pipeline.backgroundMetricReads().length }, fixtureCapacity, phaseKindsObserved: result.phaseLifecycles.map(row => ({ phase: row.phase, kind: row.evidence.kind })), harnessFailures: result.harnessFailures, coordinationFailures: result.coordinationFailures };
+  failureFacts = { plannedActors: result.summary.plannedActors, harnessStatus: result.harnessStatus, actors: result.actors.map(actor => ({ actor: actor.actor, wave: actor.wave, caseId: actor.caseId, sourceFrames: actor.sourceFrames, sourceInputSha256: actor.sourceInputSha256, accountBindingHash: actor.accountBindingHash, sessionBindingHash: actor.sessionBindingHash, runBindingHash: actor.runBindingHash, status: actor.status, rawReason: actor.rawReason && /^[a-z0-9_:.|-]{1,80}$/.test(actor.rawReason) ? actor.rawReason : actor.rawReason === null ? null : 'redacted', submittedFrames: actor.submittedFrames, acceptedTick: actor.acceptedTick, verifiedTick: actor.verifiedTick, observedPaid: actor.observedPaid, paid: actor.paid })), observerAttempts: result.observations.length, observerFailures: result.observerFailures, plannedCoordinatorUnavailable, controlledOfflineIntervals, measurementAvailability: { serverSamples: samples.length, coordinatorSamples: queueSamples.length, checkpointSamples: checkpointSamples.length, matchMetrics: pipeline.matchMetrics().length, metricReads: pipeline.backgroundMetricReads().length }, fixtureCapacity, phaseKindsObserved: result.phaseLifecycles.map(row => ({ phase: row.phase, kind: row.evidence.kind })), fixturePreparation: result.preparationEvidence, harnessFailures: result.harnessFailures, coordinationFailures: result.coordinationFailures };
   controllerStage = 'freeze_actual_facts';
   const actorLatency = structuredClone([...pipeline.observations.values()]);
   failureFacts.coordinatorDiagnostics = retainDiagnosticFacts();
@@ -188,7 +223,9 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   const overlap = clientProbe && clientPopulation ? clientOverlap(clientPopulation, result.actors, actorLatency) : null;
   const clientGate = clientState.measurement?.evidence() ?? null;
   const clientComplete = !clientProbe || !!(overlap?.complete && clientGate?.reason === 'observed_positive_native_recording' && clientShutdown?.state === 'closed' && !clientMeasurementFailure);
-  failureFacts.client = clientProbe ? { observed: clientPopulation !== null, gate: clientGate, complete: clientComplete, failure: clientMeasurementFailure, shutdownState: clientShutdown?.state ?? null } : null;
+  const clientWorkload = clientProbe ? clientPopulation ? clientWorkloadCompletion(clientPopulation) : { complete: false, reason: 'client_population_unavailable', accountedActors: 0 } : null;
+  const clientWorkloadComplete = !clientProbe || clientWorkload?.complete === true;
+  failureFacts.client = clientProbe ? { observed: clientPopulation !== null, gate: clientGate, complete: clientComplete, failure: clientMeasurementFailure, workload: clientWorkload, shutdownState: clientShutdown?.state ?? null } : null;
 
   controllerStage = 'source_and_runtime_provenance';
   const images = await Promise.all([...ids].map(async ([role, id]) => ({ role, digest: (await exec('docker', ['inspect', '--format', '{{.Image}}', id], { timeout: 5000, maxBuffer: 1024, encoding: 'utf8' })).stdout.trim() })));
@@ -212,14 +249,16 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   controllerStage = 'encode_metric_read_metadata';
   const compactMetricReads = metricReadColumns(pipeline.backgroundMetricReads());
   controllerStage = 'build_safe_report';
+  failureFacts.resultStageDiagnostics = await captureResultStages();
+  const resultStageDiagnosticsComplete = !resultTraceEnabled || (failureFacts.resultStageDiagnostics as { state?: unknown }).state === 'observed';
   const report = { schemaVersion: 1, benchmarkId: `ci-${process.env.GITHUB_RUN_ID}`, authority: 'ci_advisory', profile: plan.profile, mode: plan.mode,
     scope: clientProbe ? 'one_additional_actual_dom_client_during20_whole_protocol_actors_one_shared_background_not_capacity_profile' : legacy ? 'one_twenty_actor_existing_legacy_public_rpc_baseline_not_parity_or_capacity_profile' : profile === 'lifecycle' ? 'two_independent_twenty_actor_cold_warm_process_waves_not_capacity_profile' : profile === 'sustained' ? 'three_independent_twenty_actor_waves_at_declared_30s_arrivals_not_capacity_profile' : 'one_twenty_actor_real_pipeline_retry_burst_not_capacity_profile', approvalReference: null, productionCapacityConclusion: null,
     provenance: { gameGitSha: legacy ? currentPin.commit : plan.source.corpusCommit, inputBuilderArtifactSha256: plan.source.artifactSha256, clientSourceCommit: clientPopulation?.clientSourceCommit ?? null, clientBrowserVersion: clientPopulation?.actualBrowserVersion ?? null, legacyExecutable: legacy ? currentPin : null, legacySegmentFrames: mode === 'legacy_segmented_goja' ? LEGACY_SEGMENT_FRAMES : null, prior4096SegmentCiEvidence: mode === 'legacy_segmented_goja' ? { runId: 43007158079, head: '31489b032a73db1398f78228f4a19f949a41e49a', submittedFrames: 57863, verifiedFrames: 16903, cpuBudgetTimeouts: 10, paid: 3, capacityConclusion: null } : null, images, runtimes: { loadGeneratorNode: process.version, coordinatorNode: workerNode, postgres: psql('SHOW server_version'), nakama: { value: null, unavailableReason: 'runtime version not yet observed; exact image digest recorded' }, goja: legacy ? { value: currentPin.goja, source: 'checked_in_exact_executable_pin', observedProcessVersion: null } : { value: null, unavailableReason: 'legacy adapter not executed in this V8 lane' } }, hubGitSha: await git(['rev-parse', 'HEAD']), dirty: Boolean(await git(['status', '--porcelain', '--untracked-files=no'])), artifactSha256: legacy ? currentPin.sha256 : plan.source.artifactSha256, corpusSourceCommit: plan.source.corpusCommit, corpusManifestSha256: plan.source.corpusSha256, assignmentSha256: result.assignmentSha256, configurationSha256: sha256(configuration), configuration: JSON.parse(configuration), fixturePreflight: { capacity: fixtureCapacity, plannedAdditionalV2Runs: plannedV2Runs }, roleLimits },
     hosts: [await hostObservation()], schedule: plan, actors: result.actors,
-    clientPopulation, clientMeasurement: clientProbe ? { populationRoles: { wholeProtocolActors: 20, additionalDomPrefix: 1, hubUsers: 20, freePvpMatches: 10 }, readinessGate: clientGate, overlap, shutdown: clientShutdown, rawReason: clientMeasurementFailure, complete: clientComplete, browserCpu: 'Separate clientPopulation scoped observation or explicit unknown; never inferred from wall/GPU/frame pauses', placement: 'colocated advisory CI host; not intended-client hardware or server-capacity evidence' } : null,
-    summary: { ...result.summary, protocolHarnessStatus: result.harnessStatus, harnessStatus: clientComplete ? result.harnessStatus : 'failed', workloadStatus: !clientComplete ? 'degraded' : result.summary.pending ? 'incomplete' : workloadFailures || unexpectedObserverFailures ? 'degraded' : 'complete', workloadFailures, observationFailures: result.observerFailures, plannedCoordinatorUnavailable, unexpectedObserverFailures, backgroundInputProof, shortBackgroundInputProof, backgroundCriterion: legacy ? 'short_actual_both_seat_growth_all10_no90s_replacement_claim' : 'long_early_late_and_replacement_growth_all10', backgroundMetricAvailability },
+    clientPopulation, clientMeasurement: clientProbe ? { populationRoles: { wholeProtocolActors: 20, additionalDomPrefix: 1, hubUsers: 20, freePvpMatches: 10 }, readinessGate: clientGate, overlap, shutdown: clientShutdown, rawReason: clientMeasurementFailure, complete: clientComplete, workload: clientWorkload, browserCpu: 'Separate clientPopulation scoped observation or explicit unknown; never inferred from wall/GPU/frame pauses', placement: 'colocated advisory CI host; not intended-client hardware or server-capacity evidence' } : null,
+    summary: { ...result.summary, protocolHarnessStatus: result.harnessStatus, harnessStatus: clientComplete && resultStageDiagnosticsComplete ? result.harnessStatus : 'failed', workloadStatus: !clientComplete || !clientWorkloadComplete || !resultStageDiagnosticsComplete ? 'degraded' : result.summary.pending ? 'incomplete' : workloadFailures || unexpectedObserverFailures ? 'degraded' : 'complete', workloadFailures, observationFailures: result.observerFailures, plannedCoordinatorUnavailable, unexpectedObserverFailures, backgroundInputProof, shortBackgroundInputProof, backgroundCriterion: legacy ? 'short_actual_both_seat_growth_all10_no90s_replacement_claim' : 'long_early_late_and_replacement_growth_all10', backgroundMetricAvailability },
     measurements: { ...latencyObservations([], []), ...(clientFrameMeasurement ? { clientFrame: clientFrameMeasurement } : {}), cpu: { value: { evidence: 'serverCgroupSamples', deltas: cpuByRole }, unit: 'cpu_seconds_delta', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: { value: { evidence: 'checkpointSizes', definitions: { canonicalJsonBytes: legacy ? 'UTF8 legacy checkpoint text bytes' : '0054 UTF8 checkpoint_json text byte accounting', jsonbDatumBytes: legacy ? 'Postgres pg_column_size of legacy checkpoint text datum, excludes relation/page overhead' : 'Postgres pg_column_size of jsonb datum, excludes relation/page overhead' } }, unit: 'bytes', observer: 'trusted_ci_readonly_sql_metadata', clockDomain: 'postgres_statement_sample', unavailableReason: checkpointSamples.length ? null : 'no checkpoint size samples', sampleCount: checkpointSamples.length }, rewardDelay: paidDelay, finishAckToPaid: quantiles(actorLatency.flatMap(o => o.finishAckToPaidMs === null ? [] : [o.finishAckToPaidMs]), 'ms', 'local_finish_ack_to_first_paid_observation'), firstObservedEligibleToPaid: quantiles(actorLatency.flatMap(o => o.firstEligiblePendingToPaidMs === null ? [] : [o.firstEligiblePendingToPaidMs]), 'ms', 'first_observed_eligible_pending_to_paid'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95', availability: backgroundMetricAvailability }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
-    evidence: { coordinatorDiagnostics: retainDiagnosticFacts(), serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actualMatchEnds: pipeline.matchEnds(), materializedInputBudget: pipeline.inputBudget(), backgroundCoverage: pipeline.backgroundCoverage(), backgroundRejections: pipeline.backgroundRejections(), backgroundTransitions: pipeline.backgroundTransitions(), backgroundParticipants: pipeline.backgroundParticipants(), backgroundMetricReads: compactMetricReads, backgroundMetricEndCensors: pipeline.backgroundMetricEndCensors(), checkpointSizes: compactCheckpointSizes, actorLatency: actorLatency, legacyReceiptsAndTiming: legacy ? actorLatency : null, periodicObserverSamples: result.observations, arrivals: result.arrivals, phaseLifecycles: result.phaseLifecycles, controlledOfflineIntervals: { clockDomain: 'same_CI_host_wall_clock_for_cached_aggregate_source_time', intervals: controlledOfflineIntervals }, finalQuotaCounters: failureFacts.finalQuotaCounters, harnessFailures: result.harnessFailures, coordinationFailures: result.coordinationFailures },
+    evidence: { resultStageDiagnostics: failureFacts.resultStageDiagnostics, coordinatorDiagnostics: retainDiagnosticFacts(), serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actualMatchEnds: pipeline.matchEnds(), materializedInputBudget: pipeline.inputBudget(), backgroundCoverage: pipeline.backgroundCoverage(), backgroundRejections: pipeline.backgroundRejections(), backgroundTransitions: pipeline.backgroundTransitions(), backgroundParticipants: pipeline.backgroundParticipants(), backgroundMetricReads: compactMetricReads, backgroundMetricEndCensors: pipeline.backgroundMetricEndCensors(), checkpointSizes: compactCheckpointSizes, actorLatency: actorLatency, legacyReceiptsAndTiming: legacy ? actorLatency : null, periodicObserverSamples: result.observations, arrivals: result.arrivals, phaseLifecycles: result.phaseLifecycles, fixturePreparation: result.preparationEvidence, controlledOfflineIntervals: { clockDomain: 'same_CI_host_wall_clock_for_cached_aggregate_source_time', intervals: controlledOfflineIntervals }, finalQuotaCounters: failureFacts.finalQuotaCounters, harnessFailures: result.harnessFailures, coordinationFailures: result.coordinationFailures },
   };
   controllerStage = 'validate_safe_report';
   validateResult(report);
@@ -231,7 +270,7 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   await writeFile(join(root, clientProbe ? 'client-benchmark-report.json' : 'benchmark-report.json'), reportText, { flag: 'wx', mode: 0o600 });
   console.log(`CI advisory actual pipeline: ${result.actors.length} accepted-prefix actors, ${result.summary.fullSourceActorsVerified} full-source actors, ${workloadFailures} operational failures; no production capacity conclusion`);
   const waves = plan.phases.reduce((sum, phase) => sum + phase.waves, 0);
-  if (!clientComplete || result.harnessStatus !== 'complete' || result.actors.length !== 20 * waves || unexpectedObserverFailures || !(legacy ? shortBackgroundInputProof.complete : backgroundInputProof.complete) || (!legacy && (result.summary.fullSourceActorsVerified !== 19 * waves || result.summary.paid !== 7 * waves || workloadFailures))) process.exitCode = 1;
+  if (!clientComplete || !clientWorkloadComplete || !resultStageDiagnosticsComplete || result.harnessStatus !== 'complete' || result.actors.length !== 20 * waves || unexpectedObserverFailures || !(legacy ? shortBackgroundInputProof.complete : backgroundInputProof.complete) || (!legacy && (result.summary.fullSourceActorsVerified !== 19 * waves || result.summary.paid !== 7 * waves || workloadFailures))) process.exitCode = 1;
 }
 try { if (process.argv[2] === 'prepare') await prepare(); else if (process.argv[2] === 'run') await run(); else if (process.argv[2] === 'run-lifecycle') await run('lifecycle'); else if (process.argv[2] === 'run-sustained') await run('sustained'); else if (process.argv[2] === 'run-legacy-full') await run('burst', 'legacy_full_goja'); else if (process.argv[2] === 'run-legacy-segmented') await run('burst', 'legacy_segmented_goja'); else if (process.argv[2] === 'run-client') { const { prepareSingleDomClient } = await import('./client-browser.mjs'); controllerStage = 'client_prepare'; const probe = await prepareSingleDomClient({ root: directory() }); try { await run('burst', 'bounded_v8_same_host', probe); } finally { try { retainClientCleanup(await probe.close()); } catch { retainClientCleanup(null); throw new InstrumentationFailure('client_owned_cleanup_exception'); } } } else throw new Error('explicit prepare/run required'); }
 catch (error) {
@@ -243,6 +282,7 @@ catch (error) {
     failureFacts.clientPrepare = { prepareStage, cleanupState }; retainClientCleanup({ state: cleanupState });
   }
   const reason = error instanceof InstrumentationFailure || error instanceof SutUnavailable || error instanceof ResultValidationFailure ? error.reason : 'unclassified_ci_controller_exception';
+  failureFacts.resultStageDiagnostics ??= await captureResultStages();
   try {
     const text = JSON.stringify({ schemaVersion: 1, authority: 'ci_advisory', harnessStatus: 'failed', productionCapacityConclusion: null, stage: controllerStage, reason, facts: failureFacts });
     if (Buffer.byteLength(text) > 1024 * 1024) throw new Error('failure diagnostic bound');

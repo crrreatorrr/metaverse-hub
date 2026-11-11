@@ -956,7 +956,7 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(verseBalance(duel.hub.userId), 0);
   });
 
-  await runner.test('regress', 'the pairs 0060_relic_unhold released grant live once and pay 0', async () => {
+  await runner.test('regress', 'the pairs 0061_relic_unhold released grant live once and pay 0', async () => {
     const pairs: { game: string; eventId: string; data: object; kind: 'relic' | 'item'; id: string }[] = [
       { game: 'sproto-fighter', eventId: 'fighter.story_level_complete', data: { world: 1 }, kind: 'relic', id: 'tidebreaker_belt' },
       { game: 'peoples-bitcoin', eventId: 'pb.quest_complete', data: { questId: 'quest_tutorial' }, kind: 'relic', id: 'genesis_shard' },

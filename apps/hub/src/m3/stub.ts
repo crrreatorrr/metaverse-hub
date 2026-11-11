@@ -57,6 +57,7 @@ function rowsFor(boardId: HubBoardId): LeaderboardRow[] {
 function scoreOf(person: Person, boardId: HubBoardId): number {
   switch (boardId) {
     case 'hpos10i_act_time':
+    case 'hpos10i_act_time:open':
       return person.hpos10i_act_time;
     case 'nobu_trial_time:1':
       return Math.round(person.nobu_trial_time * 1000);

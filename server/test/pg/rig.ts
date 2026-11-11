@@ -187,6 +187,18 @@ export function openGameSession(pg: Pg, userId: string, game: string): string {
   return sid;
 }
 
+/** Set a launch flag row the way the owner would in SQL, and drop this module's 5 s flag cache. */
+export function setFlag(pg: Pg, key: string, state: 'on' | 'off', mod: LoadedModule = pg.mod): void {
+  pg.run("UPDATE game.server_flags SET state = $2, updated_at = now() WHERE key = $1", [key, state]);
+  for (const cached of [...mod.nk.localcache.keys()]) if (String(cached).startsWith('flag:')) mod.nk.localcache.delete(cached);
+}
+
+/** Give the account an email in the harness's fake Nakama accounts: HubChat.isGuest then says "not a guest". */
+export function withEmail(pg: Pg, userId: string, mod: LoadedModule = pg.mod): string {
+  mod.nk.accounts.set(userId, { user: { userId, username: `acct_${userId.slice(-6)}` }, email: `${userId.slice(-6)}@example.test` });
+  return userId;
+}
+
 export const hubCtx = (userId: string) => ({ userId, vars: { scope: 'hub' } });
 export const gameCtx = (userId: string, game: string, sid: string) => ({ userId, vars: { scope: 'game', game, sid, ranked: '0' } });
 

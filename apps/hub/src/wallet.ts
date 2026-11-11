@@ -30,12 +30,15 @@ export interface WalletRow {
 export interface WalletState {
   rows: WalletRow[];
   verse: number;
+  /** False while the server's `hub_exchange` flag is off for this account: balances show, exchange waits. */
+  exchangeEnabled: boolean;
 }
 
 /** `tickets.balances` answer. Unknown games are dropped; a missing game reads as an empty wallet. */
 export interface BalancesAnswer {
   wallets?: { game?: string; balance?: number; verseCapLeft?: number }[];
   verse?: number;
+  exchangeEnabled?: boolean;
 }
 
 function whole(value: unknown, fallback: number): number {
@@ -55,6 +58,8 @@ export function walletFromAnswer(answer: BalancesAnswer): WalletState {
       };
     }),
     verse: whole(answer.verse, 0),
+    // Only an explicit true opens the buttons: an older server or a missing field keeps them closed.
+    exchangeEnabled: answer.exchangeEnabled === true,
   };
 }
 
@@ -81,6 +86,8 @@ export function offerLabel(offer: ExchangeOffer): string {
 }
 
 export const WALLET_RATE_LINE = `${TICKETS_PER_VERSE} Tickets = 1 Verse · up to ${VERSE_DAILY_CAP} Verse from each game per day`;
+export const WALLET_CLOSED_TEXT = 'Exchanging Tickets in the plaza is not open yet. Your Tickets are safe in each game.';
+export const WALLET_CLOSED_LABEL = 'Not open yet';
 export const WALLET_OFFLINE_TEXT = 'The wallet needs the hub server. Offline: playing solo.';
 
 /** verse.exchange answer on success. */
@@ -94,6 +101,7 @@ export interface ExchangeAnswer {
 /** Apply a finished exchange to the shown state. */
 export function applyExchange(state: WalletState, game: GameId, answer: ExchangeAnswer): WalletState {
   return {
+    exchangeEnabled: state.exchangeEnabled,
     verse: whole(answer.verse, state.verse),
     rows: state.rows.map((row) => row.game === game
       ? { ...row, balance: whole(answer.ticketsLeft, row.balance), verseCapLeft: whole(answer.verseCapLeft, row.verseCapLeft) }
@@ -104,6 +112,7 @@ export function applyExchange(state: WalletState, game: GameId, answer: Exchange
 /** Sentence for a refused exchange. `code` is the server's error code. */
 export function exchangeErrorText(code: string): string {
   switch (code) {
+    case 'exchange_off': return WALLET_CLOSED_TEXT;
     case 'verse_cap': return "That would pass today's Verse cap for this game.";
     case 'insufficient_tickets': return 'Not enough Tickets in that wallet.';
     case 'below_rate': return `It takes ${TICKETS_PER_VERSE} Tickets to make 1 Verse.`;

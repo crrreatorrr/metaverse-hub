@@ -2,9 +2,12 @@
 //
 // Scores land in game.ranked_score, keyed (user, board, variant). A sproto
 // client post is accepted only when game.game_session.ranked is true (the
-// session row, never the client). HPOS10I's act time posts from normal hub
-// sessions too (gameplay plan B4): the plaza has no ranked entry, so the
-// ranked-only rule left that board empty. NOBU
+// session row, never the client). HPOS10I's act time is two boards in one:
+// a ranked session writes variant "" (the ranked standings, which feed meta);
+// a normal hub-entered session writes variant "open" (gameplay plan B4), which
+// the Bar shows and which never feeds meta or the ranked rows. Both are bounded
+// (HPOS_FLOOR_S..HPOS_CEIL_S, Zone 1 Act 1 only) and open posts need an account
+// with an email, not a guest. NOBU
 // time trials are gear-free and always eligible (Contract C13): one board,
 // variant = Classic level ("1".."3"), layout ("1v2".."3v2"), or new level ("4".."6"), integer milliseconds.
 // peoples-bitcoin is exempt. sproto_wins and meta are server boards: only
@@ -40,6 +43,18 @@ namespace HubBoards {
     "4": 24000, "6": 30000, "5": 21000,
   };
   export var NOBU_CEIL_MS = 1800000;
+  /**
+   * HPOS10I act time, in seconds, Zone 1 Act 1 only (the one act the game posts).
+   * Floor: the act is 22,224 px from PlayerStart (x 96) to GoalSign (x 22320) in HPOS10I's
+   * src/levels/data/z1_retro_rush_hills/act1.json, and the physics hard cap is 16 px/frame at 60 Hz
+   * (docs/PHYSICS.md "Speed cap"), 960 px/s. Holding the cap for the whole act from a standing start
+   * is impossible and would take 23.15 s, so no legitimate run is under 23 s (par is 80 s).
+   */
+  export var HPOS_BOARD_ZONE = "z1_retro_rush_hills";
+  export var HPOS_BOARD_ACT = 1;
+  export var HPOS_FLOOR_S = 23;
+  export var HPOS_CEIL_S = 1800;
+  export var HPOS_OPEN_VARIANT = "open";
   export var SUBMIT_EVERY_MS = 5000;
   /** Boards a client may not post to. */
   var SERVER_BOARDS: { [id: string]: boolean } = { meta: true, sproto_wins: true };
@@ -138,14 +153,17 @@ namespace HubBoards {
     + " WHEN $3::boolean THEN 'god_mode'"
     + " WHEN (SELECT game_id FROM sess) IS DISTINCT FROM $4::text THEN 'bad_board'"
     + " ELSE NULL END AS reason),"
-    + " prev AS (SELECT value FROM game.ranked_score WHERE user_id = $2::uuid AND board_id = $5::text AND variant = $9::text),"
+    // HPOS10I from an unranked session lands on the "open" variant, decided from the session row.
+    + " v AS (SELECT CASE WHEN (SELECT game_id FROM sess) = 'hpos10i' AND NOT COALESCE((SELECT ranked FROM sess), false)"
+    + " THEN 'open' ELSE $9::text END AS variant),"
+    + " prev AS (SELECT value FROM game.ranked_score WHERE user_id = $2::uuid AND board_id = $5::text AND variant = (SELECT variant FROM v)),"
     + " incoming AS (SELECT CASE"
     + " WHEN $6::text = 'asc' THEN LEAST(COALESCE((SELECT value FROM prev), $7::bigint), $7::bigint)"
     + " WHEN $6::text = 'incr' THEN COALESCE((SELECT value FROM prev), 0) + $7::bigint"
     + " ELSE GREATEST(COALESCE((SELECT value FROM prev), $7::bigint), $7::bigint) END AS value),"
     + " written AS ("
     + " INSERT INTO game.ranked_score (user_id, board_id, variant, value, meta, session_id, updated_at)"
-    + " SELECT $2::uuid, $5::text, $9::text, (SELECT value FROM incoming), $8::jsonb, $1::uuid, now()"
+    + " SELECT $2::uuid, $5::text, (SELECT variant FROM v), (SELECT value FROM incoming), $8::jsonb, $1::uuid, now()"
     + " FROM gate WHERE reason IS NULL AND NOT ($6::text = 'incr' AND $7::bigint <= 0)"
     + " AND (NOT EXISTS (SELECT 1 FROM prev) OR (SELECT value FROM incoming) IS DISTINCT FROM (SELECT value FROM prev) OR $6::text = 'incr')"
     + " ON CONFLICT (user_id, board_id, variant) DO UPDATE SET value = EXCLUDED.value, meta = EXCLUDED.meta, session_id = EXCLUDED.session_id, updated_at = now()"
@@ -154,7 +172,8 @@ namespace HubBoards {
     + " SELECT jsonb_build_object("
     + " 'reason', (SELECT reason FROM gate),"
     + " 'posted', EXISTS (SELECT 1 FROM written),"
-    + " 'value', COALESCE((SELECT value FROM written), (SELECT value FROM prev))"
+    + " 'value', COALESCE((SELECT value FROM written), (SELECT value FROM prev)),"
+    + " 'variant', (SELECT variant FROM v)"
     + " )::text AS result";
 
   var TOP_SQL = "WITH ranked AS ("
@@ -178,6 +197,7 @@ namespace HubBoards {
     + " count(*) OVER (PARTITION BY board_id, variant) AS n"
     + " FROM game.ranked_score"
     + " WHERE board_id IN ('hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins')"
+    + " AND NOT (board_id = 'hpos10i_act_time' AND variant = 'open')"
     + " ), per_variant AS ("
     + " SELECT user_id, board_id, round((1000::numeric * (n - rnk + 1)) / NULLIF(n, 0)) AS score FROM scored"
     + " ), per_board AS ("
@@ -196,6 +216,7 @@ namespace HubBoards {
     + " DELETE FROM game.ranked_score AS m WHERE m.board_id = 'meta' AND NOT EXISTS ("
     + " SELECT 1 FROM game.ranked_score AS s WHERE s.user_id = m.user_id"
     + " AND s.board_id IN ('hpos10i_act_time', 'nobu_trial_time', 'pb_total_xp', 'sproto_wins')"
+    + " AND NOT (s.board_id = 'hpos10i_act_time' AND s.variant = 'open')"
     + " ) RETURNING m.user_id)"
     + " SELECT jsonb_build_object('removed', (SELECT count(*) FROM removed))::text AS result";
 
@@ -244,6 +265,18 @@ namespace HubBoards {
       if (score < NOBU_FLOOR_MS[variant] || score > NOBU_CEIL_MS) {
         logger.warn("implausible nobu time " + String(score) + " level " + variant + " user " + session.userId);
         return fail("implausible_score");
+      }
+    } else if (boardId === "hpos10i_act_time") {
+      if (metaObj.zone !== HPOS_BOARD_ZONE || metaObj.act !== HPOS_BOARD_ACT) return fail("bad_variant");
+      if (body.value < HPOS_FLOOR_S || body.value > HPOS_CEIL_S) {
+        logger.warn("implausible hpos10i time " + String(body.value) + " user " + session.userId);
+        return fail("implausible_score");
+      }
+      score = Math.round(body.value);
+      // An unranked (plaza-entered) post goes to the open board and needs a real account.
+      var vars = ctx.vars || {};
+      if (vars.ranked !== "1" && HubChat.isGuest(nk, logger, session.userId)) {
+        return JSON.stringify({ accepted: false, reason: "guest" });
       }
     } else {
       score = Math.round(body.value);
@@ -297,6 +330,10 @@ namespace HubBoards {
     if (boardId === "nobu_trial_time") {
       variant = variantFor(boardId, { level: body.variant }) || "";
       if (!variant) return fail("bad_variant");
+    } else if (boardId === "hpos10i_act_time") {
+      // "" is the ranked standings; "open" is what normal hub sessions post.
+      if (body.variant !== undefined && body.variant !== "" && body.variant !== HPOS_OPEN_VARIANT) return fail("bad_variant");
+      variant = body.variant === HPOS_OPEN_VARIANT ? HPOS_OPEN_VARIANT : "";
     } else if (boardId === CoopRewards.BOARD_ID) {
       // One row per boss (gameplay plan E5): the variant is one of the twelve settled boss ids.
       variant = typeof body.variant === "string" ? body.variant : "";

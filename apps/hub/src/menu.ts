@@ -9,7 +9,7 @@ import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } 
 import type { MoveStick } from './core/gamepad';
 import type { GameId } from '@metaverse/hub-sdk';
 import { relicOfGame, type GameInfo } from './game-list';
-import { WALLET_OFFLINE_TEXT, WALLET_RATE_LINE, applyExchange, exchangeOffer, offerLabel, type ExchangeAnswer, type WalletState } from './wallet';
+import { WALLET_CLOSED_LABEL, WALLET_CLOSED_TEXT, WALLET_OFFLINE_TEXT, WALLET_RATE_LINE, applyExchange, exchangeOffer, offerLabel, type ExchangeAnswer, type WalletState } from './wallet';
 import { HELD_NOTE, HELD_PET_NOTE, grantBadge, isHeld, storePriceLine } from './v2/store-info';
 
 export type MenuTab = 'games' | 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets' | 'wallet';
@@ -563,11 +563,12 @@ export function createMenu(options: MenuOptions): Menu {
         el('strong', '', row.label),
         el('span', 'pet-from', `${row.balance.toLocaleString('en-US')} Tickets · ${row.verseCapLeft} Verse left today`),
       );
-      const button = el('button', 'pet-deploy wallet-exchange', offerLabel(offer));
+      const closed = !walletState.exchangeEnabled;
+      const button = el('button', 'pet-deploy wallet-exchange', closed && offer.blocked === 'none' ? WALLET_CLOSED_LABEL : offerLabel(offer));
       button.type = 'button';
-      button.disabled = offer.blocked !== 'none' || walletBusy;
+      button.disabled = closed || offer.blocked !== 'none' || walletBusy;
       button.addEventListener('click', () => {
-        if (walletBusy || offer.blocked !== 'none') return;
+        if (closed || walletBusy || offer.blocked !== 'none') return;
         walletBusy = true;
         walletStatus.textContent = `Exchanging ${offer.tickets} ${row.label} Tickets…`;
         paintWallet();
@@ -599,6 +600,7 @@ export function createMenu(options: MenuOptions): Menu {
       if (load !== walletLoads) return;
       walletState = state;
       if (!state) walletStatus.textContent = WALLET_OFFLINE_TEXT;
+      else if (!state.exchangeEnabled) walletStatus.textContent = WALLET_CLOSED_TEXT;
       else if (!keepStatus) walletStatus.textContent = '';
       paintWallet();
       // Keep the focused Play button: only repaint the Games rows when focus is elsewhere.
