@@ -35,10 +35,10 @@ export function validateResult(value: unknown): void {
     if (metric.value === null) check(typeof metric.unavailableReason === 'string' && metric.unavailableReason.length > 0 && metric.sampleCount === 0, `metric ${key} null reason`);
   }
   const reward = object(measurements.rewardDelay);
-  if (Number(reward.sampleCount) > 0 || computed.eligible > 0) {
+  if (Number(reward.sampleCount) > 0 || Number(computed.eligible) > 0) {
     const denominators = object(reward.denominators);
     for (const [field, expected] of Object.entries({ eligible: computed.eligible, observedPaid: computed.observedPaid, successfulPaid: computed.paid, eligibleUnpaid: computed.eligibleUnpaid, eligibleCensored: computed.eligibleCensored })) check(denominators[field] === expected, `reward delay ${field} denominator`);
-    check(Number(reward.sampleCount) <= computed.observedPaid, 'reward samples exceed observed receipts');
+    check(Number(reward.sampleCount) <= Number(computed.observedPaid), 'reward samples exceed observed receipts');
   }
   // Reports are data-only, with a strict output ceiling and no raw checkpoints,
   // inputs or credential fields. Reject before writing/uploading any artifact.

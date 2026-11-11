@@ -56,6 +56,7 @@ jobs:
             echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
           done
       - name: Boot ephemeral Nakama and PostgreSQL
+        id: stack
         run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180 postgres nakama
       - name: Explicit finite fixture config and scoped principal
         run: |
@@ -117,6 +118,10 @@ jobs:
               fi
             fi
           fi
-          timeout 90s docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml -f scripts/load/shooter-benchmark/compose.ci.yml --profile shooter-verification down --volumes --timeout 10 || cleanup_status=$?
+          case "${{ steps.stack.outcome }}" in
+            success|failure|cancelled)
+              timeout 90s docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml -f scripts/load/shooter-benchmark/compose.ci.yml --profile shooter-verification down --volumes --timeout 10 || cleanup_status=$?
+              ;;
+          esac
           sudo rm -rf "$SHOOTER_OPS_CI_DIRECTORY" || cleanup_status=$?
           exit "$cleanup_status"
