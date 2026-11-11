@@ -27,11 +27,13 @@ jobs:
       - name: Native memory is bounded by the container, independently of V8 heap
         shell: bash
         run: |
+          trap 'docker rm -f shooter-verifier-native-oom >/dev/null 2>&1 || true' EXIT
           set +e
-          docker run --rm --network none --read-only --memory 64m --memory-swap 64m --pids-limit 16 --cpus 1 --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --entrypoint node shooter-verifier-pr09:test -e 'const a=[];for(;;)a.push(Buffer.alloc(8*1024*1024,1))'
+          timeout 20s docker run --name shooter-verifier-native-oom --network none --read-only --memory 64m --memory-swap 64m --pids-limit 16 --cpus 1 --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --entrypoint node shooter-verifier-pr09:test -e 'const a=[];for(;;)a.push(Buffer.alloc(8*1024*1024,1))'
           code=$?
           set -e
           test "$code" -eq 137
+          test "$(docker inspect --format '{{.State.OOMKilled}}' shooter-verifier-native-oom)" = true
   corpus-parity:
     runs-on: ubuntu-latest
     timeout-minutes: 30
