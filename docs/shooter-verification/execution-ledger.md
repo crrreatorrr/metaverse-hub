@@ -23,10 +23,12 @@ credentials, bought hosting or enabled public reward cohorts/flags. The original
 | 13/15 client transport/lifecycle | Shooter [109](https://github.com/crrreatorrr/sproto-shooter/pull/109), [111](https://github.com/crrreatorrr/sproto-shooter/pull/111); no Game/UI activation implied |
 | 14 bounded recorder | Shooter [108](https://github.com/crrreatorrr/sproto-shooter/pull/108) |
 | Required issuance/finish/expiry companion | Hub [156](https://github.com/crrreatorrr/metaverse-hub/pull/156), merge `a3d64f2cf2f5807edc2c1cf682d90654278ffadc` |
-| 16 actual Game/UI | Shooter [112](https://github.com/crrreatorrr/sproto-shooter/pull/112), merge `20057a4040f9b07fea5bc1102af5602b36478f29`, preserving `91bd4d7`; default off |
+| 16 actual Game/UI | Shooter [112](https://github.com/crrreatorrr/sproto-shooter/pull/112), merge `20057a4040f9b07fea5bc1102af5602b36478f29`, preserving `91bd4d7`; pause-key follow-up [113](https://github.com/crrreatorrr/sproto-shooter/pull/113), merge `424a10b670b7ed081f1bad33c71e4a77ddfea340`, preserving `01087a45`; default off |
 | 17 retention/recovery | Hub [159](https://github.com/crrreatorrr/metaverse-hub/pull/159), merge `3f69eaaf3113c737ce9533efdf658547816dc9c8` |
 | 18 full integration | Hub [162](https://github.com/crrreatorrr/metaverse-hub/pull/162), merge `cfbc67ed48b2b67054d01e9234fe1bafd5c31b35`, preserving tested `c3d5cad` and approved client `91bd4d7` |
+| Approved client-test pin | Hub [165](https://github.com/crrreatorrr/metaverse-hub/pull/165), merge `c582e4af1cee4b8430d19a294b00418c699505a7`, preserving `325bad0`; changes only browser checkout from `91bd4d7` to approved `01087a45`, not private replay authority |
 | 19 worker operations | Hub [160](https://github.com/crrreatorrr/metaverse-hub/pull/160), merge `7db01566ea5c3fb7897c4f3ed4b26edf831f00e5`, preserving `19f7a73`; default off |
+| 20 reproducible benchmark tooling | Hub [161](https://github.com/crrreatorrr/metaverse-hub/pull/161), normal merge `f97679a76d8bb465825ee196c03f0d7dec512c39`, preserving tested `f12fc3ab`; CI advisory only, failed primary-client proof retained |
 
 Hub [154](https://github.com/crrreatorrr/metaverse-hub/pull/154) preserves the two
 historical 0050 migration identities. Hub [158](https://github.com/crrreatorrr/metaverse-hub/pull/158)
@@ -99,19 +101,145 @@ checksums and economy remain unchanged.
   RNG/IDs/accounting and paid 20 once. Measured C wall time was 1,204,314ms (about
   20m4s), with 2433 native RAF callbacks at 640x480. CI did not meet 60Hz real-time
   wall cadence; intended-host validation/human feel remain PR21 rollout gates.
-  This is correctness evidence, not browser attestation. Independent unmerged
-  follow-up113 is not a dependency of the tested approved 91bd client; any later
-  client-pin update requires its own A/C rerun.
+  This remains correctness evidence for the earlier 91bd client, not browser
+  attestation or evidence for another client revision.
+- The separate [approved 01087a45 client rerun](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43006935064/job/130476634533)
+  passed at pin head `325bad081843e5a4bc0f2ec8a41b97e8c7a0c71b`, preserved by
+  merged PR165. A recorded 131 public DOM ticks/hash `7c16f5b4`, wall 18,352ms.
+  C completed all 9634 frames/hash `3163be0c`, retained-service RNG/IDs/accounting
+  parity and paid 20 once, wall 779,031ms (about 12m59s), 2081 native RAF callbacks.
+  Source PR113 merged only after its exact 01087a45 candidate passed its required
+  checks; this new approved-client evidence does not erase the earlier 91bd run
+  or turn either software-rendering observation into a 60Hz/capacity claim.
 - A native-OOM probe once returned exit 137 with Docker's OOMKilled flag false;
   an exact rerun reported 137/true. The original observation is retained, and a
   passing retry does not establish why the first flag differed or prove capacity.
 
-## Work still in progress
+## Benchmark method and retained results
 
-| Stage | Reviewable work; remaining evidence |
-| --- | --- |
-| Independent UI follow-up | Shooter draft [113](https://github.com/crrreatorrr/sproto-shooter/pull/113), pause-key lifecycle follow-up; it does not alter PR18's approved 91bd evidence. Any later client pin needs separate A/C checks. |
-| 20 benchmarks | Hub draft [161](https://github.com/crrreatorrr/metaverse-hub/pull/161). Method/schema and workload tooling; CI runs are advisory correctness/workload evidence, not intended-host capacity. |
+PR20's primary client-under-load method has one additional actual public DOM
+campaign client (the 21st campaign identity), twenty independently authenticated
+protocol actors covering the required whole source traces, and ONE shared
+background cohort of 20 Hub users/10 free PvP matches. The planned abandonment is
+counted only by its actual submitted/verified prefix, never its whole source
+length. The DOM prefix, protocol actors, Hub users and match observations remain
+separate populations; sampling overlap does not prove that twenty rendered
+clients were active on every frame. It does not replace the full 9634 Game proof.
+
+The failed 20-simultaneous-renderer stress experiment at `31489b0` is retained as
+a separate manual-only experiment. It is not the primary method, not passing
+client evidence and not a target-host capacity result.
+
+One historical bounded-V8 single-burst sub-job at
+`31489b032a73db1398f78228f4a19f949a41e49a` genuinely passed:
+[130477959903](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43007158079/job/130477959903).
+It verified all 129314 submitted frames: 19 full-source actors plus one 120-frame
+planned abandonment, 7 paid receipts, 140 successful observations and 1348 PvP
+metrics. This is scoped `ci_advisory` correctness/workload evidence. The other
+profiles in that workflow failed; the workflow as a whole is not green.
+
+The earlier cold/warm and sustained fixtures provisioned 32 retained-checkpoint
+reservation slots despite planning 40/60 fresh runs; the current fixture-only
+configuration provisions 64. Production limits, traces and replay/read budgets
+are unchanged. The historical 900-second failure logs lacked the per-actor
+cause/report needed to establish every individual failure's cause; do not infer
+that this fixture correction explains all historical deadlines.
+
+The c004 candidate `c0048eb88fada7278b6a027feecaf0b19f4b77f6` is retained as
+failed benchmark history, not final acceptance evidence:
+
+- [Cold/warm lifecycle](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43012073286/job/130494297996)
+  completed all 40 submitted prefixes: 258628 verified frames, 38 whole sources and
+  14 paid, with an observed 2022ms cold-process startup and actual warm reuse.
+  The profile remained RED: 68 exhausted 60-rematch telemetry errors, five real
+  5-second read deadlines and one intentional-restart metric gap. This is not a
+  passing lifecycle profile or proof of cold OS/page caches.
+- [Sustained](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43012073286/job/130494297887)
+  hit the actual 8MiB report guard. Frozen safe failure facts account for 60 actors:
+  21 paid, 31 nonpayable, three abandoned and five censored, 387942 accepted frames
+  versus 366246 observed verified frames. Neither accepted frames nor nominal
+  source lengths may replace the verified numerator; this profile did not pass.
+- The primary-client and retry-burst profiles hit an arbitrary 10-second
+  synchronization barrier after all twenty inputs had been accepted. The
+  later synchronization correction does not make this historical run pass;
+  acceptance alone is not a passing client/concurrency/observer measurement.
+
+The later a594 candidate `a594ec8c962bd0e3d7c727b4c02c2b9229389708` also
+remained failed, despite completing more backend work. Its immutable reports
+are retained in [backend run 43021428106](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43021428106):
+
+- Retry burst verified 129314 frames, 19 whole sources plus the planned 120-frame
+  abandonment, and paid seven. Its observer recorded 224 successes from 226
+  attempts, one instrumentation failure and one censored read; the profile failed.
+- Cold/warm verified 258628 frames across 40 submitted prefixes/38 whole sources,
+  paying 14. It failed observation checks: 437 successful reads from 442 attempts,
+  four instrumentation failures and one planned-restart unavailability.
+- Sustained verified all 387942 submitted frames across 60 prefixes/57 whole
+  sources, paying 21. Its two instrumentation failures from 500 observation
+  attempts still make this a failed profile.
+- Legacy full used the unchanged 15-second replay budget: ten of twenty actors
+  durably verified (16903 frames), three paid and ten hit `cpu_budget`. Segmented
+  legacy verified nine whole sources/29631 frames and paid three; eight CPU-budget
+  timeouts and three transport failures remain failures. Neither result proves
+  cumulative ranking equivalence with v2.
+
+The independent read/RESULT correlation does not rewrite these outcomes. A
+RESULT was already known before abort for one retry-burst read, six lifecycle
+reads and two sustained reads, using a proven upper bound rather than the actual
+WebSocket receive timestamp. Two lifecycle read timings remain unknown, and six
+lifecycle reads were proved live after abort. The proposed exact-match RESULT
+cancellation must affect only a still-pending read; it cannot explain or erase
+those completed live 5-second deadline failures.
+
+The [a594 primary browser run](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43021428048)
+fixed the native selector and captured actual movement/fire, 60 recorded,
+submitted and accepted DOM frames, and a finish ACK. Verification then stalled
+through the 900-second observation window: DOM verified zero; the twenty protocol
+actors verified only 7028 frames with 18 censored actors. Coordinator observations
+showed four claims, two terminal results and one verified result, followed by 53
+RPC failures; the final projection had 19 sealed/two terminal runs and one leased/
+three completed jobs. No OOM, PID denial or quota exhaustion was observed. The
+exact gateway failure cause is unavailable; neither selector correction nor
+ended-match telemetry handling explains away the stalled verification.
+
+The final PR161 tooling head `f12fc3ab3c15fc0508be33b05d21a04974481382`
+was preserved by normal merge `f97679a76d8bb465825ee196c03f0d7dec512c39`.
+All five [backend profile jobs](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43026923528)
+passed their harness checks. V8 retry/lifecycle/sustained accounted for 20/40/60
+actors, verified every submitted frame (129314/258628/387942), covered 19/38/57
+whole sources plus the explicitly counted 120-frame abandonments, and paid
+7/14/21. Their 228/324/476 successful observation samples had zero instrumentation
+failures; sustained also had one window-censored sample. The 8/11/13 match-end
+read censors retain exact same-match RESULT proof and their original timestamps;
+they are not successful live reads or retroactive removal of deadline failures.
+All hard traces, including 9634 and 24000, remain unchanged.
+
+A passing legacy comparison harness records degraded legacy workloads honestly:
+full replay verified 11822 frames/six whole sources and paid two, with eight CPU
+budget timeouts and six transport failures; segmented legacy verified 29631
+frames/nine whole sources and paid three, with eight CPU budget timeouts and three
+transport failures. Neither passing harness status nor per-segment receipt timing
+proves full-source acceptance or cumulative ranking parity with v2.
+
+The separate [f12 primary browser run](https://github.com/crrreatorrr/metaverse-hub/actions/runs/43026923507)
+FAILED and remains red. It captured 60 actual native DOM frames, movement/fire,
+60 submitted/accepted frames and a finish ACK, but zero DOM verified frames.
+The twenty protocol actors reached three full-source completions/25088 verified
+frames with 17 censored. It recorded 520 metrics and health observations each,
+zero observer errors and one window censor, and closed the browser cleanly.
+The journal remained submitting: repeated result RPCs timed out before headers
+at about 10.01 seconds with `gateway_unavailable`; adjacent receipt HTTP 200
+reported missing while ops/pending queries were prompt. The exact server-stage
+cause is unproven. No quota exhaustion, OOM or PID denial was shown. These facts
+are not a successful primary-client load result or a waived CI failure.
+
+PR20 was merged as reproducible tooling under the original criterion, “Harness
+is reproducible and does not claim capacity until run on the intended hardware.”
+Independent review accepted that scope. It does not establish intended-host
+capacity, resolve the failed primary lane or satisfy PR21. The final method and
+evidence addendum is in the [evidence map](integration-evidence.md#final-benchmark-method-and-evidence-addendum).
+Earlier failed histories above remain visible. This documentation changes no
+benchmark source, workflow, simulator artifact or production setting.
 
 ## Policy and external gates
 
@@ -123,10 +251,16 @@ remain 2 MiB frames text per batch and 64 MiB per run. Economy remains 20 Ticket
 one eligible canonical boss per account/game/issuance day, with the existing 200/session
 and 1000/account/game/settlement-UTC-day caps.
 
-The broad suite has an unresolved external PB assertion: main [147](https://github.com/crrreatorrr/metaverse-hub/pull/147)
-sets Campaign Pistol buy 2 / sell 1, conflicting with an older generic resale≤45%
-assertion. It has been reported separately; it is not a passing broad suite and
-this feature does not silently alter that policy or weaken its test.
+The full broad PR163 run completed FAIL solely on the external PB assertion:
+[147](https://github.com/crrreatorrr/metaverse-hub/pull/147) sets Campaign Pistol
+buy 2 / sell 1, conflicting with the older generic resale≤45% assertion. Its ten
+migration cases and Shooter cases passed. The owner explicitly chose to keep
+buy 2 / sell 1. [166](https://github.com/crrreatorrr/metaverse-hub/pull/166), normal
+merge `afc2c6d6495aedcacc6014753f173598f298dad7` preserving `160432d`, documents
+and tests that exact exception without changing prices. Verify and both artifact
+guards passed; full economic regression remains pending. The historical broad
+failure is retained, and neither that run nor all economic checks are claimed
+green.
 
 PR21 still requires intended-hardware measurements, hosting approval and an
 explicit browser-provenance product decision. Legal protocol-only emulators are
