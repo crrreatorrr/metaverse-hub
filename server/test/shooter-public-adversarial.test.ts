@@ -12,7 +12,11 @@ console.log('::add-mask::' + login.gameToken); console.log('::add-mask::' + logi
 const actor = await prepareTrustedActor('sahil-fail-7', login, { ageMs: 1200000 });
 const batch = reboundBatches(actor)[0]!;
 const stranger = await openGame((await guest()).token, 'sproto-shooter');
-const replacement = await openGame(login.hub.token, 'sproto-shooter');
+// Opening a replacement correctly closes the owner's old game session. Keep
+// that adversarial binding fixture separate from the live primary actor.
+const replacementOwner = await openGame((await guest()).token, 'sproto-shooter');
+const replacementActor = await prepareTrustedActor('sahil-fail-7', replacementOwner, { ageMs: 1200000 });
+const replacement = await openGame(replacementOwner.hub.token, 'sproto-shooter');
 const sha = (value: unknown): string => createHash('sha256').update(canonical(value)).digest('hex');
 function history(): string {
   return sha(JSON.parse(psql(`SELECT jsonb_build_object('accepted',jsonb_build_array(accepted_sequence,accepted_tick,accepted_bytes,accepted_actions,accepted_batches),
@@ -44,7 +48,9 @@ await append('sequence gap', { ...batch, sequence: 1 }, 'invalid', 'noncontiguou
 await append('tick gap', { ...batch, tick0: 1 }, 'invalid', 'noncontiguous');
 await append('other account cannot upload', batch, 'invalid', 'unknown_run', stranger.gameToken);
 await append('owner Hub JWT cannot upload', batch, 'authorization_denied', 'not_game_session', login.hub.token);
-await append('replacement session cannot rebind original run', batch, 'invalid', 'unknown_run', replacement.gameToken);
+await append('replacement session cannot rebind original run', reboundBatches(replacementActor)[0]!, 'invalid', 'unknown_run', replacement.gameToken);
+assert.equal(num(`SELECT accepted_tick FROM game.shooter_verification_run WHERE run_id='${replacementActor.runId}'`), 0);
+assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${replacementActor.runId}'`), 0);
 await reject('forged finish outcome', 'shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence: -1, lastTick: 0, outcome: 'clear' }, login.gameToken, 'invalid', 'malformed');
 await reject('finish cannot skip unaccepted highwater', 'shooter.run.finish', { protocol: 2, runId: actor.runId, lastSequence: 0, lastTick: batch.n }, login.gameToken, 'invalid', 'seal_conflict');
 await reject('cohort issue cannot choose seed', 'shooter.run.issue', { key: randomUUID(), canonicalBoss: 'sahil', seed: 7 }, login.gameToken, 'invalid', 'malformed');

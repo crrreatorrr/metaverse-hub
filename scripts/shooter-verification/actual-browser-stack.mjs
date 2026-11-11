@@ -119,8 +119,9 @@ try {
     await a.page.keyboard.down('KeyW');
     await a.start({ boss: 'sahil' });
     if ((await a.readSnapshot()).phase !== 'ended') {
-      try { await a.page.locator('#view canvas').click({ timeout: 5000 }); }
-      catch { assert.equal((await a.readSnapshot()).phase, 'ended', 'an obscured arena is acceptable only after a legitimate local terminal'); }
+      // Successful production start may already hold native pointer lock.
+      // Locator actionability under an existing lock is not an unlock gesture.
+      if (!await a.page.evaluate(() => document.pointerLockElement !== null)) await a.page.mouse.click(320, 360);
       await a.page.waitForFunction(() => document.pointerLockElement !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
       if ((await a.readSnapshot()).phase !== 'ended') {
         // The real start panel disables input and clears held keys. Send a new
