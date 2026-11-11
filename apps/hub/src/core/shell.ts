@@ -50,6 +50,7 @@ import { createHudGuide } from '../guide/hud';
 import { ONBOARDING_SEEN_KEY, onboardingFinished, onboardingStep, type OnboardingState } from '../guide/onboarding';
 import { TRIP_KEY, encodeTrip, parseTrip, tripLines, tripSummary } from '../guide/trip';
 import { parseReturnGame } from '../travel';
+import { canEmote, emoteForKey, emoteLine, type EmoteId } from '../emotes';
 import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, withTimeout } from './launch-errors';
 import type { RealmDefinition, RealmContent } from './realm';
 
@@ -526,6 +527,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       chat.show();
       return;
     }
+    const emote = event.repeat ? null : emoteForKey(event.code);
+    if (emote && !traveling) {
+      sendEmote(emote);
+      return;
+    }
     if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
     if (event.repeat && event.code === 'Space') return;
     keys.add(event.code);
@@ -663,6 +669,17 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       }
     }
   });
+
+  /** Keys 1 / 2 / 3: show the emote over your own head at once and send it to the shard. */
+  let lastEmoteAt = -Infinity;
+  function sendEmote(id: EmoteId): void {
+    const now = performance.now();
+    const line = emoteLine(id);
+    if (!line || !canEmote(lastEmoteAt, now)) return;
+    lastEmoteAt = now;
+    chat.floatOwn(line);
+    plaza?.emote(id);
+  }
 
   function isTypingTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
@@ -1425,6 +1442,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       });
       void joinShardChat(session, plaza.room);
       plaza.profile({ character: look.character, staff: look.staff, pet: activePet });
+      // Another player's emote: a line over their head. Your own echo has no remote and is skipped
+      // (it was shown when the key was pressed).
+      plaza.onEmote((event) => {
+        const line = emoteLine(event.e);
+        const who = remoteWorld.players.get(event.s);
+        if (line && who) overheads.show(who.userId, line);
+      });
       showPlazaStatus('online', '');
       const syncRoster = () => {
         if (!plaza) return;

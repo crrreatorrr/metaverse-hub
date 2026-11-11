@@ -196,4 +196,20 @@ import { gameUrl } from '../src/games';
   assert.deepEqual(tripLines(spent, relicName, null), ['Nothing new this trip.']);
 }
 
+// ---------- E1: emotes. Three keys, the server's three ids, one per second.
+{
+  const { EMOTES, EMOTE_COOLDOWN_MS, canEmote, emoteForKey, emoteLine } = await import('../src/emotes');
+  const server = readFileSync(new URL('../../../server/modules/src/hub_match.ts', import.meta.url), 'utf8');
+  const allowed = /EMOTES: \{ \[e: string\]: boolean \} = \{([^}]*)\}/.exec(server);
+  assert.ok(allowed);
+  assert.deepEqual(EMOTES.map((emote) => emote.id), [...allowed[1]!.matchAll(/(\w+): true/g)].map((m) => m[1]));
+  assert.deepEqual([emoteForKey('Digit1'), emoteForKey('Digit2'), emoteForKey('Digit3'), emoteForKey('Digit4'), emoteForKey('KeyE')], ['wave', 'dance', 'cheer', null, null]);
+  for (const emote of EMOTES) assert.ok(emoteLine(emote.id)?.text);
+  assert.equal(emoteLine('flex'), null, 'an unknown id from the wire paints nothing');
+  assert.equal(EMOTE_COOLDOWN_MS, 1000);
+  assert.equal(canEmote(-Infinity, 0), true);
+  assert.equal(canEmote(5000, 5999), false);
+  assert.equal(canEmote(5000, 6000), true);
+}
+
 console.log('guide ok');
