@@ -33,6 +33,10 @@ jobs:
         run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
       - name: Check fresh and both historical 0050 boot paths plus fail-closed guards
         run: npx tsx server/test/migration-0050-compat.ts
+      - name: Verify populated Shooter upgrade preserves unrelated PB migration history
+        run: npm run test:dup
+        env:
+          DUP_ONLY: shooter-verification
       - name: Failure stack logs
         if: failure()
         run: docker compose -f server/docker-compose.yml logs --no-color --tail 150 nakama
