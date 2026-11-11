@@ -1,0 +1,45 @@
+name: migration-0050-compat
+on:
+  pull_request:
+    paths:
+      - server/modules/src/schema.ts
+      - server/test/migration-0050-compat.ts
+      - server/test/unit/scaffold.test.ts
+      - .github/workflows/migration-0050-compat.yml
+permissions:
+  contents: read
+jobs:
+  postgres-schema:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Generate throwaway test-stack credentials
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do
+            echo "::add-mask::${value}"
+          done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot fresh throwaway Nakama/Postgres database
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Check fresh and both historical 0050 boot paths plus fail-closed guards
+        run: npx tsx server/test/migration-0050-compat.ts
+      - name: Verify populated Shooter upgrade preserves unrelated PB migration history
+        run: npm run test:dup
+        env:
+          DUP_ONLY: shooter-verification
+      - name: Failure stack logs
+        if: failure()
+        run: docker compose -f server/docker-compose.yml logs --no-color --tail 150 nakama
+      - name: Stop test services
+        if: always()
+        run: docker compose -f server/docker-compose.yml down --volumes
