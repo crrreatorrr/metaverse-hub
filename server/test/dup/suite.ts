@@ -18,6 +18,7 @@ import { runStoryBoss } from './story-boss.ts';
 import { runShooterRewards } from './shooter_rewards.ts';
 import { runShooterVerificationSchema } from './shooter_verification_schema.ts';
 import { runShooterVerificationIngest } from './shooter_verification_ingest.ts';
+import { runShooterVerificationInternal } from './shooter_verification_internal.ts';
 import { runShooterVerificationLeases } from './shooter_verification_leases.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
@@ -2013,6 +2014,7 @@ export async function main(): Promise<void> {
     if (selected('shooter-verification')) await runShooterVerificationSchema(test);
     if (selected('shooter-ingest')) await runShooterVerificationIngest(test);
     if (selected('shooter-leases')) await runShooterVerificationLeases(test);
+    if (selected('shooter-internal')) await runShooterVerificationInternal(test);
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
