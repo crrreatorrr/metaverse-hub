@@ -24,6 +24,9 @@ if(process.argv[2]==='config'){
 }else{
   assert.equal(process.argv.length,2);
   const sql=text=>docker(['exec','-T','postgres','psql','-U','postgres','-d','nakama','-v','ON_ERROR_STOP=1','-q','-t','-A','-c',text]);
+  const id=docker(['ps','-q','nakama']);
+  const readLogs=()=>{const logs=spawnSync('docker',['logs',id],{encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024});assert.equal(logs.status,0);return logs.stdout+logs.stderr;};
+  const priorDbEvents=readLogs().trim().split('\n').filter(line=>JSON.parse(line).event==='db_error_redacted').length;
   const artifact=loadApprovedArtifact();
   artifact.context.issueInput=JSON.stringify({accountId:randomUUID(),sessionId:randomUUID(),runId:randomUUID(),day:'2026-11-11',canonicalBoss:'sahil',seed:7});
   const issuance=JSON.parse(new vm.Script('JSON.stringify(SprotoShooterSim.buildIssuance(JSON.parse(issueInput)).issuance)').runInContext(artifact.context));
@@ -42,13 +45,14 @@ if(process.argv[2]==='config'){
   assert.ok((await pending)>=400,'the uncaught driver failure must reach Nakama');
   // Allow bounded stdout pipe drain before checking the actual Docker log sink.
   await new Promise(r=>setTimeout(r,300));
-  const id=docker(['ps','-q','nakama']);
-  const logs=spawnSync('docker',['logs',id],{encoding:'utf8',timeout:10000,maxBuffer:8*1024*1024});
-  assert.equal(logs.status,0);const text=logs.stdout+logs.stderr;
+  const text=readLogs();
   assert.ok(!text.includes(marker),'Docker logs must omit the sensitivity marker');
   for(const secret of [vars.POSTGRES_PASSWORD,vars.NAKAMA_HTTP_KEY,vars.NAKAMA_SESSION_ENCRYPTION_KEY])assert.ok(!text.includes(secret),'Docker logs must omit launch credentials');
   const lines=text.trim().split('\n').map(line=>JSON.parse(line));
-  assert.ok(lines.length>0);assert.ok(lines.some(line=>line.event==='db_error_redacted'),'actual driver logger must become a constant redacted event');
+  assert.ok(lines.length>0);
+  const dbEvents=lines.filter(line=>line.event==='db_error_redacted');
+  assert.ok(dbEvents.length>priorDbEvents,'actual driver fault must add a constant redacted event');
+  assert.ok(dbEvents.some(line=>Number.isSafeInteger(line.count)&&line.count>0),'actual driver event must record positive redaction count');
   for(const line of lines)assert.ok(Object.keys(line).every(key=>['at','event','reason','count'].includes(key)),'no raw query/args/error fields may reach Docker logs');
   assert.ok(!text.includes('privateCheckpoint')&&!text.includes('private_checkpoint')&&!text.includes('pg_sleep'),'no query or checkpoint shape reaches sink');
   console.log('PASS actual Nakama backend termination with approved private checkpoint: filtered Docker sink contains only bounded events');
