@@ -130,6 +130,15 @@ export async function runShooterVerificationLifecycle(test:Test):Promise<void> {
     await drain(run); assert.equal(object((await status(s,run)).terminal).outcome,'incomplete');
     assert.equal(num('SELECT reserved_bytes FROM game.shooter_verification_admission'),retained);
   });
+  await test('shooter-lifecycle','observed session close keeps its denial reason after a reopened database lease',async()=>{
+    await isolate(); const {s,run}=await fixture();
+    psql(`UPDATE game.game_session SET state='closed' WHERE session_id='${s.sessionId}'`);
+    assert.equal((await status(s,run)).authorization,'session_closed');
+    psql(`UPDATE game.game_session SET state='open' WHERE session_id='${s.sessionId}'`);
+    assert.equal((await finish(s,run)).reason,'session_closed');
+    assert.equal((await append(s,run)).reason,'session_closed');
+    assert.equal((await status(s,run)).authorization,'session_closed');
+  });
   await test('shooter-lifecycle','session authorization is sampled after blocked finish lock and no replacement session can bind',async()=>{
     await isolate(); const {s,run}=await fixture();
     const name=`lifecycle-${randomUUID()}`;

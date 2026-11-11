@@ -101,12 +101,12 @@ HubSchema.register({
         SELECT * INTO r FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user AND session_id=p_session FOR UPDATE;
         IF NOT FOUND THEN RETURN jsonb_build_object('state','invalid','reason','unknown_run'); END IF;
         t:=clock_timestamp();
-        IF s.session_id IS NULL OR s.game_id<>'sproto-shooter' OR s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN
+        IF s.session_id IS NULL OR s.game_id<>'sproto-shooter' OR s.state NOT IN ('open','expired') OR s.ticket_redeemed_at IS NULL THEN
           PERFORM game.shooter_verification_touch(p_user,p_run);
           RETURN jsonb_build_object('state','authorization_denied','reason','session_closed'); END IF;
-        IF s.lease_until<=t OR r.session_invalidated_reason IS NOT NULL THEN
+        IF s.state='expired' OR s.lease_until<=t OR r.session_invalidated_reason IS NOT NULL THEN
           PERFORM game.shooter_verification_touch(p_user,p_run);
-          RETURN jsonb_build_object('state','authorization_denied','reason','session_expired'); END IF;
+          RETURN jsonb_build_object('state','authorization_denied','reason',COALESCE(r.session_invalidated_reason,'session_expired')); END IF;
         IF r.upload_deadline<=t OR r.admission_closed_reason IS NOT NULL THEN
           PERFORM game.shooter_verification_touch(p_user,p_run);
           RETURN jsonb_build_object('state','authorization_denied','reason','upload_expired'); END IF;
