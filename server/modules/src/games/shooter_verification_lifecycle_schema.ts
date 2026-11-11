@@ -163,13 +163,13 @@ HubSchema.register({
             AND q.reserved_checkpoint_bytes+16777216<=q.max_checkpoint_bytes
             AND COALESCE(a.reserved_checkpoint_bytes,0)+16777216<=q.max_account_checkpoint_bytes)
           OR NOT EXISTS(SELECT 1 FROM game.shooter_verification_gateway g WHERE g.singleton
-            AND g.retained_requests+2<=g.max_requests AND g.reserved_receipt_bytes+41943040<=g.max_receipt_bytes
+            AND g.retained_requests+3<=g.max_requests AND g.reserved_receipt_bytes+62914560<=g.max_receipt_bytes
             AND EXISTS(SELECT 1 FROM game.shooter_verification_principal p JOIN game.shooter_verification_worker w
               ON w.worker_id=p.worker_id AND w.account_id=p.account_id
               WHERE p.revoked_at IS NULL AND p.not_before<=clock_timestamp() AND p.expires_at>clock_timestamp()
                 AND ARRAY['claim','renew','retry','result']::text[]<@p.scopes
-                AND p.retained_requests+2<=g.max_principal_requests
-                AND p.reserved_receipt_bytes+41943040<=g.max_principal_receipt_bytes)) THEN
+                AND p.retained_requests+3<=g.max_principal_requests
+                AND p.reserved_receipt_bytes+62914560<=g.max_principal_receipt_bytes)) THEN
           RETURN jsonb_build_object('state','pending_retryable','reason','verification_capacity'); END IF;
         t:=clock_timestamp();
         IF s.session_id IS NULL OR s.game_id<>'sproto-shooter' OR s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN

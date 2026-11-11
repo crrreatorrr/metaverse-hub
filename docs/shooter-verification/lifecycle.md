@@ -18,7 +18,7 @@ authority, including when recovered after session expiry.
 New issuance also refuses known saturated global/owner retained-job, attempt and
 checkpoint budgets, exhausted global gateway receipt budgets, or absence of a
 live registered worker key with claim/renew/retry/result scope and room for the
-first claim/result responses. This is a non-reserving readiness snapshot. Other
+first claim/renew/result responses (three20MiB receipt reservations). This is a non-reserving readiness snapshot. Other
 consumers may use capacity before this run reaches a worker, and the owning
 atomic helpers still enforce every limit. It does not reserve whole-run work,
 promise payment or demonstrate hosting isolation/readiness. Snapshot reads do not
