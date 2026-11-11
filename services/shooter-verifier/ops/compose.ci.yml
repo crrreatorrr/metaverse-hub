@@ -1,0 +1,45 @@
+# Ephemeral Actions overlay ONLY, applied after server/docker-compose.yml.
+# Requires a disposable host directory prepared 0700/UID1000, socket and journal
+# subdirectories, and 0600 shooter-worker.json. Do not use as a production route.
+services:
+  replay:
+    profiles: [shooter-verification]
+    build:
+      context: ..
+      dockerfile: services/shooter-verifier/ops/Dockerfile.replay
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 512m
+    memswap_limit: 512m
+    cpus: 2
+    volumes:
+      - ${SHOOTER_OPS_CI_DIRECTORY:?ephemeral private directory required}/socket:/run/shooter
+    tmpfs:
+      - /tmp:size=8m,uid=1000,gid=1000,mode=0700
+    stop_grace_period: 28s
+  coordinator:
+    profiles: [shooter-verification]
+    build:
+      context: ..
+      dockerfile: services/shooter-verifier/ops/Dockerfile.coordinator
+    network_mode: service:nakama
+    depends_on:
+      nakama:
+        condition: service_healthy
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 24
+    mem_limit: 384m
+    memswap_limit: 384m
+    cpus: 1
+    volumes:
+      - ${SHOOTER_OPS_CI_DIRECTORY:?ephemeral private directory required}/socket:/run/shooter
+      - ${SHOOTER_OPS_CI_DIRECTORY:?ephemeral private directory required}/journal:/var/lib/shooter-journal
+      - ${SHOOTER_OPS_CI_DIRECTORY:?ephemeral private directory required}/shooter-worker.json:/run/secrets/shooter-worker.json:ro
+    tmpfs:
+      - /tmp:size=1m,uid=1000,gid=1000,mode=0700
+    stop_grace_period: 41s

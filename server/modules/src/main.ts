@@ -304,6 +304,11 @@ function InitModule(
   // >>> game: sproto-shooter registrations
   initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
   initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  initializer.registerRpc("shooter.internal.pending", rpcShooterInternalPending);
+  initializer.registerRpc("shooter.internal.repair", rpcShooterInternalRepair);
+  initializer.registerRpc("shooter.internal.ops", rpcShooterInternalOps);
+  initializer.registerRpc("shooter.internal.maintenance", rpcShooterInternalMaintenance);
+  initializer.registerRpc("shooter.internal.receipt", rpcShooterInternalReceipt);
   initializer.registerRpc("shooter.internal.claim", rpcShooterInternalClaim);
   initializer.registerRpc("shooter.internal.renew", rpcShooterInternalRenew);
   initializer.registerRpc("shooter.internal.retry", rpcShooterInternalRetry);

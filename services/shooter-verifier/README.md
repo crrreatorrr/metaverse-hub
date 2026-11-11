@@ -39,7 +39,7 @@ and 64 descriptors; V8 old-space is 192 MiB. Processes recycle after 16 calls.
 There is no crash-loop respawn: a failed worker goes unavailable; explicit
 coordinator recovery constructs a new pool. Every failure is operational pending,
 not a cheating or payout verdict. Child environment is a new allowlist containing
-only `NODE_ENV`, with no inherited secrets, loader flags or inspector settings.
+no inherited entries (Node adds only its own IPC channel plumbing), with no inherited secrets, loader flags or inspector settings.
 No request can choose a path, module, URL, function or clock. Strict source object
 validation is preserved by JSON parsing inside its realm.
 

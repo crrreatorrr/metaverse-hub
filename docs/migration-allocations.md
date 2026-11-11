@@ -11,9 +11,10 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0052 | Verification jobs and leases, #150 |
 | 0053 | Scoped worker gateway, #152 |
 | 0054 | Atomic verification commits, #153 |
-| 0055 | Deferred settlement, in progress |
+| 0055 | Deferred settlement, #155 |
 | 0056 | Verification issuance/finish lifecycle companion, #156 |
-| 0057 | Recovery, retention and operational cleanup, reserved PR17 |
+| 0057 | Recovery, retention and operational cleanup, #159 |
+| 0058 | Worker observations/own-proof recovery, #160 |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied
