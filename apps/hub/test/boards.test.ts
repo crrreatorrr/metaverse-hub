@@ -88,4 +88,31 @@ for (const id of BAR_DEAD_BOARD_IDS) assert.equal(BAR_BOARD_IDS.includes(id), fa
   assert.match(content, /if \(devPreview\) \{\s*const stubs = await import\('\.\.\/\.\.\/m3\/stub'\)/);
 }
 
+// E3 and E4: wire answers become gate rows and Hall rows; live counts are labelled as estimates.
+{
+  const { presenceRows, championRows } = await import('../src/m3/life');
+  const { gateCountText } = await import('../src/m3/livingPortals');
+  const rows = presenceRows({ nobu: 3.7, hpos10i: -2, sproto: 'many', 'sproto-coop-battle': 5 }, ['hpos10i', 'nobu', 'sproto', 'peoples-bitcoin']);
+  assert.deepEqual(rows.map((row) => [row.gameId, row.count]), [['hpos10i', 0], ['nobu', 3], ['sproto', 0], ['peoples-bitcoin', 0]]);
+  assert.ok(rows.every((row) => row.names.length === 0 && row.top.length === 0));
+  assert.equal(gateCountText(1, false), 'About 1 playing');
+  assert.equal(gateCountText(12, false), 'About 12 playing');
+  assert.equal(gateCountText(0, false), 'Nobody inside right now');
+  assert.equal(gateCountText(2, true), '2 players inside', 'the dev stub keeps its wording');
+  const hall = championRows([
+    { order: 9, userId: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'late_finisher' },
+    { userId: 'bbbbbbbb-0000-4000-8000-000000000002', name: '' },
+    { userId: '', name: 'ghost' },
+    { name: 'no id' },
+  ]);
+  assert.deepEqual(hall, [
+    { order: 1, playerId: 'aaaaaaaa-0000-4000-8000-000000000001', name: 'late_finisher' },
+    { order: 2, playerId: 'bbbbbbbb-0000-4000-8000-000000000002', name: 'bbbbbbbb' },
+  ]);
+  assert.equal(championRows(Array.from({ length: 80 }, (_, i) => ({ userId: `u${i}`, name: `n${i}` }))).length, 50);
+  const content = read('../src/realms/plaza/content.ts');
+  assert.match(content, /'hub\.presence'/);
+  assert.match(content, /'hub\.champions'/);
+}
+
 console.log(`boards ok (${barLoopLength(BAR_BOARD_IDS, () => false)} pages, ${BAR_OPTIONAL_BOARD_IDS.length} optional)`);

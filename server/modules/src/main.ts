@@ -116,6 +116,14 @@ function rpcHubJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkrunt
   return guard(HubRealtimeRpc.join, ctx, logger, nk, payload);
 }
 
+function rpcHubPresence(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.presence, ctx, logger, nk, payload);
+}
+
+function rpcHubChampions(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.champions, ctx, logger, nk, payload);
+}
+
 function rpcChatReport(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRealtimeRpc.report, ctx, logger, nk, payload);
 }
@@ -270,6 +278,8 @@ function InitModule(
     matchSignal: sprotoDuelSignal,
   });
   initializer.registerRpc("hub.join", rpcHubJoin);
+  initializer.registerRpc("hub.presence", rpcHubPresence);
+  initializer.registerRpc("hub.champions", rpcHubChampions);
   initializer.registerRpc("chat.report", rpcChatReport);
   initializer.registerMatch("hub", {
     matchInit: hubInit,

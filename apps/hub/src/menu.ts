@@ -8,22 +8,24 @@ import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
 import type { MoveStick } from './core/gamepad';
 import type { GameId } from '@metaverse/hub-sdk';
+import { relicOfGame, type GameInfo } from './game-list';
 import { WALLET_OFFLINE_TEXT, WALLET_RATE_LINE, applyExchange, exchangeOffer, offerLabel, type ExchangeAnswer, type WalletState } from './wallet';
 import { HELD_NOTE, HELD_PET_NOTE, grantBadge, isHeld, storePriceLine } from './v2/store-info';
 
-export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets' | 'wallet';
+export type MenuTab = 'games' | 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets' | 'wallet';
 
 /** Tab order, for the controller's LB / RB. */
-export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'sims', 'pets', 'wallet'];
+export const MENU_TAB_ORDER: readonly MenuTab[] = ['games', 'items', 'avatar', 'edit', 'relics', 'sims', 'pets', 'wallet'];
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
-  { id: 'items', label: 'Items', key: '1', icon: 'bag' },
-  { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
-  { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
-  { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
-  { id: 'sims', label: 'Sims', key: '5', icon: 'star' },
-  { id: 'pets', label: 'Pets', key: '6', icon: 'paw' },
-  { id: 'wallet', label: 'Wallet', key: '7', icon: 'coin' },
+  { id: 'games', label: 'Games', key: '1', icon: 'staff' },
+  { id: 'items', label: 'Items', key: '2', icon: 'bag' },
+  { id: 'avatar', label: 'Avatar', key: '3', icon: 'helmet' },
+  { id: 'edit', label: 'Edit', key: '4', icon: 'palette' },
+  { id: 'relics', label: 'Relics', key: '5', icon: 'gem' },
+  { id: 'sims', label: 'Sims', key: '6', icon: 'star' },
+  { id: 'pets', label: 'Pets', key: '7', icon: 'paw' },
+  { id: 'wallet', label: 'Wallet', key: '8', icon: 'coin' },
 ];
 
 /** Pixel art made with Higgsfield, in `public/world/ui/`. */
@@ -135,6 +137,17 @@ export interface MenuOptions {
   restartSims: () => void;
   /** The act the sims' story is in, for the Sims page. */
   simAct: () => string;
+  /** Vertical look: true is the plaza's original inverted sense. */
+  invertLook: () => boolean;
+  setInvertLook: (inverted: boolean) => void;
+  /** The eight games, in Games-tab order. */
+  games: readonly GameInfo[];
+  /** False when a game's page is not set: its row says "Coming soon". */
+  gameAvailable: (id: GameId) => boolean;
+  /** Launch a game from the menu (the plaza closes the menu and travels). */
+  playGame: (id: GameId) => void;
+  /** The game this browser launched last, for the default focus. */
+  lastGame: () => GameId | null;
   /** Tickets per game from the server, or null when the hub server cannot be reached. */
   loadWallet: () => Promise<WalletState | null>;
   /** Exchange `tickets` of one game's Tickets for Verse. `text` says why it failed. */
@@ -212,10 +225,51 @@ export function createMenu(options: MenuOptions): Menu {
   panel.append(head, tabBar, content, foot);
 
   let open = false;
-  let tab: MenuTab = 'avatar';
+  let tab: MenuTab = 'games';
   let relics = new Set<string>();
   let serverPets: Set<string> | null = null;
   let verse = 0;
+
+  // ---------- Games (the first page: every game in two inputs; walking stays the scenic route)
+  const gamesPage = bodies.get('games') as HTMLElement;
+  const gamesList = el('ul', 'menu-grid game-rows');
+  gamesPage.append(
+    el('h3', 'menu-h', 'Games'),
+    el('p', 'menu-note', 'Eight games, one Relic each. Play from here, or walk to a gate. Tickets you earn show up in Wallet.'),
+    gamesList,
+  );
+  const playButtons = new Map<GameId, HTMLButtonElement>();
+
+  function paintGames(): void {
+    gamesList.replaceChildren();
+    playButtons.clear();
+    const last = options.lastGame();
+    for (const game of options.games) {
+      const relic = relicOfGame(game.id);
+      const owns = relic !== undefined && relics.has(relic);
+      const relicName = RELICS.find((socket) => socket.id === relic)?.name ?? 'Relic';
+      const wallet = walletState?.rows.find((row) => row.game === game.id);
+      const card = el('li', `pet-card game-row${owns ? ' owned' : ''}${game.id === last ? ' last' : ''}`);
+      card.dataset.game = game.id;
+      card.style.setProperty('--accent', game.color);
+      const text = el('div', 'pet-text');
+      const facts = [`${relicName}: ${owns ? 'owned' : 'not yet'}`];
+      if (wallet) facts.push(`${wallet.balance.toLocaleString('en-US')} Tickets`);
+      facts.push(game.where);
+      text.append(el('strong', '', game.label), el('span', 'pet-from', game.blurb), el('span', 'pet-from game-facts', facts.join(' · ')));
+      const available = options.gameAvailable(game.id);
+      const play = el('button', 'pet-deploy game-play', available ? (game.id === last ? 'Play again' : 'Play') : 'Coming soon');
+      play.type = 'button';
+      play.disabled = !available;
+      play.setAttribute('aria-label', available ? `Play ${game.label}` : `${game.label}: coming soon`);
+      play.addEventListener('click', () => {
+        if (available) options.playGame(game.id);
+      });
+      playButtons.set(game.id, play);
+      card.append(el('span', 'game-swatch'), text, play);
+      gamesList.append(card);
+    }
+  }
 
   // ---------- Items
   const itemsPage = bodies.get('items') as HTMLElement;
@@ -244,6 +298,23 @@ export function createMenu(options: MenuOptions): Menu {
   }
   itemsPage.append(el('h3', 'menu-h', 'Controller'), stickRow, padNote);
 
+  // ---------- Look (mouse, keys and controller share one vertical sense)
+  const lookRow = el('div', 'chip-row');
+  const lookButtons = new Map<boolean, HTMLButtonElement>();
+  for (const [inverted, label] of [[true, 'Inverted look'], [false, 'Standard look']] as const) {
+    const chip = el('button', 'chip', label);
+    chip.type = 'button';
+    chip.dataset.look = inverted ? 'inverted' : 'standard';
+    chip.addEventListener('click', () => {
+      options.setInvertLook(inverted);
+      paintController();
+    });
+    lookButtons.set(inverted, chip);
+    lookRow.append(chip);
+  }
+  const lookNote = el('p', 'menu-note small', '');
+  itemsPage.append(el('h3', 'menu-h', 'Vertical look'), lookRow, lookNote);
+
   function paintController(): void {
     const stick = options.moveStick();
     for (const [id, chip] of stickButtons) {
@@ -251,7 +322,15 @@ export function createMenu(options: MenuOptions): Menu {
       chip.setAttribute('aria-pressed', String(id === stick));
     }
     const camera = stick === 'right' ? 'left' : 'right';
-    padNote.textContent = `The ${camera} stick turns the camera, with inverted vertical control. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
+    const inverted = options.invertLook();
+    for (const [id, chip] of lookButtons) {
+      chip.classList.toggle('on', id === inverted);
+      chip.setAttribute('aria-pressed', String(id === inverted));
+    }
+    lookNote.textContent = inverted
+      ? 'Inverted: push up to look down. Applies to the mouse, the R / F keys and the camera stick.'
+      : 'Standard: push up to look up. Applies to the mouse, the R / F keys and the camera stick.';
+    padNote.textContent = `The ${camera} stick turns the camera, with ${inverted ? 'inverted' : 'standard'} vertical control. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
   }
 
   // ---------- Pets
@@ -522,6 +601,8 @@ export function createMenu(options: MenuOptions): Menu {
       if (!state) walletStatus.textContent = WALLET_OFFLINE_TEXT;
       else if (!keepStatus) walletStatus.textContent = '';
       paintWallet();
+      // Keep the focused Play button: only repaint the Games rows when focus is elsewhere.
+      if (!gamesList.contains(document.activeElement)) paintGames();
     });
   }
 
@@ -659,7 +740,7 @@ export function createMenu(options: MenuOptions): Menu {
       button.setAttribute('aria-selected', String(on));
     }
     for (const [id, body] of bodies) body.hidden = id !== next;
-    if (next === 'wallet' && open) refreshWallet();
+    if ((next === 'wallet' || next === 'games') && open) refreshWallet();
     // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
     if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
   }
@@ -673,12 +754,16 @@ export function createMenu(options: MenuOptions): Menu {
     paintRelics();
     paintSims();
     paintWallet();
+    paintGames();
     if (open) return;
     open = true;
-    if (tab === 'wallet') refreshWallet();
+    if (tab === 'wallet' || tab === 'games') refreshWallet();
     root.hidden = false;
     options.onOpen();
-    (tabButtons.get(tab) ?? close).focus({ preventScroll: true });
+    // On the Games page, Enter relaunches the last game played (Esc, Enter: two inputs).
+    const last = tab === 'games' ? options.lastGame() : null;
+    const again = last ? playButtons.get(last) : undefined;
+    (again && !again.disabled ? again : tabButtons.get(tab) ?? close).focus({ preventScroll: true });
   }
 
   function hide(): void {
@@ -878,6 +963,7 @@ export function createMenu(options: MenuOptions): Menu {
         paintItems();
         paintPets();
         paintRelics();
+        if (!gamesList.contains(document.activeElement)) paintGames();
       }
     },
     setPets(owned) {

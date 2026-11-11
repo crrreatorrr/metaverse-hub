@@ -88,4 +88,17 @@ for (const hz of [30, 60, 120]) {
   assert.equal(preview.yaw(-2), -2, 'warp clears the preview orbit');
 }
 
+
+// D7: vertical look. The plaza's original sense is inverted and stays the default; the switch flips it.
+{
+  const { lookVertical, parseInvertLook } = await import('../src/core/look-settings');
+  assert.equal(parseInvertLook(null), true, 'default keeps the original inverted sense');
+  assert.equal(parseInvertLook('1'), true);
+  assert.equal(parseInvertLook('0'), false);
+  assert.equal(lookVertical(0.25, true), 0.25, 'inverted passes the input through unchanged');
+  assert.equal(lookVertical(0.25, false), -0.25, 'standard flips it');
+  assert.equal(lookVertical(-0.5, false), 0.5);
+  assert.equal(lookVertical(0, true), 0);
+}
+
 console.log('camera motion: reduced positional jolts, bounded pitch, smooth arm recovery, and warp resets passed');
