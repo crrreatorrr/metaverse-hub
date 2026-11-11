@@ -86,16 +86,39 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
       VALUES('${other}','${worker}','other-key','${'b'.repeat(64)}',ARRAY['claim'],clock_timestamp(),clock_timestamp()+interval '1 minute')`)]);
     assert.equal(conflicting[0]!.status,'rejected','registryFKrejectsseconddifferentaccountkey');
   });
-  await test('shooter-internal','real network coordinator claims, renews, replays in isolated process and submits only pending dependency',async()=>{
+  await test('shooter-internal','real network coordinator claims, renews, replays in bounded credential-free child and submits only pending dependency',async()=>{
     isolate();const p=await principal(),run=await fixture();
     const text=execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/live-gateway.mjs',import.meta.url))],{
       input:JSON.stringify({url:process.env.NAKAMA_URL||'http://127.0.0.1:7350',workerId:p.workerId,keyId:p.keyId,token:p.token,accountToken:p.account.token,requestId:crypto.randomUUID()}),
       encoding:'utf8',timeout:60000,maxBuffer:1024*1024,env:{NODE_ENV:'test'},
     });
     const result=JSON.parse(text) as Row;
-    assert.deepEqual(result,{runId:run,kind:'replayed',verified:8,status:'verified',submitState:'pending_retryable',submitReason:'result_commit_unavailable'});
+    assert.deepEqual({...result,checkpointBytes:undefined,receivedCheckpointBytes:undefined},{runId:run,kind:'replayed',verified:8,status:'verified',submitState:'pending_retryable',submitReason:'result_commit_unavailable',checkpointBytes:undefined,receivedCheckpointBytes:undefined});
     assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),0);
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}'`),3);
+  });
+  await test('shooter-internal','late complete checkpoint above default HTTP limit round-trips over scoped network without skipping frozen frames',async()=>{
+    isolate();const p=await principal(),player=await guest(),login=await openGame(player.token,'sproto-shooter'),run=crypto.randomUUID();
+    const generated=JSON.parse(execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/late-checkpoint.mjs',import.meta.url))],{
+      input:JSON.stringify({accountId:player.userId,sessionId:login.sessionId,runId:run,day:psql('SELECT current_date::text')}),encoding:'utf8',timeout:60000,maxBuffer:4*1024*1024,env:{NODE_ENV:'test'},
+    })) as {issuance:Row;batch:Row;checkpoint:Row;checkpointBytes:number;checkpointSha256:string};
+    psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
+      VALUES('${run}','${player.userId}','${login.sessionId}','late:${run}',current_date,'obama',7,${q(JSON.stringify(generated.issuance))});
+      INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
+      VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','05f7a0a245af921fc65a99588564175c19658e38','cea1f88b',clock_timestamp()-interval '10 minutes',clock_timestamp()+interval '35 minutes');`);
+    assert.equal(((await call('shooter.run.append',generated.batch,login.gameToken)).body as Row).state,'received');
+    // Trusted fixture seeds a simulator-generated predecessor; no public RPC
+    // accepts checkpoints and PR10 still cannot authoritatively advance one.
+    psql(`UPDATE game.shooter_verification_run SET revision=1,verified_tick=22000,simulation_tick=22000,verified_bytes=352000,
+      checkpoint_json=${q(JSON.stringify(generated.checkpoint))}::jsonb,checkpoint_sha256='${generated.checkpointSha256}' WHERE run_id='${run}'`);
+    const result=JSON.parse(execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/live-gateway.mjs',import.meta.url))],{
+      input:JSON.stringify({url:process.env.NAKAMA_URL||'http://127.0.0.1:7350',workerId:p.workerId,keyId:p.keyId,token:p.token,accountToken:p.account.token,requestId:crypto.randomUUID()}),encoding:'utf8',timeout:60000,maxBuffer:1024*1024,env:{NODE_ENV:'test'},
+    })) as Row;
+    assert.equal(result.runId,run);assert.equal(result.kind,'replayed');assert.equal(result.verified,24000);assert.equal(result.status,'verified');assert.equal(result.submitReason,'result_commit_unavailable');
+    assert.ok((result.receivedCheckpointBytes as number)>262144);assert.ok((result.checkpointBytes as number)>262144);
+    assert.equal(num(`SELECT verified_tick FROM game.shooter_verification_run WHERE run_id='${run}'`),22000);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${run}'`),0);
+    console.log(JSON.stringify({latePredecessorBytes:generated.checkpointBytes,networkReceivedBytes:result.receivedCheckpointBytes,networkResultBytes:result.checkpointBytes,fullFrozenFrames:24000}));
   });
   await test('shooter-internal','lost claim response is an immutable bounded receipt, never a second claim or changing checkpoint',async()=>{
     isolate();const p=await principal(),run=await fixture(),rid=crypto.randomUUID();
