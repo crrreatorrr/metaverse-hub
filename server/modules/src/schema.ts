@@ -892,7 +892,7 @@ namespace HubSchema {
       CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)
     )`,
 
-    // Prices come from the CSVs. Prune then upsert. A later rebalance is a new migration.
+    // Use the original catalog so migration 0005 retains its applied checksum.
     HubShop.pruneSql(),
     HubShop.seedSql(),
 
@@ -3571,6 +3571,14 @@ namespace HubSchema {
                )
            ) d
          $own$`,
+      ],
+    },
+    {
+      id: "0050_pb_campaign_pistol_price",
+      statements: [
+        `UPDATE game.shop_price
+         SET price = 2, sell_price = 1
+         WHERE game = 'peoples-bitcoin' AND shop_id = 'shop_terminal' AND item_id = 'gun_campaign_pistol'`,
       ],
     },
   ];
