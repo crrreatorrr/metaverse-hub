@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import { loadModule } from './harness';
+
+const mod = loadModule();
+const schema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
+const all = schema.all();
+const matches = all.filter((migration) => migration.id === '0050_shooter_verification_queue');
+assert.equal(matches.length, 1, 'games glob discovers migration exactly once');
+assert.ok(all.findIndex((migration) => migration.id === '0049_sproto_duel_wager_flag') < all.indexOf(matches[0]!), 'registered root migration precedes 0050');
+const sql = matches[0]!.statements.join('\n');
+for (const table of ['run', 'batch', 'job']) assert.ok(sql.includes(`CREATE TABLE IF NOT EXISTS game.shooter_verification_${table}`));
+for (const bound of ['67108864', '2097152', '162000', '4095', '131072']) assert.ok(sql.includes(bound), `finite limit ${bound}`);
+assert.ok(sql.includes('FOREIGN KEY (run_id, user_id, session_id)'));
+assert.ok(sql.includes('verified_tick BETWEEN 0 AND accepted_tick'));
+assert.ok(sql.includes('simulation_tick BETWEEN 0 AND verified_tick'));
+assert.ok(sql.includes('BEFORE UPDATE OR DELETE'));
+assert.ok(sql.includes("WHERE state IN ('ready', 'leased', 'retry_wait')"));
+assert.ok(sql.includes("authorized_lease_until > accepted_at"));
+assert.ok(sql.includes('fencing_token > 0'));
+assert.ok(!/\b(?:INSERT INTO|UPDATE|DELETE FROM)\s+game\.(?:tickets_|shooter_receipt|earn_window|ranked_score)/i.test(sql), 'migration cannot mutate existing economic rows');
+assert.ok(!/registerRpc|registerMatch/.test(sql), 'no runtime endpoint or worker is enabled');
+assert.ok(!/\bDROP\b/i.test(sql), 'additive schema only');
+console.log('shooter verification schema registration and dormant contract ok');
