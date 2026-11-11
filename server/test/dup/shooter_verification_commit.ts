@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import vm from 'node:vm';
-import { guest, openGame, call, psql, psqlAsync, num, sleep, type GameLogin } from './harness.ts';
+import { guest, openGame, call, psql, psqlAsync, num, sleep, arm, type GameLogin } from './harness.ts';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 type ObjectValue = Record<string, unknown>;
@@ -206,11 +206,11 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
   });
 
   await test('shooter-commit', 'operational and zero-progress result retries retain stable cross-id acknowledgments without advancing', async () => {
-    for (const mode of ['null', 'zero']) {
+    for (const mode of ['null', 'export', 'zero']) {
       isolate(); const f = await fixture(); const w = await worker(); const work = await claim(w);
       let result: ObjectValue;
-      if (mode === 'null') {
-        result = { kind: 'replayed', binding: work.claim, privateCheckpoint: null, publicResult: { version: 2, status: 'pending_retryable', reason: 'execution_timeout', retryable: true, eligible: false, ranked: false, ticketsMinted: 0 } };
+      if (mode !== 'zero') {
+        result = { kind: 'replayed', binding: work.claim, privateCheckpoint: null, publicResult: { version: 2, status: 'pending_retryable', reason: mode === 'export' ? 'checkpoint_export_failure' : 'execution_timeout', retryable: true, eligible: false, ranked: false, ticketsMinted: 0 } };
       } else {
         result = obj(inSim(`var m=v.manifest,ctx={issuance:v.issuance,manifest:{artifact:m.artifact,sourceCommit:m.sourceCommit,sha256:m.sha256,protocol:m.protocol,contentFingerprint:m.contentFingerprint},accepted:v.accepted};
           var cp=SprotoShooterSim.beginIncrementalReplay(ctx).privateCheckpoint;var r=SprotoShooterSim.acceptReplayBatch(JSON.stringify(v.batch),cp,ctx);
@@ -233,4 +233,31 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
     const ack = await submit(w, result); await holding; assert.equal(ack.state, 'authorization_denied'); assert.equal(history(f.run), '0:0:0:-1:0:0');
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${work.claim.jobId}'`), 0);
   });
+
+  await test('shooter-commit', 'injected failures before commit and after durable commit recover without duplicate advancement', async () => {
+    for (const point of ['before_commit', 'after_commit']) {
+      isolate(); const f = await fixture(); const w = await worker(); const work = await claim(w); const result = replay(work); const requestId = crypto.randomUUID();
+      arm(w.login.userId, `shooter.worker.${point}`, 'raise');
+      const lost = await submit(w, result, requestId); assert.equal(lost.state, 'pending_retryable'); assert.equal(lost.reason, 'gateway_unavailable');
+      assert.equal(history(f.run), point === 'before_commit' ? '0:0:0:-1:0:0' : '1:10:10:0:160:0');
+      const ack = await submit(w, result, requestId); assert.equal(ack.state, 'verified'); assert.deepEqual(await submit(w, result, requestId), ack);
+      assert.equal(history(f.run), '1:10:10:0:160:0');
+      assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${work.claim.jobId}'`), 1);
+      noPayment(f.run);
+    }
+  });
+
+  await test('shooter-commit', 'service key expiry during result lock wait rolls back a complete checkpoint and request receipt', async () => {
+    isolate(); const f = await fixture(); const w = await worker(); const work = await claim(w); const result = replay(work); const requestId = crypto.randomUUID();
+    psql(`UPDATE game.shooter_verification_principal SET expires_at=clock_timestamp()+interval '1 second' WHERE worker_id='${w.workerId}'`);
+    const holding = psqlAsync(`SET application_name='shooter-result-key-expiry'; BEGIN; SELECT 1 FROM game.shooter_verification_job WHERE job_id='${work.claim.jobId}' FOR UPDATE; SELECT pg_sleep(2); COMMIT;`);
+    const deadline = Date.now() + 5000;
+    while (num("SELECT count(*) FROM pg_stat_activity WHERE application_name='shooter-result-key-expiry' AND wait_event='PgSleep'") === 0) { assert.ok(Date.now() < deadline); await sleep(20); }
+    const ack = await submit(w, result, requestId); await holding; assert.equal(ack.state, 'authorization_denied');
+    assert.equal(history(f.run), '0:0:0:-1:0:0');
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${work.claim.jobId}'`), 0);
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${w.workerId}' AND request_id='${requestId}'`), 0);
+    noPayment(f.run);
+  });
+
 }
