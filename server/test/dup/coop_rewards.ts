@@ -267,6 +267,7 @@ export async function runCoopRewards(test: TestFn): Promise<void> {
       { reason: 'late_join', eligible: 0 },
       { reason: 'cpu_takeover', eligible: 0 },
       { reason: 'stage_select', eligible: 0 },
+      { reason: 'knocked_out', eligible: 0 },
     ];
     for (const item of cases) {
       const body = settle(session, BOSSES[2]!, `room-${item.reason}`, `enc-${item.reason}`, { reason: item.reason, eligible: item.eligible });

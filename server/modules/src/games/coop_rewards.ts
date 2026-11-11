@@ -54,6 +54,8 @@ namespace CoopRewards {
     nonNeutral: number;
     neutralAlive: number;
     downTicks: number;
+    /** 1 when the sim latched every seat of the account dead as the boss fell. Absent in older facts. */
+    out?: number;
   }
 
   export interface Gates {
@@ -69,6 +71,9 @@ namespace CoopRewards {
    * AFK_ALIVE neutral ticks while up. Down ticks are not neutral and are not a
    * damage threshold. Reconnect grace is applied by the match before this runs:
    * it freezes neutralAlive, and CPU takeover arrives as released.
+   * Last, an account the sim reports out for the kill (all of its seats dead when
+   * the boss fell; a downed seat is not dead) is not paid for that boss. The flag
+   * is per encounter, so the next boss starts clean.
    */
   export function decide(row: PresenceRow, gates: Gates, afkAlive: number): { eligible: boolean; reason: string } {
     if (gates.practice) return { eligible: false, reason: "practice" };
@@ -79,6 +84,7 @@ namespace CoopRewards {
     if (row.presentAtStart !== 1 || row.slots < 1) return { eligible: false, reason: "late_join" };
     var alive = afkAlive > 0 ? afkAlive : AFK_ALIVE;
     if (row.nonNeutral <= 0 && row.neutralAlive >= alive) return { eligible: false, reason: "afk" };
+    if (row.out === 1) return { eligible: false, reason: "knocked_out" };
     return { eligible: true, reason: "clear" };
   }
 

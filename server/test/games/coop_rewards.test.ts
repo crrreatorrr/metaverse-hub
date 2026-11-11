@@ -26,7 +26,7 @@ interface CoopState {
     encounter: { accounts: Record<string, { neutralAlive: number; presentAtStart?: boolean }> } | null;
   } | null;
   released: Record<string, number>;
-  payFacts: { accounts: { slots: number; accountId: string }[]; assistance: string; god: number } | null;
+  payFacts: { accounts: { slots: number; accountId: string; out?: number }[]; assistance: string; god: number } | null;
   hubSid: Record<string, string>;
 }
 
@@ -86,7 +86,7 @@ const CoopRewards = mod.global.CoopRewards as {
   BOARD_ID: string;
   BANKED_REASON: string;
   BANKED_EVENT: string;
-  decide(row: { accountId: string; slots: number; presentAtStart: number; nonNeutral: number; neutralAlive: number; downTicks: number }, gates: { practice: boolean; god: boolean; stageSelect: boolean; released: boolean; knownBoss: boolean }, afkAlive: number): { eligible: boolean; reason: string };
+  decide(row: { accountId: string; slots: number; presentAtStart: number; nonNeutral: number; neutralAlive: number; downTicks: number; out?: number }, gates: { practice: boolean; god: boolean; stageSelect: boolean; released: boolean; knownBoss: boolean }, afkAlive: number): { eligible: boolean; reason: string };
   clientBlocked(name: string): boolean;
 };
 const gates = { practice: false, god: false, stageSelect: false, released: false, knownBoss: true };
@@ -109,6 +109,16 @@ const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(CoopRewards.decide(present, { ...gates, stageSelect: true }, 300).reason, 'stage_select');
   assert.equal(CoopRewards.decide(present, { ...gates, knownBoss: false }, 300).reason, 'unknown_boss');
   assert.equal(CoopRewards.decide({ ...present, slots: 1 }, gates, 300).reason, 'clear');
+  // Out for the kill: every seat of the account was dead when the boss fell.
+  const out = CoopRewards.decide({ ...present, out: 1 }, gates, 300);
+  assert.equal(out.eligible, false);
+  assert.equal(out.reason, 'knocked_out');
+  assert.equal(CoopRewards.decide({ ...present, out: 0 }, gates, 300).eligible, true);
+  assert.equal(CoopRewards.decide({ ...present, downTicks: 900, out: 0 }, gates, 300).reason, 'clear', 'downed is not out');
+  assert.equal(CoopRewards.decide(present, gates, 300).eligible, true, 'facts without out are not out');
+  assert.equal(CoopRewards.decide({ ...present, presentAtStart: 0, out: 1 }, gates, 300).reason, 'late_join');
+  assert.equal(CoopRewards.decide({ ...present, nonNeutral: 0, neutralAlive: 300, out: 1 }, gates, 300).reason, 'afk');
+  assert.equal(CoopRewards.decide({ ...present, out: 1 }, { ...gates, god: true }, 300).reason, 'god_mode');
 }
 
 {
@@ -250,6 +260,90 @@ const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, n
   const after = hydrate(grace, run.m).session?.encounter?.accounts[USER]?.neutralAlive ?? 0;
   assert.equal(after, before, 'reconnect grace does not add AFK time');
   assert.equal(settles(grace).length, 0);
+}
+
+// Out for the kill. Two accounts, present from the start: A holds two seats, B one.
+const OTHER = '00000000-0000-4000-8000-000000000001';
+const OTHER_SID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
+interface LivePlayer { st: string; dead?: boolean; lives?: number; hp?: number }
+function pair(pairMod: LoadedModule) {
+  const created = pairMod.call<{ matchId: string }>('coop.room_create', game(), {});
+  const m = pairMod.driver(created.matchId);
+  const a = presence(USER, 'ada', 's-a');
+  const b = presence(OTHER, 'bea', 's-b');
+  m.join([a], game());
+  m.join([b], { userId: OTHER, sessionId: 's-b', username: 'bea', vars: { scope: 'game', game: 'sproto-coop-battle', sid: OTHER_SID } });
+  m.loop([{ sender: a, opCode: OP.HELLO, data: { t: 'hello', protocol: 1, fingerprint: FP, devices: ['k1', 'k2'] } }]);
+  m.loop([{ sender: b, opCode: OP.HELLO, data: { t: 'hello', protocol: 1, fingerprint: FP, devices: ['k1'] } }]);
+  m.loop([{ sender: a, opCode: OP.READY, data: { t: 'ready' } }, { sender: b, opCode: OP.READY, data: { t: 'ready' } }]);
+  assert.equal(stateOf(m).phase, 'playing');
+  pairMod.nk.onSql(/AT TIME ZONE/, () => [{ day: '2026-11-08' }]);
+  pairMod.nk.onSql(/settle_coop_clear/, () => [{ result: '{"ok":true,"paid":false,"sealed":true,"tickets":0}' }]);
+  return m;
+}
+function playersOf(pairMod: LoadedModule, m: MatchDriver, userId: string): LivePlayer[] {
+  const session = hydrate(pairMod, m).session as unknown as { seats: { slot: number; human: boolean; accountId: string | null }[]; state: { players: LivePlayer[] } };
+  return session.seats.filter((seat) => seat.human && seat.accountId === userId).map((seat) => session.state.players[seat.slot]!);
+}
+function kill(player: LivePlayer): void {
+  player.st = 'dead';
+  player.dead = true;
+  player.lives = 0;
+  player.hp = 0;
+}
+function lastFor(pairMod: LoadedModule, userId: string) {
+  return settles(pairMod).filter((row) => row.args[0] === userId).at(-1);
+}
+
+{
+  // B's only seat is dead when the boss falls: B is sealed unpaid, A is paid.
+  const outMod = loadCoop();
+  const m = pair(outMod);
+  assert.equal(playersOf(outMod, m, USER).length, 2);
+  const seats = playersOf(outMod, m, OTHER);
+  assert.equal(seats.length, 1);
+  kill(seats[0]!);
+  killBoss(outMod, m);
+  assert.equal(lastFor(outMod, OTHER)?.args[8], 0);
+  assert.equal(lastFor(outMod, OTHER)?.args[9], 'knocked_out');
+  assert.equal(lastFor(outMod, USER)?.args[8], 1);
+  assert.equal(lastFor(outMod, USER)?.args[9], 'clear');
+  assert.equal(stateOf(m).payFacts?.accounts.find((row) => row.accountId === OTHER)?.out, 1);
+
+  // The flag belongs to that boss. B plays the next stage and is eligible for its boss.
+  const before = settles(outMod).length;
+  for (let i = 0; i < 400 && stateOf(m).session?.state.stageIdx === 0; i += 1) m.loop([]);
+  assert.equal(stateOf(m).session?.state.stageIdx, 1, 'the match moved to stage 2');
+  const back = playersOf(outMod, m, OTHER)[0]!;
+  assert.notEqual(back.st, 'dead', 'the sim brings the account back for the next stage');
+  killBoss(outMod, m);
+  assert.equal(settles(outMod).length, before + 2);
+  assert.equal(lastFor(outMod, OTHER)?.args[4], '02-last-light-vela');
+  assert.equal(lastFor(outMod, OTHER)?.args[8], 1);
+  assert.equal(lastFor(outMod, OTHER)?.args[9], 'clear');
+  assert.equal(lastFor(outMod, USER)?.args[9], 'clear');
+}
+
+{
+  // One of A's two seats is dead and B is only downed: nobody is out.
+  const upMod = loadCoop();
+  const m = pair(upMod);
+  kill(playersOf(upMod, m, USER)[0]!);
+  playersOf(upMod, m, OTHER)[0]!.st = 'down';
+  killBoss(upMod, m);
+  assert.equal(lastFor(upMod, USER)?.args[9], 'clear');
+  assert.equal(lastFor(upMod, USER)?.args[8], 1);
+  assert.equal(lastFor(upMod, OTHER)?.args[9], 'clear');
+  assert.equal(lastFor(upMod, OTHER)?.args[8], 1);
+
+  // Both of A's seats dead: A is out.
+  const bothMod = loadCoop();
+  const m2 = pair(bothMod);
+  for (const seat of playersOf(bothMod, m2, USER)) kill(seat);
+  killBoss(bothMod, m2);
+  assert.equal(lastFor(bothMod, USER)?.args[9], 'knocked_out');
+  assert.equal(lastFor(bothMod, USER)?.args[8], 0);
+  assert.equal(lastFor(bothMod, OTHER)?.args[9], 'clear');
 }
 
 console.log('coop rewards ok');
