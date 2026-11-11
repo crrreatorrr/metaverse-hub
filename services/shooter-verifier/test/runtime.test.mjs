@@ -31,6 +31,19 @@ test('approved artifact checks source, exact bytes, versions and economy; refuse
   const wrong = structuredClone(r); wrong.claim.runId = 'other';
   assert.equal(replayText(JSON.stringify(wrong), a).reason, 'bad_worker_binding');
 });
+test('claim cannot cross new batch range or manufacture an idle/zero-range gameplay verdict', () => {
+  const a = loadApprovedArtifact(), r = request();
+  const initial = replayText(JSON.stringify(r), a).privateCheckpoint;
+  const accept = { ...r, operation: 'accept', checkpoint: initial,
+    batch: JSON.stringify({ tick0: 0, n: 1 }), accepted: { sha256: r.claim.inputSha256 },
+    claim: { ...r.claim, tickEnd: 2 } };
+  assert.equal(replayText(JSON.stringify(accept), a).reason, 'bad_worker_binding');
+  const idle = { ...r, operation: 'step', checkpoint: initial };
+  assert.deepEqual(replayText(JSON.stringify(idle), a), { kind: 'pending_retryable', reason: 'bad_worker_binding', retryable: true });
+  const zero = { ...idle, checkpoint: { ...initial, pending: { batch: { tick0: 0, n: 1 }, sha256: r.claim.inputSha256 } },
+    claim: { ...r.claim, tickEnd: 0 } };
+  assert.equal(replayText(JSON.stringify(zero), a).reason, 'bad_worker_binding');
+});
 test('actual warm bounded OS process returns full private checkpoint and public redaction', async () => {
   const pool = new ReplayPool();
   try {

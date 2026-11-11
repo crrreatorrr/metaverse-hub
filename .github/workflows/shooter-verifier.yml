@@ -17,7 +17,9 @@ jobs:
         with:
           node-version: 22
       - name: Actual process faults and resource limits
-        run: node --test services/shooter-verifier/test/runtime.test.mjs services/shooter-verifier/test/artifact-retention.test.mjs
+        run: |
+          node --test services/shooter-verifier/test/runtime.test.mjs
+          node --test services/shooter-verifier/test/artifact-retention.test.mjs
       - name: Build test artifact (no service deployment)
         run: docker compose -f services/shooter-verifier/compose.test.yml build
       - name: Exercise offline read-only bounded container
