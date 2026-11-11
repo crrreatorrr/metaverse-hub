@@ -17,6 +17,7 @@ import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
 import { runShooterRewards } from './shooter_rewards.ts';
 import { runShooterVerificationSchema } from './shooter_verification_schema.ts';
+import { runShooterVerificationIngest } from './shooter_verification_ingest.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
 import { runWagers } from './wagers.ts';
@@ -1719,7 +1720,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1742,6 +1743,10 @@ function report(): number {
   if (selected('shooter-verification') && !outcomes.some((item) => item.category === 'shooter-verification' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-verification: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-ingest') && !outcomes.some((item) => item.category === 'shooter-ingest' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-ingest: category produced no pass, failing the suite');
   }
   if (selected('shooter-wager')) {
     const rows = outcomes.filter((item) => item.category === 'shooter-wager');
@@ -2001,6 +2006,7 @@ export async function main(): Promise<void> {
     if (selected('story-boss')) await runStoryBoss(test);
     if (selected('shooter')) await runShooterRewards(test);
     if (selected('shooter-verification')) await runShooterVerificationSchema(test);
+    if (selected('shooter-ingest')) await runShooterVerificationIngest(test);
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);
