@@ -49,7 +49,8 @@ async function append(login: GameLogin, run: string, sequence: number, tick0: nu
 async function worker() {
   const login = await guest(); const workerId = `commit-${crypto.randomUUID()}`; const token = randomBytes(32).toString('base64url'); const keyId = 'one';
   const hash = createHash('sha256').update(`shooter-worker-token-v1\n${token}`).digest('hex');
-  psql(`INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
+  psql(`INSERT INTO game.shooter_verification_worker(worker_id,account_id) VALUES('${workerId}','${login.userId}');
+    INSERT INTO game.shooter_verification_principal(account_id,worker_id,key_id,token_sha256,scopes,not_before,expires_at)
     VALUES('${login.userId}','${workerId}','${keyId}','${hash}',ARRAY['claim','renew','retry','result'],clock_timestamp()-interval '1 minute',clock_timestamp()+interval '10 minutes')`);
   return { login, workerId, token, keyId };
 }
