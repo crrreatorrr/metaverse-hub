@@ -22,6 +22,7 @@ credentials, bought hosting or enabled public reward cohorts/flags. The original
 | 13/15 client transport/lifecycle | Shooter [109](https://github.com/crrreatorrr/sproto-shooter/pull/109), [111](https://github.com/crrreatorrr/sproto-shooter/pull/111); no Game/UI activation implied |
 | 14 bounded recorder | Shooter [108](https://github.com/crrreatorrr/sproto-shooter/pull/108) |
 | Required issuance/finish/expiry companion | Hub [156](https://github.com/crrreatorrr/metaverse-hub/pull/156), merge `a3d64f2cf2f5807edc2c1cf682d90654278ffadc` |
+| 16 actual Game/UI | Shooter [112](https://github.com/crrreatorrr/sproto-shooter/pull/112), merge `20057a4040f9b07fea5bc1102af5602b36478f29`, preserving `91bd4d7`; default off |
 | 17 retention/recovery | Hub [159](https://github.com/crrreatorrr/metaverse-hub/pull/159), merge `3f69eaaf3113c737ce9533efdf658547816dc9c8` |
 
 Hub [154](https://github.com/crrreatorrr/metaverse-hub/pull/154) preserves the two
@@ -31,6 +32,10 @@ main changes are preserved.
 
 ## Current evidence and limits
 
+- The merged UI passed all five source workflows, including 837 full-CI tests
+  plus one existing network skip; the known legacy Goja expected failure remains
+  labeled. Those client checks do not replace PR18 retained-service evidence or
+  intended-hardware/control-feel measurements.
 - The integrated payment/lifecycle checks report **65 payment-matrix cases and
   20 lifecycle cases, zero failures**, with real reporter process canaries and
   an actual selected-empty-suite failure check. Earlier workflow conclusions
@@ -46,6 +51,14 @@ main changes are preserved.
   no genuine issued fled trace exists. Old Obama recorder divergences and the
   legacy whole-run Goja 24000 CPU limitation remain labeled. Bounded isolated
   incremental completion is not a claim that legacy full Goja parity was fixed.
+- PR18's first actual container lane passed at `44d0a39`, Actions
+  [42989051535](https://github.com/crrreatorrr/metaverse-hub/actions/runs/42989051535):
+  13 literal PASS results, including all twelve complete traces through real
+  public ingress/Nakama/PostgreSQL/network coordinator/offline replay container,
+  full private-checkpoint parity with retained05f, 9634-frame clear/20 Tickets and
+  24000-frame incomplete/zero Tickets. The extra abandoned-empty case closed via
+  idle maintenance with no owner-status request or queued work. This proves that
+  lane only; the new browser lane and later recovery/adversarial work are pending.
 - A native-OOM probe once returned exit 137 with Docker's OOMKilled flag false;
   an exact rerun reported 137/true. The original observation is retained, and a
   passing retry is not a claim that the startup-event race or capacity is solved.
@@ -54,8 +67,7 @@ main changes are preserved.
 
 | Stage | Reviewable work; remaining evidence |
 | --- | --- |
-| 16 actual Game/UI | Shooter draft [112](https://github.com/crrreatorrr/sproto-shooter/pull/112). Default-off UI/real Game wiring; full retained-artifact/service evidence remains PR18 work. Software-renderer samples are not human feel or intended-hardware evidence. |
-| 18 full integration | Hub draft [162](https://github.com/crrreatorrr/metaverse-hub/pull/162), [integration design](integration-design.md). Hash-pinned corpus/public fixture helpers and runnable isolated-stack harness are under test. Required public random-seed DOM flow, actual 9634-frame Game flow, adversarial/restart/drain, restored transport and proof-only payment-repair cases remain explicit completion gates. No full integration execution result is claimed by this ledger yet. |
+| 18 full integration | Hub draft [162](https://github.com/crrreatorrr/metaverse-hub/pull/162), [integration design](integration-design.md). First full-corpus container lane passed as recorded above. Executable public random-seed DOM and full9634 actual Game lanes are published for Actions; their execution, adversarial/restart/drain, restored transport and proof-only payment-repair remain explicit completion gates. Full PR18 completion is not claimed. |
 | 19 worker operations | Hub draft [160](https://github.com/crrreatorrr/metaverse-hub/pull/160). Offline UNIX daemon/network coordinator, durable journal, scoped observations/payment repair/maintenance, log boundary and manifests. Mock-fetch recovery and idle shutdown do not substitute for real container crash/active-drain proofs. |
 | 20 benchmarks | Hub draft [161](https://github.com/crrreatorrr/metaverse-hub/pull/161). Method/schema and workload tooling; CI runs are advisory correctness/workload evidence, not intended-host capacity. |
 
