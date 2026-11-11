@@ -19,7 +19,7 @@ availability/metrics read only. No edits to0053/0054/0055/0056 applied bodies.
    GatewayClient serviceJWT+scopedtoken from readonly0600 JSONcredentialfile, no
    adminHTTP/SQL/wallet key. It polls nonmutatingops availability before claiming,
    avoiding durable idleclaim receipts. Currentkey expiry comes from authenticated
-   ops result plus JWT expiry/filemetadata; missing/expired/stale observations make
+   ops result plus account JWT expiry; missing/expired/stale observations make
    readinessfalse and stopnewclaims. Currentexactartifact comes from local daemon
    health, no request-selected module/path/URL. Crosshost gateway remainsHTTPS with
    normalcertificate checks; literal-loopbackHTTPonly isunchanged.
@@ -44,7 +44,7 @@ availability/metrics read only. No edits to0053/0054/0055/0056 applied bodies.
    durable forrestart. Lease/fence/revision remainHubauthority. Afterpartial or
    staleproof, journalclears only after a durable/explicitly terminal operational
    acknowledgment; uncertainnetwork/capacity/auth failures retain exactrequest.
-   Need11/12 ACK contract confirmation to distinguish those cases robustly.
+   Own-worker exact receipt reads distinguish durable ACKs from uncertain responses.
 
 5.0058workerops: `shooter.internal.ops` is an exactsmallbearerenvelope +body{},
    existingclaimscope grants ONLY this nonmutatingaggregate view. Durable preparse
@@ -97,3 +97,5 @@ reservation only. Runtime implementation is work in progress and not claimed her
 Actual correctness, container isolation and driver-fault log proofs must run in
 GitHub Actions before the feature PR is marked ready. No production configuration,
 credential, service startup, host purchase or public activation is authorized.
+
+Implementation status: dormant runtime and focused Actions tests are being added on this draft. No feature test result is claimed until its exact-head Actions completes. Pending-proof reads use own-only bounded keyset pagination; the coordinator advances failed-wallet references fairly and wraps at page exhaustion.

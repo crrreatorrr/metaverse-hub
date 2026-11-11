@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID,createHash } from 'node:crypto';
 import { operational } from './replay.mjs';
 const LIMIT = 20 * 1024 * 1024;
 const MAX_RESPONSE_CHUNKS = 4096;
@@ -24,7 +24,7 @@ export class GatewayClient {
   }
   async request(operation, body, requestId) {
     if (requestId === undefined && operation !== 'claim') requestId = randomUUID();
-    if (!['claim', 'renew', 'retry', 'result'].includes(operation) || !validID(requestId)) return operational('bad_gateway_request');
+    if (!['claim', 'renew', 'retry', 'result', 'ops', 'receipt', 'pending', 'repair', 'maintenance'].includes(operation) || !validID(requestId)) return operational('bad_gateway_request');
     // Coordinator-owned plain JSON only; replay children receive no credentials.
     let text;
     try { text = JSON.stringify({ ...this.#auth, requestId, body }); } catch { return operational('bad_gateway_request'); }
@@ -47,16 +47,22 @@ export class GatewayClient {
       return JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } catch { return operational('gateway_unavailable'); }
   }
+  pending(cursor=null) {return this.request('pending',cursor||{});}
+  repair(resultRequestId,requestSha256) {return this.request('repair',{resultRequestId,requestSha256});}
+  ops() {return this.request('ops',{});}
+  maintenance() {return this.request('maintenance',{});}
+  receipt(operation,requestId,requestSha256) {return this.request('receipt',{operation,requestId,requestSha256});}
   claim(requestId) { return this.request('claim', {}, requestId); }
   renew(claim, requestId) { return this.request('renew', { jobId: claim.jobId, fence: claim.fence, expectedRevision: claim.expectedRevision }, requestId); }
   retry(claim, reason, requestId) { return this.request('retry', { jobId: claim.jobId, fence: claim.fence, expectedRevision: claim.expectedRevision, reason }, requestId); }
   result(manifest, result, requestId) { return this.request('result', { manifest, result }, requestId); }
-  async replayClaim(ack, pool) {
+  async replayClaim(ack, pool, {onLease=()=>{}}={}) {
     if (ack?.state !== 'leased' || ack.workState !== 'ready' || !ack.work || !ack.claim) return operational('stale_claim');
     // A stored claim acknowledgment is historical. Recheck its exact live fence
     // before executing; never silently substitute another job/current checkpoint.
     const live = await this.renew(ack.claim);
     if (live.state !== 'leased' || (!Number.isFinite(Date.parse(live.leaseUntil)) || Date.parse(live.leaseUntil) <= Date.now())) return operational('stale_claim');
+    onLease(live);
     const w = ack.work;
     let checkpoint = w.checkpoint;
     const base = { manifest: w.manifest, issuance: w.issuance, claim: w.claim, maxWorkFrames: w.maxWorkFrames };
@@ -72,4 +78,9 @@ export class GatewayClient {
     result = await run('step');
     return result;
   }
+}
+
+export function requestDigest(operation,body){
+  function stable(v){if(v===null||typeof v!=='object')return JSON.stringify(v);if(Array.isArray(v))return '['+v.map(stable).join(',')+']';return '{'+Object.keys(v).sort().map(k=>JSON.stringify(k)+':'+stable(v[k])).join(',')+'}';}
+  return createHash('sha256').update(operation+'\n'+stable(body)).digest('hex');
 }

@@ -1,0 +1,15 @@
+const count=v=>typeof v==='number'&&Number.isFinite(v)&&v>=0&&v<=Number.MAX_SAFE_INTEGER?v:null;
+export class Metrics {
+  constructor(){this.started=Date.now();this.counters={claims:0,verified:0,terminal:0,invalid:0,retries:0,timeouts:0,rpcFailures:0,artifactMismatches:0,workerRestarts:0,journalRecoveries:0,paymentRepairs:0,paidObservations:0,paymentDenials:0};this.lastExecution=null;this.gateway=null;}
+  add(key){if(Object.hasOwn(this.counters,key))this.counters[key]++;}
+  execution(value){const m=value?.lastExecution;if(!m)return;this.lastExecution={cpuUserMicros:count(m.cpuUserMicros),cpuSystemMicros:count(m.cpuSystemMicros),wallMs:count(m.wallMs),rssBytes:count(m.rssBytes),heapUsedBytes:count(m.heapUsedBytes),finishedAt:count(m.finishedAt),gcMs:null,gcObserved:false};}
+  observeGateway(value){if(value?.state!=='observed')return;this.gateway={observedAt:Date.now(),eligible:!!value.eligible,queueDepth:count(value.queueDepth),queueTruncated:!!value.queueTruncated,oldestQueueAgeMs:count(value.oldestQueueAgeMs),acceptedVerifiedLagTicks:count(value.acceptedVerifiedLagTicks),lagTruncated:!!value.lagTruncated,paymentPending:count(value.paymentPending),paymentTruncated:!!value.paymentTruncated,orphanPending:count(value.orphanPending),orphanTruncated:!!value.orphanTruncated,opsDbWallMs:count(value.opsDbWallMs),authExpiresAt:Date.parse(value.authExpiresAt),canExecute:!!value.canExecute,writerReady:!!value.writerReady};}
+  snapshot(){return{uptimeMs:Date.now()-this.started,counters:{...this.counters},lastExecution:this.lastExecution,gateway:this.gateway,onlineMatchLatencyMs:null,onlineMatchLatencyObserved:false};}
+}
+export function safeEvent(event,fields={}){
+  const allowed=new Set(['coordinator_started','coordinator_stopped','coordinator_blocked','coordinator_quarantined','worker_ready','worker_unavailable','runtime_log_dropped','runtime_started','runtime_stopped','runtime_failed','db_error_redacted','runtime_ready','runtime_info']);
+  const out={at:new Date().toISOString(),event:allowed.has(event)?event:'runtime_log_dropped'};
+  if(typeof fields.count==='number'&&Number.isSafeInteger(fields.count)&&fields.count>=0)out.count=fields.count;
+  if(['oversized_line','unstructured_line','unknown_message','unsafe_fields','startup','shutdown','configuration','journal','credentials','gateway','artifact','socket'].includes(fields.reason))out.reason=fields.reason;
+  return JSON.stringify(out)+'\n';
+}

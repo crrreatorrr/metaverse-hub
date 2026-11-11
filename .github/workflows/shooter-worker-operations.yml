@@ -1,0 +1,27 @@
+name: shooter-worker-operations
+on:
+  pull_request:
+    paths:
+      - services/shooter-verifier/**
+      - .github/workflows/shooter-worker-operations.yml
+permissions:
+  contents: read
+jobs:
+  offline-container-journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Bounded journal recovery and framing
+        run: node --test services/shooter-verifier/test/operations.test.mjs services/shooter-verifier/test/coordinator-recovery.test.mjs
+      - name: Build dormant offline replay image
+        run: docker build -f services/shooter-verifier/ops/Dockerfile.replay -t shooter-operations:test .
+      - name: Actual offline Unix bridge, credential exclusion, read-only filesystem, crash and drain
+        run: node services/shooter-verifier/test/offline-bridge.mjs shooter-operations:test
+      - name: Synchronized real native cgroup OOM proof
+        run: node services/shooter-verifier/test/native-oom.mjs shooter-operations:test
