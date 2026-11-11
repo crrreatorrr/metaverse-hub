@@ -111,6 +111,7 @@ export function createAvatarRig(): AvatarRig {
   let travelSpeed: number | null = null;
   let gaitStrides: { walk: number; run: number; slow: number } | null = null;
   let gaitPhase = 0;
+  let jogWeight = 1;
   let pose: Pose = 'idle';
   let bank = 0;
   let lastYaw: number | null = null;
@@ -196,6 +197,7 @@ export function createAvatarRig(): AvatarRig {
         actions = nextActions;
         travelSpeed = null;
         gaitPhase = 0;
+        jogWeight = 1;
         const strideLength = (action: AnimationAction) => {
           const clip = action.getClip();
           return groundSpeedOf(clip) * clip.duration * next.scale.y;
@@ -263,9 +265,11 @@ export function createAvatarRig(): AvatarRig {
     if (!mixer || !actions) return moving;
     const sharedStride = actions.walk === actions.run;
     if (sharedStride || hoverAtStop || gaitStrides) {
+      // A remote jump carries horizontal travel even though its pose is airborne.
       // Keep the last measured rate during a brief remote pose gap.
       const requestedSpeed = sprint ? SPRINT_SPEED : WALK_SPEED;
-      const travel = moving ? (speed === null ? travelSpeed ?? requestedSpeed : speed ?? requestedSpeed) : 0;
+      const observedSpeed = speed ?? (speed === null || !moving ? travelSpeed ?? requestedSpeed : requestedSpeed);
+      const travel = moving || (gaitStrides && air?.airborne) ? observedSpeed : 0;
       travelSpeed = MathUtils.damp(travelSpeed ?? travel, travel, 36, dt);
       if (sharedStride) {
         const authored = groundSpeedOf(actions.walk.getClip()) * (model?.scale.y ?? 1);
@@ -282,9 +286,11 @@ export function createAvatarRig(): AvatarRig {
     const gait: Gait = !moving ? 'idle' : running ? 'run' : 'walk';
     const airborne = hasBackflip && flightTurn.launched ? flight.airborne : air?.airborne;
     const next: Pose = airborne && actions.air ? 'air' : gait;
-    const jogWeight = actions.slow && gaitStrides
-      ? MathUtils.smoothstep(travelSpeed ?? WALK_SPEED, WALK_SPEED * 0.25, WALK_SPEED * 0.8) : 1;
     if (gaitStrides && (next === 'walk' || next === 'run')) {
+      if (actions.slow) {
+        const target = MathUtils.smoothstep(travelSpeed ?? WALK_SPEED, WALK_SPEED * 0.25, WALK_SPEED * 0.8);
+        jogWeight = pose === 'idle' ? target : MathUtils.damp(jogWeight, target, 14, dt);
+      }
       // Use the stride of the pose currently on screen during a jog/sprint fade.
       // Both clips stay on the same footfall and advance by distance traveled.
       const walkWeight = actions.walk.isScheduled() ? actions.walk.getEffectiveWeight() : 0;
