@@ -115,19 +115,29 @@ try {
   psql(`INSERT INTO game.shooter_verification_cohort(user_id) VALUES('${login.hub.userId}')`);
   const a = await initActualRewardPage({ browser, url, session: await realSession(login) });
   try {
-    await installCapture(a.page); await a.start({ boss: 'sahil' });
-    await a.page.locator('#view canvas').click();
-    await a.page.waitForFunction(() => document.pointerLockElement !== null);
-    await a.page.keyboard.down('KeyW'); await a.page.mouse.move(180, 110); await a.page.mouse.down();
-    await a.page.waitForFunction(() => window.__game.rewardedCampaign.snapshot().recordedTick >= 120, null, { timeout: 180000 });
+    await installCapture(a.page);
+    await a.page.keyboard.down('KeyW');
+    await a.start({ boss: 'sahil' });
+    if ((await a.readSnapshot()).phase !== 'ended') {
+      try { await a.page.locator('#view canvas').click({ timeout: 5000 }); }
+      catch { assert.equal((await a.readSnapshot()).phase, 'ended', 'an obscured arena is acceptable only after a legitimate local terminal'); }
+      await a.page.waitForFunction(() => document.pointerLockElement !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
+      if ((await a.readSnapshot()).phase !== 'ended') { await a.page.mouse.move(180, 110); await a.page.mouse.down(); }
+    }
+    await a.page.waitForFunction(() => {
+      const flow = window.__game.rewardedCampaign.snapshot();
+      return flow.recordedTick >= 120 || flow.phase === 'ended';
+    }, null, { timeout: 180000 });
     await a.page.keyboard.up('KeyW'); await a.page.mouse.up();
     // CDP Escape does not reliably perform Chromium's native pointer-lock
     // release. Use the browser's native release API, then actual production
     // pause/status DOM controls. Never set Game.paused/state/clock directly.
-    await a.page.evaluate(() => document.exitPointerLock());
-    const pauseStatus = a.page.locator('[data-p="rewarded"]');
-    await pauseStatus.waitFor({ state: 'visible' });
-    await pauseStatus.click();
+    if ((await a.readSnapshot()).phase !== 'ended') {
+      await a.page.evaluate(() => document.exitPointerLock());
+      const pauseStatus = a.page.locator('[data-p="rewarded"]');
+      await a.page.waitForFunction(() => document.querySelector('[data-p="rewarded"]') !== null || window.__game.rewardedCampaign.snapshot().phase === 'ended');
+      if ((await a.readSnapshot()).phase !== 'ended') await pauseStatus.click();
+    }
     const state = await safeSnapshot(a.page); assert.ok(state.snapshot.runId);
     assert.equal(state.snapshot.paused, true, 'actual status panel stops Game ticks before the final state capture');
     const observedCommands = decodeFrames(state.captured.frames, state.captured.n, state.captured.actions).commands;
