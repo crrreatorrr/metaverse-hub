@@ -19,7 +19,7 @@ import { addBarLeaderboardScreen, createEmptyLeaderboardProvider } from './barLe
 import { addHallOfChampions } from './hallOfChampions';
 import { addLivingPortals } from '../../m3/livingPortals';
 
-import type { LeaderboardProvider, OrbitAvatar } from '../../m3/types';
+import { NO_SCORES_TEXT, type LeaderboardProvider, type OrbitAvatar } from '../../m3/types';
 import { spawnFor, defaultPortalPlacements } from './layout';
 import { STAND_Y } from '../../physics';
 import { buildPlazaCollider } from './plaza-collider';
@@ -85,7 +85,7 @@ export interface HubWorld {
   setLook: (look: AvatarLook) => void;
   /** M6 hub pet that follows the avatar (server catalog id, or null for none). */
   setPet: (id: string | null) => Promise<void>;
-  setBoard: (title: string, rows: readonly (readonly [string, string])[], sample: boolean) => void;
+  setBoard: (title: string, rows: readonly (readonly [string, string])[]) => void;
   /** Live Bar screen data (production); dev keeps the stub provider. */
   setLeaderboardProvider: (provider: LeaderboardProvider) => void;
   /** True once the Bar screen shows boards (dev stub or live), replacing the wall screen and its tabs. */
@@ -519,13 +519,6 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   type BoardTab = 'hpos10i' | 'nobu' | 'peoples-bitcoin' | 'sproto' | 'total';
   type EarnedRow = VerseRow;
 
-  const SAMPLE: Record<BoardTab, readonly (readonly [string, number])[]> = {
-    hpos10i: [['morelight', 40], ['guest-17', 18], ['dusk-walker', 6]],
-    nobu: [['cone-kid', 30], ['morelight', 12]],
-    'peoples-bitcoin': [['morelight', 50], ['cone-kid', 20]],
-    sproto: [['sproto', 36], ['morelight', 14]],
-    total: [['morelight', 116], ['cone-kid', 50], ['sproto', 36], ['guest-17', 18], ['dusk-walker', 6]],
-  };
   const TAB_TITLE: Record<BoardTab, string> = {
     hpos10i: 'HPOS10I',
     nobu: 'NOBU',
@@ -548,12 +541,14 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       : boardRows
         .filter((row) => row.gameId === tab && typeof row.lifetime === 'number' && row.name)
         .map((row) => [row.name as string, row.lifetime as number] as const);
-    const sample = real.length === 0;
-    const rows = (sample ? SAMPLE[tab] : real)
-      .slice()
-      .sort((a, b) => b[1] - a[1])
-      .map((row) => [row[0], formatVerse(row[1])] as const);
-    setBoard(TAB_TITLE[tab], rows, sample);
+    // No invented names: an empty tab says so (plan item A4).
+    const rows = real.length === 0
+      ? [[NO_SCORES_TEXT, ''] as const]
+      : real
+        .slice()
+        .sort((a, b) => b[1] - a[1])
+        .map((row) => [row[0], formatVerse(row[1])] as const);
+    setBoard(TAB_TITLE[tab], rows);
     for (const button of document.querySelectorAll<HTMLButtonElement>('#bar-tabs button')) {
       button.classList.toggle('on', button.dataset.tab === tab);
     }
@@ -572,8 +567,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   }
   paintBar('total');
 
-  function setBoard(title: string, rows: readonly (readonly [string, string])[], sample: boolean): void {
-    void title; void sample;
+  function setBoard(title: string, rows: readonly (readonly [string, string])[]): void {
+    void title;
     wallBoardRows = rows;
     applyBoard();
   }

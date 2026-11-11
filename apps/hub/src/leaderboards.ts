@@ -3,7 +3,7 @@
 import type { NakamaClient } from '@metaverse/hub-sdk';
 import {
   BOARD_META,
-  HUB_BOARD_IDS,
+  BAR_BOARD_IDS,
   serverBoard,
   type HubBoardId,
   type LeaderboardPage,
@@ -61,7 +61,7 @@ export function createLiveLeaderboardProvider(client: NakamaClient, token: () =>
   }
 
   return {
-    boards: HUB_BOARD_IDS,
+    boards: BAR_BOARD_IDS,
     async load(boardId) {
       const meta = BOARD_META[boardId];
       const base: Omit<LeaderboardPage, 'rows'> = { boardId, title: meta.title, order: meta.order, unit: meta.unit };

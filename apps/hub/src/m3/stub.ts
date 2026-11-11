@@ -3,7 +3,7 @@ import { Group } from 'three';
 import { STAND_Y } from '../physics';
 import {
   BOARD_META,
-  HUB_BOARD_IDS,
+  BAR_BOARD_IDS,
   formatBoardScore,
   type ChampionEntry,
   type GameId,
@@ -111,7 +111,7 @@ function page(boardId: HubBoardId): LeaderboardPage {
 /** In-memory boards. No Nakama client, no fetch. */
 export function createStubLeaderboardProvider(): LeaderboardProvider {
   return {
-    boards: HUB_BOARD_IDS,
+    boards: BAR_BOARD_IDS,
     load(boardId) {
       return Promise.resolve(page(boardId));
     },

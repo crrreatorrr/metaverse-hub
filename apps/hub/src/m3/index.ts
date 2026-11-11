@@ -32,6 +32,8 @@ export {
   STUB_PORTAL_PRESENCE,
 } from './stub';
 export {
+  BAR_BOARD_IDS,
+  BAR_OPTIONAL_BOARD_IDS,
   BOARD_META,
   HUB_BOARD_IDS,
   RELIC_GEMS,

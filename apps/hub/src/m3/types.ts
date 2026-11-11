@@ -62,6 +62,49 @@ export const HUB_BOARD_IDS = [
 
 export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
 
+/**
+ * Pages the Bar wall cycles through (plan item A4). A page is listed only when a normal,
+ * hub-entered session can put rows on it:
+ * - `hpos10i_act_time` is out until the server accepts HPOS10I's unranked post (B4).
+ * - `verse_by_game_hpos10i` is out until HPOS10I Tickets can be exchanged (B1).
+ * The ids stay in `HUB_BOARD_IDS` so the metadata, stubs and tests keep one list.
+ */
+export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = ['hpos10i_act_time', 'verse_by_game_hpos10i'];
+export const BAR_BOARD_IDS: readonly HubBoardId[] = HUB_BOARD_IDS.filter((id) => !BAR_DEAD_BOARD_IDS.includes(id));
+
+/** The Classic NOBU layouts sit behind the current ones: a Classic page shows only when it has rows. */
+export const BAR_OPTIONAL_BOARD_IDS: readonly HubBoardId[] = ['nobu_trial_time:1', 'nobu_trial_time:2', 'nobu_trial_time:3'];
+
+/**
+ * Index of the page after `index`, skipping optional pages that have no rows.
+ * Returns `index` when nothing else can be shown.
+ */
+export function nextBarPage(
+  boards: readonly HubBoardId[],
+  index: number,
+  hasRows: (id: HubBoardId) => boolean,
+  optional: readonly HubBoardId[] = BAR_OPTIONAL_BOARD_IDS,
+): number {
+  for (let step = 1; step <= boards.length; step += 1) {
+    const at = (index + step) % boards.length;
+    const id = boards[at];
+    if (id === undefined) continue;
+    if (!optional.includes(id) || hasRows(id)) return at;
+  }
+  return index;
+}
+
+/** How many pages one loop shows right now. */
+export function barLoopLength(
+  boards: readonly HubBoardId[],
+  hasRows: (id: HubBoardId) => boolean,
+  optional: readonly HubBoardId[] = BAR_OPTIONAL_BOARD_IDS,
+): number {
+  return boards.filter((id) => !optional.includes(id) || hasRows(id)).length;
+}
+
+export const NO_SCORES_TEXT = 'No scores yet. Be the first.';
+
 export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'desc'; unit: string }> = {
   hpos10i_act_time: { title: 'HPOS10I', order: 'asc', unit: 'best act time' },
   'nobu_trial_time:1v2': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
