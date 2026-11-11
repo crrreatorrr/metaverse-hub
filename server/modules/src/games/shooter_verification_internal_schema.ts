@@ -224,6 +224,11 @@ HubSchema.register({
           ELSIF SQLERRM='private_work_unavailable' THEN RETURN jsonb_build_object('state','pending_retryable','reason','private_work_unavailable');
           ELSE RAISE; END IF;
         END;
+      EXCEPTION WHEN OTHERS THEN
+        -- Roll back all server-side mutations and return no SQL error/parameters
+        -- to Nakama's SQL adapter (which otherwise logs its argument array).
+        -- Connection/driver cancellation errors need deployment log filtering.
+        RETURN jsonb_build_object('state','pending_retryable','reason','gateway_unavailable');
       END; $fn$`,
   ],
 });

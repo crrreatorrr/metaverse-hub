@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { guest, openGame, call, psql, psqlFile, psqlAsync, num, sleep, type Guest } from './harness.ts';
+import { guest, openGame, call, compose, psql, psqlFile, psqlAsync, num, sleep, type Guest } from './harness.ts';
 type TestFn = (category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Row = Record<string,unknown>;
 const SHA='797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
@@ -170,6 +170,21 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     const extra={...body,result:{...result,paymentAmount:20}};assert.equal((await rpc(p,'result',extra)).reason,'malformed');
     const claim=ack.claim as Row;await rpc(p,'retry',{jobId:claim.jobId,fence:claim.fence,expectedRevision:claim.expectedRevision,reason:'worker_crash'});
     assert.deepEqual(await rpc(p,'result',body),first,'exact committed result recovers its immutable acknowledgment after lease release');
+  });
+  await test('shooter-internal','server-side result SQL errors roll back and never reach runtime parameter logging with private checkpoint',async()=>{
+    isolate();const p=await principal(),run=await fixture(),ack=await rpc(p,'claim'),work=ack.work as Row,result=workerResult(work);
+    const marker=(result.privateCheckpoint as Row).privateHash as string,since=new Date(Date.now()-1000).toISOString();
+    psql(`CREATE OR REPLACE FUNCTION game.shooter_gateway_fault_fixture() RETURNS trigger LANGUAGE plpgsql AS $f$ BEGIN
+      IF NEW.worker_id='${p.workerId}' AND NEW.operation='result' THEN RAISE EXCEPTION 'ephemeral_result_sql_fault'; END IF; RETURN NEW; END; $f$;
+      CREATE TRIGGER shooter_gateway_fault_fixture BEFORE INSERT ON game.shooter_verification_gateway_receipt FOR EACH ROW EXECUTE FUNCTION game.shooter_gateway_fault_fixture();`);
+    try{
+      const reply=await rpc(p,'result',{manifest:work.manifest,result});assert.equal(reply.reason,'gateway_unavailable');
+      assert.equal(num(`SELECT revision FROM game.shooter_verification_run WHERE run_id='${run}'`),0);
+      assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${p.workerId}' AND operation='result'`),0);
+      const logs=compose(['logs','--no-color','--since',since,'nakama']);
+      assert.ok(!logs.includes(marker),'privatecheckpointmarkermustnotenterNakamaSQLargumentlogs');
+      assert.ok(!logs.includes(p.token),'rawservicetokenmustnotenterlogs');
+    }finally{psql('DROP TRIGGER shooter_gateway_fault_fixture ON game.shooter_verification_gateway_receipt;DROP FUNCTION game.shooter_gateway_fault_fixture()');}
   });
   await test('shooter-internal','count and conservative byte reservations stop overload atomically and keep receipts immutable',async()=>{
     isolate();const p=await principal();await rpc(p,'claim');psql('UPDATE game.shooter_verification_gateway SET max_principal_requests=1,max_principal_receipt_bytes=20971520');
