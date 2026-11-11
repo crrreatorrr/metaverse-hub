@@ -6,11 +6,13 @@ import * as SkeletonUtils from 'three/addons/utils/SkeletonUtils.js';
 import { WORLD_ROOT, animated, glow, loadGLTF } from '../../v2/core';
 import { INTERIOR_ORIGIN, makeLeaderboardTexture, type InteriorBuild } from './interior';
 import { loadNeonSign } from './neon-sign';
-import { CLUB_COLLIDERS, CLUB_MARKERS } from './club-interior-colliders';
-import { createSprotelController, type SprotelClip, type SprotelController } from './sprotel-npc';
+import { CLUB_MARKERS } from './club-interior-colliders';
+import { CLUB_INTERIOR_SCALE, SCALED_CLUB_COLLIDERS, scaleClubPoint } from './club-interior-scale';
+import { SPROTEL_INTERACT_RADIUS, createSprotelController, type SprotelClip, type SprotelController } from './sprotel-npc';
 
 /**
- * HPOS10I Club interior (club-interior.glb + -lod1). One open room, 20 x 14 x 5.2 m.
+ * HPOS10I Club interior (club-interior.glb + -lod1). Authored at 20 x 14 x 5.2 m,
+ * mounted 30% larger at 26 x 18.2 x 6.76 m. Sprotel stays at his authored size.
  * Local origin = threshold centre at floor level, room interior is +Z (x from -15 to +5, z from 0 to 14).
  * The group is movable: by default it is mounted at INTERIOR_ORIGIN (y = -300) like the old procedural room,
  * so scene.ts keeps working. Pass `at`/`yaw` to put it behind a plaza building door instead.
@@ -139,6 +141,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   g.name = 'club-interior';
   g.position.copy(at);
   g.rotation.y = yaw;
+  g.scale.setScalar(CLUB_INTERIOR_SCALE);
 
   const lit: MeshStandardMaterial[] = [];
   const lod = new LOD();
@@ -147,7 +150,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   leaderboard.flipY = false; // glTF UV convention
   const screenMat = new MeshBasicMaterial({ map: leaderboard, toneMapped: false });
   screenMat.name = 'leaderboard_screen';
-  for (const [gltf, distance] of [[near, 0], [far, LOD1_DISTANCE]] as const) {
+  for (const [gltf, distance] of [[near, 0], [far, LOD1_DISTANCE * CLUB_INTERIOR_SCALE]] as const) {
     const root = gltf.scene.clone(true);
     const screen = root.getObjectByName('leaderboard_screen') as Mesh | undefined;
     if (screen?.isMesh) screen.material = screenMat;
@@ -159,7 +162,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
     level.add(root);
     lod.addLevel(level, distance);
   }
-  // LOD distance is measured from the room centre, so anywhere inside (max ~12.5 m) stays on LOD0.
+  // Scale the LOD cutoff with the room so its enlarged interior still stays on LOD0.
   lod.position.copy(ROOM_CENTRE);
   g.add(lod);
 
@@ -193,36 +196,43 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   g.add(storeAnchor);
 
   // Sprotel behind the bar on barman_spot, facing the stools. Skinned: clone with SkeletonUtils so the
-  // cached GLTF scene stays reusable. His capsule-ish box is already in CLUB_COLLIDERS (`sprotel_npc`, npc: true).
+  // cached GLTF scene stays reusable. His collider moves with the room but retains its authored size.
   let npc: Object3D | null = null;
   let sprotel: SprotelController | null = null;
   if (npcGltf) {
     npc = SkeletonUtils.clone(npcGltf.scene);
     npc.name = 'sprotel_npc';
     const spot = CLUB_MARKERS.barman_spot;
-    npc.position.set(spot.pos[0], spot.pos[1], spot.pos[2]);
-    npc.rotation.y = spot.yaw;
+    const npcAnchor = new Group();
+    npcAnchor.name = 'sprotel_anchor';
+    npcAnchor.position.set(...spot.pos);
+    npcAnchor.rotation.y = spot.yaw;
+    // A separate parent protects the inverse scale from animation tracks on the NPC root.
+    npcAnchor.scale.setScalar(1 / CLUB_INTERIOR_SCALE);
+    npc.position.set(0, 0, 0);
+    npc.rotation.y = 0;
+    npcAnchor.add(npc);
     npc.traverse((obj) => {
       const m = (obj as Mesh).material as MeshStandardMaterial | undefined;
       if (env && m?.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; }
       if ((obj as Mesh).isMesh) obj.frustumCulled = false; // skinned bounds don't follow the clip
     });
-    g.add(npc);
+    g.add(npcAnchor);
     // Resting clip when nobody is near (default wipe_glass). Clips are native to his skeleton: played directly.
     const restClip: SprotelClip = (typeof wantNpc === 'object' && wantNpc.clip) || 'wipe_glass';
-    sprotel = createSprotelController(npc, npcGltf.animations, restClip);
+    sprotel = createSprotelController(npc, npcGltf.animations, restClip, SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE);
     npc.userData.mixer = sprotel.mixer;
     npc.userData.clips = npcGltf.animations;
   }
 
-  const colliderBoxes = CLUB_COLLIDERS.filter((c) => (standalone || !c.standalone) && (npc !== null || !c.npc)).map((c) => clubBoxToWorld(c.min, c.max, at, yaw));
+  const colliderBoxes = SCALED_CLUB_COLLIDERS.filter((c) => (standalone || !c.standalone) && (npc !== null || !c.npc)).map((c) => clubBoxToWorld(c.min, c.max, at, yaw));
   if (col) {
     sign.updateMatrix();
     g.updateMatrix();
     colliderBoxes.push(col.clone().applyMatrix4(sign.matrix).applyMatrix4(g.matrix));
   }
 
-  const t = CLUB_MARKERS.threshold_turn.pos;
+  const t = scaleClubPoint(CLUB_MARKERS.threshold_turn.pos);
   const ts = new Vector3(t[0], t[1], t[2]).applyAxisAngle(new Vector3(0, 1, 0), yaw).add(at);
   // Hub yaw: 0 walks -Z. Facing into the room (+Z local) is yaw = PI (minus the mount yaw).
   const spawn = { x: ts.x, y: ts.y, z: ts.z, yaw: Math.PI - yaw };

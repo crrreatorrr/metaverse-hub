@@ -30,6 +30,7 @@ import { buildClubInterior, type ClubInteriorBuild } from './club-interior';
 import { buildArcade, type ArcadeBuild } from './arcade';
 import { ARCADE_RETURN, atArcade } from './arcade-layout';
 import { INTERIOR_ORIGIN } from './interior';
+import { CLUB_INTERIOR_SCALE } from './club-interior-scale';
 import { SPROTEL_PROMPT } from './sprotel-npc';
 import { barBillboard } from './billboard';
 import { buildFloor, buildPedestal, buildPortal } from './plaza';
@@ -302,6 +303,11 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     if (interiorTask) return;
     interiorTask = buildClubInterior(scene).then((built) => {
       interior = built;
+      // Follow the actual TV marker so the live screen stays on the wall as the room grows.
+      built.markers.leaderboard_tv.add(bar.root);
+      bar.root.position.set(0, 0, 0.05);
+      bar.root.rotation.set(0, 0, 0);
+      bar.root.scale.setScalar(0.55);
       if (liveBoards) hideWallScreen();
       storeAnchor = built.storeAnchor;
       arcade = buildArcade();
@@ -442,7 +448,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       } else {
         arcadeReturn = false;
         const o = INTERIOR_ORIGIN;
-        enterInterior(interior, { x: o.x + ARCADE_RETURN.x, y: o.y + STAND_Y, z: o.z + ARCADE_RETURN.z, yaw: ARCADE_RETURN.yaw });
+        enterInterior(interior, { x: o.x + ARCADE_RETURN.x * CLUB_INTERIOR_SCALE, y: o.y + STAND_Y, z: o.z + ARCADE_RETURN.z * CLUB_INTERIOR_SCALE, yaw: ARCADE_RETURN.yaw });
       }
     }
     const door = slots.find((slot) => slot.key === 'club')?.door;
@@ -487,7 +493,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       }
       // The cabinet's walk-up spot is about 2 m from Sprotel at the bar. Inside that small circle the
       // cabinet wins, so E plays the arcade instead of opening the store.
-      if (inside && atArcade(player.x - INTERIOR_ORIGIN.x, player.z - INTERIOR_ORIGIN.z)) zone = 'arcade';
+      if (inside && atArcade((player.x - INTERIOR_ORIGIN.x) / CLUB_INTERIOR_SCALE, (player.z - INTERIOR_ORIGIN.z) / CLUB_INTERIOR_SCALE)) zone = 'arcade';
     }
     living.update(elapsed, camera);
     hall.room.visible = hallOpen && !inside;

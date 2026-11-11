@@ -39,7 +39,7 @@ export interface SprotelController {
   update(dt: number, player: Vector3 | null, storeOpen: boolean): void;
 }
 
-export function createSprotelController(root: Object3D, clips: readonly AnimationClip[], restClip: SprotelClip = 'wipe_glass'): SprotelController {
+export function createSprotelController(root: Object3D, clips: readonly AnimationClip[], restClip: SprotelClip = 'wipe_glass', interactRadius = SPROTEL_INTERACT_RADIUS): SprotelController {
   const mixer = new AnimationMixer(root);
   const find = (name: SprotelClip): AnimationAction | null => {
     const clip = clips.find((c) => c.name === name);
@@ -74,7 +74,7 @@ export function createSprotelController(root: Object3D, clips: readonly Animatio
   return {
     root,
     mixer,
-    interactRadius: SPROTEL_INTERACT_RADIUS,
+    interactRadius,
     prompt: SPROTEL_PROMPT,
     get playerNear() { return near; },
     update(dt, player, storeOpen) {
@@ -83,7 +83,7 @@ export function createSprotelController(root: Object3D, clips: readonly Animatio
       if (player) {
         root.updateWorldMatrix(true, false);
         root.worldToLocal(v.copy(player));
-        inside = Math.hypot(v.x, v.z) < SPROTEL_INTERACT_RADIUS;
+        inside = Math.hypot(v.x, v.z) < interactRadius;
       }
       if (inside && !near && greet && !storeOpen) greet.reset().play();
       near = inside;
