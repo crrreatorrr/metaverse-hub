@@ -182,6 +182,7 @@ offline daemon; do not relabel the old helper as the deployment-equivalent worke
 | Client lifecycle | Received is not verified/paid. Final partial tail; one request/timer pipeline; lost issue/append/finish replies; status exact-ACK recovery; stale browser completion/account switch; same-session token refresh; no original-session rebind; bounded offline/backpressure/deadline behavior; local clear with pending or denied server payment. |
 | Lease/fence/checkpoint | Worker crash before/after claim response; retry after partial progress; stale fence/revision/input hash; old checkpoint and changed self-signed hash; artifact bytes/manifest mismatch; resource timeout/OOM with operational retry; corrupt predecessor fairness and bounded quarantine. No old owner advances or closes a newer history. |
 | Commit boundaries | Fault before durable append, after append/lost reply, before fenced result, after result commit/lost reply, before/after separate financial commit, lost finish reply, duplicate payment retry. Compare immutable stored receipts and exact money snapshots on every retry. |
+| Deferred payment repair | Crash after durable terminal ACK with no jobs remaining; wallet/DB outage and later recovery; payments disabled then reenabled. Discover only the current worker/account's stored pending RESULT proof, then repair by resultRequestId/requestSha256 without resending any private CP/body or selecting an arbitrary run. Preserve exact-once credit, original-session expiry denial, same-worker key rotation and orphan-pending visibility. |
 | Terminal/economy | Gun/splash eligibility; assisted/fail/incomplete zero; Obama one canonical boss; forbidden agent/glowieAgent/part aliases; per-boss issuance-day uniqueness,200/session and1000/current-game settlement-day cap; refund non-cap bypass; duplicate settlement; leaderboard milliseconds from authoritative first terminal tick. |
 | Time/authorization | Actual clock after held session/economy/wallet/day-row locks; UTC crossing (issuance-day boss bucket, settlement-day ticket bucket); fixed upload expiry retains input and can coexist with later paid receipt while original session is live; ordinary session expiry/close has no grace; durable observed expiry cannot revive after lease rewrite; already-paid receipt remains final. |
 | Retention/recovery | Missing finish eventual closure; quarantine reason retained; bounded audited extra-attempt grants without resetting max/attempt/fence/history; expired run plus newer active account run; no session/payment revival; duplicate/conflicting/unauthorized maintenance calls; partly/unverified/uncertified payload cannot retire; exact ACK recovery for retired input; changed duplicate conflict. |
@@ -286,6 +287,9 @@ is inferred from a successful disposable integration stack.
   format; current design and operator bodies were supplied by its author.
 - PR19 offline UNIX-socket daemon/coordinator profile, readiness/drain/fault
   controls and stable metrics/health formats. No shared-host-only substitute.
+- PR19/0058's result-scoped own-pending-proof list and small repair API invoking
+  the existing0055 financial helper in a separate transaction; no new financial
+  policy, cross-worker impersonation or public arbitrary-run payout selector.
 - Root approved lanes A/B and required lane C's complete 9634-frame actual UI run.
   The remaining prerequisite is PR16's reviewed start/active/terminal signals for
   the one-shot CI issue-key stub and read-only stored-command input adapter.
