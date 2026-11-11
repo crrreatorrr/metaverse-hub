@@ -36,11 +36,18 @@ function backoff(signal, milliseconds = DRAIN_POLL_MS) {
 export async function waitDrainPoll({ signal, paymentDeadlineMonoMs = null }) {
   if (signal.aborted) throw deadline();
   if (paymentDeadlineMonoMs !== null && (typeof paymentDeadlineMonoMs !== 'number' || !Number.isFinite(paymentDeadlineMonoMs) || paymentDeadlineMonoMs < 0)) throw new Error('drain_payment_window_invalid');
-  const remaining = paymentDeadlineMonoMs === null ? DRAIN_POLL_MS : paymentDeadlineMonoMs - performance.now();
-  if (remaining <= 0) throw new Error('drain_payment_observation_window');
-  await backoff(signal, Math.min(DRAIN_POLL_MS, Math.ceil(remaining)));
+  const pollTarget = performance.now() + DRAIN_POLL_MS;
+  const target = paymentDeadlineMonoMs === null ? pollTarget : Math.min(pollTarget, paymentDeadlineMonoMs);
+  // Timer callbacks can run just before a fractional monotonic deadline. Keep
+  // one target, asynchronously recheck it, and never open another poll window.
+  for (;;) {
+    if (signal.aborted) throw deadline();
+    const remaining = target - performance.now();
+    if (remaining <= 0) break;
+    await backoff(signal, Math.max(1, Math.ceil(remaining)));
+  }
   if (signal.aborted) throw deadline();
-  if (paymentDeadlineMonoMs !== null && performance.now() >= paymentDeadlineMonoMs) throw new Error('drain_payment_observation_window');
+  if (paymentDeadlineMonoMs !== null && (target === paymentDeadlineMonoMs || performance.now() >= paymentDeadlineMonoMs)) throw new Error('drain_payment_observation_window');
 }
 // Only frozen post-pause owner-status reads use this recovery. It neither
 // changes the original signal/window nor retries denial or unknown transport.
