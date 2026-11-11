@@ -176,6 +176,9 @@ namespace ShooterRuns {
     if (!isObj(body.log)) return zero("malformed");
     var row = loadRun(nk, who.userId, runId);
     if (!row) return zero("unknown_run");
+    // A v2 run cannot bypass durable ingestion through the legacy completed-log RPC.
+    var v2 = nk.sqlQuery("SELECT 1 AS present FROM game.shooter_verification_run WHERE run_id=$1 AND user_id=$2::uuid", [runId, who.userId]);
+    if (v2 && v2.length) return zero("wrong_protocol");
     if (textCol([row], "session_id") !== who.sid) return zero("rebind");
     var status = textCol([row], "status");
     var limit = status === "open" ? VERIFY_LIMIT : REPLAY_LIMIT;

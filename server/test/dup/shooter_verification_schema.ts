@@ -14,6 +14,7 @@ const HISTORY = `${RUN}-settled`;
 const ECONOMY = `SELECT md5(COALESCE((SELECT string_agg(to_jsonb(t)::text, '' ORDER BY seq) FROM game.tickets_ledger t),''))
   ||':'||md5(COALESCE((SELECT string_agg(to_jsonb(t)::text, '' ORDER BY run_id) FROM game.shooter_receipt t),''))
   ||':'||md5(COALESCE((SELECT string_agg(to_jsonb(t)::text, '' ORDER BY user_id,game_id) FROM game.tickets_balance t),''))`;
+const TEST_ADMISSION = `UPDATE game.shooter_verification_admission SET new_runs_enabled=true,max_global_runs=1000,max_account_runs=100,max_global_bytes=1099511627776,max_account_bytes=1073741824,max_global_batches=1000000,max_account_batches=100000,global_appends_per_minute=100000,account_appends_per_minute=10000`;
 const metadata = `(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)`;
 const values = `('${RUN}','${USER}','${SESSION}',1,1,1,repeat('a',64),repeat('b',40),'cea1f88b',now(),now()+interval '45 minutes')`;
 const legacy = `INSERT INTO game.shooter_run (run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
@@ -41,7 +42,7 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
 
   await test('shooter-verification', 'schema constraints reject duplicate history, changed identity and unsafe jobs', async () => {
     const baseline = psql(ECONOMY);
-    psql(`BEGIN; ${legacy}; INSERT INTO game.shooter_verification_run ${metadata} VALUES ${values};
+    psql(`BEGIN; ${TEST_ADMISSION}; ${legacy}; INSERT INTO game.shooter_verification_run ${metadata} VALUES ${values};
       ${batch};
       INSERT INTO game.shooter_verification_batch SELECT run_id,1,4,frame_count,frames,encoded_bytes,actions,action_count,request_sha256,received_ack,accepted_at,authorized_lease_until
         FROM game.shooter_verification_batch WHERE run_id='${RUN}' AND sequence=0;
@@ -83,7 +84,8 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     // Only safe on the pristine new queue. Future versions with live fixtures
     // must adapt this test instead of discarding retained verification evidence.
     for (const name of ['job', 'batch', 'run']) assert.equal(num(`SELECT count(*) FROM game.shooter_verification_${name}`), 0);
-    assert.equal(migrationIds().at(-1), ID, 'upgrade fixture must be updated when a later migration is added');
+    const v2Ids = migrationIds().filter((id) => /^[0-9]+_shooter_(verification|verified|v2)_/.test(id));
+    assert.ok(v2Ids.includes(ID));
     // Trusted synthetic historical DB fixture, not a forged client reward.
     // Keep receipt, balance, ledger and idempotency evidence mutually consistent.
     psql(`INSERT INTO game.shooter_run (run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json,status)
@@ -98,19 +100,19 @@ export async function runShooterVerificationSchema(test: TestFn): Promise<void> 
     assert.equal(num(`SELECT count(*) FROM game.shooter_receipt WHERE run_id='${HISTORY}'`), 1);
     assert.equal(num(`SELECT count(*) FROM game.tickets_ledger WHERE user_id='${USER}' AND delta=20`), 1);
     assert.equal(num(`SELECT balance FROM game.tickets_balance WHERE user_id='${USER}' AND game_id='sproto-shooter'`), 20);
-    const ledger = psql(`SELECT id||':'||checksum FROM game.schema_migrations WHERE id<>'${ID}' ORDER BY id`);
+    const ledger = psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id !~ '^[0-9]+_shooter_(verification|verified|v2)_' ORDER BY id`);
     const economy = psql(ECONOMY);
     compose(['stop', 'nakama']);
     try {
-      psql(`${legacy}; DROP TABLE game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run;
-        DELETE FROM game.schema_migrations WHERE id='${ID}';`);
+      psql(`${legacy}; DROP TABLE game.shooter_verification_job,game.shooter_verification_batch,game.shooter_verification_run,game.shooter_verification_admission_account,game.shooter_verification_admission;
+        DELETE FROM game.schema_migrations WHERE id ~ '^[0-9]+_shooter_(verification|verified|v2)_';`);
     } finally {
       compose(['up', '-d', 'nakama']);
       await waitReady();
     }
     assert.equal(num(`SELECT count(*) FROM game.shooter_run WHERE run_id='${RUN}' AND user_id='${USER}' AND session_id='${SESSION}'`), 1);
-    assert.equal(psql(`SELECT id||':'||checksum FROM game.schema_migrations WHERE id<>'${ID}' ORDER BY id`), ledger);
-    assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${ID}'`), fileChecksum(ID));
+    assert.equal(psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations WHERE id !~ '^[0-9]+_shooter_(verification|verified|v2)_' ORDER BY id`), ledger);
+    for (const id of v2Ids) assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${id}'`), fileChecksum(id));
     const applied = psql(`SELECT id||':'||checksum||':'||applied_at::text FROM game.schema_migrations ORDER BY id`);
     compose(['restart', 'nakama']);
     await waitReady();
