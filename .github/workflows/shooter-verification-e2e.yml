@@ -126,7 +126,7 @@ jobs:
         working-directory: .ci-browser-client
         run: |
           npm ci
-          npx playwright install --with-deps chromium
+          npx playwright install chromium
           npm run build
         env:
           VITE_SHOOTER_REWARDED: 'true'

@@ -1,0 +1,53 @@
+name: shooter-checkpoint-hash
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/shooter-verification/hash-benchmark/**
+      - server/modules/src/games/shooter_verification_commit.ts
+      - services/shooter-verifier/test/late-checkpoint.mjs
+      - .github/workflows/shooter-checkpoint-hash.yml
+permissions:
+  contents: read
+jobs:
+  actual-goja:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      GITHUB_ACTIONS: 'true'
+      HUB_SHOOTER_FIXTURE: benchmark
+      SHOOTER_CHECKPOINT_HASH_BENCHMARK: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27.1'
+          cache: false
+      - run: npm ci
+      - name: Resolve pinned actual-Nakama Goja dependencies
+        working-directory: scripts/shooter-verification/hash-benchmark
+        run: go mod download
+      - name: Bounded IO and input refusal canaries
+        working-directory: scripts/shooter-verification/hash-benchmark
+        run: go test -mod=readonly ./...
+      - name: Build isolated Goja executable
+        working-directory: scripts/shooter-verification/hash-benchmark
+        run: go build -mod=readonly -o "$RUNNER_TEMP/shooter-checkpoint-hash" .
+      - name: Compare actual Goja canonicalization and exact UTF16 FNV variants
+        run: node scripts/shooter-verification/hash-benchmark/driver.mjs "$RUNNER_TEMP/shooter-checkpoint-hash"
+      - name: Upload only safe advisory report and public module metadata
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkpoint-hash-goja
+          path: |
+            ci-artifacts/checkpoint-hash/report.json
+            scripts/shooter-verification/hash-benchmark/go.mod
+            scripts/shooter-verification/hash-benchmark/go.sum
+          if-no-files-found: warn
