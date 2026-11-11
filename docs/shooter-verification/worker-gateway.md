@@ -140,3 +140,14 @@ The copied `services/shooter-verifier/test/obama-success-7.json` is byte-for-byt
 source05f's frozen fixture (fileSHA256290305879564ca056728554accb52d3469f1185bd2b3c68574929635767b5e77).
 Its original generator provenance is retained. Only test-time issuance bindings
 are regenerated for ephemeral account/session UUIDs, retaining exact input bytes.
+
+Nakama3.41's SQL adapter logs SQL arguments when a query returns an error. The
+SQL gateway catches server-side failures, rolls back all mutation and returns a
+sanitized operational response; a real checkpoint plus forced receipt-trigger SQL
+error is tested against actual Nakama logs. Application logs never stringify
+exceptions or payloads and raw service tokens are never SQL arguments. However,
+connection failures or driver cancellation before/around function execution can
+still trigger Nakama's own argument logging. Production activation therefore
+requires approved runtime argument-redaction/log-access controls and a separate
+connection-fault review; this PR installs none and makes no unconditional private
+snapshot-log secrecy claim. SQL-only catching is not a cure for driver logging.

@@ -1,5 +1,6 @@
 // Scoped service-only RPCs. Ordinary JWT vars and the broad runtime HTTP key
-// confer no service authority. No credentials or private inputs are logged.
+// confer no service authority. Application logs exclude private inputs; runtime
+// driver/connection argument logging remains an explicit deployment gate.
 namespace ShooterVerificationInternal {
   var ID = /^[A-Za-z0-9_.:@|-]{1,80}$/;
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
