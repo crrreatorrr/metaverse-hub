@@ -233,7 +233,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let traveling = false;
   let dwell: PortalDwell = initialDwell();
   let portalError = '';
-  /** When the last travel error was shown; it stays up a few seconds even outside a ring. */
+  /** When the last travel error was shown; it stays up a few seconds even outside an entrance. */
   let portalErrorAt = -Infinity;
   let fps = 60;
   let warnedDraws = false;
@@ -819,7 +819,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const near = enabled ? nearestPortal(player.position.x, player.position.z) : null;
     const inside = enabled ? portalContaining(PORTALS, player.position.x, player.position.z) : null;
     const interaction = content.interactions?.find(item => item.active());
-    // A ring error clears when you step out; an arcade error stays long enough to read.
+    // An entrance error clears when you step out; an arcade error stays long enough to read.
     if (!inside && performance.now() - portalErrorAt > PORTAL_ERROR_MS) portalError = '';
     const closed = near && !pageFor(near.id) ? near : null;
     const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
@@ -832,7 +832,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
             : entering && inside
               ? `${look}Entering ${inside.label}…`
               : near
-                ? `${look}Walk into the ring to enter ${near.label}`
+                ? `${look}Walk through the entrance to play ${near.label}`
                 : `${look}${usingPad ? padHint(moveStick) : CONTROLS_HINT}`;
     const shown = usingPad ? padPrompt(text) : text;
     if (hint.textContent !== shown) hint.textContent = shown;
