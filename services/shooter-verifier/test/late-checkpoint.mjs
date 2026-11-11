@@ -23,4 +23,4 @@ request.operation='step';request.batch=null;request.accepted=null;
 while(request.checkpoint.accounting.verifiedFrames<22000){request.claim.continuationTick=request.checkpoint.accounting.verifiedFrames;request.maxWorkFrames=Math.min(4096,22000-request.claim.continuationTick);call();}
 const checkpoint=request.checkpoint,text=JSON.stringify(checkpoint),checkpointBytes=Buffer.byteLength(text);
 if(checkpointBytes<=262144)throw new Error('late_checkpoint_must_exceed_default_http_limit');
-process.stdout.write(JSON.stringify({issuance,batch,checkpoint,checkpointBytes,checkpointSha256:createHash('sha256').update(text).digest('hex')}));
+process.stdout.write(JSON.stringify({issuance,batch,checkpoint,checkpointBytes}));

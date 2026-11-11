@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
 import { randomBytes, createHash } from 'node:crypto';
-import { readFileSync } from 'node:fs';
+import { readFileSync,mkdtempSync,writeFileSync,rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import vm from 'node:vm';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { guest, openGame, call, psql, psqlAsync, num, sleep, type Guest } from './harness.ts';
+import { guest, openGame, call, psql, psqlFile, psqlAsync, num, sleep, type Guest } from './harness.ts';
 type TestFn = (category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Row = Record<string,unknown>;
 const SHA='797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
@@ -14,6 +16,7 @@ const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,global_a
  UPDATE game.shooter_verification_admission SET new_runs_enabled=true,max_global_runs=1000,max_account_runs=100,max_global_bytes=1099511627776,max_account_bytes=1073741824,max_global_batches=1000000,max_account_batches=100000,global_appends_per_minute=100000,account_appends_per_minute=10000;
  UPDATE game.shooter_verification_scheduler SET claims_enabled=true,max_leased=10,max_account_leased=1,max_jobs=100000,max_account_jobs=10000,max_attempts_retained=1000000,max_account_attempts_retained=100000,max_checkpoint_bytes=1073741824,max_account_checkpoint_bytes=67108864,lease_seconds=30,attempt_seconds=120,attempt_limit=3,retry_base_seconds=1,retry_max_seconds=4,slice_ticks=4096`;
 function isolate():void { psql(`UPDATE game.shooter_verification_job SET state='quarantined',lease_owner=NULL,lease_until=NULL,attempt_deadline=NULL WHERE state IN ('ready','leased','retry_wait');UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE lifecycle IN ('open','sealed','expired','terminal','quarantined');${CONFIG}`); }
+function sqlData(sql:string):void {const dir=mkdtempSync(join(tmpdir(),'shooter-gateway-fixture-'));try{const path=join(dir,'fixture.sql');writeFileSync(path,sql);psqlFile(path);}finally{rmSync(dir,{recursive:true,force:true});}}
 function hash(s:string):string {return createHash('sha256').update(s).digest('hex');}
 async function principal(scopes=['claim','renew','retry','result']):Promise<{account:Guest;workerId:string;keyId:string;token:string}> {
   const account=await guest(),workerId='worker-'+crypto.randomUUID(),keyId='key1',token=randomBytes(32).toString('base64url');
@@ -33,7 +36,7 @@ async function fixture():Promise<string> {
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${player.userId}','${login.sessionId}','internal:${run}',current_date,'sahil',7,${q(issuance)});
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','05f7a0a245af921fc65a99588564175c19658e38','cea1f88b',clock_timestamp()-interval '2 minutes',clock_timestamp()+interval '43 minutes');`);
+    VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','05f7a0a245af921fc65a99588564175c19658e38','cea1f88b',now()-interval '2 minutes',now()+interval '43 minutes');`);
   const appended=await call('shooter.run.append',{protocol:2,runId:run,sequence:0,tick0:0,n:8,frames:Buffer.alloc(96).toString('base64'),actions:[]},login.gameToken);
   assert.equal((appended.body as Row).state,'received',JSON.stringify(appended)); return run;
 }
@@ -101,16 +104,26 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     isolate();const p=await principal(),player=await guest(),login=await openGame(player.token,'sproto-shooter'),run=crypto.randomUUID();
     const generated=JSON.parse(execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/late-checkpoint.mjs',import.meta.url))],{
       input:JSON.stringify({accountId:player.userId,sessionId:login.sessionId,runId:run,day:psql('SELECT current_date::text')}),encoding:'utf8',timeout:60000,maxBuffer:4*1024*1024,env:{NODE_ENV:'test'},
-    })) as {issuance:Row;batch:Row;checkpoint:Row;checkpointBytes:number;checkpointSha256:string};
+    })) as {issuance:Row;batch:Row;checkpoint:Row;checkpointBytes:number};
     psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
       VALUES('${run}','${player.userId}','${login.sessionId}','late:${run}',current_date,'obama',7,${q(JSON.stringify(generated.issuance))});
       INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-      VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','05f7a0a245af921fc65a99588564175c19658e38','cea1f88b',clock_timestamp()-interval '10 minutes',clock_timestamp()+interval '35 minutes');`);
+      VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','05f7a0a245af921fc65a99588564175c19658e38','cea1f88b',now()-interval '10 minutes',now()+interval '35 minutes');`);
     assert.equal(((await call('shooter.run.append',generated.batch,login.gameToken)).body as Row).state,'received');
     // Trusted fixture seeds a simulator-generated predecessor; no public RPC
     // accepts checkpoints; PR11 advances only an authenticated bound result.
-    psql(`UPDATE game.shooter_verification_run SET revision=1,verified_tick=22000,simulation_tick=22000,verified_bytes=352000,
-      checkpoint_json=${q(JSON.stringify(generated.checkpoint))}::jsonb,checkpoint_sha256='${generated.checkpointSha256}' WHERE run_id='${run}'`);
+    sqlData(`WITH payload AS(SELECT ${q(JSON.stringify(generated.checkpoint))}::jsonb AS value)
+      UPDATE game.shooter_verification_run SET revision=1,verified_tick=22000,simulation_tick=22000,verified_bytes=352000,
+      checkpoint_json=payload.value,checkpoint_sha256=repeat('0',64) FROM payload WHERE run_id='${run}'`);
+    const healthy=await fixture(),badClaim=await rpc(p,'claim');
+    assert.equal(badClaim.reason,'private_work_unavailable');assert.equal((badClaim.claim as Row).runId,run);
+    assert.equal(psql(`SELECT state FROM game.shooter_verification_job WHERE run_id='${run}'`),'retry_wait');
+    assert.equal(num(`SELECT attempts FROM game.shooter_verification_job WHERE run_id='${run}'`),1,'corruptpredecessorconsumesboundedattempt');
+    const healthyClaim=await rpc(p,'claim');assert.equal((healthyClaim.claim as Row).runId,healthy,'corruptaccountcannotstarvehealthyaccount');
+    const hc=healthyClaim.claim as Row;await rpc(p,'retry',{jobId:hc.jobId,fence:hc.fence,expectedRevision:hc.expectedRevision,reason:'worker_crash'});
+    psql(`UPDATE game.shooter_verification_run SET lifecycle='invalid' WHERE run_id='${healthy}';
+      UPDATE game.shooter_verification_run SET checkpoint_sha256=encode(sha256(convert_to(checkpoint_json::text,'UTF8')),'hex') WHERE run_id='${run}'`);
+    await sleep(1100);
     const result=JSON.parse(execFileSync(process.execPath,[fileURLToPath(new URL('../../../services/shooter-verifier/test/live-gateway.mjs',import.meta.url))],{
       input:JSON.stringify({url:process.env.NAKAMA_URL||'http://127.0.0.1:7350',workerId:p.workerId,keyId:p.keyId,token:p.token,accountToken:p.account.token,requestId:crypto.randomUUID()}),encoding:'utf8',timeout:60000,maxBuffer:1024*1024,env:{NODE_ENV:'test'},
     })) as Row;
