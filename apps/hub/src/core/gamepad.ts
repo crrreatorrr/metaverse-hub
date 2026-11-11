@@ -63,8 +63,8 @@ export interface Stick { x: number; y: number }
 /** Which stick walks. The other one turns the camera. */
 export type MoveStick = 'left' | 'right';
 
-/** The plaza's default: the owner asked for the right stick to walk and the left stick to look. */
-export const DEFAULT_MOVE_STICK: MoveStick = 'right';
+/** Standard layout: left stick walks and right stick looks. */
+export const DEFAULT_MOVE_STICK: MoveStick = 'left';
 const MOVE_STICK_KEY = 'hub:pad-move-stick';
 
 /** The stored stick layout (menu → Items → Controller), or the default. Safe without storage. */
