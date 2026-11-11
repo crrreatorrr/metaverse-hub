@@ -57,6 +57,8 @@ Then in each game: `npm run vendor:sdk -- <game-repo>` (`scripts/vendor-sdk.mjs`
 | Sproto Shooter | the vendor script. The game imports the ESM build. Keep `VENDOR.md` and `SOURCE.pin.json` together. |
 | Sproto Coop Battle | the vendor script. The game loads the IIFE (global `HubSDK`). `scripts/build.mjs` refuses a copy whose version or hash differs from `SOURCE.pin.json`, so update `scripts/build.mjs` and `docs/coop-hub.md` too. |
 
+In-game feedback (`docs/feedback.md`) lives in the SDK from 0.7.0. Each game calls `installFeedback` with its own pause, context and theme adapter; the window, the screenshot and the transport come from the vendored copy.
+
 Game ids, Relic ids and events are additive too. An older SDK drops ids it does not know, so it hides newer Relics.
 
 ### Game simulation changes → rebuild, vendor, pin, check

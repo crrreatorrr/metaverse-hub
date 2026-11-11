@@ -4,6 +4,7 @@ import { MOVEMENT } from '../core/movement';
 import {
   HubSdkError,
   createNakamaClient,
+  installFeedback,
   type ChatChannel,
   getOrCreateDeviceId,
   type GameId,
@@ -1234,6 +1235,54 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
     });
 
+  // Press N twice: feedback about the hub itself (docs/feedback.md). The plaza is shared, so it
+  // keeps running behind the window; held movement keys are released instead.
+  installFeedback({
+    title: 'Metaverse Hub',
+    version: __HUB_BUILD__,
+    transport: {
+      async access() {
+        try {
+          const session = await boot();
+          if (!session.username) return { ok: false, reason: 'sign_in_required' };
+          await session.client.rpc('feedback.can', {}, { token: await plazaToken(session) });
+          return { ok: true, username: session.username };
+        } catch (error) {
+          return { ok: false, reason: error instanceof HubSdkError && error.code !== 'rpc_failed' ? error.code : 'offline' };
+        }
+      },
+      async submit(input) {
+        const session = await boot();
+        const result = await session.client.rpc<{ id: string }>('feedback.submit', input, { token: await plazaToken(session) });
+        return { id: result.id };
+      },
+    },
+    enabled: () => !gate.isOpen() && !traveling,
+    pause() {
+      keys.clear();
+      return false;
+    },
+    canvases: () => [canvas],
+    context: () => ({
+      level: definition.id,
+      mode: plazaState === 'online' ? 'online' : 'solo',
+      position: { x: round2(player.position.x), y: round2(player.position.y), z: round2(player.position.z) },
+      player: { moving: keys.size > 0, menuOpen: menu.open, chatOpen: chat.open },
+      extra: { plaza: plazaState, plazaDetail, signedIn: sessionLabel },
+    }),
+    theme: {
+      font: 'var(--font, "Inter Variable", system-ui, sans-serif)',
+      background: 'rgba(7, 6, 15, 0.6)',
+      panel: 'rgba(10, 11, 26, 0.94)',
+      text: '#eef3ff',
+      muted: '#a8b4ca',
+      accent: '#3de1ff',
+      accentText: '#07060f',
+      border: 'rgba(255, 255, 255, 0.16)',
+      radius: '12px',
+    },
+  });
+
   function createDebug(): HubDebugState & { element: HTMLElement } {
     const element = document.querySelector('#debug');
     if (!(element instanceof HTMLElement)) throw new Error('Debug overlay is missing');
@@ -1243,6 +1292,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     return Object.assign(state, { element });
   }
 
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /** Controller movement handed to the player controller, merged with the keyboard. */
