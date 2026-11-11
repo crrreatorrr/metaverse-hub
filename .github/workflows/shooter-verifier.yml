@@ -32,8 +32,18 @@ jobs:
           timeout 20s docker run --name shooter-verifier-native-oom --network none --read-only --memory 64m --memory-swap 64m --pids-limit 16 --cpus 1 --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --entrypoint node shooter-verifier-pr09:test -e 'const a=[];for(;;)a.push(Buffer.alloc(8*1024*1024,1))'
           code=$?
           set -e
+          # Docker's OOM event can arrive just after its process exit event.
+          # Observe metadata for at most1s; the allocation runtime stays20s.
+          oom_killed=false
+          for observation in 1 2 3 4 5 6 7 8 9 10; do
+            oom_killed=$(docker inspect --format '{{.State.OOMKilled}}' shooter-verifier-native-oom)
+            if test "$oom_killed" = true; then break; fi
+            sleep 0.1
+          done
+          printf '{"exitCode":%s,"oomKilled":%s}\n' "$code" "$oom_killed"
+          docker inspect --format '{{json .State}}' shooter-verifier-native-oom
           test "$code" -eq 137
-          test "$(docker inspect --format '{{.State.OOMKilled}}' shooter-verifier-native-oom)" = true
+          test "$oom_killed" = true
   corpus-parity:
     runs-on: ubuntu-latest
     timeout-minutes: 30
