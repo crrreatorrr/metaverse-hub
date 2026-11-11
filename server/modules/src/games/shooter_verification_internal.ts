@@ -104,6 +104,11 @@ namespace ShooterVerificationInternal {
       result.workState=typeof projection.workState==="string"?projection.workState:"pending_retryable";
       result.workReason=typeof projection.workReason==="string"?projection.workReason:null;
     }
+    // The first SQL query has returned and COMMITTED. Payment is a separate
+    // transaction; its economic/session locks never nest under checkpoint locks.
+    if (op==="result" && typeof ShooterVerificationSettlement!=="undefined") {
+      ShooterVerificationSettlement.afterResult(ctx,_logger,nk,parsed.workerId,parsed.keyId,hash,parsed.requestId,result);
+    }
 
     return JSON.stringify(result);
   }
