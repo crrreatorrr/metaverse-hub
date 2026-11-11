@@ -42,11 +42,22 @@ export async function coordinatorSample(base: string, signal: AbortSignal): Prom
   const url = new URL('/metrics', base);
   if (!['127.0.0.1', 'localhost', '[::1]'].includes(url.hostname) || url.protocol !== 'http:') throw new Error('metrics must remain unpublished loopback HTTP');
   const start = performance.now();
-  const response = await fetch(url, { signal, redirect: 'error' });
+  const response = await fetch(url, { signal: AbortSignal.any([signal, AbortSignal.timeout(5000)]), redirect: 'error' });
   if (!response.ok) throw new Error(`metrics HTTP ${response.status}`);
-  const text = await response.text();
-  if (Buffer.byteLength(text) > 65536) throw new Error('metrics response exceeds bound');
-  const metrics = JSON.parse(text) as CoordinatorMetrics;
+  const reader = response.body?.getReader();
+  if (!reader) throw new Error('metrics response has no body');
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      length += chunk.value.byteLength;
+      if (length > 65536) throw new Error('metrics response exceeds bound');
+      chunks.push(chunk.value);
+    }
+  } finally { await reader.cancel(); reader.releaseLock(); }
+  const metrics = JSON.parse(Buffer.concat(chunks).toString('utf8')) as CoordinatorMetrics;
   if (!Number.isFinite(metrics.uptimeMs) || !metrics.counters || Object.values(metrics.counters).some(n => !Number.isFinite(n) || n < 0)) throw new Error('invalid safe metrics');
   return { wallMs: performance.now() - start, metrics };
 }
