@@ -42,7 +42,9 @@ HubSchema.register({
       ] LOOP
         src:=pg_get_functiondef(name::regprocedure);
         IF position('shooter_v2_legacy_guard' IN src)=0 THEN
-          IF position(anchor IN src)=0 THEN RAISE EXCEPTION 'shooter legacy version guard anchor missing'; END IF;
+          IF length(src)-length(replace(src,anchor,''))<>length(anchor) THEN
+            RAISE EXCEPTION 'shooter legacy version guard anchor missing or ambiguous';
+          END IF;
           src:=replace(src,anchor,anchor || E'\n-- shooter_v2_legacy_guard\n'
             || 'IF EXISTS (SELECT 1 FROM game.shooter_verification_run WHERE run_id=p_run_id AND user_id=p_user_id) THEN '
             || 'RETURN jsonb_build_object(''ok'',false,''paid'',false,''tickets'',0,''ticketsMinted'',0,''reason'',''wrong_protocol''); END IF;');
