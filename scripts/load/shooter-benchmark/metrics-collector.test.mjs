@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import { safeMetrics } from './metrics-collector.mjs';
+const value = safeMetrics({ uptimeMs: 1, counters: { claims: 0, workerRestarts: null, token: 'must-not-copy' }, gateway: { observedAt: 4, eligible: true, queueDepth: 0, token: 'must-not-copy' }, lastExecution: { cpuUserMicros: 0, privateCheckpoint: 'must-not-copy' }, rawInputs: 'must-not-copy' });
+assert.equal(value.counters.claims, 0);
+assert.equal(value.counters.workerRestarts, null);
+assert.equal(value.gateway.queueDepth, 0);
+assert.equal(value.lastExecution.gcMs, null);
+assert.ok(!JSON.stringify(value).includes('must-not-copy'));
+assert.throws(() => safeMetrics({ uptimeMs: NaN, counters: {} }), /shape/);
+console.log('credential-free collector projection canaries passed');

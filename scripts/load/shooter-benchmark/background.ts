@@ -5,7 +5,7 @@ import vm from 'node:vm';
 import { createRealtime, type HubRealtime, type MatchHandle, type MatchData } from '../../../packages/hub-sdk/src/index.ts';
 import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
 import { sha256 } from './contracts.ts';
-import { SutUnavailable } from './runner.ts';
+import { SutUnavailable, InstrumentationFailure } from './runner.ts';
 type Encoder = (input: Record<string, unknown>) => Uint8Array;
 function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('background response is not an object');
@@ -26,6 +26,7 @@ export class BackgroundTraffic {
   private frames: ReturnType<typeof setInterval>[] = [];
   private stopping = false;
   private started = false;
+  private observing = false;
   private lifetimeSignal: AbortSignal | null = null;
   private targetMatches = 0;
   private readonly encode: Encoder;
@@ -33,7 +34,7 @@ export class BackgroundTraffic {
   readonly matchObservations: MatchQuantiles[] = [];
   readonly matchEnds: { matchBindingHash: string; observedAt: string; reason: string; outcome: string; replacement: number }[] = [];
   readonly rejectionCounts: Record<string, number> = {};
-  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; replacements: number }[] = [];
+  readonly coverage: { observedAt: string; phase: 'starting' | 'running'; targetMatches: number; activeSlots: number; attemptedMetrics: number; successfulMetrics: number; confirmedEndMetricMisses: number; replacements: number }[] = [];
   private replacements = 0;
   private readonly replacementLimit = 60;
   constructor(private base: string, private seed: string) {
@@ -52,7 +53,9 @@ export class BackgroundTraffic {
     this.lifetimeSignal = signal; this.targetMatches = freePvpMatches;
     for (let i = 0; i < hubUsers; i++) {
       if (signal.aborted) throw new Error('background startup aborted');
-      const login = await guest(), rt = this.socket(login.token);
+      const login = await guest();
+      if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_start_cancelled');
+      const rt = this.socket(login.token);
       const live: Live = { rt, match: undefined as unknown as MatchHandle }; this.live.push(live);
       await rt.connect();
       const placed = await rt.rpc<{ matchId: string }>('hub.join', {});
@@ -77,13 +80,18 @@ export class BackgroundTraffic {
     const created = object((await call('shooter.room_create', {}, a.gameToken, { signal })).body);
     if (created.error || created.stake !== 0 || typeof created.matchId !== 'string') throw new Error('free PvP background room unavailable');
     const joined = object((await call('shooter.room_join', { code: created.code, v: this.pin.protocol, sim: this.pin.sim, content: this.pin.contentFingerprint }, b.gameToken, { signal })).body);
+    if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
     if (joined.matchId !== created.matchId) throw new Error('free PvP background join failed');
     const seats: Seat[] = [];
     for (const login of [a, b]) {
       const rt = this.socket(login.gameToken), mail: MatchData[] = [];
       const seat: Seat = { rt, match: undefined as unknown as MatchHandle, account: login.hub.userId, mail, seat: -1, seq: 0, sentTick: -1 }; this.live.push(seat);
-      await rt.connect(); seat.match = await rt.joinMatch({ matchId: created.matchId });
+      await rt.connect();
+      if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
+      seat.match = await rt.joinMatch({ matchId: created.matchId });
+      if (this.stopping || signal.aborted) throw new InstrumentationFailure('background_handshake_cancelled');
       seat.match.onMessage(message => {
+        if (this.stopping) return;
         mail.push(message); if (mail.length > 128) mail.shift();
         if (message.opCode === 3) { const reason = message.json<{ reason?: string }>().reason; const key = typeof reason === 'string' && /^[a-z0-9_]{1,80}$/.test(reason) ? reason : 'unclassified_rejection'; this.rejectionCounts[key] = (this.rejectionCounts[key] ?? 0) + 1; }
       }); seats.push(seat);
@@ -110,47 +118,59 @@ export class BackgroundTraffic {
     }, 50);
     this.frames.push(pair.timer);
   }
+  private async replaceConfirmedEnd(pair: Pair, signal: AbortSignal): Promise<boolean> {
+    if (this.stopping || signal.aborted || this.lifetimeSignal?.aborted) return false;
+    const result = pair.seats.flatMap(s => s.mail.filter(m => m.opCode === 8)).at(-1);
+    if (!result) return false;
+    const end = result.json<{ reason?: string; outcome?: string }>();
+    this.matchEnds.push({ matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), reason: end.reason ?? 'unspecified', outcome: end.outcome ?? 'unspecified', replacement: this.replacements });
+    clearInterval(pair.timer);
+    for (const seat of pair.seats) seat.rt.disconnect();
+    this.pairs = this.pairs.filter(p => p !== pair);
+    if (++this.replacements > this.replacementLimit) throw new InstrumentationFailure('background_replacement_budget_exhausted');
+    await this.pair(signal, pair.slot, true);
+    return true;
+  }
   async observe(signal: AbortSignal): Promise<void> {
-    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, replacements: this.replacements };
-    if (this.coverage.length >= 2000) throw new Error('background coverage bound exceeded');
+    if (this.observing) throw new InstrumentationFailure('previous_background_observation_active');
+    this.observing = true;
+    const coverage = { observedAt: new Date().toISOString(), phase: this.started ? 'running' as const : 'starting' as const, targetMatches: this.targetMatches, activeSlots: this.pairs.length, attemptedMetrics: 0, successfulMetrics: 0, confirmedEndMetricMisses: 0, replacements: this.replacements };
+    if (this.coverage.length >= 2000) throw new InstrumentationFailure('background_coverage_bound_exceeded');
     try {
     if (!this.started) return;
     while (this.pairs.length < this.targetMatches) {
-      if (++this.replacements > this.replacementLimit) throw new Error('bounded background replacement budget exhausted');
+      if (++this.replacements > this.replacementLimit) throw new InstrumentationFailure('background_replacement_budget_exhausted');
       const occupied = new Set(this.pairs.map(pair => pair.slot));
       const slot = Array.from({ length: this.targetMatches }, (_, i) => i).find(i => !occupied.has(i));
-      if (slot === undefined) throw new Error('background slot accounting mismatch');
+      if (slot === undefined) throw new InstrumentationFailure('background_slot_accounting_mismatch');
       await this.pair(signal, slot, true);
     }
     for (const pair of [...this.pairs]) {
-      const result = pair.seats.flatMap(s => s.mail.filter(m => m.opCode === 8)).at(-1);
-      if (result) {
-        const end = result.json<{ reason?: string; outcome?: string }>();
-        this.matchEnds.push({ matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), reason: end.reason ?? 'unspecified', outcome: end.outcome ?? 'unspecified', replacement: this.replacements });
-        clearInterval(pair.timer);
-        for (const seat of pair.seats) seat.rt.disconnect();
-        this.pairs = this.pairs.filter(p => p !== pair);
-        if (++this.replacements > this.replacementLimit) throw new Error('bounded background replacement budget exhausted');
-        await this.pair(signal, pair.slot, true);
-        continue;
-      }
+      if (await this.replaceConfirmedEnd(pair, signal)) continue;
       coverage.attemptedMetrics++;
       const reply = await call('shooter.metrics', { matchId: pair.matchId }, pair.token, { signal });
       if (reply.status >= 500) throw new SutUnavailable(`pvp_metrics_http_${reply.status}`);
       const body = object(reply.body);
-      if (body.error) throw new Error('actual match metrics unavailable');
-      if (body.stake !== 0 || body.ticketsMinted !== 0) throw new Error('background is not free unpaid PvP');
+      if (body.error === 'match_missing') {
+        const untilEnd = Date.now() + 1000;
+        while (!signal.aborted && Date.now() < untilEnd && !pair.seats.some(s => s.mail.some(m => m.opCode === 8))) await wait(25);
+        if (!signal.aborted && await this.replaceConfirmedEnd(pair, signal)) { coverage.confirmedEndMetricMisses++; continue; }
+        throw new SutUnavailable('pvp_metric_missing_without_result_proof');
+      }
+      if (body.error) throw new InstrumentationFailure('pvp_metrics_error_response');
+      if (body.stake !== 0 || body.ticketsMinted !== 0) throw new InstrumentationFailure('pvp_non_free_workload');
       const values = ['n', 'p50', 'p95', 'max', 'tick'].map(key => Number(body[key]));
-      if (!values.every(n => Number.isFinite(n) && n >= 0)) throw new Error('invalid match metric quantiles');
-      if (this.matchObservations.length >= 10000) throw new Error('match observation bound exceeded');
-      const seatInputs = (Array.isArray(body.seats) ? body.seats : []).map(value => { const seat = object(value); const input = { applied: Number(seat.applied), held: Number(seat.held), neutral: Number(seat.neutral), late: Number(seat.late) }; if (!Object.values(input).every(n => Number.isFinite(n) && n >= 0)) throw new Error('invalid authoritative seat input counters'); return input; });
+      if (!values.every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_quantiles');
+      if (this.matchObservations.length >= 10000) throw new InstrumentationFailure('match_observation_bound_exceeded');
+      const seatInputs = (Array.isArray(body.seats) ? body.seats : []).map(value => { const seat = object(value); const input = { applied: Number(seat.applied), held: Number(seat.held), neutral: Number(seat.neutral), late: Number(seat.late) }; if (!Object.values(input).every(n => Number.isFinite(n) && n >= 0)) throw new InstrumentationFailure('pvp_metrics_invalid_input_counters'); return input; });
+      if (signal.aborted || this.stopping) throw new InstrumentationFailure('background_observation_cancelled');
       coverage.successfulMetrics++;
       this.matchObservations.push({ slot: pair.slot, createdMonoMs: pair.createdMonoMs, replacement: pair.replacement, observedMonoMs: performance.now(), matchBindingHash: sha256(pair.matchId), observedAt: new Date().toISOString(), n: values[0], p50: values[1], p95: values[2], max: values[3], tick: values[4], phase: String(body.phase), endReason: String(body.endReason ?? ''), outcome: String(body.outcome ?? ''), seatInputs, observer: 'shooter.metrics' });
       // These are per-match server quantiles, never samples to merge into a
       // fictitious aggregate p95. Every observed result/end reason is retained
       // when its slot is replaced; a missing metric remains a failed sample.
     }
-    } finally { coverage.activeSlots = this.pairs.length; coverage.replacements = this.replacements; this.coverage.push(coverage); }
+    } finally { this.observing = false; if (!this.stopping && !this.lifetimeSignal?.aborted) { coverage.activeSlots = this.pairs.length; coverage.replacements = this.replacements; this.coverage.push(coverage); } }
   }
   async stop(): Promise<void> {
     this.stopping = true;

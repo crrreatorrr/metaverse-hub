@@ -156,8 +156,10 @@ export function summarizeActors(actors: readonly ActorResult[]): Record<string, 
     invariant(Number.isSafeInteger(a.submittedFrames) && a.submittedFrames >= 0 && a.submittedFrames <= a.sourceFrames, 'submitted frame accounting');
     invariant(a.submittedFrames === 0 ? a.submittedInputSha256 === null : typeof a.submittedInputSha256 === 'string' && SHA.test(a.submittedInputSha256) && typeof a.submittedHashMeaning === 'string', 'submitted input identity');
     invariant(Number.isSafeInteger(a.acceptedTick) && Number.isSafeInteger(a.verifiedTick) && a.verifiedTick >= 0 && a.verifiedTick <= a.acceptedTick && a.acceptedTick <= a.submittedFrames, 'accepted/verified cursor accounting');
+    invariant(!a.everObservedEligible || a.submittedFrames > 0 && a.verifiedTick > 0, 'eligible milestone requires observed positive verified input');
     invariant(!a.durablyVerified || a.submittedFrames > 0 && a.verifiedTick === a.submittedFrames, 'durable status must cover submitted prefix');
     invariant(!a.paid || (a.payable && a.everObservedEligible && a.submittedFrames > 0 && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
+    invariant(!a.everObservedEligible || a.submittedFrames > 0 && a.verifiedTick > 0, 'eligible milestone requires observed positive verified input');
     invariant(!a.durablyVerified || a.attempted, 'verification without attempt');
     invariant(!['timeout', 'operational_failure', 'unsupported', 'censored', 'abandoned', 'not_started'].includes(a.status) || !a.paid, 'failure cannot count as paid throughput');
     const reason = `${a.status}:${a.rawReason ?? 'unspecified'}`;

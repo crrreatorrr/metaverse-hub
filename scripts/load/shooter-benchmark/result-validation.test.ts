@@ -6,7 +6,7 @@ const metrics = Object.fromEntries(['cpu', 'wall', 'queue', 'memory', 'gc', 'sql
 const report = { schemaVersion: 1, authority: 'ci_advisory', productionCapacityConclusion: null, approvalReference: null,
   provenance: { hubGitSha: 'a'.repeat(40), gameGitSha: 'b'.repeat(40), artifactSha256: sha256('artifact'), corpusManifestSha256: sha256('corpus'), assignmentSha256: sha256('assignment'), configurationSha256: sha256('config'), images: Array.from({ length: 4 }, (_, i) => ({ role: `role${i}`, digest: `sha256:${sha256(`image${i}`)}` })) },
   hosts: [{ region: null, regionEvidence: null }], actors,
-  summary: { ...summarizeActors(actors), plannedActors: 20, accountedActors: 20, unstartedActors: 0, harnessStatus: 'complete' }, measurements: metrics,
+  summary: { ...summarizeActors(actors), plannedActors: 20, accountedActors: 20, unstartedActors: 0, unboundActors: 0, harnessStatus: 'complete' }, measurements: metrics,
 };
 validateResult(report); // A complete harness may truthfully record all failures.
 assert.throws(() => validateResult({ ...report, productionCapacityConclusion: { users: 20 } }), /CI capacity/);

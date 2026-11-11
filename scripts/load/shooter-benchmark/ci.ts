@@ -9,11 +9,11 @@ import { makePlan, sha256, quantiles, type Corpus } from './contracts.ts';
 import { hostObservation, latencyObservations } from './observers.ts';
 import { observeContainer, observeContainerLimits, cpuDelta, type CgroupSample } from './container-observer.ts';
 import { PublicPipeline } from './pipeline.ts';
-import { runPlan } from './runner.ts';
+import { runPlan, InstrumentationFailure, SutUnavailable } from './runner.ts';
 import { inputCoverage } from './coverage.ts';
 import { validateResult } from './result-validation.ts';
 const exec = promisify(execFile);
-const composeFiles = ['-f', 'server/docker-compose.yml', '-f', 'services/shooter-verifier/ops/compose.ci.yml', '--profile', 'shooter-verification'];
+const composeFiles = ['-f', 'server/docker-compose.yml', '-f', 'services/shooter-verifier/ops/compose.ci.yml', '-f', 'scripts/load/shooter-benchmark/compose.ci.yml', '--profile', 'shooter-verification'];
 function directory(): string {
   if (process.env.GITHUB_ACTIONS !== 'true' || process.env.HUB_SHOOTER_FIXTURE !== 'benchmark') throw new Error('ephemeral benchmark fixture profile required');
   if ((process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350') !== 'http://127.0.0.1:7350') throw new Error('CI benchmark permits literal loopback only');
@@ -42,7 +42,21 @@ async function prepare(): Promise<void> {
 async function compose(args: string[]): Promise<string> {
   const { stdout } = await exec('docker', ['compose', ...composeFiles, ...args], { timeout: 10000, maxBuffer: 65536, encoding: 'utf8' }); return stdout.trim();
 }
-const METRICS_READER = `const r=await fetch('http://127.0.0.1:9476/metrics',{signal:AbortSignal.timeout(2000)});if(!r.ok||!r.body)throw Error('metrics');let n=0;const a=[];for await(const c of r.body){n+=c.length;if(n>65536)throw Error('bound');a.push(c)}process.stdout.write(Buffer.concat(a).toString('utf8'))`;
+function role(service: string): import('./container-observer.ts').ServerRole {
+  if (service === 'replay') return 'verifier';
+  if (service === 'metrics-observer') return 'observer';
+  if (service === 'nakama' || service === 'postgres' || service === 'coordinator') return service;
+  throw new InstrumentationFailure('unknown_container_role');
+}
+async function metricsFile(id: string): Promise<Record<string, unknown>> {
+  let stdout: string;
+  try { stdout = (await exec('docker', ['exec', id, 'cat', '/tmp/metrics.json'], { timeout: 2000, maxBuffer: 65536, encoding: 'utf8' })).stdout; }
+  catch { throw new InstrumentationFailure('metrics_collector_file_unavailable'); }
+  const snapshot = JSON.parse(stdout);
+  if (!Number.isFinite(snapshot.asOf) || Date.now() - snapshot.asOf > 5000 || Date.now() < snapshot.asOf) throw new InstrumentationFailure('metrics_collector_stale_or_clock_changed');
+  if (snapshot.state !== 'observed') throw new SutUnavailable('coordinator_metrics_read_unavailable');
+  return snapshot.metrics;
+}
 async function run(): Promise<void> {
   const root = directory();
   const corpusBytes = await readFile('server/test/fixtures/shooter-integration-corpus.json');
@@ -51,18 +65,20 @@ async function run(): Promise<void> {
   // corpus cases remain intact. Full profiles require authorized execution.
   plan.phases = [{ kind: 'background_baseline', waves: 0, arrivalIntervalMs: 3000 }, { kind: 'retry_storm', waves: 1, arrivalIntervalMs: 0 }, { kind: 'drain', waves: 0, arrivalIntervalMs: 5000 }];
   const ids = new Map<string, string>();
-  for (const service of ['nakama', 'postgres', 'coordinator', 'replay']) {
+  for (const service of ['nakama', 'postgres', 'coordinator', 'replay', 'metrics-observer']) {
     const id = await compose(['ps', '-q', service]);
     if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('missing actual container identity'); ids.set(service, id);
   }
   const originalIds = JSON.parse(await readFile(join(root, 'stack-identities.json'), 'utf8'));
   if (originalIds.nakama !== ids.get('nakama') || originalIds.postgres !== ids.get('postgres')) throw new Error('worker startup replaced the measured Hub/database');
-  const roleLimits = await Promise.all([...ids].map(([service, id]) => observeContainerLimits(service === 'replay' ? 'verifier' : service as 'nakama' | 'postgres' | 'coordinator', id)));
+  const readyDeadline = Date.now() + 5000;
+  for (;;) { try { await metricsFile(ids.get('metrics-observer')!); break; } catch { if (Date.now() >= readyDeadline) throw new InstrumentationFailure('metrics_collector_not_ready'); await new Promise(resolve => setTimeout(resolve, 100)); } }
+  const roleLimits = await Promise.all([...ids].map(([service, id]) => observeContainerLimits(role(service), id)));
   const samples: CgroupSample[] = [], queueSamples: Record<string, unknown>[] = [], checkpointSamples: { observedAt: string; sizes: Record<string, unknown>[] }[] = [];
   const pipeline: PublicPipeline = new PublicPipeline(plan, 'http://127.0.0.1:7350', async signal => {
     const [observed, metricsResponse, checkpoints] = await Promise.all([
-      Promise.all([...ids].map(([service, id]) => observeContainer(service === 'replay' ? 'verifier' : service as 'nakama' | 'postgres' | 'coordinator', id))),
-      exec('docker', ['exec', ids.get('coordinator')!, 'node', '--input-type=module', '-e', METRICS_READER], { timeout: 4000, maxBuffer: 65536, encoding: 'utf8' }),
+      Promise.all([...ids].map(([service, id]) => observeContainer(role(service), id))),
+      metricsFile(ids.get('metrics-observer')!),
       pipeline.checkpointSizes(),
     ]);
     if (signal.aborted) throw new Error('aborted');
@@ -70,7 +86,7 @@ async function run(): Promise<void> {
     samples.push(...observed);
     if (samples.length > 10000) throw new Error('server sample bound exceeded');
     if (signal.aborted) throw new Error('aborted');
-    const value = JSON.parse(metricsResponse.stdout);
+    const value = metricsResponse;
     if (!Number.isFinite(value.uptimeMs) || !value.counters) throw new Error('invalid actual coordinator metrics');
     // Keep only the reviewed safe aggregate DTO, never arbitrary RPC bodies.
     queueSamples.push({ observedAt: new Date().toISOString(), uptimeMs: value.uptimeMs, counters: value.counters, gateway: value.gateway, lastExecution: value.lastExecution, gatewaySampleAgeMs: value.gatewaySampleAgeMs, lastExecutionSampleAgeMs: value.lastExecutionSampleAgeMs });
@@ -81,14 +97,16 @@ async function run(): Promise<void> {
   const git = async (args: string[]) => (await exec('git', args, { timeout: 5000, maxBuffer: 65536, encoding: 'utf8' })).stdout.trim();
   const configuration = psql("SELECT jsonb_build_object('admission',(SELECT to_jsonb(c) FROM game.shooter_verification_admission c),'scheduler',(SELECT to_jsonb(c) FROM game.shooter_verification_scheduler c),'gateway',(SELECT to_jsonb(c) FROM game.shooter_verification_gateway c),'payment',(SELECT to_jsonb(c) FROM game.shooter_verification_payment_config c))::text");
   const cpuByRole = [...new Set(samples.map(s => s.role))].map(role => { const rows = samples.filter(s => s.role === role); return { role, ...cpuDelta(rows[0], rows[rows.length - 1]) }; });
+  const backgroundMetricAvailability = pipeline.backgroundCoverage().reduce((counts, sample) => ({ attempted: counts.attempted + sample.attemptedMetrics, observed: counts.observed + sample.successfulMetrics, confirmedEndedDuringRead: counts.confirmedEndedDuringRead + sample.confirmedEndMetricMisses }), { attempted: 0, observed: 0, confirmedEndedDuringRead: 0 });
+  const paidDelay = { ...quantiles([...pipeline.observations.values()].flatMap(o => o.rewardWallMs === null ? [] : [o.rewardWallMs]), 'ms', 'actual_owner_paid_status'), origin: 'first_actual_append_attempt', denominators: { eligible: result.summary.eligible, observedPaid: result.summary.paid, eligibleUnpaid: result.summary.eligibleUnpaid, eligibleCensored: result.summary.eligibleCensored } };
   const backgroundInputProof = inputCoverage(pipeline.matchMetrics(), result.startedMonoMs, result.elapsedMs, plan.background.freePvpMatches);
   const workloadFailures = result.actors.filter(a => ['operational_failure', 'timeout', 'censored', 'unsupported', 'not_started'].includes(a.status)).length;
   const report = { schemaVersion: 1, benchmarkId: `ci-${process.env.GITHUB_RUN_ID}`, authority: 'ci_advisory', profile: plan.profile, mode: plan.mode,
     scope: 'one_twenty_actor_real_pipeline_retry_burst_not_capacity_profile', approvalReference: null, productionCapacityConclusion: null,
     provenance: { gameGitSha: plan.source.corpusCommit, images, runtimes: { loadGeneratorNode: process.version, coordinatorNode: workerNode, postgres: psql('SHOW server_version'), nakama: { value: null, unavailableReason: 'runtime version not yet observed; exact image digest recorded' }, goja: { value: null, unavailableReason: 'legacy adapter not executed in this V8 lane' } }, hubGitSha: await git(['rev-parse', 'HEAD']), dirty: Boolean(await git(['status', '--porcelain', '--untracked-files=no'])), artifactSha256: plan.source.artifactSha256, corpusSourceCommit: plan.source.corpusCommit, corpusManifestSha256: plan.source.corpusSha256, assignmentSha256: result.assignmentSha256, configurationSha256: sha256(configuration), configuration: JSON.parse(configuration), roleLimits },
     hosts: [await hostObservation()], schedule: plan, actors: result.actors,
-    summary: { ...result.summary, harnessStatus: result.harnessStatus, workloadStatus: result.summary.pending ? 'incomplete' : workloadFailures || result.observerFailures ? 'degraded' : 'complete', workloadFailures, observationFailures: result.observerFailures, backgroundInputProof },
-    measurements: { ...latencyObservations([], []), cpu: { value: { evidence: 'serverCgroupSamples', deltas: cpuByRole }, unit: 'cpu_seconds_delta', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: { value: { evidence: 'checkpointSizes', definitions: { canonicalJsonBytes: '0054 UTF8 checkpoint_json text byte accounting', jsonbDatumBytes: 'Postgres pg_column_size of jsonb datum, excludes relation/page overhead' } }, unit: 'bytes', observer: 'trusted_ci_readonly_sql_metadata', clockDomain: 'postgres_statement_sample', unavailableReason: checkpointSamples.length ? null : 'no checkpoint size samples', sampleCount: checkpointSamples.length }, rewardDelay: quantiles([...pipeline.observations.values()].flatMap(o => o.rewardWallMs === null ? [] : [o.rewardWallMs]), 'ms', 'actual_owner_paid_status'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95' }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
+    summary: { ...result.summary, harnessStatus: result.harnessStatus, workloadStatus: result.summary.pending ? 'incomplete' : workloadFailures || result.observerFailures ? 'degraded' : 'complete', workloadFailures, observationFailures: result.observerFailures, backgroundInputProof, backgroundMetricAvailability },
+    measurements: { ...latencyObservations([], []), cpu: { value: { evidence: 'serverCgroupSamples', deltas: cpuByRole }, unit: 'cpu_seconds_delta', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: { value: { evidence: 'checkpointSizes', definitions: { canonicalJsonBytes: '0054 UTF8 checkpoint_json text byte accounting', jsonbDatumBytes: 'Postgres pg_column_size of jsonb datum, excludes relation/page overhead' } }, unit: 'bytes', observer: 'trusted_ci_readonly_sql_metadata', clockDomain: 'postgres_statement_sample', unavailableReason: checkpointSamples.length ? null : 'no checkpoint size samples', sampleCount: checkpointSamples.length }, rewardDelay: paidDelay, finishAckToPaid: quantiles([...pipeline.observations.values()].flatMap(o => o.finishAckToPaidMs === null ? [] : [o.finishAckToPaidMs]), 'ms', 'local_finish_ack_to_first_paid_observation'), firstObservedEligibleToPaid: quantiles([...pipeline.observations.values()].flatMap(o => o.firstEligiblePendingToPaidMs === null ? [] : [o.firstEligiblePendingToPaidMs]), 'ms', 'first_observed_eligible_pending_to_paid'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95', availability: backgroundMetricAvailability }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
     evidence: { serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actualMatchEnds: pipeline.matchEnds(), materializedInputBudget: pipeline.inputBudget(), backgroundCoverage: pipeline.backgroundCoverage(), backgroundRejections: pipeline.backgroundRejections(), checkpointSizes: checkpointSamples, actorLatency: [...pipeline.observations.values()], periodicObserverSamples: result.observations, arrivals: result.arrivals },
   };
   validateResult(report);
@@ -97,4 +115,4 @@ async function run(): Promise<void> {
   if (result.harnessStatus !== 'complete' || result.actors.length !== 20 || result.summary.fullSourceActorsVerified !== 19 || result.summary.paid !== 7 || result.observerFailures || workloadFailures || !result.actors.some(a => a.paid) || !backgroundInputProof.complete) process.exitCode = 1;
 }
 try { if (process.argv[2] === 'prepare') await prepare(); else if (process.argv[2] === 'run') await run(); else throw new Error('explicit prepare/run required'); }
-catch { console.error('bounded ephemeral benchmark controller failed; inspect safe report only'); process.exitCode = 1; }
+catch (error) { const reason = error instanceof InstrumentationFailure || error instanceof SutUnavailable ? error.reason : 'unclassified_ci_controller_exception'; console.error(`bounded ephemeral benchmark controller failed: ${reason}; inspect safe report only`); process.exitCode = 1; }

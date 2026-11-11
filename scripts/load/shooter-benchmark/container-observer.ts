@@ -3,7 +3,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const exec = promisify(execFile);
-export type ServerRole = 'nakama' | 'postgres' | 'coordinator' | 'verifier';
+export type ServerRole = 'nakama' | 'postgres' | 'coordinator' | 'verifier' | 'observer';
 export interface CgroupSample {
   role: ServerRole;
   observedAt: string;
@@ -15,11 +15,12 @@ export interface CgroupSample {
   memoryPeakBytes: number | null;
   oomKills: number | null;
   pidCurrent: number | null;
+  pidsDenied: number | null;
   unavailableReason: string | null;
 }
 // Fixed script, no interpolated request/body/path. Missing cgroup-v2 files are
 // reported unavailable rather than turning host-visible memory into a quota.
-const READ_CGROUP = `for f in cpu.stat memory.current memory.peak memory.events pids.current; do
+const READ_CGROUP = `for f in cpu.stat memory.current memory.peak memory.events pids.current pids.events; do
   printf '\\nBENCH_FILE %s\\n' "$f"
   cat "/sys/fs/cgroup/$f" 2>/dev/null || true
 done`;
@@ -36,10 +37,10 @@ export function parseCgroup(role: ServerRole, text: string, observedAt: string):
     const n = Number(value.trim()); return Number.isSafeInteger(n) && n >= 0 ? n : null;
   };
   const fields = (file: string): Map<string, string> => new Map((files.get(file) ?? '').trim().split('\n').map(line => { const [key, value] = line.trim().split(/\s+/); return [key, value]; }));
-  const cpu = fields('cpu.stat'), memory = fields('memory.events');
+  const cpu = fields('cpu.stat'), memory = fields('memory.events'), pids = fields('pids.events');
   const result: CgroupSample = { role, observedAt,
     cpuUsageMicros: numeric(cpu.get('usage_usec')), cpuUserMicros: numeric(cpu.get('user_usec')), cpuSystemMicros: numeric(cpu.get('system_usec')), throttledMicros: numeric(cpu.get('throttled_usec')),
-    memoryCurrentBytes: numeric(files.get('memory.current')), memoryPeakBytes: numeric(files.get('memory.peak')), oomKills: numeric(memory.get('oom_kill')), pidCurrent: numeric(files.get('pids.current')),
+    memoryCurrentBytes: numeric(files.get('memory.current')), memoryPeakBytes: numeric(files.get('memory.peak')), oomKills: numeric(memory.get('oom_kill')), pidCurrent: numeric(files.get('pids.current')), pidsDenied: numeric(pids.get('max')),
     unavailableReason: null,
   };
   if (result.cpuUsageMicros === null || result.memoryCurrentBytes === null) result.unavailableReason = 'cgroup_v2_counter_unavailable';
@@ -53,7 +54,7 @@ export async function observeContainer(role: ServerRole, containerId: string): P
     const { stdout } = await exec('docker', ['exec', containerId, 'sh', '-c', READ_CGROUP], { timeout: 5000, maxBuffer: 16384, encoding: 'utf8' });
     return parseCgroup(role, stdout, observedAt);
   } catch {
-    return { role, observedAt, cpuUsageMicros: null, cpuUserMicros: null, cpuSystemMicros: null, throttledMicros: null, memoryCurrentBytes: null, memoryPeakBytes: null, oomKills: null, pidCurrent: null, unavailableReason: 'bounded_container_observer_failed' };
+    return { role, observedAt, cpuUsageMicros: null, cpuUserMicros: null, cpuSystemMicros: null, throttledMicros: null, memoryCurrentBytes: null, memoryPeakBytes: null, oomKills: null, pidCurrent: null, pidsDenied: null, unavailableReason: 'bounded_container_observer_failed' };
   }
 }
 export function cpuDelta(before: CgroupSample, after: CgroupSample): { cpuSeconds: number | null; wallSeconds: number; unavailableReason: string | null } {

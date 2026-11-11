@@ -18,7 +18,7 @@ export function validateResult(value: unknown): void {
   check(Array.isArray(report.actors), 'actors required');
   const actors = report.actors as ActorResult[], summary = object(report.summary), computed = summarizeActors(actors);
   for (const key of ['attempted', 'durablyVerified', 'payable', 'eligible', 'eligibleUnpaid', 'eligibleCensored', 'paid', 'pending', 'censored', 'sourceFrames', 'submittedFrames', 'acceptedFrames', 'verifiedFrames', 'fullSourceActorsVerified']) check(summary[key] === computed[key], `summary ${key} denominator`);
-  check(typeof summary.plannedActors === 'number' && typeof summary.accountedActors === 'number' && typeof summary.unstartedActors === 'number' && summary.accountedActors === actors.length && summary.accountedActors + summary.unstartedActors === summary.plannedActors, 'all planned actors accounted');
+  check(typeof summary.plannedActors === 'number' && typeof summary.accountedActors === 'number' && typeof summary.unstartedActors === 'number' && typeof summary.unboundActors === 'number' && summary.accountedActors === actors.length && summary.accountedActors + summary.unboundActors === summary.plannedActors && Number(summary.attempted) + summary.unstartedActors === summary.plannedActors, 'all planned actors accounted');
   if (summary.harnessStatus === 'complete') {
     check(summary.unstartedActors === 0 && actors.length >= 20 && actors.length % 20 === 0, 'complete independent cohort');
     const waves = new Map<number, number>(); for (const actor of actors) waves.set(actor.wave, (waves.get(actor.wave) ?? 0) + 1);

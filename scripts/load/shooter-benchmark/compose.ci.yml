@@ -1,0 +1,20 @@
+# CI instrumentation only. No credentials, Docker socket or verifier mounts.
+services:
+  metrics-observer:
+    profiles: [shooter-verification]
+    image: node:22-bookworm-slim
+    user: '1000:1000'
+    network_mode: service:nakama
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 32
+    mem_limit: 128m
+    memswap_limit: 128m
+    cpus: 0.25
+    command: [node, /observer/metrics-collector.mjs]
+    volumes:
+      - ../scripts/load/shooter-benchmark/metrics-collector.mjs:/observer/metrics-collector.mjs:ro
+    tmpfs:
+      - /tmp:size=1m,uid=1000,gid=1000,mode=0700
+    stop_grace_period: 4s
