@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { loadModule } from '../unit/harness';
 
 const USER = 'a0510000-0000-4000-8000-000000000001';
@@ -24,7 +25,28 @@ const input = { protocol: 2, runId: RUN, sequence: 0, tick0: 0, n: 1, frames: Bu
   assert.equal(a.state, 'received');
   assert.equal(captured[0]![0], USER);
   assert.equal(captured[0]![1], SID);
-  assert.equal(captured[0]![8], createHash('sha256').update(`shooter.append.v2\n${JSON.stringify(input)}`).digest('hex'));
+  const canonical = '{"actions":[],"frames":"AAAAAAAAAAAAAAAA","n":1,"protocol":2,"runId":"a0510000-0000-4000-8000-000000000003","sequence":0,"tick0":0}';
+  const expectedDigest = createHash('sha256').update(canonical).digest('hex');
+  assert.equal(captured[0]![8], expectedDigest);
+  // Exercise the approved simulator's actual accepted-record boundary. The digest
+  // helper is deliberately not exported on the bundle global. Requires PIN04.
+  type ReplayResult = { publicResult: { status: string; reason: string }; privateCheckpoint: unknown };
+  const api = (mod.global.ShooterRewards as { api(): unknown }).api() as {
+    buildIssuance(value: object): { issuance: Record<string, unknown> };
+    beginIncrementalReplay(value: object): ReplayResult;
+    acceptReplayBatch(text: string, checkpoint: unknown, value: object): ReplayResult;
+  };
+  assert.equal(typeof api.beginIncrementalReplay, 'function', 'PIN04 incremental artifact dependency');
+  const pin = JSON.parse(readFileSync(new URL('../../modules/vendor/shooter-sim.pin.json', import.meta.url), 'utf8')) as { commit: string; sha256: string; protocol: number; fingerprint: string };
+  const binding = { accountId: USER, sessionId: SID, runId: RUN, day: '2026-11-10' };
+  const issuance = api.buildIssuance({ ...binding, canonicalBoss: 'sahil', seed: 7 }).issuance;
+  const origin = { issuance, manifest: { artifact: 'shooter-sim', sourceCommit: pin.commit, sha256: pin.sha256, protocol: pin.protocol, contentFingerprint: pin.fingerprint } };
+  const initial = api.beginIncrementalReplay(origin);
+  assert.equal(initial.publicResult.status, 'verified');
+  const accepted = { runId: RUN, sequence: 0, tick0: 0, n: 1, sha256: captured[0]![8], binding, acceptedBeforeTerminal: true };
+  assert.equal(api.acceptReplayBatch(JSON.stringify(input), initial.privateCheckpoint, { ...origin, accepted }).publicResult.status, 'received');
+  const wrong = createHash('sha256').update(`shooter.append.v2\n${JSON.stringify(input)}`).digest('hex');
+  assert.equal(api.acceptReplayBatch(JSON.stringify(input), initial.privateCheckpoint, { ...origin, accepted: { ...accepted, sha256: wrong } }).publicResult.reason, 'bad_accepted_record');
   assert.ok(!mod.nk.sqlCalls.some((call) => /settle_shooter|save_shooter_checkpoint|close_shooter_run/.test(call.sql)), 'append never pays or runs legacy verification');
 }
 

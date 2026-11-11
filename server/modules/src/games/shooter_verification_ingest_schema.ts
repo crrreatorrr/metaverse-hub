@@ -123,7 +123,7 @@ HubSchema.register({
     `CREATE OR REPLACE FUNCTION game.shooter_verification_preflight(p_user uuid,p_session uuid,p_run text)
     RETURNS jsonb LANGUAGE plpgsql AS $fn$
     DECLARE c game.shooter_verification_admission%ROWTYPE; a game.shooter_verification_admission_account%ROWTYPE;
-      t timestamptz; m timestamptz;
+      s game.game_session%ROWTYPE; t timestamptz; m timestamptz;
     BEGIN
       IF NOT EXISTS (SELECT 1 FROM game.shooter_verification_run WHERE run_id=p_run AND user_id=p_user AND session_id=p_session) THEN
         RETURN jsonb_build_object('state','invalid','reason','unknown_run');
@@ -142,10 +142,11 @@ HubSchema.register({
       END IF;
       UPDATE game.shooter_verification_admission SET rate_minute=m,rate_count=c.rate_count+1 WHERE singleton;
       UPDATE game.shooter_verification_admission_account SET rate_minute=m,rate_count=a.rate_count+1 WHERE user_id=p_user;
-      IF NOT EXISTS (SELECT 1 FROM game.game_session WHERE session_id=p_session AND user_id=p_user
-        AND game_id='sproto-shooter' AND state='open' AND ticket_redeemed_at IS NOT NULL AND lease_until>t) THEN
+      SELECT * INTO s FROM game.game_session WHERE session_id=p_session AND user_id=p_user;
+      IF NOT FOUND OR s.game_id<>'sproto-shooter' OR s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN
         RETURN jsonb_build_object('state','authorization_denied','reason','session_closed');
       END IF;
+      IF s.lease_until<=t THEN RETURN jsonb_build_object('state','authorization_denied','reason','session_expired'); END IF;
       RETURN jsonb_build_object('state','ready');
     END; $fn$`,
     `CREATE OR REPLACE FUNCTION game.shooter_verification_append(

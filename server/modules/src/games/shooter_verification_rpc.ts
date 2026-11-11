@@ -103,8 +103,8 @@ namespace ShooterVerification {
     var ready = ShooterRewards.queryJson(nk, "SELECT game.shooter_verification_preflight($1::uuid,$2::uuid,$3::text)::text AS result", [who.user, who.session, body.runId]);
     if (ready.state !== "ready") return JSON.stringify(ready);
     if (!canonicalFrames(body.frames, body.n) || !canonicalActions(body.actions, body.n)) return failure("invalid", "malformed");
-    var canonical = JSON.stringify({ protocol: 2, runId: body.runId, sequence: body.sequence, tick0: body.tick0, n: body.n, frames: body.frames, actions: body.actions });
-    var digest = nk.sha256Hash("shooter.append.v2\n" + canonical);
+    var canonical = JSON.stringify({ actions: body.actions, frames: body.frames, n: body.n, protocol: 2, runId: body.runId, sequence: body.sequence, tick0: body.tick0 });
+    var digest = nk.sha256Hash(canonical);
     var result = ShooterRewards.queryJson(nk,
       "SELECT game.shooter_verification_append($1::uuid,$2::uuid,$3::text,$4::int,$5::int,$6::int,$7::text,$8::jsonb,$9::text)::text AS result",
       [who.user, who.session, body.runId, body.sequence, body.tick0, body.n, body.frames, JSON.stringify(body.actions), digest]);

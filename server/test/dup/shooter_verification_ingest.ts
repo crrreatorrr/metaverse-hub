@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { guest, openGame, call, psql, psqlAsync, num, sleep, arm, faulted, installFaultHooks, dropFaultHooks, type GameLogin, type RpcResult } from './harness.ts';
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
@@ -55,6 +56,9 @@ export async function runShooterVerificationIngest(test: TestFn): Promise<void> 
     const results = await Promise.all(Array.from({ length: 4 }, () => call('shooter.run.append', input(f.run), f.login.gameToken)));
     for (const result of results) {
       assert.equal(body(result).state, 'received', JSON.stringify(result));
+      const v = input(f.run);
+      const canonical = JSON.stringify({ actions: v.actions, frames: v.frames, n: v.n, protocol: 2, runId: f.run, sequence: v.sequence, tick0: v.tick0 });
+      assert.equal(body(result).digest, createHash('sha256').update(canonical).digest('hex'), 'real Nakama SHA matches source canonical batch identity');
       assert.deepEqual(result.body, results[0]!.body);
     }
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${f.run}'`), 1);
@@ -92,12 +96,36 @@ export async function runShooterVerificationIngest(test: TestFn): Promise<void> 
     psql(`UPDATE game.game_session SET lease_until=clock_timestamp()-interval '1 second' WHERE session_id='${f.login.sessionId}';
       UPDATE game.shooter_verification_run SET checkpoint_json='{"secret":"PRIVATE_CHECKPOINT"}',checkpoint_sha256=repeat('a',64),
         terminal_tick=0,terminal_outcome='incomplete',terminal_result='{"checkpoint":"PRIVATE_TERMINAL"}',payment_state='paid',lifecycle='terminal' WHERE run_id='${f.run}'`);
-    assert.equal(body(await call('shooter.run.append', input(f.run), f.login.gameToken)).state, 'authorization_denied');
+    assert.equal(body(await call('shooter.run.append', input(f.run), f.login.gameToken)).reason, 'session_expired');
     const status = body(await call('shooter.run.status', { runId: f.run, sequence: 0 }, f.login.hub.token));
     assert.equal(status.authorization, 'session_expired');
     assert.deepEqual(status.receivedAck, ack);
     assert.deepEqual(status.payment, { state: 'pending_retryable', reason: 'receipt_unavailable' });
     assert.ok(!JSON.stringify(status).includes('PRIVATE_'));
+    psql(`UPDATE game.game_session SET state='closed' WHERE session_id='${f.login.sessionId}'`);
+    const replacement = await openGame(f.login.hub.token, 'sproto-shooter');
+    assert.notEqual(replacement.sessionId, f.login.sessionId);
+    assert.equal(body(await call('shooter.run.append', input(f.run), replacement.gameToken)).reason, 'unknown_run', 'same owner cannot rebind accepted history to a replacement session');
+    noPayment(f.login.hub.userId);
+  });
+
+  await test('shooter-ingest', 'v2 cumulative counter ceilings apply across calls without resetting per batch', async () => {
+    const f = await fixture();
+    for (let sequence = 0; sequence < 3; sequence++) {
+      const result = body(await call('shooter.run.append', input(f.run, sequence), f.login.gameToken));
+      assert.equal(result.acceptedTick, sequence + 1);
+    }
+    assert.equal(psql(`SELECT accepted_bytes||':'||accepted_batches||':'||accepted_tick FROM game.shooter_verification_run WHERE run_id='${f.run}'`), '48:3:3');
+    // Synthetic near-ceiling counters test SQL backstops. At the current 12-byte
+    // codec the frame ceiling normally binds before 64MiB; do not claim a real
+    // player uploaded these artificially seeded totals.
+    for (const [set, actions] of [['accepted_bytes=67108864-15', '[]'], ['accepted_actions=131072', '[[0,1]]']]) {
+      const raw = psql(`BEGIN; UPDATE game.shooter_verification_run SET ${set} WHERE run_id='${f.run}';
+        SELECT game.shooter_verification_append('${f.login.hub.userId}','${f.login.sessionId}','${f.run}',3,3,1,'AAAAAAAAAAAAAAAA','${actions}',repeat('a',64))::text;
+        ROLLBACK;`);
+      assert.equal((JSON.parse(raw) as { reason: string }).reason, 'run_limit');
+    }
+    assert.equal(num(`SELECT count(*) FROM game.shooter_verification_batch WHERE run_id='${f.run}'`), 3);
     noPayment(f.login.hub.userId);
   });
 
