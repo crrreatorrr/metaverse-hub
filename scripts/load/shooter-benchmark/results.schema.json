@@ -4,43 +4,452 @@
   "title": "PR20 benchmark result review outline, not final implementation contract",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schemaVersion", "benchmarkId", "authority", "profile", "mode", "provenance", "hosts", "schedule", "actors", "measurements", "summary", "productionCapacityConclusion"],
+  "required": [
+    "schemaVersion",
+    "benchmarkId",
+    "authority",
+    "profile",
+    "mode",
+    "provenance",
+    "hosts",
+    "schedule",
+    "actors",
+    "measurements",
+    "summary",
+    "productionCapacityConclusion"
+  ],
   "properties": {
-    "schemaVersion": {"const": 1},
-    "benchmarkId": {"type": "string", "minLength": 1},
-    "authority": {"enum": ["ci_advisory", "authorized_target"]},
-    "approvalReference": {"type": ["string", "null"]},
-    "profile": {"enum": ["trusted_fixture_time_aged", "public_browser_real_time"]},
-    "mode": {"enum": ["legacy_full_goja", "segmented_goja", "bounded_v8_same_host", "bounded_v8_remote"]},
+    "schemaVersion": {
+      "const": 1
+    },
+    "benchmarkId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "authority": {
+      "enum": [
+        "ci_advisory",
+        "authorized_target"
+      ]
+    },
+    "approvalReference": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "profile": {
+      "enum": [
+        "trusted_fixture_time_aged",
+        "public_browser_real_time"
+      ]
+    },
+    "mode": {
+      "enum": [
+        "legacy_full_goja",
+        "segmented_goja",
+        "bounded_v8_same_host",
+        "bounded_v8_remote"
+      ]
+    },
     "provenance": {
       "type": "object",
-      "required": ["hubGitSha", "gameGitSha", "artifactSha256", "corpusManifestSha256", "assignmentSha256", "configurationSha256", "runtimes", "images", "dirty"],
+      "required": [
+        "hubGitSha",
+        "gameGitSha",
+        "artifactSha256",
+        "corpusManifestSha256",
+        "assignmentSha256",
+        "configurationSha256",
+        "runtimes",
+        "images",
+        "dirty"
+      ],
       "properties": {
-        "hubGitSha": {"$ref": "#/$defs/gitSha"},
-        "gameGitSha": {"$ref": "#/$defs/gitSha"},
-        "artifactSha256": {"$ref": "#/$defs/sha256"},
-        "corpusManifestSha256": {"$ref": "#/$defs/sha256"},
-        "assignmentSha256": {"$ref": "#/$defs/sha256"},
-        "configurationSha256": {"$ref": "#/$defs/sha256"},
-        "dirty": {"type": "boolean"},
-        "runtimes": {"type": "object"},
-        "images": {"type": "array", "items": {"type": "object", "required": ["role", "digest"]}}
+        "hubGitSha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "gameGitSha": {
+          "$ref": "#/$defs/gitSha"
+        },
+        "artifactSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "corpusManifestSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "assignmentSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "configurationSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "dirty": {
+          "type": "boolean"
+        },
+        "runtimes": {
+          "type": "object"
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "role",
+              "digest"
+            ]
+          }
+        }
       }
     },
-    "hosts": {"type": "array", "minItems": 1, "items": {"type": "object", "required": ["roles", "region", "regionEvidence", "cpu", "memory", "cgroup", "os", "observationAvailability"], "properties": {"roles": {"type": "array", "items": {"enum": ["nakama", "postgres", "coordinator", "verifier", "load_generator", "browser"]}}, "region": {"type": ["string", "null"]}, "regionEvidence": {"type": ["string", "null"]}, "cpu": {"type": "object"}, "memory": {"type": "object"}, "cgroup": {"type": "object"}, "os": {"type": "object"}, "observationAvailability": {"type": "object"}}}},
-    "schedule": {"type": "object", "required": ["seed", "maxActors", "maxDurationMs", "maxQueuedBytes", "phases", "backgroundTraffic"], "properties": {"seed": {"type": "string"}, "maxActors": {"type": "integer", "minimum": 20}, "maxDurationMs": {"type": "integer", "minimum": 1}, "maxQueuedBytes": {"type": "integer", "minimum": 1}, "phases": {"type": "array", "items": {"type": "object"}}, "backgroundTraffic": {"type": "object"}}},
-    "actors": {"type": "array", "minItems": 20, "items": {"$ref": "#/$defs/actor"}},
-    "measurements": {"type": "object", "required": ["cpu", "wall", "queue", "memory", "gc", "sql", "checkpointBytes", "rewardDelay", "clientFrame", "matchTick"], "additionalProperties": {"$ref": "#/$defs/measurement"}},
-    "events": {"type": "object", "required": ["path", "sha256", "count", "truncated"], "properties": {"path": {"type": "string"}, "sha256": {"$ref": "#/$defs/sha256"}, "count": {"type": "integer", "minimum": 0}, "truncated": {"type": "boolean"}}},
-    "summary": {"type": "object", "required": ["harnessStatus", "workloadStatus", "attempted", "durablyVerified", "payable", "paid", "pending", "censored", "rawReasonCounts"], "properties": {"harnessStatus": {"enum": ["complete", "failed", "interrupted"]}, "workloadStatus": {"enum": ["complete", "degraded", "failed", "unsupported", "incomplete"]}, "attempted": {"type": "integer", "minimum": 0}, "durablyVerified": {"type": "integer", "minimum": 0}, "payable": {"type": "integer", "minimum": 0}, "paid": {"type": "integer", "minimum": 0}, "pending": {"type": "integer", "minimum": 0}, "censored": {"type": "integer", "minimum": 0}, "rawReasonCounts": {"type": "object", "additionalProperties": {"type": "integer", "minimum": 0}}}},
-    "productionCapacityConclusion": {"type": ["object", "null"]}
+    "hosts": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "roles",
+          "region",
+          "regionEvidence",
+          "cpu",
+          "memory",
+          "cgroup",
+          "os",
+          "observationAvailability"
+        ],
+        "properties": {
+          "roles": {
+            "type": "array",
+            "items": {
+              "enum": [
+                "nakama",
+                "postgres",
+                "coordinator",
+                "verifier",
+                "load_generator",
+                "browser"
+              ]
+            }
+          },
+          "region": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "regionEvidence": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cpu": {
+            "type": "object"
+          },
+          "memory": {
+            "type": "object"
+          },
+          "cgroup": {
+            "type": "object"
+          },
+          "os": {
+            "type": "object"
+          },
+          "observationAvailability": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "schedule": {
+      "type": "object",
+      "required": [
+        "seed",
+        "maxActors",
+        "maxDurationMs",
+        "maxQueuedBytes",
+        "phases",
+        "backgroundTraffic"
+      ],
+      "properties": {
+        "seed": {
+          "type": "string"
+        },
+        "maxActors": {
+          "type": "integer",
+          "minimum": 20
+        },
+        "maxDurationMs": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "maxQueuedBytes": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "backgroundTraffic": {
+          "type": "object"
+        }
+      }
+    },
+    "actors": {
+      "type": "array",
+      "minItems": 20,
+      "items": {
+        "$ref": "#/$defs/actor"
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "required": [
+        "cpu",
+        "wall",
+        "queue",
+        "memory",
+        "gc",
+        "sql",
+        "checkpointBytes",
+        "rewardDelay",
+        "clientFrame",
+        "matchTick"
+      ],
+      "additionalProperties": {
+        "$ref": "#/$defs/measurement"
+      }
+    },
+    "events": {
+      "type": "object",
+      "required": [
+        "path",
+        "sha256",
+        "count",
+        "truncated"
+      ],
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "truncated": {
+          "type": "boolean"
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": [
+        "harnessStatus",
+        "workloadStatus",
+        "attempted",
+        "durablyVerified",
+        "payable",
+        "paid",
+        "pending",
+        "censored",
+        "rawReasonCounts"
+      ],
+      "properties": {
+        "harnessStatus": {
+          "enum": [
+            "complete",
+            "failed",
+            "interrupted"
+          ]
+        },
+        "workloadStatus": {
+          "enum": [
+            "complete",
+            "degraded",
+            "failed",
+            "unsupported",
+            "incomplete"
+          ]
+        },
+        "attempted": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "durablyVerified": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "payable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "paid": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "censored": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "rawReasonCounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "productionCapacityConclusion": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "scope": {
+      "type": "string"
+    },
+    "evidence": {
+      "type": "object"
+    }
   },
-  "allOf": [{"if": {"properties": {"authority": {"const": "ci_advisory"}}}, "then": {"properties": {"productionCapacityConclusion": {"type": "null"}, "approvalReference": {"type": "null"}}}}],
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "authority": {
+            "const": "ci_advisory"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "productionCapacityConclusion": {
+            "type": "null"
+          },
+          "approvalReference": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  ],
   "$defs": {
-    "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
-    "gitSha": {"type": "string", "pattern": "^[a-f0-9]{40}$"},
-    "actor": {"type": "object", "required": ["accountBindingHash", "sessionBindingHash", "runBindingHash", "caseId", "inputSha256", "frames", "status", "rawReason"], "properties": {"accountBindingHash": {"$ref": "#/$defs/sha256"}, "sessionBindingHash": {"$ref": "#/$defs/sha256"}, "runBindingHash": {"$ref": "#/$defs/sha256"}, "caseId": {"type": "string"}, "inputSha256": {"$ref": "#/$defs/sha256"}, "frames": {"type": "integer", "minimum": 0}, "status": {"enum": ["not_started", "paid", "verified_nonpayable", "payment_pending", "authorization_denied", "abandoned", "timeout", "operational_failure", "unsupported", "censored"]}, "rawReason": {"type": ["string", "null"]}}},
-    "measurement": {"type": "object", "required": ["value", "unit", "observer", "clockDomain", "unavailableReason", "sampleCount"], "properties": {"value": {"type": ["number", "array", "object", "null"]}, "unit": {"type": "string"}, "observer": {"type": "string"}, "clockDomain": {"type": ["string", "null"]}, "unavailableReason": {"type": ["string", "null"]}, "sampleCount": {"type": "integer", "minimum": 0}}}
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "gitSha": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{40}$"
+    },
+    "actor": {
+      "type": "object",
+      "required": [
+        "accountBindingHash",
+        "sessionBindingHash",
+        "runBindingHash",
+        "caseId",
+        "inputSha256",
+        "frames",
+        "status",
+        "rawReason"
+      ],
+      "properties": {
+        "accountBindingHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sessionBindingHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "runBindingHash": {
+          "$ref": "#/$defs/sha256"
+        },
+        "caseId": {
+          "type": "string"
+        },
+        "inputSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "frames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "status": {
+          "enum": [
+            "not_started",
+            "paid",
+            "verified_nonpayable",
+            "payment_pending",
+            "authorization_denied",
+            "abandoned",
+            "timeout",
+            "operational_failure",
+            "unsupported",
+            "censored"
+          ]
+        },
+        "rawReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "measurement": {
+      "type": "object",
+      "required": [
+        "value",
+        "unit",
+        "observer",
+        "clockDomain",
+        "unavailableReason",
+        "sampleCount"
+      ],
+      "properties": {
+        "value": {
+          "type": [
+            "number",
+            "array",
+            "object",
+            "null"
+          ]
+        },
+        "unit": {
+          "type": "string"
+        },
+        "observer": {
+          "type": "string"
+        },
+        "clockDomain": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "unavailableReason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "sampleCount": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
   },
   "$comment": "Outline only. Runtime semantic validation must enforce unique actor bindings per cohort, 20 actors per wave, summary reconciliation, measured-null reasons, region-evidence pairing, bounded event files, actual authorization for target/remote modes and no success credit for timeout/failure. JSON Schema cannot enforce these cross-record invariants alone. No secrets or CP/input payloads belong in result files."
 }

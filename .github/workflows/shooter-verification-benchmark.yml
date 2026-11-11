@@ -30,3 +30,57 @@ jobs:
           npx tsx scripts/load/shooter-benchmark/container-observer.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark
+  twenty-independent-real-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      HUB_SHOOTER_FIXTURE: benchmark
+      SHOOTER_OPS_CI_DIRECTORY: /tmp/shooter-benchmark-${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Throwaway credentials for disposable stack
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot ephemeral Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180 postgres nakama
+      - name: Explicit finite fixture config and scoped principal
+        run: |
+          npx tsx scripts/load/shooter-benchmark/ci.ts prepare
+          sudo chown -R 1000:1000 "$SHOOTER_OPS_CI_DIRECTORY"
+      - name: Actual fenced coordinator and network-isolated replay containers
+        run: docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification up -d --build replay coordinator
+      - name: Full twenty independent authenticated actors with Hub and free PvP observers
+        run: npx tsx scripts/load/shooter-benchmark/ci.ts run
+        env:
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Retain safe advisory report only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooter-ci-advisory-benchmark
+          path: /tmp/shooter-benchmark-${{ github.run_id }}/benchmark-report.json
+          if-no-files-found: warn
+      - name: Stop and delete disposable stack
+        if: always()
+        run: |
+          docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes
+          sudo rm -rf "$SHOOTER_OPS_CI_DIRECTORY"
