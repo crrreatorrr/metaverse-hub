@@ -55,8 +55,13 @@ export interface ActorResult {
   sessionBindingHash: string;
   runBindingHash: string;
   caseId: string;
-  inputSha256: string;
-  frames: number;
+  sourceInputSha256: string;
+  sourceFrames: number;
+  submittedInputSha256: string | null;
+  submittedHashMeaning: string | null;
+  submittedFrames: number;
+  acceptedTick: number;
+  verifiedTick: number;
   status: ActorStatus;
   rawReason: string | null;
   attempted: boolean;
@@ -145,6 +150,11 @@ export function summarizeActors(actors: readonly ActorResult[]): Record<string, 
     accounts.add(a.accountBindingHash); sessions.add(a.sessionBindingHash); runs.add(a.runBindingHash);
     const slot = `${a.wave}:${a.actor}`;
     invariant(!slots.has(slot), 'duplicate wave slot'); slots.add(slot);
+    invariant(Number.isSafeInteger(a.sourceFrames) && a.sourceFrames > 0 && SHA.test(a.sourceInputSha256), 'source frame identity');
+    invariant(Number.isSafeInteger(a.submittedFrames) && a.submittedFrames >= 0 && a.submittedFrames <= a.sourceFrames, 'submitted frame accounting');
+    invariant(a.submittedFrames === 0 ? a.submittedInputSha256 === null : typeof a.submittedInputSha256 === 'string' && SHA.test(a.submittedInputSha256) && typeof a.submittedHashMeaning === 'string', 'submitted input identity');
+    invariant(Number.isSafeInteger(a.acceptedTick) && Number.isSafeInteger(a.verifiedTick) && a.verifiedTick >= 0 && a.verifiedTick <= a.acceptedTick && a.acceptedTick <= a.submittedFrames, 'accepted/verified cursor accounting');
+    invariant(!a.durablyVerified || a.verifiedTick === a.submittedFrames, 'durable status must cover submitted prefix');
     invariant(!a.paid || (a.payable && a.durablyVerified && a.attempted && a.status === 'paid'), 'paid actor lacks durable eligible result');
     invariant(!a.durablyVerified || a.attempted, 'verification without attempt');
     invariant(!['timeout', 'operational_failure', 'unsupported', 'censored', 'abandoned', 'not_started'].includes(a.status) || !a.paid, 'failure cannot count as paid throughput');
@@ -152,7 +162,7 @@ export function summarizeActors(actors: readonly ActorResult[]): Record<string, 
     rawReasonCounts[reason] = (rawReasonCounts[reason] ?? 0) + 1;
   }
   const count = (p: (a: ActorResult) => boolean) => actors.filter(p).length;
-  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts };
+  return { attempted: count(a => a.attempted), durablyVerified: count(a => a.durablyVerified), payable: count(a => a.payable), paid: count(a => a.paid), pending: count(a => a.status === 'payment_pending'), censored: count(a => a.status === 'censored'), rawReasonCounts, sourceFrames: actors.reduce((n, a) => n + a.sourceFrames, 0), submittedFrames: actors.reduce((n, a) => n + a.submittedFrames, 0), acceptedFrames: actors.reduce((n, a) => n + a.acceptedTick, 0), verifiedFrames: actors.reduce((n, a) => n + a.verifiedTick, 0), fullSourceActorsVerified: count(a => a.verifiedTick === a.sourceFrames) };
 }
 export function unobserved(unit: string, observer: string, reason: string): Measurement {
   invariant(reason.length > 0, 'null metric needs reason');

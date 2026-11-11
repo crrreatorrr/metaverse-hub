@@ -5,9 +5,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, isAbsolute } from 'node:path';
 import { psql, guest, waitReady } from '../../../server/test/dup/harness.ts';
-import { makePlan, sha256, quantiles, unobserved, type Corpus } from './contracts.ts';
+import { makePlan, sha256, quantiles, type Corpus } from './contracts.ts';
 import { hostObservation, latencyObservations } from './observers.ts';
-import { observeContainer, type CgroupSample } from './container-observer.ts';
+import { observeContainer, cpuDelta, type CgroupSample } from './container-observer.ts';
 import { PublicPipeline } from './pipeline.ts';
 import { runPlan } from './runner.ts';
 import { validateResult } from './result-validation.ts';
@@ -53,14 +53,18 @@ async function run(): Promise<void> {
     const id = await compose(['ps', '-q', service]);
     if (!/^[a-f0-9]{64}$/.test(id)) throw new Error('missing actual container identity'); ids.set(service, id);
   }
-  const samples: CgroupSample[] = [], queueSamples: Record<string, unknown>[] = [];
-  const pipeline = new PublicPipeline(plan, 'http://127.0.0.1:7350', async signal => {
-    const observed = await Promise.all([...ids].map(([service, id]) => observeContainer(service === 'replay' ? 'verifier' : service as 'nakama' | 'postgres' | 'coordinator', id)));
+  const samples: CgroupSample[] = [], queueSamples: Record<string, unknown>[] = [], checkpointSamples: { observedAt: string; sizes: Record<string, unknown>[] }[] = [];
+  const pipeline: PublicPipeline = new PublicPipeline(plan, 'http://127.0.0.1:7350', async signal => {
+    const [observed, metricsResponse, checkpoints] = await Promise.all([
+      Promise.all([...ids].map(([service, id]) => observeContainer(service === 'replay' ? 'verifier' : service as 'nakama' | 'postgres' | 'coordinator', id))),
+      exec('docker', ['exec', ids.get('coordinator')!, 'node', '--input-type=module', '-e', METRICS_READER], { timeout: 4000, maxBuffer: 65536, encoding: 'utf8' }),
+      pipeline.checkpointSizes(),
+    ]);
+    checkpointSamples.push({ observedAt: new Date().toISOString(), sizes: checkpoints });
     samples.push(...observed);
     if (samples.length > 10000) throw new Error('server sample bound exceeded');
     if (signal.aborted) throw new Error('aborted');
-    const { stdout } = await exec('docker', ['exec', ids.get('coordinator')!, 'node', '--input-type=module', '-e', METRICS_READER], { timeout: 4000, maxBuffer: 65536, encoding: 'utf8' });
-    const value = JSON.parse(stdout);
+    const value = JSON.parse(metricsResponse.stdout);
     if (!Number.isFinite(value.uptimeMs) || !value.counters) throw new Error('invalid actual coordinator metrics');
     // Keep only the reviewed safe aggregate DTO, never arbitrary RPC bodies.
     queueSamples.push({ observedAt: new Date().toISOString(), uptimeMs: value.uptimeMs, counters: value.counters, gateway: value.gateway, lastExecution: value.lastExecution, gatewaySampleAgeMs: value.gatewaySampleAgeMs, lastExecutionSampleAgeMs: value.lastExecutionSampleAgeMs });
@@ -70,19 +74,20 @@ async function run(): Promise<void> {
   const workerNode = (await exec('docker', ['exec', ids.get('coordinator')!, 'node', '-p', 'process.version'], { timeout: 5000, maxBuffer: 1024, encoding: 'utf8' })).stdout.trim();
   const git = async (args: string[]) => (await exec('git', args, { timeout: 5000, maxBuffer: 65536, encoding: 'utf8' })).stdout.trim();
   const configuration = psql("SELECT jsonb_build_object('admission',(SELECT to_jsonb(c) FROM game.shooter_verification_admission c),'scheduler',(SELECT to_jsonb(c) FROM game.shooter_verification_scheduler c),'gateway',(SELECT to_jsonb(c) FROM game.shooter_verification_gateway c),'payment',(SELECT to_jsonb(c) FROM game.shooter_verification_payment_config c))::text");
+  const cpuByRole = [...new Set(samples.map(s => s.role))].map(role => { const rows = samples.filter(s => s.role === role); return { role, ...cpuDelta(rows[0], rows[rows.length - 1]) }; });
   const workloadFailures = result.actors.filter(a => ['operational_failure', 'timeout', 'censored', 'unsupported', 'not_started'].includes(a.status)).length;
   const report = { schemaVersion: 1, benchmarkId: `ci-${process.env.GITHUB_RUN_ID}`, authority: 'ci_advisory', profile: plan.profile, mode: plan.mode,
     scope: 'one_twenty_actor_real_pipeline_retry_burst_not_capacity_profile', approvalReference: null, productionCapacityConclusion: null,
     provenance: { gameGitSha: plan.source.corpusCommit, images, runtimes: { loadGeneratorNode: process.version, coordinatorNode: workerNode, postgres: psql('SHOW server_version'), nakama: { value: null, unavailableReason: 'runtime version not yet observed; exact image digest recorded' }, goja: { value: null, unavailableReason: 'legacy adapter not executed in this V8 lane' } }, hubGitSha: await git(['rev-parse', 'HEAD']), dirty: Boolean(await git(['status', '--porcelain', '--untracked-files=no'])), artifactSha256: plan.source.artifactSha256, corpusSourceCommit: plan.source.corpusCommit, corpusManifestSha256: plan.source.corpusSha256, assignmentSha256: result.assignmentSha256, configurationSha256: sha256(configuration), configuration: JSON.parse(configuration) },
     hosts: [await hostObservation()], schedule: plan, actors: result.actors,
     summary: { ...result.summary, harnessStatus: result.harnessStatus, workloadStatus: workloadFailures ? 'degraded' : 'complete', workloadFailures },
-    measurements: { ...latencyObservations([], []), cpu: { value: { evidence: 'serverCgroupSamples' }, unit: 'cpu_microseconds_cumulative', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: unobserved('bytes', 'checkpoint_storage', 'checkpoint size observer not yet implemented'), rewardDelay: quantiles([...pipeline.observations.values()].flatMap(o => o.rewardWallMs === null ? [] : [o.rewardWallMs]), 'ms', 'actual_owner_paid_status'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95' }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
-    evidence: { serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actorLatency: [...pipeline.observations.values()], periodicObserverSamples: result.observations, arrivals: result.arrivals },
+    measurements: { ...latencyObservations([], []), cpu: { value: { evidence: 'serverCgroupSamples', deltas: cpuByRole }, unit: 'cpu_seconds_delta', observer: 'container_cgroup_v2', clockDomain: 'kernel_cgroup_counter', unavailableReason: samples.some(s => s.cpuUsageMicros !== null) ? null : 'cgroup counters unavailable', sampleCount: samples.filter(s => s.cpuUsageMicros !== null).length }, wall: { value: result.elapsedMs, unit: 'ms', observer: 'load_generator', clockDomain: 'monotonic_elapsed', unavailableReason: null, sampleCount: 1 }, queue: { value: { evidence: 'safeCoordinatorSamples', approximate: true }, unit: 'jobs', observer: 'scoped_gateway_ops', clockDomain: 'server_sampled', unavailableReason: queueSamples.length ? null : 'no gateway samples', sampleCount: queueSamples.length }, memory: { value: { evidence: 'serverCgroupSamples' }, unit: 'bytes', observer: 'container_cgroup_v2', clockDomain: null, unavailableReason: samples.some(s => s.memoryCurrentBytes !== null) ? null : 'cgroup memory unavailable', sampleCount: samples.filter(s => s.memoryCurrentBytes !== null).length }, checkpointBytes: { value: { evidence: 'checkpointSizes', definitions: { canonicalJsonBytes: '0054 UTF8 checkpoint_json text byte accounting', jsonbDatumBytes: 'Postgres pg_column_size of jsonb datum, excludes relation/page overhead' } }, unit: 'bytes', observer: 'trusted_ci_readonly_sql_metadata', clockDomain: 'postgres_statement_sample', unavailableReason: checkpointSamples.length ? null : 'no checkpoint size samples', sampleCount: checkpointSamples.length }, rewardDelay: quantiles([...pipeline.observations.values()].flatMap(o => o.rewardWallMs === null ? [] : [o.rewardWallMs]), 'ms', 'actual_owner_paid_status'), matchTick: { value: { evidence: 'actualMatchQuantiles', aggregation: 'per_match_only_not_p95_of_p95' }, unit: 'ms', observer: 'actual_shooter_metrics_rpc', clockDomain: 'server_tick', unavailableReason: pipeline.matchMetrics().length ? null : 'no actual matches observed', sampleCount: pipeline.matchMetrics().length } },
+    evidence: { serverCgroupSamples: samples, safeCoordinatorSamples: queueSamples, actualMatchQuantiles: pipeline.matchMetrics(), actualMatchEnds: pipeline.matchEnds(), checkpointSizes: checkpointSamples, actorLatency: [...pipeline.observations.values()], periodicObserverSamples: result.observations, arrivals: result.arrivals },
   };
   validateResult(report);
   await writeFile(join(root, 'benchmark-report.json'), `${JSON.stringify(report, null, 2)}\n`, { flag: 'wx', mode: 0o600 });
-  console.log(`CI advisory actual pipeline: ${result.actors.length} actors, ${workloadFailures} operational failures; no production capacity conclusion`);
-  if (result.harnessStatus !== 'complete' || result.actors.length !== 20 || workloadFailures || !result.actors.some(a => a.paid) || !pipeline.matchMetrics().some(m => m.n > 0)) process.exitCode = 1;
+  console.log(`CI advisory actual pipeline: ${result.actors.length} accepted-prefix actors, ${result.summary.fullSourceActorsVerified} full-source actors, ${workloadFailures} operational failures; no production capacity conclusion`);
+  if (result.harnessStatus !== 'complete' || result.actors.length !== 20 || result.summary.fullSourceActorsVerified !== 19 || workloadFailures || !result.actors.some(a => a.paid) || !pipeline.matchMetrics().some(m => m.n > 0)) process.exitCode = 1;
 }
 try { if (process.argv[2] === 'prepare') await prepare(); else if (process.argv[2] === 'run') await run(); else throw new Error('explicit prepare/run required'); }
 catch { console.error('bounded ephemeral benchmark controller failed; inspect safe report only'); process.exitCode = 1; }

@@ -34,7 +34,7 @@ export interface ServerSample {
 }
 export interface CoordinatorMetrics {
   uptimeMs: number;
-  counters: Record<string, number>;
+  counters: Record<string, number | null>;
   lastExecution: { cpuUserMicros: number | null; cpuSystemMicros: number | null; wallMs: number | null; rssBytes: number | null; heapUsedBytes: number | null; gcMs: null; gcObserved: false } | null;
   gateway: { observedAt: number; queueDepth: number | null; queueTruncated: boolean; oldestQueueAgeMs: number | null; paymentPending: number | null; paymentTruncated: boolean; orphanPending: number | null; orphanTruncated: boolean; opsDbWallMs: number | null } | null;
 }
@@ -58,7 +58,7 @@ export async function coordinatorSample(base: string, signal: AbortSignal): Prom
     }
   } finally { await reader.cancel(); reader.releaseLock(); }
   const metrics = JSON.parse(Buffer.concat(chunks).toString('utf8')) as CoordinatorMetrics;
-  if (!Number.isFinite(metrics.uptimeMs) || !metrics.counters || Object.values(metrics.counters).some(n => !Number.isFinite(n) || n < 0)) throw new Error('invalid safe metrics');
+  if (!Number.isFinite(metrics.uptimeMs) || !metrics.counters || Object.entries(metrics.counters).some(([key, n]) => key === 'workerRestarts' && n === null ? false : typeof n !== 'number' || !Number.isFinite(n) || n < 0)) throw new Error('invalid safe metrics');
   return { wallMs: performance.now() - start, metrics };
 }
 export function latencyObservations(browserFrames: readonly number[], matchTicks: readonly number[]): Record<string, Measurement> {

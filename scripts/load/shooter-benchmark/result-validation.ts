@@ -17,7 +17,7 @@ export function validateResult(value: unknown): void {
   for (const hostValue of report.hosts) { const host = object(hostValue); check(host.region === null ? host.regionEvidence === null : typeof host.regionEvidence === 'string' && host.regionEvidence.length > 0, 'verified region evidence required'); }
   check(Array.isArray(report.actors), 'actors required');
   const actors = report.actors as ActorResult[], summary = object(report.summary), computed = summarizeActors(actors);
-  for (const key of ['attempted', 'durablyVerified', 'payable', 'paid', 'pending', 'censored']) check(summary[key] === computed[key], `summary ${key} denominator`);
+  for (const key of ['attempted', 'durablyVerified', 'payable', 'paid', 'pending', 'censored', 'sourceFrames', 'submittedFrames', 'acceptedFrames', 'verifiedFrames', 'fullSourceActorsVerified']) check(summary[key] === computed[key], `summary ${key} denominator`);
   check(typeof summary.plannedActors === 'number' && typeof summary.accountedActors === 'number' && typeof summary.unstartedActors === 'number' && summary.accountedActors === actors.length && summary.accountedActors + summary.unstartedActors === summary.plannedActors, 'all planned actors accounted');
   if (summary.harnessStatus === 'complete') {
     check(summary.unstartedActors === 0 && actors.length >= 20 && actors.length % 20 === 0, 'complete independent cohort');

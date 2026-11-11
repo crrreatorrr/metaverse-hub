@@ -13,6 +13,7 @@ export interface Binding {
   sessionBindingHash: string;
   runBindingHash: string;
 }
+export type SubmissionProgress = Pick<ActorResult, 'submittedInputSha256' | 'submittedHashMeaning' | 'submittedFrames' | 'acceptedTick' | 'verifiedTick'>;
 export interface Execution {
   status: ActorResult['status'];
   rawReason: string | null;
@@ -25,7 +26,7 @@ export interface CampaignAdapter {
   prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding>;
   // Preserve full source frames and same-body/RID retries; do not substitute an
   // in-process simulator or synthetic success oracle for the actual pipeline.
-  execute(binding: Binding, assignment: Assignment, phase: Phase, signal: AbortSignal): Promise<Execution>;
+  execute(binding: Binding, assignment: Assignment, phase: Phase, signal: AbortSignal, progress: (value: SubmissionProgress) => void): Promise<Execution>;
   startBackground(signal: AbortSignal): Promise<void>;
   stopBackground(): Promise<void>;
   observe(signal: AbortSignal): Promise<void>;
@@ -92,7 +93,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
       for (let i = 0; i < phase.waves; i++, wave++) {
         const waveNumber = wave;
         const bindings = await bounded(Promise.all(plan.assignments.map(a => adapter.prepare(a, waveNumber, signal))), signal);
-        const pending = bindings.map((binding, actor): ActorResult => ({ ...binding, wave: waveNumber, actor, caseId: plan.assignments[actor].caseId, inputSha256: plan.assignments[actor].inputSha256, frames: plan.assignments[actor].frames, status: 'not_started', rawReason: null, attempted: false, durablyVerified: false, payable: false, paid: false }));
+        const pending = bindings.map((binding, actor): ActorResult => ({ ...binding, wave: waveNumber, actor, caseId: plan.assignments[actor].caseId, sourceInputSha256: plan.assignments[actor].inputSha256, sourceFrames: plan.assignments[actor].frames, submittedInputSha256: null, submittedHashMeaning: null, submittedFrames: 0, acceptedTick: 0, verifiedTick: 0, status: 'not_started', rawReason: null, attempted: false, durablyVerified: false, payable: false, paid: false }));
         summarizeActors([...actors, ...pending]);
         actors.push(...pending); prepared.push({ wave: waveNumber, bindings, pending });
       }
@@ -105,7 +106,10 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
         const { pending, bindings } = prepared[i];
         phaseWork.push(Promise.all(pending.map(async (record, actor) => {
           record.attempted = true;
-          try { Object.assign(record, await bounded(adapter.execute(bindings[actor], plan.assignments[actor], phase, signal), signal)); }
+          try { Object.assign(record, await bounded(adapter.execute(bindings[actor], plan.assignments[actor], phase, signal, update => {
+            if (update.submittedFrames < record.submittedFrames || update.acceptedTick < record.acceptedTick || update.verifiedTick < record.verifiedTick) throw new OperationFailure('cursor_regression');
+            summarizeActors([{ ...record, ...update }]); Object.assign(record, update);
+          }), signal)); }
           catch (error) { record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure ? error.reason : 'adapter_exception_redacted'; }
         })).then(() => undefined));
       }

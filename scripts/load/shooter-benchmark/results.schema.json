@@ -380,10 +380,15 @@
         "sessionBindingHash",
         "runBindingHash",
         "caseId",
-        "inputSha256",
-        "frames",
         "status",
-        "rawReason"
+        "rawReason",
+        "sourceInputSha256",
+        "sourceFrames",
+        "submittedInputSha256",
+        "submittedHashMeaning",
+        "submittedFrames",
+        "acceptedTick",
+        "verifiedTick"
       ],
       "properties": {
         "accountBindingHash": {
@@ -397,13 +402,6 @@
         },
         "caseId": {
           "type": "string"
-        },
-        "inputSha256": {
-          "$ref": "#/$defs/sha256"
-        },
-        "frames": {
-          "type": "integer",
-          "minimum": 0
         },
         "status": {
           "enum": [
@@ -424,6 +422,41 @@
             "string",
             "null"
           ]
+        },
+        "sourceInputSha256": {
+          "$ref": "#/$defs/sha256"
+        },
+        "sourceFrames": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "submittedInputSha256": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/sha256"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "submittedHashMeaning": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "submittedFrames": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "acceptedTick": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "verifiedTick": {
+          "type": "integer",
+          "minimum": 0
         }
       }
     },
