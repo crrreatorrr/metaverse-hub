@@ -60,7 +60,9 @@ function runtime(internal, { loggingThrows = false, queryThrows = null, prefligh
     ShooterVerificationCommit: { valid(_nk, _body, marker) { if (markMany && marker) for (let i = 0; i < 80; i++) marker('checkpoint_envelope_hash_begin');return true; } },
     HubFault: { apply() {} }, ShooterVerificationSettlement: { afterResult() {} },
   });
-  const output = ts.transpileModule(internal, { compilerOptions: { target: ts.ScriptTarget.ES5, module: ts.ModuleKind.None }, reportDiagnostics: true });
+  // transpileModule forces isolatedModules: its module-none unit sandbox needs
+  // ES2015+. The actual server build still compiles the injected source to ES5.
+  const output = ts.transpileModule(internal, { compilerOptions: { target: ts.ScriptTarget.ES2015, module: ts.ModuleKind.None }, reportDiagnostics: true });
   assert.deepEqual(output.diagnostics, []);
   vm.runInContext(output.outputText, context);
   const nk = { uuidv4: () => 'independent-synthetic-tag-input', sha256Hash: () => 'c'.repeat(64), stringToBinary: value => Buffer.from(value) };
