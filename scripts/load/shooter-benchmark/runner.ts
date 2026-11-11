@@ -1,6 +1,12 @@
 import { performance } from 'node:perf_hooks';
 import { sha256, summarizeActors, validatePlan, type ActorResult, type Assignment, type Phase, type Plan } from './contracts.ts';
 
+export class OperationFailure extends Error {
+  constructor(readonly reason: string) {
+    super('benchmark operation failed');
+    if (!/^[a-z0-9_:.|-]{1,80}$/.test(reason)) throw new Error('unsafe operation reason');
+  }
+}
 export interface Binding {
   // Derive these from actual independently authenticated server IDs.
   accountBindingHash: string;
@@ -101,7 +107,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
         phaseWork.push(Promise.all(pending.map(async (record, actor) => {
           record.attempted = true;
           try { Object.assign(record, await bounded(adapter.execute(bindings[actor], plan.assignments[actor], phase, signal), signal)); }
-          catch { record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : 'adapter_exception_redacted'; }
+          catch (error) { record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure ? error.reason : 'adapter_exception_redacted'; }
         })).then(() => undefined));
       }
       await Promise.all(phaseWork);

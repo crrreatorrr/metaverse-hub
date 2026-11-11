@@ -5,7 +5,7 @@ import { call, guest, openGame } from '../../../server/test/dup/harness.ts';
 import { prepareTrustedActor, reboundBatches, appendDigest, finishActor, observeActor, type TrustedActor } from '../../../server/test/dup/shooter_verification_e2e_fixtures.ts';
 import { BackgroundTraffic } from './background.ts';
 import { sha256, type Assignment, type Phase, type Plan } from './contracts.ts';
-import type { Binding, CampaignAdapter, Execution } from './runner.ts';
+import { OperationFailure, type Binding, type CampaignAdapter, type Execution } from './runner.ts';
 const object = (v: unknown): Record<string, unknown> => v as Record<string, unknown>;
 const delay = (ms: number, signal: AbortSignal): Promise<void> => new Promise((resolve, reject) => {
   const abort = () => { clearTimeout(timer); reject(new Error('aborted')); };
@@ -27,23 +27,25 @@ export interface ActorObservation {
 export class PublicPipeline implements CampaignAdapter {
   readonly mode = 'bounded_v8_same_host' as const;
   readonly observations = new Map<string, ActorObservation>();
-  private readonly actors = new Map<string, TrustedActor>();
+  private readonly actors = new Map<string, { actor: TrustedActor; wave: number }>();
+  private readonly gates = new Map<number, { count: number; promise: Promise<void>; release: () => void; fail: () => void; timer: ReturnType<typeof setTimeout> }>();
   private readonly background: BackgroundTraffic;
   constructor(private plan: Plan, base: string, private sampleServer: (signal: AbortSignal) => Promise<void>) {
     this.background = new BackgroundTraffic(base, plan.seed);
   }
-  async prepare(assignment: Assignment, _wave: number, signal: AbortSignal): Promise<Binding> {
+  async prepare(assignment: Assignment, wave: number, signal: AbortSignal): Promise<Binding> {
     if (signal.aborted) throw new Error('aborted');
     const login = await openGame((await guest()).token, 'sproto-shooter');
     const actor = await prepareTrustedActor(assignment.caseId, login, { ageMs: 1200000 });
     if (actor.trace.definition.frames !== assignment.frames || actor.trace.definition.fixtureSha256 !== assignment.caseSha256 || actor.trace.definition.legacyInputEnvelopeSha256 !== assignment.inputSha256) throw new Error('prepared trace differs from assignment');
     const binding = { accountBindingHash: sha256(login.hub.userId), sessionBindingHash: sha256(login.sessionId), runBindingHash: sha256(actor.runId) };
-    this.actors.set(binding.runBindingHash, actor);
+    this.actors.set(binding.runBindingHash, { actor, wave });
     return binding;
   }
   async execute(binding: Binding, assignment: Assignment, phase: Phase, signal: AbortSignal): Promise<Execution> {
-    const actor = this.actors.get(binding.runBindingHash);
-    if (!actor) throw new Error('unknown actual actor');
+    const prepared = this.actors.get(binding.runBindingHash);
+    if (!prepared) throw new Error('unknown actual actor');
+    const { actor, wave } = prepared;
     const start = performance.now(), batches = reboundBatches(actor);
     // All long traces fit one legal28800-frame batch, so the full accepted tail
     // is durable before workers can observe an early terminal. No source trim.
@@ -61,6 +63,7 @@ export class PublicPipeline implements CampaignAdapter {
       if (ack.state !== 'received' || ack.digest !== appendDigest(batch)) throw new Error('actual append acknowledgment mismatch');
     }
     observation.receivedWallMs = performance.now() - start;
+    await this.finishBarrier(wave, signal);
     await finishActor(actor, batch.sequence, n);
     for (;;) {
       if (signal.aborted) throw new Error('aborted');
@@ -86,8 +89,23 @@ export class PublicPipeline implements CampaignAdapter {
       await delay(500, signal);
     }
   }
+  private async finishBarrier(wave: number, signal: AbortSignal): Promise<void> {
+    let gate = this.gates.get(wave);
+    if (!gate) {
+      let release!: () => void, fail!: () => void;
+      const promise = new Promise<void>((resolve, reject) => { release = resolve; fail = () => reject(new OperationFailure('finish_barrier_timeout')); });
+      const timer = setTimeout(() => fail(), 10000);
+      gate = { count: 0, promise, release, fail, timer }; this.gates.set(wave, gate);
+    }
+    gate.count++;
+    if (gate.count === 20) { clearTimeout(gate.timer); gate.release(); }
+    const abort = () => { clearTimeout(gate!.timer); gate!.fail(); };
+    signal.addEventListener('abort', abort, { once: true });
+    try { if (signal.aborted) abort(); await gate.promise; }
+    finally { signal.removeEventListener('abort', abort); }
+  }
   async startBackground(signal: AbortSignal): Promise<void> { await this.background.start(this.plan.background.hubUsers, this.plan.background.freePvpMatches, signal); }
-  async stopBackground(): Promise<void> { await this.background.stop(); }
+  async stopBackground(): Promise<void> { for (const gate of this.gates.values()) clearTimeout(gate.timer); await this.background.stop(); }
   async observe(signal: AbortSignal): Promise<void> { await Promise.all([this.sampleServer(signal), this.background.observe(signal)]); }
   matchMetrics() { return this.background.matchObservations; }
 }
