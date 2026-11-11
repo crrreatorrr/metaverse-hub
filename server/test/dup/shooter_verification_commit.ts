@@ -249,11 +249,13 @@ export async function runShooterVerificationCommit(test: TestFn): Promise<void> 
 
   await test('shooter-commit', 'service key expiry during result lock wait rolls back a complete checkpoint and request receipt', async () => {
     isolate(); const f = await fixture(); const w = await worker(); const work = await claim(w); const result = replay(work); const requestId = crypto.randomUUID();
-    psql(`UPDATE game.shooter_verification_principal SET expires_at=clock_timestamp()+interval '1 second' WHERE worker_id='${w.workerId}'`);
-    const holding = psqlAsync(`SET application_name='shooter-result-key-expiry'; BEGIN; SELECT 1 FROM game.shooter_verification_job WHERE job_id='${work.claim.jobId}' FOR UPDATE; SELECT pg_sleep(2); COMMIT;`);
+    psql(`UPDATE game.shooter_verification_principal SET expires_at=clock_timestamp()+interval '2 seconds' WHERE worker_id='${w.workerId}'`);
+    const holding = psqlAsync(`SET application_name='shooter-result-key-expiry'; BEGIN; SELECT 1 FROM game.shooter_verification_job WHERE job_id='${work.claim.jobId}' FOR UPDATE; SELECT pg_sleep(3); COMMIT;`);
     const deadline = Date.now() + 5000;
     while (num("SELECT count(*) FROM pg_stat_activity WHERE application_name='shooter-result-key-expiry' AND wait_event='PgSleep'") === 0) { assert.ok(Date.now() < deadline); await sleep(20); }
-    const ack = await submit(w, result, requestId); await holding; assert.equal(ack.state, 'authorization_denied');
+    const request = submit(w, result, requestId);
+    while (num("SELECT count(*) FROM pg_stat_activity WHERE pid<>pg_backend_pid() AND query LIKE '%SELECT game.shooter_verification_internal(%' AND wait_event_type='Lock'") === 0) { assert.ok(Date.now() < deadline, 'authorized result reached the downstream lock'); await sleep(20); }
+    const ack = await request; await holding; assert.equal(ack.state, 'authorization_denied');
     assert.equal(history(f.run), '0:0:0:-1:0:0');
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_attempt_result WHERE job_id='${work.claim.jobId}'`), 0);
     assert.equal(num(`SELECT count(*) FROM game.shooter_verification_gateway_receipt WHERE worker_id='${w.workerId}' AND request_id='${requestId}'`), 0);
