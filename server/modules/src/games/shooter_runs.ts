@@ -154,6 +154,9 @@ namespace ShooterRuns {
     if (issuance.contentFingerprint !== ShooterRewards.FINGERPRINT || issuance.accountId !== who.userId || issuance.sessionId !== who.sid) {
       return zero("fingerprint_mismatch");
     }
+    var selected = ShooterVerificationLifecycle.issue(nk, who.userId, who.sid, key, runId, day, boss, seed, JSON.stringify(issuance),
+      Object.keys(body).sort().join(",") === "canonicalBoss,key" && nk.stringToBinary(payload || "").byteLength <= ISSUE_MAX);
+    if (selected !== null) return JSON.stringify(selected);
     var result = ShooterRewards.issue(nk, who.userId, who.sid, key, runId, day, boss, seed, JSON.stringify(issuance));
     if (result.error) return JSON.stringify(result);
     logger.info("shooter issue " + boss + " user " + who.userId);

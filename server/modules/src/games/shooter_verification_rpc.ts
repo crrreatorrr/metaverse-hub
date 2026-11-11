@@ -121,6 +121,7 @@ namespace ShooterVerification {
     if (!body || typeof body.runId !== "string" || !UUID.test(body.runId)
       || !(exact(body, ["runId"]) || exact(body, ["runId", "sequence"]))
       || (body.sequence !== undefined && !integer(body.sequence, 0, 4095))) return failure("invalid", "malformed");
+    nk.sqlQuery("SELECT game.shooter_verification_touch($1::uuid,$2::text)", [ctx.userId, body.runId]);
     var result = ShooterRewards.queryJson(nk, `SELECT jsonb_build_object(
       'protocol',2,'runId',r.run_id,'state',r.lifecycle,'revision',r.revision,
       'operational',CASE WHEN r.operational_reason IN ('attempts_exhausted','predecessor_mismatch') THEN jsonb_build_object('state','pending_retryable','reason',r.operational_reason,'supportRequired',true) ELSE NULL END,
@@ -129,8 +130,10 @@ namespace ShooterVerification {
       'terminal',CASE WHEN r.terminal_tick IS NULL THEN NULL ELSE jsonb_build_object('tick',r.terminal_tick,'outcome',r.terminal_outcome,'canonicalBoss',old.canonical_boss) END,
       'payment',CASE WHEN paid.run_id IS NOT NULL THEN jsonb_build_object('state','paid','tickets',paid.tickets)
         WHEN r.payment_state='paid' THEN jsonb_build_object('state','pending_retryable','reason','receipt_unavailable')
-        ELSE jsonb_build_object('state',r.payment_state,'reason',CASE WHEN r.payment_reason IN ('session_expired','session_closed','revoked','cap_exhausted','ineligible') THEN r.payment_reason ELSE NULL END) END,
-      'authorization',CASE WHEN s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN 'session_closed'
+        ELSE jsonb_build_object('state',r.payment_state,'reason',CASE WHEN r.payment_reason IN ('session_expired','session_closed','revoked','cap_exhausted','ineligible','already_paid') THEN r.payment_reason ELSE NULL END) END,
+      'issuanceAck',r.issue_ack,'sealAck',r.seal_ack,
+      'authorization',CASE WHEN r.session_invalidated_reason IS NOT NULL THEN r.session_invalidated_reason
+        WHEN s.state<>'open' OR s.ticket_redeemed_at IS NULL THEN 'session_closed'
         WHEN s.lease_until<=clock_timestamp() THEN 'session_expired' WHEN r.upload_deadline<=clock_timestamp() THEN 'upload_expired' ELSE 'live' END,
       'receivedAck',(SELECT b.received_ack FROM game.shooter_verification_batch b WHERE b.run_id=r.run_id AND b.sequence=$3::int)
       )::text AS result FROM game.shooter_verification_run r

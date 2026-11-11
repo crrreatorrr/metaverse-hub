@@ -89,9 +89,12 @@ namespace ShooterVerificationInternal {
       AND game.shooter_verification_hash_equal(token_sha256,$4::text)))::text AS result`,[ctx.userId,parsed.workerId,parsed.keyId,hash,op]);
     if (!auth.authorized) return fail("authorization_denied","unauthorized");
     if (!bounded(parsed.body) || !bodyOk(op,parsed.body)) return fail("invalid","malformed");
+    if (op==="result" && !ShooterVerificationCommit.valid(nk,parsed.body)) return fail("pending_retryable","bad_worker_checkpoint");
+    if (op==="result") HubFault.apply(ctx,nk,ctx.userId,"shooter.worker.before_commit");
     var digest=nk.sha256Hash(op+"\n"+stable(parsed.body));
     var result=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_internal($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text,$7::text,$8::jsonb)::text AS result",
       [ctx.userId,parsed.workerId,parsed.keyId,hash,op,parsed.requestId,digest,JSON.stringify(parsed.body)]);
+    if (op==="result") HubFault.apply(ctx,nk,ctx.userId,"shooter.worker.after_commit");
     if (op==="claim" && result.state==="leased") {
       var projection=ShooterRewards.queryJson(nk,"SELECT game.shooter_verification_private_response($1::uuid,$2::text,$3::text,$4::text,$5::text,$6::text)::text AS result",
         [ctx.userId,parsed.workerId,parsed.keyId,hash,parsed.requestId,digest]);
@@ -100,6 +103,17 @@ namespace ShooterVerificationInternal {
       result.work=projection.work===undefined?null:projection.work;
       result.workState=typeof projection.workState==="string"?projection.workState:"pending_retryable";
       result.workReason=typeof projection.workReason==="string"?projection.workReason:null;
+    }
+    // The first SQL query has returned and COMMITTED. Payment is a separate
+    // transaction; its economic/session locks never nest under checkpoint locks.
+    if (op==="result" && typeof ShooterVerificationSettlement!=="undefined") {
+      ShooterVerificationSettlement.afterResult(ctx,_logger,nk,parsed.workerId,parsed.keyId,hash,parsed.requestId,result);
+    }
+    // Independent derived lifecycle maintenance after the scoped transaction has
+    // committed; never nest session/run locks under gateway/scheduler locks.
+    if (op==="claim" && (result.state==="leased" || result.reason==="no_capacity_or_ready_work")) {
+      try { ShooterVerificationLifecycle.reap(nk,null); }
+      catch (_e) { _logger.error("shooter lifecycle maintenance operational failure"); }
     }
     return JSON.stringify(result);
   }
