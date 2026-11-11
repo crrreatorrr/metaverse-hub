@@ -1722,7 +1722,7 @@ function pending(category: string, name: string, reason: string): void {
 }
 
 function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
   console.log('\nDuplication suite');
   let failed = 0;
   for (const category of categories) {
@@ -1753,6 +1753,10 @@ function report(): number {
   if (selected('shooter-leases') && !outcomes.some((item) => item.category === 'shooter-leases' && item.status === 'pass')) {
     failed += 1;
     console.log('shooter-leases: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-internal') && !outcomes.some((item) => item.category === 'shooter-internal' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-internal: category produced no pass, failing the suite');
   }
   if (selected('shooter-wager')) {
     const rows = outcomes.filter((item) => item.category === 'shooter-wager');
