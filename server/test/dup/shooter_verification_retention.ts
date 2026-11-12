@@ -12,9 +12,9 @@ import { isolate as baseIsolate, fixture as paymentFixture, receipt, retry as pa
 type Test=(category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Obj=Record<string,unknown>;
 const ROOT=fileURLToPath(new URL('../../../',import.meta.url));
-const SHA='797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
-const SOURCE='05f7a0a245af921fc65a99588564175c19658e38';
-const MANIFEST={artifact:'shooter-sim',sourceCommit:SOURCE,sha256:SHA,protocol:1,contentFingerprint:'cea1f88b',uploadProtocol:2,replayApiVersion:2,checkpointSchema:2,economyPolicy:1};
+const SHA='4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
+const SOURCE='2215995f40d999f31336815296e1e7b7726f932a';
+const MANIFEST={artifact:'shooter-sim',sourceCommit:SOURCE,sha256:SHA,protocol:1,contentFingerprint:'73c6eb0f',uploadProtocol:2,replayApiVersion:2,checkpointSchema:2,economyPolicy:1};
 const context=vm.createContext({});const bytes=readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`,import.meta.url));
 assert.equal(createHash('sha256').update(bytes).digest('hex'),SHA);vm.runInContext(bytes.toString('utf8'),context);
 const obj=(v:unknown)=>v as Obj;const q=(v:string)=>"'"+v.replace(/'/g,"''")+"'";
@@ -60,7 +60,7 @@ async function seed(n=10,login?:GameLogin,frames?:string) {
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${s.hub.userId}','${s.sessionId}','retain:${run}',${q(String(issuance.day))},'sahil',7,${q(JSON.stringify(issuance))});
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${s.hub.userId}','${s.sessionId}',1,2,1,'${SHA}','${SOURCE}','cea1f88b',now()-interval '20 minutes',now()+interval '25 minutes')`);
+    VALUES('${run}','${s.hub.userId}','${s.sessionId}',1,2,1,'${SHA}','${SOURCE}','73c6eb0f',now()-interval '20 minutes',now()+interval '25 minutes')`);
   const input={protocol:2,runId:run,sequence:0,tick0:0,n,frames:frames||Buffer.alloc(n*12).toString('base64'),actions:[]};
   assert.equal(obj((await call('shooter.run.append',input,s.gameToken)).body).state,'received');
   return {s,run,input,w:await worker(),last:null as {body:Obj;rid:string}|null};

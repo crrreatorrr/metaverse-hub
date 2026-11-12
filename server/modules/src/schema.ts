@@ -3915,6 +3915,8 @@ namespace HubSchema {
   // fingerprint literal in game.settle_coop_clear for the vendored Coop sim's; no row changes.
   // 0065_shooter_campaign_fingerprint is registered from src/games/shooter_rewards.ts. It swaps
   // the fingerprint literal in game.settle_shooter_clear for the vendored campaign sim's; no row changes.
+  // 0066_shooter_campaign_artifact is registered from src/games/shooter_verification_lifecycle_schema.ts.
+  // It moves the live verification allowlist onto that same vendored bundle; no row or wager change.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

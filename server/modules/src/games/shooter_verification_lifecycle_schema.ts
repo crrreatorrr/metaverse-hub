@@ -254,3 +254,51 @@ HubSchema.register({
     END; $guard$`,
   ],
 });
+
+// 0053, 0055 and 0056 are already applied, so their artifact literals stay.
+// This moves the live allowlist onto the vendored campaign bundle. New receipts
+// carry that bundle's fingerprint. Stored rows, the 20 Ticket amount, and wager
+// settlement are untouched. A fresh database runs the earlier migrations first.
+// Applying this twice changes nothing.
+HubSchema.register({
+  id: "0066_shooter_campaign_artifact",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, 'cea1f88b', '73c6eb0f');
+      src := replace(src, '05f7a0a245af921fc65a99588564175c19658e38', '2215995f40d999f31336815296e1e7b7726f932a');
+      src := replace(src, '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9', '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905');
+      IF position('cea1f88b' in src) > 0 OR position('73c6eb0f' in src) = 0
+        OR position('05f7a0a245af921fc65a99588564175c19658e38' in src) > 0
+        OR position('2215995f40d999f31336815296e1e7b7726f932a' in src) = 0
+        OR position('797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9' in src) > 0
+        OR position('4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_artifact_issue_not_replaced';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, 'cea1f88b', '73c6eb0f');
+      src := replace(src, '05f7a0a245af921fc65a99588564175c19658e38', '2215995f40d999f31336815296e1e7b7726f932a');
+      src := replace(src, '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9', '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905');
+      IF position('cea1f88b' in src) > 0 OR position('73c6eb0f' in src) = 0
+        OR position('05f7a0a245af921fc65a99588564175c19658e38' in src) > 0
+        OR position('2215995f40d999f31336815296e1e7b7726f932a' in src) = 0
+        OR position('797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9' in src) > 0
+        OR position('4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_artifact_work_not_replaced';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.settle_shooter_verified_result(uuid,text,text,text,text)'::regprocedure);
+      src := replace(src, 'cea1f88b', '73c6eb0f');
+      IF position('cea1f88b' in src) > 0 OR position('73c6eb0f' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_artifact_settlement_not_replaced';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});

@@ -22,6 +22,7 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0063 | `0063_coop_settle_fingerprint`: rewrites the fingerprint literal inside `game.settle_coop_clear` from 0041's `f8705ec4…` to the vendored Coop sim's `fb9f2679…` (`CoopRewards.FINGERPRINT`); stored receipts and payouts are untouched. Branch `claude/open-plaza-exchange` |
 | 0064 | `0064_feedback_check`: `game.feedback_run`, the queue behind the feedback admin panel's Check button (one queued-or-running run at a time), and each note's pull request link and state (`pr_url`, `pr_state`, `pr_checked_at`), #184 |
 | 0065 | `0065_shooter_campaign_fingerprint`: rewrites the fingerprint literal inside `game.settle_shooter_clear` from 0048's `cea1f88b` to the vendored campaign sim's `73c6eb0f` (`ShooterRewards.FINGERPRINT`); stored receipts and payouts are untouched. Branch `claude/feedback-check-trigger` |
+| 0066 | `0066_shooter_campaign_artifact`: moves the live verification allowlist (`issue_shooter_verification_run`, `shooter_verification_private_work`, `settle_shooter_verified_result`) onto the vendored campaign bundle `2215995f` / `4968fa64…` / `73c6eb0f`. Stored rows and the 20 Ticket amount stay. Branch `claude/feedback-check-trigger` |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied
