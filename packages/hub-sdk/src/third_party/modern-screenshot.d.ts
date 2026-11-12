@@ -7,5 +7,6 @@ export interface DomToCanvasOptions {
   style?: Partial<CSSStyleDeclaration> | null;
   filter?: ((node: Node) => boolean) | null;
   timeout?: number;
+  onCloneEachNode?: ((cloned: Node) => void | Promise<void>) | null;
 }
 export function domToCanvas(node: Node, options?: DomToCanvasOptions): Promise<HTMLCanvasElement>;

@@ -7,6 +7,17 @@
 
 type Library = typeof import('./third_party/modern-screenshot.js');
 
+/**
+ * How long the library waits for each image and font fetch. It waits for every <img> on the page,
+ * shown or not, and a hidden `loading="lazy"` image (a closed menu's portraits, in the hub) never
+ * loads, so this is paid in full whenever a page has one. Images on screen are already loaded, and
+ * fonts come from the browser's cache after the first time.
+ */
+const MEDIA_WAIT_MS = 1000;
+
+/** Marks a container of a canvas copied directly while the page is drawn (see capturePage). */
+const UNDER = 'data-hub-feedback-under';
+
 let library: Promise<Library> | null = null;
 
 /** Load the HTML-drawing library (once). A failed load is retried on the next call. */
@@ -73,11 +84,25 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
       // A lost or tainted canvas: the library skips it.
     }
   }
+  // On the page the canvases are painted over their containers' backgrounds; in the screenshot the
+  // HTML goes over the canvases, so an opaque container (the hub's #app) would hide them. Mark each
+  // container of a copied canvas and clear its background in the copy. Attributes do not repaint.
+  const under: Element[] = [];
+  for (const node of skip) {
+    if (!(node instanceof HTMLCanvasElement)) continue;
+    for (let parent = node.parentElement; parent && root.contains(parent); parent = parent.parentElement) {
+      if (!parent.hasAttribute(UNDER)) {
+        parent.setAttribute(UNDER, '');
+        under.push(parent);
+      }
+    }
+  }
   const release = holdFrames();
   const deadline = window.setTimeout(release, holdMs);
   const done = () => {
     window.clearTimeout(deadline);
     release();
+    for (const parent of under) parent.removeAttribute(UNDER);
     for (const canvas of frozen) delete (canvas as { toDataURL?: unknown }).toDataURL;
   };
   const width = Math.max(1, window.innerWidth);
@@ -91,7 +116,10 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
         backgroundColor: null,
         // The root's own background is behind the canvases on the page, not over them.
         style: { background: 'transparent' },
-        timeout: holdMs,
+        timeout: Math.min(MEDIA_WAIT_MS, holdMs),
+        onCloneEachNode: (cloned) => {
+          if (cloned instanceof HTMLElement && cloned.hasAttribute(UNDER)) cloned.style.setProperty('background', 'none', 'important');
+        },
         filter: (node) => !(node instanceof Element) || (!skip.includes(node) && node.checkVisibility()),
       }),
     )

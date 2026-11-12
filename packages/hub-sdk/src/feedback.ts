@@ -852,6 +852,14 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
         return;
       }
       const { shot, drawn } = capture;
+      // Read one pixel now: the copy finishes the GPU work behind it here, in the screenshot's
+      // frame, instead of inside the HTML drawing below and against its time limit (that work took
+      // seconds in a software renderer).
+      try {
+        shot.getContext('2d')?.getImageData(0, 0, 1, 1);
+      } catch {
+        // Nothing to wait for.
+      }
       let finished = false;
       const finish = (overlay: HTMLCanvasElement | null) => {
         if (finished) return;
