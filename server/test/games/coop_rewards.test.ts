@@ -2,6 +2,8 @@
 // award. God Mode, AFK, late join, and CPU takeover do not pay. The golden
 // fight stays on its existing zero-reward path.
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { loadModule, presence, type LoadedModule, type MatchDriver } from '../unit/harness';
 
 const USER = '00000000-0000-4000-8000-000000000000';
@@ -80,6 +82,8 @@ function killBoss(mod: LoadedModule, m: MatchDriver): void {
 
 const mod = loadCoop();
 const CoopRewards = mod.global.CoopRewards as {
+  FINGERPRINT: string;
+  FINGERPRINT_0041: string;
   PAY: number;
   SWEEP: number;
   BOSSES: string[];
@@ -141,6 +145,25 @@ const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, n
   assert.match(sql, /phasesAreOneClear', 1/);
   const shooter = all.find((row) => row.id === '0040_shooter_boss_receipt')!.statements.join('\n');
   assert.match(shooter, /srv_shooter_boss_clear/);
+
+  // The settlement label is the vendored sim's content fingerprint. 0041 keeps the literal it was
+  // applied with and 0063 swaps it in the live function. When a re-vendor changes contentSha256,
+  // these fail until CoopRewards.FINGERPRINT moves and a new migration like 0063 is added.
+  const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
+  const pin = JSON.parse(readFileSync(fileURLToPath(new URL('../../modules/vendor/coop-sim.pin.json', import.meta.url)), 'utf8')) as { contentSha256: string };
+  assert.equal(CoopProto.FINGERPRINT, pin.contentSha256);
+  assert.equal(CoopRewards.FINGERPRINT, CoopProto.FINGERPRINT, 'receipts carry the label of the sim that settled them');
+  assert.equal(CoopRewards.FINGERPRINT, FP);
+  assert.equal(sql.includes(CoopRewards.FINGERPRINT_0041), true, '0041 is frozen with its own literal');
+  assert.equal(sql.includes(CoopRewards.FINGERPRINT), false);
+  const relabel = all.filter((row) => row.id === '0063_coop_settle_fingerprint');
+  assert.equal(relabel.length, 1);
+  assert.equal(relabel[0]!.statements.length, 1);
+  const swap = relabel[0]!.statements[0]!;
+  assert.ok(swap.includes(`replace(src, '${CoopRewards.FINGERPRINT_0041}', '${CoopRewards.FINGERPRINT}')`));
+  assert.ok(swap.includes("pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure)"));
+  assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(swap), false, 'the migration rewrites no row and no amount');
+  assert.ok(ids.indexOf('0063_coop_settle_fingerprint') > ids.indexOf('0062_hub_exchange_open'));
 }
 
 {
@@ -179,6 +202,8 @@ const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(args[8], 1);
   assert.equal(args[9], 'clear');
   assert.equal(args[10], 6);
+  assert.equal(args[11], 1);
+  assert.equal(args[12], FP, 'the match settles under the vendored sim label');
   assert.equal(args[13], 'all_human');
   assert.equal(stateOf(run.m).payFacts?.assistance, 'all_human');
   run.m.loop([]);

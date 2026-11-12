@@ -27,8 +27,8 @@ import {
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
 const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
-// game.settle_coop_clear (0041) still compares with the fingerprint it was written for.
-const SETTLE_FP = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
+// game.settle_coop_clear compares with the vendored sim's fingerprint since 0063_coop_settle_fingerprint.
+const SETTLE_FP = FP;
 const HASH = 'ab'.repeat(32);
 const BOSS = '07-moonkeep-bigswole';
 const PAY = 20;
