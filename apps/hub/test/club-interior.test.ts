@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Group, Vector3 } from 'three';
 import { CLUB_COLLIDERS, CLUB_MARKERS } from '../src/realms/plaza/club-interior-colliders';
-import { CLUB_INTERIOR_SCALE, SCALED_CLUB_COLLIDERS, scaleClubPoint } from '../src/realms/plaza/club-interior-scale';
+import { CLUB_INTERIOR_SCALE, SCALED_CLUB_COLLIDERS, SPROTEL_SCALE, scaleClubPoint } from '../src/realms/plaza/club-interior-scale';
 import { ARCADE_RETURN, atArcade } from '../src/realms/plaza/arcade-layout';
 import { SPROTEL_INTERACT_RADIUS, createSprotelController } from '../src/realms/plaza/sprotel-npc';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
@@ -15,28 +15,36 @@ close(box('wall_back').min[2], 18.2, 'room depth');
 close(box('ceiling').min[1], 6.76, 'room height');
 const sourceNpc = CLUB_COLLIDERS.find(box => box.npc)!;
 const npcBox = box('sprotel_npc');
+close(SPROTEL_SCALE, 1.2, 'Sprotel is 20% larger than authored');
 for (let axis = 0; axis < 3; axis++) {
-  close(npcBox.max[axis] - npcBox.min[axis], sourceNpc.max[axis] - sourceNpc.min[axis], 'Sprotel collider keeps its size');
+  close(npcBox.max[axis] - npcBox.min[axis], (sourceNpc.max[axis] - sourceNpc.min[axis]) * SPROTEL_SCALE, 'Sprotel collider grows with him');
 }
+close(npcBox.min[1], 0, 'Sprotel stays on the floor');
+// The larger body still fits between the counter and the back bar, clear of the bar gate.
+assert.ok(npcBox.min[2] > box('bar_counter').max[2], 'Sprotel clears the bar counter');
+assert.ok(npcBox.max[2] < box('back_bar').min[2], 'Sprotel clears the back bar');
+assert.ok(npcBox.min[0] > box('bar_gate').max[0], 'Sprotel clears the bar gate');
 const spot = scaleClubPoint(CLUB_MARKERS.barman_spot.pos);
 close((npcBox.min[0] + npcBox.max[0]) / 2, spot[0], 'NPC collider follows the barman marker');
 close((npcBox.min[2] + npcBox.max[2]) / 2, spot[2], 'NPC collider follows the barman marker');
 
-// The trigger must still reach across the enlarged counter while the actor stays native size.
+// The trigger must still reach across the enlarged counter with the actor at his own scale.
 const room = new Group();
 room.scale.setScalar(CLUB_INTERIOR_SCALE);
 const anchor = new Group();
 anchor.position.set(...CLUB_MARKERS.barman_spot.pos);
-anchor.scale.setScalar(1 / CLUB_INTERIOR_SCALE);
+anchor.scale.setScalar(SPROTEL_SCALE / CLUB_INTERIOR_SCALE);
 room.add(anchor);
 const npc = new Group();
 anchor.add(npc);
-const sprotel = createSprotelController(npc, [], 'idle', SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE);
+const sprotel = createSprotelController(npc, [], 'idle', SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE / SPROTEL_SCALE);
+const worldRadius = sprotel.interactRadius * SPROTEL_SCALE;
+close(worldRadius, SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE, 'world-space trigger is unchanged by his size');
 const walkup = new Vector3(...scaleClubPoint(CLUB_MARKERS.store_walkup.pos));
 sprotel.update(1 / 60, walkup, false);
 assert.ok(sprotel.playerNear, 'Sprotel is reachable from the enlarged walk-up spot');
-assert.ok(npc.getWorldScale(new Vector3()).distanceTo(new Vector3(1, 1, 1)) < 1e-10, 'NPC body retains native world scale');
-const outside = new Vector3(...spot).add(new Vector3(sprotel.interactRadius + 0.1, 0, 0));
+assert.ok(npc.getWorldScale(new Vector3()).distanceTo(new Vector3(1, 1, 1).multiplyScalar(SPROTEL_SCALE)) < 1e-10, 'NPC body is at SPROTEL_SCALE in the world');
+const outside = new Vector3(...spot).add(new Vector3(worldRadius + 0.1, 0, 0));
 sprotel.update(1 / 60, outside, false);
 assert.ok(!sprotel.playerNear, 'interaction remains bounded');
 
@@ -62,4 +70,4 @@ for (const hz of [30, 60, 120]) {
   assert.ok(atArcade(player.position.x / CLUB_INTERIOR_SCALE, player.position.z / CLUB_INTERIOR_SCALE), 'scaled return still reaches the arcade');
 }
 collider.geometry.dispose();
-console.log('bar interior: 30% larger room, native NPC size, reachable interactions, floor and wall collisions passed');
+console.log('bar interior: 30% larger room, Sprotel 20% larger and grounded, reachable interactions, floor and wall collisions passed');
