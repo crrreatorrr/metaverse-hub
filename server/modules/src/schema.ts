@@ -3770,6 +3770,24 @@ namespace HubSchema {
          $chk$`,
       ],
     },
+    {
+      // Open the plaza exchange (owner decision, 2026-11-12). 0042 seeded hub_exchange off and
+      // verse.exchange answers exchange_off until the flag is on. This turns it on for everybody
+      // when the migration is applied, on deploy. The upsert also covers a database where the row
+      // was removed. allowlist and percent are left as they are; they do nothing while state is on.
+      //
+      // It runs once: the ledger row stops later boots from applying it again, and 0042's seed is
+      // ON CONFLICT DO NOTHING, so nothing at boot writes this row afterwards. An operator closes
+      // the exchange by hand (set the row's state to 'off'; the statement is in server/README.md)
+      // and it stays closed across restarts.
+      // Only a replay (its schema_migrations row deleted by hand) would open it again.
+      // No mint and no cap change: the exchange only debits Tickets the account already holds.
+      id: "0062_hub_exchange_open",
+      statements: [
+        `INSERT INTO game.server_flags (key, state) VALUES ('hub_exchange', 'on')
+         ON CONFLICT (key) DO UPDATE SET state = 'on', updated_at = now()`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {

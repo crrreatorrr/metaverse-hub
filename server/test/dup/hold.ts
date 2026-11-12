@@ -245,7 +245,9 @@ async function migrationPromotesPending(): Promise<void> {
       }
     }
   } finally {
-    psql("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+    // The runner refuses an unapplied id below the highest recorded one, so the rows of every later
+    // migration go too and the boot replays them after 0061 (they are all safe to apply twice).
+    psql("DELETE FROM game.schema_migrations WHERE id >= '0061_relic_unhold'");
     compose(['restart', 'nakama']);
     compose(['up', '-d', '--no-recreate', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
     await waitReady();

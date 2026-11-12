@@ -660,7 +660,7 @@ namespace HubRpc {
       verse: verse && verse.length ? Number(verse[0].verse) || 0 : 0,
       ticketsPerVerse: TICKETS_PER_VERSE,
       verseDailyCap: VERSE_DAILY_CAP,
-      // Launch flag hub_exchange (0042, seeded off): the Wallet tab shows balances either way.
+      // Launch flag hub_exchange (seeded off by 0042, turned on by 0062): the Wallet tab shows balances either way.
       exchangeEnabled: Flags.on(nk, "hub_exchange", userId, _logger),
     });
   }
@@ -673,7 +673,8 @@ namespace HubRpc {
   export function verseExchange(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "verse.exchange");
     var userId = requireHub(ctx);
-    // Off until the owner turns the hub_exchange flag on (state on, an allowlist or a percent).
+    // Open since 0062_hub_exchange_open. The owner closes it by setting the hub_exchange flag off
+    // (or narrows it with an allowlist or a percent).
     // A missing row or a read error is off: nothing is exchanged.
     if (!Flags.on(nk, "hub_exchange", userId, _logger)) return fail("exchange_off", "The plaza exchange is not open yet");
     var body = parse(payload);

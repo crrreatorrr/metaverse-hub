@@ -1,6 +1,6 @@
 /**
- * Hub-scope exchange (migration 0060_hub_exchange, RPCs verse.exchange and tickets.balances;
- * gameplay plan B1). The plaza turns one game's Tickets into Verse without a game session.
+ * Hub-scope exchange (migration 0060_hub_exchange, opened by 0062_hub_exchange_open; RPCs
+ * verse.exchange and tickets.balances; gameplay plan B1). The plaza turns one game's Tickets into Verse without a game session.
  * It shares the economy:<user> lock, the verse:<game> bucket (50 Verse per game per UTC day)
  * and the idempotency table with the in-game tickets.exchange, so these cases replay it,
  * race it against the in-game RPC and forge its scope. audit.sql runs after every case.
@@ -81,6 +81,13 @@ async function setHubExchange(state: 'on' | 'off'): Promise<void> {
 }
 
 export async function runHubExchange(test: TestFn): Promise<void> {
+  await test('hub-exchange', '0062_hub_exchange_open leaves the exchange open after boot', async () => {
+    assert.equal(psql("SELECT state FROM game.server_flags WHERE key = 'hub_exchange'"), 'on');
+    assert.equal(psql("SELECT count(*) FROM game.schema_migrations WHERE id = '0062_hub_exchange_open'"), '1');
+    const session = await fundNobu(1, 'hx-default');
+    const listed = (await call('tickets.balances', {}, session.hub.token)).body as BalancesBody & { exchangeEnabled?: boolean };
+    assert.equal(listed.exchangeEnabled, true);
+  });
   await test('hub-exchange', 'the exchange is closed while the hub_exchange flag is off', async () => {
     await setHubExchange('off');
     const session = await fundNobu(1, 'hx-closed');
@@ -94,12 +101,9 @@ export async function runHubExchange(test: TestFn): Promise<void> {
     assert.equal(ticketBalance(userId, NOBU), SESSION_CAP);
     assert.equal(verseBalance(userId), 0);
   });
+  // 0062_hub_exchange_open: on is the deployed state, so put it back and leave it there.
   await setHubExchange('on');
-  try {
-    await hubExchangeOpen(test);
-  } finally {
-    await setHubExchange('off');
-  }
+  await hubExchangeOpen(test);
 }
 
 async function hubExchangeOpen(test: TestFn): Promise<void> {

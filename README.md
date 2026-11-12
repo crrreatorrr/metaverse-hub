@@ -66,7 +66,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 **Finding and launching games.** HUD markers name the five entrances and the Bar with the distance in metres, and fade when you are within 20 m. The Esc menu opens on **Games**: all eight games with their Relic, your Tickets and a Play button (Esc then Enter relaunches the last one). A first-visit card walks a new player through gate, Relic and return, and the **?** button explains Tickets, Verse and Relics. People's Bitcoin asks "18+ satire. Enter?" once per browser. Coming back from a game shows what the trip earned.
 
-**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migration `0060_hub_exchange` and the `hub_exchange` launch flag turned on; until then the tab lists balances and its buttons read "Not open yet".
+**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migrations `0060_hub_exchange` and `0062_hub_exchange_open`, which turns the `hub_exchange` launch flag on. If an operator sets that flag off again, the tab still lists balances and its buttons read "Not open yet".
 
 **Emotes.** Keys 1, 2 and 3 wave, dance and cheer: a short line over your head that players near you see too (one per second).
 

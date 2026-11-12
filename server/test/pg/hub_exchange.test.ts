@@ -15,12 +15,44 @@ const hubExchange = (user: string, game: string, amount: number, key: string) =>
 const gameExchange = (user: string, game: string, sid: string, amount: number, key: string) =>
   mod.call<Exchange>('tickets.exchange', gameCtx(user, game, sid), { tickets: amount, key });
 
-// The hub_exchange launch flag is seeded off: the plaza exchange is closed after deploy until the
-// owner turns it on. Closed means refused with exchange_off, nothing moved, and balances still read.
+// 0042 seeds the hub_exchange launch flag off and 0062_hub_exchange_open turns it on: a fresh
+// database (and a production one after deploy) has the plaza exchange open for everybody.
+{
+  const flag = () => pg.run("SELECT state, percent, cardinality(allowlist) AS listed FROM game.server_flags WHERE key = 'hub_exchange'")[0];
+  assert.deepEqual(flag(), { state: 'on', percent: '0', listed: '0' });
+  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0062_hub_exchange_open'"), 1);
+  const opener = addUser(pg, 'open_by_default');
+  seedTickets(pg, opener, 'nobu', 30);
+  assert.equal(mod.call<Balances & { exchangeEnabled?: boolean }>('tickets.balances', hubCtx(opener), {}).exchangeEnabled, true);
+  assert.equal(mod.call<Exchange>('verse.exchange', hubCtx(opener), { game: 'nobu', tickets: 30, key: 'open-1' }).gained, 3);
+  // A later boot leaves it on, and does not apply the migration again.
+  const again = pg.reload();
+  assert.deepEqual(again.logger.lines.filter((line) => line.level === 'error'), []);
+  assert.deepEqual(flag(), { state: 'on', percent: '0', listed: '0' });
+  // The operator closes it by hand. It stays closed across restarts: 0062 is recorded and 0042's
+  // seed never overwrites a row.
+  setFlag(pg, 'hub_exchange', 'off');
+  const closedBoot = pg.reload();
+  assert.deepEqual(closedBoot.logger.lines.filter((line) => line.level === 'error'), []);
+  assert.equal(flag()?.state, 'off', 'a restart does not reopen an exchange the operator closed');
+  assert.equal(closedBoot.call<Exchange>('verse.exchange', hubCtx(opener), { game: 'nobu', tickets: 10, key: 'after-close' }).error, 'exchange_off');
+  assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0062_hub_exchange_open'"), 1);
+  // 0062 also opens a database whose row is on an allowlist or missing (replayed by hand here).
+  const OPEN = "INSERT INTO game.server_flags (key, state) VALUES ('hub_exchange', 'on') ON CONFLICT (key) DO UPDATE SET state = 'on', updated_at = now()";
+  pg.run("UPDATE game.server_flags SET state = 'allowlist', allowlist = ARRAY[$1::uuid] WHERE key = 'hub_exchange'", [opener]);
+  pg.run(OPEN);
+  assert.deepEqual(flag(), { state: 'on', percent: '0', listed: '1' }, 'the allowlist is kept, inert while on');
+  pg.run("DELETE FROM game.server_flags WHERE key = 'hub_exchange'");
+  pg.run(OPEN);
+  assert.deepEqual(flag(), { state: 'on', percent: '0', listed: '0' });
+  pg.audit();
+}
+
+// Closed (the operator's off) means refused with exchange_off, nothing moved, and balances still read.
 {
   const user = addUser(pg, 'flag_off');
   seedTickets(pg, user, 'nobu', 100);
-  assert.equal(pg.run("SELECT state FROM game.server_flags WHERE key = 'hub_exchange'")[0]?.state, 'off');
+  setFlag(pg, 'hub_exchange', 'off');
   const closed = mod.call<Exchange & { message?: string }>('verse.exchange', hubCtx(user), { game: 'nobu', tickets: 100, key: 'closed-1' });
   assert.deepEqual([closed.error, closed.message], ['exchange_off', 'The plaza exchange is not open yet']);
   assert.equal(tickets(pg, user, 'nobu'), 100);

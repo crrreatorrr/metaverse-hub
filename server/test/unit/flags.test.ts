@@ -1,5 +1,5 @@
 // HUB-W-1-04: game.server_flags (migration 0042_server_flags) and Flags.on.
-// Launch work merges dark behind these flags (plan R.12.2). Nothing reads them yet.
+// Launch work merges dark behind these flags (plan R.12.2). 0062 turns hub_exchange on.
 // - off: nobody. on: everybody (even with no user id).
 // - allowlist: user ids in allowlist only.
 // - percent: users whose stable bucket (FNV-1a of "<key>:<userId>", 0..99) is below
@@ -145,7 +145,8 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   assert.equal(Flags.on(mod.nk, 'relic_unhold', U1, mod.logger, { onReadError: true }), false, 'a missing row stays off');
 }
 
-// Apart from the registered default-off seeds, runtime code never writes game.server_flags.
+// Apart from the registered default-off seeds and 0062_hub_exchange_open (one migration statement,
+// applied once), runtime code never writes game.server_flags.
 {
   const mod = loadModule();
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
@@ -156,7 +157,10 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   ], 'Duel wagers seed off without overriding an existing flag');
   const runtimeSource = mod.source
     .replace(/0042_server_flags[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')
-    .replace(/0049_sproto_duel_wager_flag[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '');
+    .replace(/0049_sproto_duel_wager_flag[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')
+    .replace(/0062_hub_exchange_open[\s\S]*?ON CONFLICT \(key\) DO UPDATE SET state = 'on', updated_at = now\(\)/, '');
+  const opens = HubSchema.all().filter((migration) => /server_flags/.test(migration.statements.join('\n')) && !/^004[29]_/.test(migration.id));
+  assert.deepEqual(plain(opens.map((migration) => migration.id)), ['0062_hub_exchange_open'], 'only 0062 changes a flag after its seed');
   assert.ok(!/(INSERT INTO|UPDATE|DELETE FROM) game\.server_flags/.test(runtimeSource), 'no runtime writes to server_flags');
 }
 
