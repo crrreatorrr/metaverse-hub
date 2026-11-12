@@ -2387,8 +2387,10 @@ namespace HubSchema {
       // Does not revoke or rewrite game.relic_claim / game.item_owned. A matching
       // rule with grant_hold goes to the pending table (earn-once PK, ON CONFLICT
       // DO NOTHING) and pays nothing: no Tickets, no Verse, no item_ledger, no
-      // game_beaten, no derived staff/pet. sproto_wager_hold counts fighter_win
-      // tickets_ledger rows only, so a pending row cannot qualify a wager.
+      // game_beaten, no derived staff/pet. A pending row cannot qualify a wager
+      // either: sproto_wager_hold has had no qualifying count since 0032 (the 0010
+      // rule counted fighter_win ledger rows, a reason nobody can earn since 0031;
+      // server/test/pg/wager_eligibility.test.ts pins that it stays gone).
       // Story-boss allowlist rows (match pins a boss) and server-recorded results
       // stay live. Promotion is game.promote_pending_grant; nothing calls it yet,
       // and it is not an RPC.
