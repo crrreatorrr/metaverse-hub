@@ -67,6 +67,7 @@ jobs:
         run: |
           set -eu
           sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
           sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do
             echo "::add-mask::${value}"
           done
@@ -90,6 +91,10 @@ jobs:
           exit 1
       - run: npm run test:dup
         timeout-minutes: 120
+        env:
+          HUB_RECOVERY_FIXTURE: retention-restore
+          HUB_OBSERVATIONS_FIXTURE: pending-backfill
+          HUB_MIGRATION_FIXTURE: verification-history
       - run: npm run test:rt
         timeout-minutes: 10
       - name: Coop authoritative match

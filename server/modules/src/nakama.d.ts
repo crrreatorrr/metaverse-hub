@@ -159,6 +159,8 @@ declare namespace nkruntime {
     registerRpc(id: string, fn: RpcFunction): void;
     /** id: "ChannelJoin", "ChannelMessageSend", "ChannelMessageUpdate", "ChannelMessageRemove", "MatchmakerAdd", "MatchCreate", … */
     registerRtBefore(id: string, fn: RtBeforeHook): void;
+    registerBeforeWriteStorageObjects(fn: BeforeHook): void;
+    registerBeforeDeleteStorageObjects(fn: BeforeHook): void;
     registerBeforeAuthenticate(fn: BeforeHook): void;
     registerBeforeAuthenticateApple(fn: BeforeHook): void;
     registerBeforeAuthenticateCustom(fn: BeforeHook): void;

@@ -41,6 +41,8 @@ export interface OrbitAvatar {
 /** Bar wall screen, in cycle order. Verse boards are per game id plus the wallet total. */
 export const HUB_BOARD_IDS = [
   'hpos10i_act_time',
+  // What a normal (unranked) hub session posts: its own rows, kept out of the ranked standings and `meta`.
+  'hpos10i_act_time:open',
   // NOBU time trials: one server board (nobu_trial_time), one page per level (variant), values in integer ms.
   'nobu_trial_time:1v2',
   'nobu_trial_time:2v2',
@@ -53,17 +55,67 @@ export const HUB_BOARD_IDS = [
   'nobu_trial_time:3',
   'pb_total_xp',
   'sproto_wins',
+  // Sproto Coop Battle: the server settles one row per boss (variant); the wall shows the first boss.
+  'coop_stage_clear_ms_v1:01-marina-bront',
   'verse_by_game_hpos10i',
   'verse_by_game_nobu',
   'verse_by_game_peoples-bitcoin',
   'verse_by_game_sproto',
   'verse_total',
+  // Cross-game ranking the server recomputes every five minutes (leaderboard.ts META_SQL).
+  'meta',
 ] as const;
 
 export type HubBoardId = (typeof HUB_BOARD_IDS)[number];
 
+/**
+ * Pages the Bar wall cycles through (plan item A4). A page is listed only when a normal,
+ * hub-entered session can put rows on it:
+ * - `hpos10i_act_time` (the ranked rows) stays out: the plaza cannot open a ranked session. Normal
+ *   sessions post to `hpos10i_act_time:open` (B4, leaderboard.ts), which is the page shown.
+ * - `verse_by_game_hpos10i` is back: HPOS10I Tickets exchange from the Wallet tab (B1, verse.exchange).
+ * A page that can never fill goes here; apps/hub/test/boards.test.ts fails when a listed page
+ * needs a ranked session the plaza cannot open.
+ */
+export const BAR_DEAD_BOARD_IDS: readonly HubBoardId[] = ['hpos10i_act_time'];
+export const BAR_BOARD_IDS: readonly HubBoardId[] = HUB_BOARD_IDS.filter((id) => !BAR_DEAD_BOARD_IDS.includes(id));
+
+/** The Classic NOBU layouts sit behind the current ones: a Classic page shows only when it has rows. */
+export const BAR_OPTIONAL_BOARD_IDS: readonly HubBoardId[] = ['nobu_trial_time:1', 'nobu_trial_time:2', 'nobu_trial_time:3'];
+
+/**
+ * Index of the page after `index`, skipping optional pages that have no rows.
+ * Returns `index` when nothing else can be shown.
+ */
+export function nextBarPage(
+  boards: readonly HubBoardId[],
+  index: number,
+  hasRows: (id: HubBoardId) => boolean,
+  optional: readonly HubBoardId[] = BAR_OPTIONAL_BOARD_IDS,
+): number {
+  for (let step = 1; step <= boards.length; step += 1) {
+    const at = (index + step) % boards.length;
+    const id = boards[at];
+    if (id === undefined) continue;
+    if (!optional.includes(id) || hasRows(id)) return at;
+  }
+  return index;
+}
+
+/** How many pages one loop shows right now. */
+export function barLoopLength(
+  boards: readonly HubBoardId[],
+  hasRows: (id: HubBoardId) => boolean,
+  optional: readonly HubBoardId[] = BAR_OPTIONAL_BOARD_IDS,
+): number {
+  return boards.filter((id) => !optional.includes(id) || hasRows(id)).length;
+}
+
+export const NO_SCORES_TEXT = 'No scores yet. Be the first.';
+
 export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'desc'; unit: string }> = {
-  hpos10i_act_time: { title: 'HPOS10I', order: 'asc', unit: 'best act time' },
+  hpos10i_act_time: { title: 'HPOS10I · RANKED', order: 'asc', unit: 'best act time' },
+  'hpos10i_act_time:open': { title: 'HPOS10I', order: 'asc', unit: 'best time, Retro Rush Hills act 1' },
   'nobu_trial_time:1v2': { title: 'NOBU · LEVEL 1', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:2v2': { title: 'NOBU · LEVEL 2', order: 'asc', unit: 'time trial' },
   'nobu_trial_time:3v2': { title: 'NOBU · LEVEL 3', order: 'asc', unit: 'time trial' },
@@ -75,11 +127,13 @@ export const BOARD_META: Record<HubBoardId, { title: string; order: 'asc' | 'des
   'nobu_trial_time:3': { title: 'NOBU · LEVEL 3 CLASSIC', order: 'asc', unit: 'time trial' },
   pb_total_xp: { title: "PEOPLE'S BITCOIN", order: 'desc', unit: 'total XP' },
   sproto_wins: { title: 'SPROTO DUEL', order: 'desc', unit: 'wins' },
+  'coop_stage_clear_ms_v1:01-marina-bront': { title: 'COOP BATTLE · TIDEBREAK MARINA', order: 'asc', unit: 'fastest boss clear' },
   verse_by_game_hpos10i: { title: 'HPOS10I VERSE', order: 'desc', unit: 'lifetime Verse' },
   verse_by_game_nobu: { title: 'NOBU VERSE', order: 'desc', unit: 'lifetime Verse' },
   'verse_by_game_peoples-bitcoin': { title: "PEOPLE'S BITCOIN VERSE", order: 'desc', unit: 'lifetime Verse' },
   verse_by_game_sproto: { title: 'SPROTO DUEL VERSE', order: 'desc', unit: 'lifetime Verse' },
   verse_total: { title: 'VERSE TOTAL', order: 'desc', unit: 'lifetime Verse' },
+  meta: { title: 'HUB RANKING', order: 'desc', unit: 'points across the game boards' },
 };
 
 export interface LeaderboardRow {
@@ -115,6 +169,7 @@ export interface NewNumberOneEvent {
 export function gameForBoard(boardId: HubBoardId): GameId | null {
   switch (boardId) {
     case 'hpos10i_act_time':
+    case 'hpos10i_act_time:open':
     case 'verse_by_game_hpos10i':
       return 'hpos10i';
     case 'nobu_trial_time:1':
@@ -134,7 +189,10 @@ export function gameForBoard(boardId: HubBoardId): GameId | null {
     case 'sproto_wins':
     case 'verse_by_game_sproto':
       return 'sproto';
+    case 'coop_stage_clear_ms_v1:01-marina-bront':
+      return 'sproto-coop-battle';
     case 'verse_total':
+    case 'meta':
       return null;
     default: {
       const never: never = boardId;
@@ -160,8 +218,8 @@ export function formatTrialMs(ms: number): string {
 }
 
 export function formatBoardScore(boardId: HubBoardId, score: number): string {
-  if (boardId.startsWith('nobu_trial_time')) return formatTrialMs(score);
-  if (boardId === 'hpos10i_act_time') {
+  if (boardId.startsWith('nobu_trial_time') || boardId.startsWith('coop_stage_clear_ms_v1')) return formatTrialMs(score);
+  if (boardId === 'hpos10i_act_time' || boardId === 'hpos10i_act_time:open') {
     const safe = Number.isFinite(score) ? Math.max(0, score) : 0;
     const minutes = Math.floor(safe / 60);
     const seconds = safe - minutes * 60;

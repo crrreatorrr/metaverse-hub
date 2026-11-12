@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { legacyFailureClass } from './legacy-policy.ts';
+assert.equal(legacyFailureClass(200, 'cpu_budget'), 'timeout');
+assert.equal(legacyFailureClass(200, 'session_expired'), 'authorization_denied');
+assert.equal(legacyFailureClass(503, 'rpc_http_503'), 'unavailable');
+for (const reason of ['bad_checkpoint', 'malformed', 'fingerprint_mismatch', 'unsupported_version', 'rpc_http_200', 'already_paid']) assert.equal(legacyFailureClass(200, reason), 'instrumentation_failure');
+const { validLegacyPaidReceipt } = await import('./legacy-policy.ts');
+const expected = { runId: 'actual-bound-run', boss: 'sahil', day: '2026-11-11', protocol: 1, fingerprint: 'current-fingerprint' };
+const receipt = { ok: true, paid: true, tickets: 20, ticketsMinted: 0, canonicalCount: 1, runId: expected.runId, canonicalBoss: expected.boss, day: expected.day, protocol: expected.protocol, fingerprint: expected.fingerprint };
+assert.equal(validLegacyPaidReceipt(200, receipt, expected), true);
+for (const change of [{ runId: 'wrong-run' }, { canonicalBoss: 'wrong-boss' }, { day: 'wrong-day' }, { tickets: 200 }, { ticketsMinted: 20 }, { protocol: 2 }, { fingerprint: 'old-fingerprint' }, { ok: false }]) assert.equal(validLegacyPaidReceipt(200, { ...receipt, ...change }, expected), false);
+assert.equal(validLegacyPaidReceipt(500, receipt, expected), false);
+console.log('legacy expected-timeout versus instrumentation canaries passed');

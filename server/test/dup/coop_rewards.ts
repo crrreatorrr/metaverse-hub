@@ -43,7 +43,9 @@ const BOSSES = [
   '12-codebreak-sproto3106',
 ];
 const HASH = 'ab'.repeat(32);
-const FP = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
+// The label game.settle_coop_clear accepts since 0063_coop_settle_fingerprint (the vendored sim's contentSha256).
+const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP_0041 = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
 
 interface Receipt {
   ok?: boolean;
@@ -267,6 +269,7 @@ export async function runCoopRewards(test: TestFn): Promise<void> {
       { reason: 'late_join', eligible: 0 },
       { reason: 'cpu_takeover', eligible: 0 },
       { reason: 'stage_select', eligible: 0 },
+      { reason: 'knocked_out', eligible: 0 },
     ];
     for (const item of cases) {
       const body = settle(session, BOSSES[2]!, `room-${item.reason}`, `enc-${item.reason}`, { reason: item.reason, eligible: item.eligible });
@@ -280,6 +283,24 @@ export async function runCoopRewards(test: TestFn): Promise<void> {
     assert.equal(scores(session.hub.userId), 0);
     assert.equal(receipts(session.hub.userId), 0);
     assert.equal(ticketBalance(session.hub.userId, 'sproto-coop-battle'), 0);
+  });
+
+  await test('coop', '0063: the 0041 label is refused and a receipt carries the vendored sim label', async () => {
+    const session = await openCoop();
+    const user = session.hub.userId;
+    const stale = settle(session, BOSSES[3]!, 'room-fp-old', 'enc-fp-old', { fingerprint: FP_0041 });
+    assert.equal(stale.reason, 'bad_version', JSON.stringify(stale));
+    assert.equal(stale.paid, false);
+    assert.equal(stale.tickets, 0);
+    assert.equal(credits(user), 0);
+    assert.equal(receipts(user), 0);
+    const paid = settle(session, BOSSES[3]!, 'room-fp-new', 'enc-fp-new');
+    assert.equal(paid.paid, true, JSON.stringify(paid));
+    assert.equal(paid.tickets, 20);
+    assert.equal((paid as { fingerprint?: string }).fingerprint, FP);
+    assert.equal(psql(`SELECT fingerprint FROM game.coop_receipt WHERE user_id = '${sqlId(user)}' AND canonical_boss = '${BOSSES[3]}'`), FP);
+    assert.equal(psql(`SELECT meta->>'fingerprint' FROM game.ranked_score WHERE user_id = '${sqlId(user)}' AND board_id = 'coop_stage_clear_ms_v1' AND variant = '${BOSSES[3]}'`), FP);
+    assert.equal(ticketBalance(user, 'sproto-coop-battle'), 20);
   });
 
   await test('coop', 'closed session, expired lease, and a replacement session do not duplicate', async () => {

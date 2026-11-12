@@ -70,7 +70,7 @@ earn cap.
 
 Abuse limits, passed by the match (`SprotoDuel` constants):
 
-Wagers are open to any signed-in non-guest. A guest on either seat is refused with `wager_guest` before the escrow lock. Wins are not required.
+Wagers are open to any signed-in non-guest. A guest on either seat is refused with `wager_guest` before the escrow lock. Wins are not required. The first rule (`0010`) asked for CPU wins, counted as `fighter_win` ledger rows; `0032_wager_online_qualify` removed that count, and since `0031` nobody can earn a `fighter_win` row (the game reports `fighter.boss_defeated`), so Tickets from story bosses fund a stake like any others. `server/test/pg/wager_eligibility.test.ts` pins this.
 
 | Limit | Value |
 | --- | --- |

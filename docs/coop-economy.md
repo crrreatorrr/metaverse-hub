@@ -43,13 +43,18 @@ Not eligible:
 - A seat taken after the encounter started.
 - AFK, as defined above.
 - A seat released to CPU after the 15 second grace. That player can be eligible on the next encounter if they are there at its start.
+- Out for the kill (`knocked_out`): every seat of the account was dead when the boss fell. A downed seat is not dead. The flag is per encounter, so the next boss starts clean.
 - A closed session, an expired lease, or a missing login. The replacement session does not receive that terminal's award.
+
+The Marina Anchor Relic is a separate grant at a banked stage-1 clear. It ignores the Ticket decision (practice, God Mode, a stage jump, a late seat and AFK still get it), with two exceptions shared with Tickets: a seat released to CPU, and an account that was out for the kill. An account that was out gets the Anchor on its next stage-1 clear where it is not out.
 
 Guests can play. Banking still requires a redeemed game session. An anonymous socket cannot mint.
 
 ## Receipts and the board
 
 `0041_coop_boss_receipt` adds `game.coop_eligibility` and `game.coop_receipt`. The credit, the boss/day bucket, the score, and both rows commit in one function. A crash after that commit returns the stored receipt. A crash inside the credit rolls the whole attempt back. `0036` and `0038` are not used.
+
+Each receipt, board row and eligibility row stores the fingerprint of the Coop sim that settled it, and the function refuses a caller with any other (`bad_version`, sealed, nothing paid). The value is `CoopRewards.FINGERPRINT`, which must equal `CoopProto.FINGERPRINT` (the vendored `contentSha256`). `0041` wrote `f8705ec4…`; `0063_coop_settle_fingerprint` swaps the literal in the live function for `fb9f2679…`. It rewrites no row: clears settled under the old label keep their receipt, Tickets and stored answer, and a retry of one still returns that answer. A re-vendor that changes `contentSha256` needs the constant moved and a new migration like `0063`; `server/test/games/coop_rewards.test.ts` fails until both are done.
 
 The board is `coop_stage_clear_ms_v1`, lower time better, one row per account per boss. Metadata records whether the clear was `all_human` (six human seats) or `cpu_assisted`. It is not part of the meta score. Clients cannot post the board.
 

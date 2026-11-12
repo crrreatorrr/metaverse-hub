@@ -51,7 +51,7 @@ function canvasTexture(canvas: HTMLCanvasElement): CanvasTexture {
 }
 
 /** Building name on one canvas. The mesh and material keep `name`. `notice` is a smaller third line. */
-export function buildingSign(name: string, title: string, subtitle: string, tint: string, notice = ''): Mesh {
+export function buildingSign(name: string, title: string, subtitle: string, tint: string, notice = '', bloom = true): Mesh {
   const canvas = document.createElement('canvas');
   canvas.width = 1024;
   canvas.height = notice ? 640 : 512;
@@ -84,5 +84,5 @@ export function buildingSign(name: string, title: string, subtitle: string, tint
   const height = notice ? 6.9 : (subtitle ? 5.5 : 1.35);
   const mesh = new Mesh(new PlaneGeometry(subtitle || notice ? 11 : 4.8, height), material);
   mesh.name = name;
-  return glow(mesh);
+  return bloom ? glow(mesh) : mesh;
 }

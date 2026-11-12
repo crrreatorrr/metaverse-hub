@@ -18,6 +18,8 @@ namespace HubPets {
     id: string;
     /** Relic that derives ownership. Empty means the row lives in item_owned. */
     relic: string;
+    /** Owned by every account. */
+    free?: boolean;
     /** True when a canonical session.event can match an item_rule for this id. */
     live: boolean;
     /** True only for the exchange / four-relic backfill migration. */
@@ -26,7 +28,16 @@ namespace HubPets {
     store: boolean;
   }
 
+  var DEFAULT_PET = "pet_pepe_bull";
+
   var PETS: PetDef[] = [
+    { id: DEFAULT_PET, relic: "", live: false, backfill: false, store: false, free: true },
+    { id: "pet_fighter", relic: "tidebreaker_belt", live: false, backfill: false, store: false },
+    { id: "pet_mecha", relic: "breakwater_coin", live: false, backfill: false, store: false },
+    { id: "pet_president", relic: "genesis_shard", live: false, backfill: false, store: false },
+    { id: "pet_wizard", relic: "tinubu_crown", live: false, backfill: false, store: false },
+    { id: "pet_runner", relic: "hpos10i_core", live: false, backfill: false, store: false },
+    { id: "pet_soldier", relic: "dragon_scale", live: false, backfill: false, store: false },
     { id: "pet_baby_sproto", relic: "", live: false, backfill: true, store: false },
     { id: "pet_honk_sproto", relic: "", live: true, backfill: false, store: false },
     { id: "pet_spiral_sproto", relic: "", live: true, backfill: false, store: false },
@@ -42,6 +53,12 @@ namespace HubPets {
     { id: "pet_duelist_sproto", relic: "tinubu_crown", live: false, backfill: false, store: false },
     { id: "pet_sproto_pup", relic: "", live: true, backfill: false, store: false },
   ];
+
+  // Missing flag rows default off. No purchase RPC or wallet mutation is provided.
+  export function catalog(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
+    if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
+    return JSON.stringify({ pets: FOLLOWERS, buyingEnabled: Flags.on(nk, "pet_buying", ctx.userId, logger) });
+  }
 
   export interface ProfilePets {
     owned: string[];
@@ -71,7 +88,7 @@ namespace HubPets {
     }
     var store = 0;
     for (var s = 0; s < PETS.length; s++) if (PETS[s].store) store++;
-    if (PETS.length !== 14 || live !== 7 || backfill !== 2 || relics !== 3 || store !== 2) throw new Error("pet_count");
+    if (PETS.length !== 21 || live !== 7 || backfill !== 2 || relics !== 9 || store !== 2) throw new Error("pet_count");
     var pup = petById("pet_sproto_pup");
     if (!seen["pet_sproto_pup"] || pup.backfill || pup.store || pup.relic || !pup.live) throw new Error("pup_grant");
     var baby = petById("pet_baby_sproto");
@@ -138,7 +155,7 @@ namespace HubPets {
   function nonRelicList(): string {
     var parts: string[] = [];
     for (var i = 0; i < PETS.length; i++) {
-      if (PETS[i].relic) continue;
+      if (PETS[i].relic || PETS[i].free) continue;
       parts.push(sqlQuote(PETS[i].id));
     }
     return parts.join(", ");
@@ -163,7 +180,7 @@ namespace HubPets {
   }
 
   /**
-   * True when itemId is one of the three relic summons and this user has
+   * True when itemId is a relic summon and this user has
    * that relic on relic_claim. M7 store.purchase calls this before any
    * debit and treats true as already_owned. It does not read item_owned
    * and it does not grant.
@@ -181,11 +198,10 @@ namespace HubPets {
 
   /**
    * The only pet-ownership check. profilePets and setHub both call this.
-   * Relic summons go through derivedOwned. Every other catalog pet comes
-   * from item_owned. This does not grant.
+   * Starter pets are free, relic summons come from relic_claim, and earned pets come from item_owned.
    */
   function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
-    var have: { [id: string]: boolean } = {};
+    var have: { [id: string]: boolean } = { pet_starter: true };
     var itemSql = "SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json)::text AS result FROM game.item_owned WHERE user_id = $1::uuid AND item_id IN (" + nonRelicList() + ")";
     var items = queryList(nk, itemSql, [userId]);
     for (var i = 0; i < items.length; i++) {
@@ -194,9 +210,19 @@ namespace HubPets {
       var pet = findPet(id);
       if (pet && !pet.relic) have[id] = true;
     }
+    var relicSql = "SELECT COALESCE(json_agg(relic_id), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid";
+    var relics = queryList(nk, relicSql, [userId]);
     for (var p = 0; p < PETS.length; p++) {
-      if (!PETS[p].relic) continue;
-      if (derivedOwned(nk, userId, PETS[p].id)) have[PETS[p].id] = true;
+      var def = PETS[p];
+      if (def.free) have[def.id] = true;
+      if (def.relic && relics.indexOf(def.relic) >= 0) have[def.id] = true;
+    }
+    // Materialize the authoritative entitlement snapshot in owner-readable, server-write-only storage.
+    var ids = sortedIds(have);
+    var rows = nk.storageRead([{ collection: "pets", key: "owned", userId: userId }]);
+    if (!rows.length || JSON.stringify(rows[0].value.ids) !== JSON.stringify(ids)) {
+      nk.storageWrite([{ collection: "pets", key: "owned", userId: userId,
+        value: storageValue({ ids: ids }), permissionRead: READ_OWNER, permissionWrite: WRITE_NONE }]);
     }
     return have;
   }
@@ -207,7 +233,7 @@ namespace HubPets {
   }
 
   function sortedIds(have: { [id: string]: boolean }): string[] {
-    var out: string[] = [];
+    var out: string[] = have.pet_starter ? ["pet_starter"] : [];
     for (var i = 0; i < PETS.length; i++) if (have[PETS[i].id]) out.push(PETS[i].id);
     out.sort();
     return out;
@@ -229,7 +255,7 @@ namespace HubPets {
 
   function readHub(nk: nkruntime.Nakama, userId: string): HubSlot {
     var rows = nk.storageRead([{ collection: HUB_COLLECTION, key: HUB_KEY, userId: userId }]);
-    if (!rows || !rows.length || !rows[0]) return { pet: null, seq: 0, version: "", updatedAt: "" };
+    if (!rows || !rows.length || !rows[0]) return { pet: DEFAULT_PET, seq: 0, version: "", updatedAt: "" };
     var row = rows[0];
     var value = row.value && isObject(row.value) ? row.value : {};
     return {
@@ -242,8 +268,8 @@ namespace HubPets {
 
   /**
    * Pets object for profile.get. Owned ids are item_owned pets plus the
-   * three relic summons derived from relic_claim. Active is loadout/hub
-   * slots.pet when that id is still owned. This does not write.
+   * relic summons derived from relic_claim. Active is loadout/hub
+   * slots.pet when that id is still owned. This snapshots entitlements in Nakama storage.
    */
   export function profilePets(nk: nkruntime.Nakama, userId: string): ProfilePets {
     if (!UUID.test(userId)) return { owned: [], active: null };
@@ -299,7 +325,7 @@ namespace HubPets {
   /**
    * loadout.set_hub. Hub session only. pet is a catalog id or null.
    * seq must be an integer greater than the stored seq. Ownership is
-   * item_owned, or relic_claim for the three derived summons. A forged id
+   * item_owned, or relic_claim for derived summons. A forged id
    * is not_owned. The write is Nakama storage loadout/hub with
    * permission_write 0. No item_ledger row is written.
    */
@@ -314,6 +340,7 @@ namespace HubPets {
     } catch (_e) {
       return fail("bad_json");
     }
+    if (body.userId !== undefined || body.user_id !== undefined || body.owned !== undefined) return fail("bad_json");
     if (body.v !== undefined && body.v !== 1) return fail("bad_json");
     if (!("pet" in body)) return fail("bad_json");
     var rawPet = body.pet;
@@ -325,7 +352,7 @@ namespace HubPets {
       return fail("bad_json");
     }
     var seq = Math.floor(body.seq);
-    if (pet && !findPet(pet)) {
+    if (pet && pet !== "pet_starter" && !findPet(pet)) {
       var missing = readHub(nk, userId);
       var missingOwned = ownedSet(nk, userId);
       return ack(false, missing.seq, shown(missing, missingOwned), missing.updatedAt, "not_owned");
@@ -356,12 +383,12 @@ namespace HubPets {
       permissionRead: READ_OWNER,
       permissionWrite: WRITE_NONE,
     };
-    if (current.version) write.version = current.version;
+    write.version = current.version || "*";
     try {
       nk.storageWrite([write]);
     } catch (e) {
       var message = String(e).toLowerCase();
-      if (current.version && (message.indexOf("version") >= 0 || message.indexOf("storage") >= 0)) {
+      if (message.indexOf("version") >= 0 || message.indexOf("storage") >= 0) {
         var again = readHub(nk, userId);
         var againOwned = ownedSet(nk, userId);
         return ack(false, again.seq, shown(again, againOwned), again.updatedAt, "stale_seq");

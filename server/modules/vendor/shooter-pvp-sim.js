@@ -2001,7 +2001,8 @@ var SprotoShooterPvp = (() => {
     "hp",
     "shield",
     "alive",
-    "slot"
+    "slot",
+    "slideT"
   ]);
   function presence(userId, sessionId) {
     return { userId: typeof userId === "string" ? userId : "", sessionId: typeof sessionId === "string" ? sessionId : "" };
@@ -2270,6 +2271,7 @@ var SprotoShooterPvp = (() => {
           shield: p.shield,
           alive: p.alive,
           slot: p.slot,
+          slideT: p.slideT,
           grapple: p.grapple ? { x: p.grapple.x, y: p.grapple.y, z: p.grapple.z, id: p.grapple.id } : null
         })),
         you: {
@@ -2768,7 +2770,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "f2034e7b3a22ebfb451b46ba77279b97eb945c50";
+  var SOURCE_COMMIT = "70794a1704fb977c7c6380d766d7e20f082104ed";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

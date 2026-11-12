@@ -288,14 +288,14 @@ namespace HubMatch {
     return true;
   }
 
-  function applyProfile(p: Player, raw: string, tick: number): boolean {
+  function applyProfile(nk: nkruntime.Nakama, p: Player, raw: string, tick: number): boolean {
     if (tick - p.lastProfileTick < PROFILE_EVERY_TICKS) return false;
     var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
     if (!data || typeof data !== "object") return false;
     var changed = false;
     var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
     var st = typeof data.staff === "string" && ID.test(data.staff) && ownsStaff(p, data.staff) ? data.staff : p.staff;
-    var pt = data.pet === null || data.pet === "" ? "" : typeof data.pet === "string" && ID.test(data.pet) ? data.pet : p.pet;
+    var pt = HubPets.profilePets(nk, p.userId).active || "";
     if (c !== p.character || st !== p.staff || pt !== p.pet) changed = true;
     p.character = c;
     p.staff = st;
@@ -368,7 +368,7 @@ namespace HubMatch {
         game: "",
         character: "",
         staff: "",
-        pet: "",
+        pet: HubPets.profilePets(nk, fresh[j].userId).active || "",
         away: false,
         awayTick: 0,
         placed: false,
@@ -452,7 +452,7 @@ namespace HubMatch {
       if (m.opCode === OP_POSE) {
         latest[String(slot)] = messageText(nk, m.data);
       } else if (m.opCode === OP_PROFILE) {
-        if (applyProfile(p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
+        if (applyProfile(nk, p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
       } else if (m.opCode === OP_EMOTE) {
         if (tick - p.lastEmoteTick < EMOTE_EVERY_TICKS) continue;
         var emote = parseJson(messageText(nk, m.data), 64) as { e?: unknown } | null;

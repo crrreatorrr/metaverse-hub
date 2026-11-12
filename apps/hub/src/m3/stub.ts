@@ -3,7 +3,7 @@ import { Group } from 'three';
 import { STAND_Y } from '../physics';
 import {
   BOARD_META,
-  HUB_BOARD_IDS,
+  BAR_BOARD_IDS,
   formatBoardScore,
   type ChampionEntry,
   type GameId,
@@ -57,6 +57,7 @@ function rowsFor(boardId: HubBoardId): LeaderboardRow[] {
 function scoreOf(person: Person, boardId: HubBoardId): number {
   switch (boardId) {
     case 'hpos10i_act_time':
+    case 'hpos10i_act_time:open':
       return person.hpos10i_act_time;
     case 'nobu_trial_time:1':
       return Math.round(person.nobu_trial_time * 1000);
@@ -90,6 +91,10 @@ function scoreOf(person: Person, boardId: HubBoardId): number {
       return person.verse.sproto;
     case 'verse_total':
       return verseTotal(person);
+    case 'coop_stage_clear_ms_v1:01-marina-bront':
+      return Math.round(person.nobu_trial_time * 2400);
+    case 'meta':
+      return Math.round(4000 - person.hpos10i_act_time * 10 - person.nobu_trial_time * 10 + person.sproto_wins * 20);
     default: {
       const never: never = boardId;
       return never;
@@ -111,7 +116,7 @@ function page(boardId: HubBoardId): LeaderboardPage {
 /** In-memory boards. No Nakama client, no fetch. */
 export function createStubLeaderboardProvider(): LeaderboardProvider {
   return {
-    boards: HUB_BOARD_IDS,
+    boards: BAR_BOARD_IDS,
     load(boardId) {
       return Promise.resolve(page(boardId));
     },

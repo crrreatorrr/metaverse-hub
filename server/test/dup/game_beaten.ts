@@ -36,7 +36,8 @@ interface Trigger {
   relicId: string;
 }
 
-const HELD_RELICS = new Set(['genesis_shard', 'tidebreaker_belt']);
+// 0061_relic_unhold released genesis_shard and tidebreaker_belt: no Relic trigger is held.
+const HELD_RELICS = new Set<string>();
 
 const TRIGGERS: Trigger[] = [
   {

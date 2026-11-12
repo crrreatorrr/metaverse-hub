@@ -77,7 +77,8 @@ export function fixMaterials(root: Object3D, options: { glow?: number; metal?: n
       standard.metalness = Math.min(standard.metalness, metal);
       standard.roughness = Math.max(standard.roughness, 0.38);
       standard.envMapIntensity = 0.7;
-      if (standard.map && glowAmount > 0) {
+      if (glowAmount === 0) standard.emissiveIntensity = 0;
+      else if (standard.map && glowAmount > 0) {
         standard.emissive = new Color('#ffffff');
         standard.emissiveMap = standard.map;
         standard.emissiveIntensity = glowAmount;

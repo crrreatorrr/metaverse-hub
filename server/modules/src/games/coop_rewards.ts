@@ -15,7 +15,14 @@ namespace CoopRewards {
   export var BOARD_ID = "coop_stage_clear_ms_v1";
   export var PAY = 20;
   export var PROTOCOL = 1;
-  export var FINGERPRINT = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
+  // The fingerprint game.settle_coop_clear compares with and writes into receipts, board rows and
+  // eligibility rows. It must equal CoopProto.FINGERPRINT (the vendored sim's contentSha256), and
+  // tests/games/coop_rewards.test.ts fails when it does not. The SQL function holds it as a
+  // literal: 0041 wrote f8705ec4... and 0063_coop_settle_fingerprint replaced it with this value.
+  // A re-vendor that changes contentSha256 needs this constant and a new migration like 0063.
+  export var FINGERPRINT = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
+  /** The literal 0041 wrote. Rows settled before 0063 keep it; nothing is rewritten. */
+  export var FINGERPRINT_0041 = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
   export var AFK_ALIVE = 300;
   export var SESSION_CAP = 200;
   export var DAILY_CAP = 1000;
@@ -52,6 +59,8 @@ namespace CoopRewards {
     nonNeutral: number;
     neutralAlive: number;
     downTicks: number;
+    /** 1 when the sim latched every seat of the account dead as the boss fell. Absent in older facts. */
+    out?: number;
   }
 
   export interface Gates {
@@ -67,6 +76,9 @@ namespace CoopRewards {
    * AFK_ALIVE neutral ticks while up. Down ticks are not neutral and are not a
    * damage threshold. Reconnect grace is applied by the match before this runs:
    * it freezes neutralAlive, and CPU takeover arrives as released.
+   * Last, an account the sim reports out for the kill (all of its seats dead when
+   * the boss fell; a downed seat is not dead) is not paid for that boss. The flag
+   * is per encounter, so the next boss starts clean.
    */
   export function decide(row: PresenceRow, gates: Gates, afkAlive: number): { eligible: boolean; reason: string } {
     if (gates.practice) return { eligible: false, reason: "practice" };
@@ -77,6 +89,7 @@ namespace CoopRewards {
     if (row.presentAtStart !== 1 || row.slots < 1) return { eligible: false, reason: "late_join" };
     var alive = afkAlive > 0 ? afkAlive : AFK_ALIVE;
     if (row.nonNeutral <= 0 && row.neutralAlive >= alive) return { eligible: false, reason: "afk" };
+    if (row.out === 1) return { eligible: false, reason: "knocked_out" };
     return { eligible: true, reason: "clear" };
   }
 
@@ -395,5 +408,34 @@ HubSchema.register({
       RETURN jsonb_build_object('error', 'idempotency_mismatch', 'ok', false, 'paid', false, 'sealed', true, 'tickets', 0, 'ticketsMinted', 0);
     END;
     $fn$`,
+  ],
+});
+
+// 0041 is already applied, so its fingerprint literal stays (as with 0048 for Shooter). This
+// replaces the live function with the vendored Coop sim's content fingerprint, so new receipts,
+// board rows and eligibility rows carry the label of the sim that produced them, and the function
+// refuses a caller still sending the 0041 label (bad_version, sealed, nothing paid). A fresh
+// database runs 0041 first, then this. Applying it twice changes nothing.
+//
+// Only the label changes. The amount (20), the once-per-boss-per-UTC-day rule, the session and
+// daily caps and the keys are the same statements. No stored row is rewritten: a clear settled
+// under the old label keeps its receipt, its Tickets and its stored answer. A retry of that
+// settlement still returns the stored answer, and the same boss on the same day is still
+// already_paid, because both lookups (coop_eligibility, coop_receipt) come before the version
+// check and neither reads the fingerprint.
+HubSchema.register({
+  id: "0063_coop_settle_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE src text;
+    BEGIN
+      src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+      src := replace(src, 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e', 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72');
+      IF position('f8705ec4' in src) > 0 OR position('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72' in src) = 0 THEN
+        RAISE EXCEPTION 'coop_settle_fingerprint_not_replaced';
+      END IF;
+      EXECUTE src;
+    END;
+    $fp$`,
   ],
 });

@@ -105,4 +105,20 @@ assert.equal(world1.signal(JSON.stringify({ t: 'pm', to: B, from: 'x', fromName:
 world1.terminate(5);
 assert.ok(world1.dispatcher.sent<Body>(OP.KICK).some((b) => b.body.reason === 'shutdown'));
 
+// Nakama 3.41 freezes the global after InitModule. The sim loads on the first world, so its
+// bundled zod must not write globalThis (it threw "Cannot add property __zod_globalConfig").
+// Goja throws on that write; node:vm runs the bundle sloppy and drops it, so check the source too.
+{
+  const frozen = loadModule();
+  assert.doesNotMatch(frozen.source, /globalThis\)?\.__zod_/, 'pb-sim zod globals are rewritten to a local holder');
+  Object.freeze(frozen.global);
+  const listed = frozen.call<typeof first>('pb.worlds', { userId: A, vars: { scope: 'game', game: 'peoples-bitcoin', sid: SID_A } });
+  assert.equal(listed.worlds.length, 2);
+  const w = frozen.driver(listed.worlds[0].matchId);
+  w.join([presence(A, 'Alice')], { vars: { scope: 'game', game: 'peoples-bitcoin', sid: SID_A } });
+  w.loop([{ sender: presence(A, 'Alice'), opCode: OP.HELLO, data: { proto: 1, sim } }]);
+  assert.equal(w.dispatcher.sent(OP.WELCOME).length, 1);
+  assert.equal(Object.keys(frozen.global).some((k) => k.startsWith('__zod_')), false, 'zod globals stay inside the sim');
+}
+
 console.log('pb_world ok');
