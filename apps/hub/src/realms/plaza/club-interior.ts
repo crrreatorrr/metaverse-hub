@@ -250,8 +250,8 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
     group: g, exit: markers.exit_door, exitDoor: markers.exit_door, entry: markers.door_front,
     leaderboard, storeAnchor, spawn, markers, colliderBoxes, npc, sprotel,
     mood: {
-      environment: env, environmentIntensity: 1.0,
-      hemi: { sky: '#ffd2a8', ground: '#2a1810', intensity: 2.4 },
+      environment: env, environmentIntensity: 1.12,
+      hemi: { sky: '#ffd7b4', ground: '#503122', intensity: 2.85 },
       sun: false,
     },
   };

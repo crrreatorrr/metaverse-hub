@@ -83,6 +83,15 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.deepEqual(ids.filter((id) => Number(id.split('_')[0]) <= 12).slice(-2), ['0011_ranked_scores', '0012_chat_moderation']);
   const nums = ids.map((id) => Number(id.split('_')[0]));
   assert.deepEqual(nums, [...nums].sort((a, b) => a - b));
+  assert.deepEqual(ids.filter((id) => id.startsWith('0050_')), [
+    '0050_pb_campaign_pistol_price', '0050_shooter_verification_queue',
+  ], 'the released independent pair has deterministic order');
+  for (const id of ['0050_unrelated_collision', '0050_pb_campaign_pistol_price', '0050_shooter_verification_queue']) {
+    const isolated = loadModule({ noInit: true });
+    const schema = isolated.global.HubSchema as typeof HubSchema;
+    schema.register({ id, statements: ['SELECT 1'] });
+    assert.throws(() => schema.all(), /duplicate schema migration (id|number)/, id);
+  }
   const fresh = loadModule({ noInit: true });
   const S = fresh.global.HubSchema as typeof HubSchema;
   // Test ids outside every reserved range (hub 0011-0012, PB 0013-0019, sproto 0020-0024).
@@ -103,6 +112,70 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
 {
   const res = mod.call<{ error?: string }>('tickets.earn', { userId: USER_A, vars: { scope: 'game', game: 'sproto', sid: SID, ranked: '0' } }, { amount: 20, reason: 'srv_pvp_win', key: 'k1' });
   assert.equal(res.error, 'server_reason');
+}
+
+// Hub-scope wallet RPCs (plan B1): registered, refused for game-scope and anonymous callers,
+// and the exchange hands the SQL function the game, the floored amount, the key and a request hash.
+{
+  assert.ok(mod.registered.rpcs.has('tickets.balances'), 'tickets.balances registered');
+  assert.ok(mod.registered.rpcs.has('verse.exchange'), 'verse.exchange registered');
+  const hub = { userId: USER_A, vars: { scope: 'hub' } };
+  const game = { userId: USER_A, vars: { scope: 'game', game: 'nobu', sid: SID, ranked: '0' } };
+  // The hub_exchange launch flag gates the exchange. Off (the seeded state, or no row): refused
+  // before anything else is read, and tickets.balances says so.
+  let flagState = 'off';
+  mod.nk.onSql('FROM game.server_flags WHERE key', (args) => (args[0] === 'hub_exchange' ? [{ result: JSON.stringify({ state: flagState, allowlist: [], percent: 0 }) }] : []));
+  const flush = () => { for (const key of [...mod.nk.localcache.keys()]) if (String(key).startsWith('flag:')) mod.nk.localcache.delete(key); };
+  let reached = 0;
+  mod.nk.onSql('game.exchange_tickets_hub', () => { reached += 1; return [{ result: '{}' }]; });
+  assert.deepEqual(plain(mod.call('verse.exchange', hub, { game: 'nobu', tickets: 10, key: 'closed' })), { error: 'exchange_off', message: 'The plaza exchange is not open yet' });
+  assert.equal(reached, 0, 'a closed exchange never reaches SQL');
+  mod.nk.onSql('unnest(string_to_array', () => [{ result: '[]' }]);
+  mod.nk.onSql('FROM game.verse_wallet WHERE user_id', () => [{ verse: '0' }]);
+  assert.equal(mod.call<{ exchangeEnabled?: boolean }>('tickets.balances', hub, {}).exchangeEnabled, false);
+  flagState = 'on';
+  flush();
+  assert.equal(mod.call<{ exchangeEnabled?: boolean }>('tickets.balances', hub, {}).exchangeEnabled, true);
+  for (const rpc of ['tickets.balances', 'verse.exchange']) {
+    const body = { game: 'nobu', tickets: 10, key: 'k' };
+    assert.equal(mod.call<{ error?: string }>(rpc, game, body).error, 'not_hub_session', `${rpc} game scope`);
+    assert.equal(mod.call<{ error?: string }>(rpc, { userId: '', vars: { scope: 'hub' } }, body).error, 'unauthorized', `${rpc} anonymous`);
+  }
+  let seen: unknown[] = [];
+  mod.nk.onSql('game.exchange_tickets_hub', (args) => {
+    seen = args;
+    return [{ result: JSON.stringify({ verse: 3, gained: 3, ticketsLeft: 7 }) }];
+  });
+  const out = mod.call<{ gained?: number; error?: string }>('verse.exchange', hub, { game: 'sproto-coop-battle', tickets: 37.9, key: 'wallet-1' });
+  assert.equal(out.gained, 3);
+  assert.deepEqual(plain(seen.slice(0, 4)), [USER_A, 'sproto-coop-battle', 37, 'wallet-1']);
+  assert.match(String(seen[4]), /^[0-9a-f]{64}$/);
+  const hashOf = (body: object): string => {
+    mod.call('verse.exchange', hub, body);
+    return String(seen[4]);
+  };
+  const base = hashOf({ game: 'nobu', tickets: 100, key: 'h' });
+  assert.equal(hashOf({ game: 'nobu', tickets: 100, key: 'other-key' }), base, 'the key is not part of the request hash');
+  assert.notEqual(hashOf({ game: 'nobu', tickets: 110, key: 'h' }), base, 'the amount is');
+  assert.notEqual(hashOf({ game: 'sproto', tickets: 100, key: 'h' }), base, 'the game is');
+  seen = [];
+  for (const bad of [
+    { game: 'vcoin', tickets: 10, key: 'k' },
+    { game: 'nope', tickets: 10, key: 'k' },
+    { game: 'nobu', tickets: 0, key: 'k' },
+    { game: 'nobu', tickets: '10', key: 'k' },
+    { game: 'nobu', tickets: 10, key: '' },
+    { game: 'nobu', tickets: 10, key: 'x'.repeat(81) },
+  ]) {
+    assert.ok(mod.call<{ error?: string }>('verse.exchange', hub, bad).error, JSON.stringify(bad));
+  }
+  assert.deepEqual(seen, [], 'bad input never reaches SQL');
+  mod.nk.onSql('game.exchange_tickets_hub', () => [{ result: JSON.stringify({ error: 'verse_cap', verseCapLeft: 20 }) }]);
+  assert.deepEqual(plain(mod.call('verse.exchange', hub, { game: 'nobu', tickets: 300, key: 'cap' })), { error: 'verse_cap', message: 'verse_cap', verseCapLeft: 20 });
+  // The in-game exchange keeps its HPOS10I refusal.
+  assert.equal(mod.call<{ error?: string }>('tickets.exchange', { userId: USER_A, vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { tickets: 10, key: 'k' }).error, 'exchange_not_allowed');
+  const ids = plain((mod.global.HubSchema as { all(): { id: string }[] }).all().map((m) => m.id));
+  assert.ok(ids.includes('0060_hub_exchange'));
 }
 
 // HubEconomy: same SQL and request hash as the RPCs; input validation.

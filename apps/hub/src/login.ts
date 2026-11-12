@@ -88,6 +88,7 @@ function createGate(): Gate {
   const error = el('login-error', HTMLElement);
   const submit = el('login-submit', HTMLButtonElement);
   const guestButton = el('login-guest', HTMLButtonElement);
+  const actions = el('login-actions', HTMLElement);
   const loadTitle = el('login-loading-title', HTMLElement);
   const loadNote = el('login-loading-note', HTMLElement);
   const bar = el('login-bar', HTMLElement);
@@ -177,6 +178,7 @@ function createGate(): Gate {
     setMode(next);
     root.dataset.view = 'form';
     formView.hidden = false;
+    actions.hidden = false;
     loadView.hidden = true;
     foot.hidden = false;
     if (message) error.textContent = message;
@@ -187,6 +189,7 @@ function createGate(): Gate {
   function showLoading(heading: string, note = ''): void {
     root.dataset.view = 'loading';
     formView.hidden = true;
+    actions.hidden = true;
     loadView.hidden = false;
     foot.hidden = true;
     title.textContent = 'Loading';

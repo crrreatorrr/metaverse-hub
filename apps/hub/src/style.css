@@ -875,10 +875,11 @@ button:disabled {
 
 /* ----- Tabs: chunky pixel buttons with Higgsfield icons. */
 
+/* Two rows of four: the Wallet and Games tabs joined the original six. */
 .menu-tabs {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 8px;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px 8px;
   margin: 12px 4px 14px;
 }
 
@@ -900,8 +901,8 @@ button:disabled {
 }
 
 .menu-tab-icon {
-  width: 52px;
-  height: 52px;
+  width: 36px;
+  height: 36px;
   object-fit: contain;
   filter: saturate(0.6) brightness(0.8);
 }
@@ -1558,6 +1559,14 @@ button:disabled {
 
 .relic-unlock {
   color: #ffb3a8;
+}
+
+/* A grant the server is holding: the clear is recorded, the reward is not out yet. */
+.relic-held,
+.pet-held {
+  font-size: 18px;
+  line-height: 0.95;
+  color: var(--yellow-2);
 }
 
 .relic-badge {
@@ -2309,4 +2318,275 @@ button:disabled {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Wallet tab */
+.wallet-row .pet-from {
+  line-height: 1;
+}
+
+.wallet-exchange {
+  max-width: 132px;
+  line-height: 1.5;
+  text-align: center;
+  white-space: normal;
+}
+
+.wallet-exchange:disabled {
+  color: #8ea2d8;
+  background: var(--navy);
+  cursor: not-allowed;
+}
+
+.wallet-status {
+  min-height: 18px;
+  color: var(--yellow-2);
+}
+
+/* ==========================================================================
+   Guide: first-visit card, "?" explainer, return card, confirm, gate markers
+   (plan items D1, D2, D4, D5). Pixel boxes like the hint bar.
+   ========================================================================== */
+
+.guide-card {
+  position: absolute;
+  top: 74px;
+  right: var(--hud-gap);
+  width: 300px;
+  box-sizing: border-box;
+  padding: 12px 14px 12px;
+  background: rgba(10, 31, 107, 0.94);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue);
+  font: 400 19px/1.05 var(--pixel-body);
+  color: var(--cream);
+  pointer-events: auto;
+}
+
+.guide-card[hidden],
+.guide-confirm[hidden],
+.gate-markers[hidden] {
+  display: none !important;
+}
+
+.guide-title {
+  margin: 0 0 8px;
+  font: 400 10px/1.5 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--yellow);
+  text-shadow: 2px 2px 0 var(--ink);
+}
+
+.guide-lede {
+  margin: 0 0 10px;
+  color: var(--sky);
+}
+
+.guide-steps,
+.guide-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+
+.guide-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  opacity: 0.75;
+}
+
+.guide-step.current,
+.guide-step.done {
+  opacity: 1;
+}
+
+.guide-tick {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  background: var(--navy);
+  box-shadow: 0 0 0 2px var(--ink);
+  font: 8px var(--pixel-head);
+  color: var(--sky);
+}
+
+.guide-step.current .guide-tick {
+  background: var(--yellow);
+  color: var(--ink);
+}
+
+.guide-step.done .guide-tick {
+  background: var(--green);
+  color: var(--ink);
+}
+
+.guide-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.guide-step-text strong {
+  font: 400 8px/1.5 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--cream);
+}
+
+.guide-step-text span {
+  color: var(--sky);
+}
+
+.guide-close {
+  padding: 7px 10px 5px;
+  border: 0;
+  background: var(--yellow);
+  box-shadow: 0 0 0 2px var(--ink);
+  font: 8px var(--pixel-head) !important;
+  text-transform: uppercase;
+  color: var(--ink) !important;
+  cursor: pointer;
+}
+
+.guide-close:hover,
+.guide-close:focus-visible,
+.guide-close.pad-focus {
+  background: var(--cream);
+  outline: 2px dashed var(--yellow-2);
+  outline-offset: 4px;
+}
+
+#hud .guide-help-btn {
+  min-width: 38px;
+  padding: 0 10px;
+  justify-content: center;
+  font: 12px var(--pixel-head);
+}
+
+.guide-help {
+  width: 340px;
+}
+
+.guide-terms {
+  margin: 0 0 10px;
+}
+
+.guide-terms dt {
+  margin-top: 8px;
+  font: 400 8px/1.5 var(--pixel-head);
+  text-transform: uppercase;
+  color: var(--yellow-2);
+}
+
+.guide-terms dd {
+  margin: 2px 0 0;
+}
+
+.guide-trip {
+  top: 74px;
+  right: auto;
+  left: 50%;
+  width: 360px;
+  transform: translateX(-50%);
+  box-shadow: var(--px-edge), inset 4px 4px 0 0 var(--blue), inset 0 -4px 0 0 var(--accent, var(--yellow));
+}
+
+.guide-lines li::before {
+  content: "▸ ";
+  color: var(--yellow);
+}
+
+.guide-confirm {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: rgba(2, 6, 30, 0.55);
+  pointer-events: auto;
+}
+
+.guide-confirm-box {
+  position: static;
+  width: 320px;
+}
+
+.guide-row {
+  display: flex;
+  gap: 12px;
+}
+
+.guide-no {
+  background: var(--navy);
+  color: var(--cream) !important;
+}
+
+.gate-markers {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.gate-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 4px 8px 2px;
+  background: rgba(10, 31, 107, 0.86);
+  box-shadow: 0 0 0 2px var(--ink);
+  font: 400 18px/1 var(--pixel-body);
+  white-space: nowrap;
+  color: var(--cream);
+  will-change: transform, opacity;
+}
+
+.gate-marker.edge {
+  color: var(--yellow-2);
+}
+
+body.gated .gate-markers,
+body.gated .guide-card,
+body.gated .guide-help-btn {
+  visibility: hidden;
+}
+
+/* Games tab */
+.game-row {
+  padding-left: 10px;
+}
+
+.game-swatch {
+  flex: none;
+  align-self: stretch;
+  width: 8px;
+  background: var(--accent, var(--yellow));
+  box-shadow: 0 0 0 2px var(--ink);
+}
+
+.game-row .pet-from {
+  line-height: 1;
+}
+
+.game-row .game-facts {
+  color: var(--yellow-2);
+}
+
+.game-row.last {
+  outline: 2px solid var(--yellow);
+  outline-offset: 4px;
+}
+
+.game-play {
+  min-width: 64px;
+  text-align: center;
+}
+
+.game-play:disabled {
+  color: #8ea2d8;
+  background: var(--navy);
+  cursor: not-allowed;
 }

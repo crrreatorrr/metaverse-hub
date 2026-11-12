@@ -654,6 +654,7 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
   const session = await login('sproto-fighter');
   const user = session.hub.userId;
   seedTickets(session, 40, 40);
+  // 0061_relic_unhold: the Belt is live, so a first clear grants it and nothing is pending.
   const liveCount = 1;
   const pendingCount = 0;
   if (owned) plantRelic(user, session.sessionId, 'tidebreaker_belt', 'sproto-fighter');
@@ -706,6 +707,33 @@ async function nullBeltTickets(owned: boolean): Promise<void> {
   assert.equal(creditCount(user, 'sproto'), 0);
 }
 
+/** The ten rows 0031 seeds for `fighter.boss_defeated` (gameplay plan B2). Sproto Fighter reports them once it stops sending `fighter_win`. */
+export const FIGHTER_BOSSES = ['sproto3215', 'sproto2616', 'sproto3152', 'rivet', 'sproto865', 'sproto943', 'nick', 'guest07', 'vela', 'vaudream'] as const;
+
+/** Every listed Fighter boss pays 20 once that day; a second win and an unlisted opponent pay 0. */
+async function fighterRoster(): Promise<void> {
+  const spec = { eventId: 'fighter.boss_defeated' };
+  const session = await login('sproto-fighter');
+  const user = session.hub.userId;
+  for (const [index, boss] of FIGHTER_BOSSES.entries()) {
+    const paid = await defeat(session.gameToken, spec, boss, `roster-${boss}`, { world: 1, stage: index + 1 });
+    assertPaid(paid, `fighter ${boss}`);
+    assert.equal(ticketBalance(user, 'sproto-fighter'), (index + 1) * PAY, `${boss} paid ${PAY}`);
+  }
+  assert.equal(creditCount(user, 'sproto-fighter'), FIGHTER_BOSSES.length);
+  const before = purse(user, 'sproto-fighter');
+  for (const boss of FIGHTER_BOSSES) {
+    const again = await defeat(session.gameToken, spec, boss, `roster-again-${boss}`);
+    assert.equal(body(again).error, undefined, JSON.stringify(again.body));
+    assert.equal(body(again).tickets ?? 0, 0, `${boss} second win the same day pays 0`);
+  }
+  // Fighter's Belt opponent is not one of the ten: it pays nothing until a migration lists it.
+  const unlisted = await defeat(session.gameToken, spec, 'zephyr', 'roster-zephyr');
+  assert.equal(body(unlisted).tickets ?? 0, 0, JSON.stringify(unlisted.body));
+  assertPurse(user, 'sproto-fighter', before, 'second wins and an unlisted opponent');
+  assert.equal(ticketBalance(user, 'sproto-fighter'), FIGHTER_BOSSES.length * PAY);
+}
+
 export async function runStoryBoss(test: TestFn): Promise<void> {
   // Rejects and NULL-ticket grants do not write a ticket credit. They run before the
   // pay cases so a later audit failure is not blamed on an earlier boss credit.
@@ -716,7 +744,7 @@ export async function runStoryBoss(test: TestFn): Promise<void> {
     await test('story-boss', `${spec.game} unknown boss is a silent 0 and a client amount or item writes nothing`, () => unknownBoss(spec));
   }
   await test('story-boss', 'another user token or session writes nothing', otherUser);
-  await test('story-boss', 'NULL Belt tickets add 0 and a live Belt or Crown stays owned', () => nullBeltTickets(false));
+  await test('story-boss', 'NULL Belt tickets add 0 and a first clear grants the Belt live', () => nullBeltTickets(false));
   await test('story-boss', 'NULL Belt tickets add 0 and a live Belt or Crown stays owned', () => nullBeltTickets(true));
   await test('story-boss', 'tinubu_crown still grants on session_ticket_cap exactly once', () => capPath('session_ticket_cap'));
   await test('story-boss', 'tinubu_crown still grants on daily_ticket_cap exactly once', () => capPath('daily_ticket_cap'));
@@ -728,6 +756,7 @@ export async function runStoryBoss(test: TestFn): Promise<void> {
     await test('story-boss', `${spec.game} same key x${repeatCount('concurrent')} concurrent pays once`, () => sameKey(spec, true));
     await test('story-boss', `${spec.game} two tabs and a second session pay once`, () => twoTabs(spec));
   }
+  await test('story-boss', 'all ten Fighter story bosses pay 20 once per day; a rematch and an unlisted opponent pay 0', fighterRoster);
   await test('story-boss', 'client amount on an allowlisted boss pays 20 and does not grant a named relic', clientAmountDoesNotOverride);
   await test('story-boss', 'tinubu_crown grants once with 20 Tickets and a replay does not grant it again', tinubuOnce);
   await test('story-boss', 'retried payout after earn.after_wallet and grant.after_commit pays once', faultRaise);

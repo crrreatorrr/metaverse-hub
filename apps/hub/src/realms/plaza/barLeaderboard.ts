@@ -1,8 +1,12 @@
 import { DoubleSide, Group, Mesh, MeshBasicMaterial, Object3D, PlaneGeometry, BoxGeometry } from 'three';
 import { fitText, paintedCanvas } from '../../m3/canvas';
 import {
+  BAR_BOARD_IDS,
+  BAR_OPTIONAL_BOARD_IDS,
   BOARD_META,
-  HUB_BOARD_IDS,
+  NO_SCORES_TEXT,
+  barLoopLength,
+  nextBarPage,
   formatBoardScore,
   gameForBoard,
   type HubBoardId,
@@ -81,12 +85,34 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     return boards[index] ?? null;
   }
 
+  /** Optional pages (Classic NOBU) join the loop only once a fetch has shown they have rows. */
+  const optional = BAR_OPTIONAL_BOARD_IDS;
+  const optionalAt = new Map<HubBoardId, number>();
+  const hasRows = (id: HubBoardId): boolean => (cache.get(id)?.page.rows.length ?? 0) > 0;
+  const shownBoards = (): HubBoardId[] => boards.filter((id) => !optional.includes(id) || hasRows(id));
+  const dotOf = (id: HubBoardId): number => Math.max(0, shownBoards().indexOf(id));
+  const dotCount = (): number => barLoopLength(boards, hasRows, optional);
+
+  /** Refresh the hidden optional pages in the background so they can appear when someone posts. */
+  function pollOptional(now: number): void {
+    for (const id of optional) {
+      if (!boards.includes(id)) continue;
+      const last = optionalAt.get(id);
+      if (last !== undefined && now - last < cacheSeconds) continue;
+      optionalAt.set(id, now);
+      void opts.provider.load(id).then(
+        (page) => { if (!disposed) cache.set(id, { at: now, page }); },
+        () => undefined,
+      );
+    }
+  }
+
   function paintStatus(boardId: HubBoardId, status: string): void {
     const meta = BOARD_META[boardId];
     const { ctx, canvas } = paint;
     const w = canvas.width;
     const h = canvas.height;
-    fillChrome(ctx, w, h, meta.title, meta.unit, meta.order, index, boards.length, placeholder);
+    fillChrome(ctx, w, h, meta.title, meta.unit, meta.order, dotOf(boardId), dotCount(), placeholder);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillStyle = '#d7e1ff';
@@ -99,14 +125,13 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     const { ctx, canvas } = paint;
     const w = canvas.width;
     const h = canvas.height;
-    const dot = Math.max(0, boards.indexOf(page.boardId));
-    fillChrome(ctx, w, h, page.title, page.unit, page.order, dot, boards.length, placeholder);
+    fillChrome(ctx, w, h, page.title, page.unit, page.order, dotOf(page.boardId), dotCount(), placeholder);
     const rows = page.rows.slice(0, 10);
     if (rows.length === 0) {
       ctx.textAlign = 'center';
       ctx.fillStyle = '#9aa3c7';
       ctx.font = '600 32px sans-serif';
-      ctx.fillText('No scores yet', w / 2, h / 2);
+      ctx.fillText(NO_SCORES_TEXT, w / 2, h / 2);
     }
     rows.forEach((row, rowIndex) => {
       const y = 168 + rowIndex * 36;
@@ -184,7 +209,8 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     }
     if (now - shownAt < cycleSeconds) return;
     shownAt = now;
-    index = (index + 1) % boards.length;
+    pollOptional(now);
+    index = nextBarPage(boards, index, hasRows, optional);
     refresh(index, now);
   }
 
@@ -200,6 +226,7 @@ export function addBarLeaderboardScreen(scene: Object3D, opts: BarLeaderboardOpt
     paint.texture.dispose();
   }
 
+  pollOptional(0);
   refresh(0, 0);
   return { root: group, board: currentId, update, dispose };
 }
@@ -249,7 +276,7 @@ function fillChrome(
 /** Prod stand-in. Empty rows, no sample names, no network. */
 export function createEmptyLeaderboardProvider(): LeaderboardProvider {
   return {
-    boards: HUB_BOARD_IDS,
+    boards: BAR_BOARD_IDS,
     load(boardId) {
       const meta = BOARD_META[boardId];
       return Promise.resolve({

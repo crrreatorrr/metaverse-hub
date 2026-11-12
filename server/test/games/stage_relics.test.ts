@@ -9,7 +9,7 @@ const SECOND = '00000000-0000-4000-8000-000000000001';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SID2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
-const FP = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
+const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
 const OP = { HELLO: 1, READY: 3 };
 const RELICS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin', 'marina_anchor', 'dragon_scale'];
 

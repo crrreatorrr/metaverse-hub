@@ -95,6 +95,7 @@
 
 	redir / /hub/ 308
 	redir /hub /hub/ 308
+	redir /admin /admin/ 308
 	@realm_bare path_regexp hub_realm_bare "^/realm/[^/]+$"
 	redir @realm_bare {path}/?{query} 308
 
@@ -112,7 +113,7 @@
 
 	handle {
 		root * /srv/hub/current
-		@html path_regexp hub_html "(^/hub/?$|^/realm/[^/]+/?$|\.html$)"
+		@html path_regexp hub_html "(^/hub/?$|^/admin/?$|^/realm/[^/]+/?$|\.html$)"
 		@wasm path_regexp hub_wasm "\.wasm$"
 		header Cache-Control "public, max-age=300"
 		header @html {

@@ -1,14 +1,20 @@
 /**
- * Interim hold (0033). The migration does not create `game.grant_pending`.
+ * Interim hold (0033) and its release (0061_relic_unhold).
  * A row in `game.relic_claim_pending` or `game.item_owned_pending` is status
  * held (PK user + id, no status column). Promote deletes that row and writes
  * one live claim. init() is `profile.get`, which reads live tables only.
  *
- * Held: genesis_shard, pet_honk_sproto,
- * pet_spiral_sproto, pet_moon_sproto, pet_sproto_pup.
- * Live: cones_tip, tinubu_crown, pet_presidential_sproto, pet_mecha_sproto,
- * pet_conehead_sproto, breakwater_coin, hpos10i_core (live again since 0043),
- * marina_anchor, dragon_scale, tidebreaker_belt (live since 0050).
+ * Production state after 0061: only hub_life_medal is held. tidebreaker_belt,
+ * genesis_shard, pet_honk_sproto, pet_spiral_sproto, pet_moon_sproto and
+ * pet_sproto_pup are live, and the claims that were pending for them were
+ * promoted once. The first case below replays that migration on Nakama's real boot.
+ *
+ * The hold mechanism still guards hub_life_medal and is what 0061 promoted from,
+ * so the mechanism cases keep running: `armTestHolds` re-arms the Shard and Honk
+ * rules for them and `runHold` puts the production state back in a finally block.
+ * Live throughout: cones_tip, tinubu_crown, pet_presidential_sproto, pet_mecha_sproto,
+ * pet_conehead_sproto, breakwater_coin, hpos10i_core (0043), marina_anchor,
+ * dragon_scale, tidebreaker_belt (0061).
  */
 import assert from 'node:assert/strict';
 import {
@@ -32,18 +38,55 @@ import {
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 
-const HELD_IDS = [
-  'genesis_shard',
-  'pet_honk_sproto',
-  'pet_spiral_sproto',
-  'pet_moon_sproto',
-  'pet_sproto_pup',
-  'hub_life_medal',
-] as const;
-
 const SLUG = /^[a-z0-9_]+$/;
 const GAME = /^[a-z0-9-]+$/;
 const EVENT = /^[a-z0-9_.]+$/;
+
+/** The hold list while `armTestHolds(true)` is in effect. */
+const HELD_IDS = [
+  'genesis_shard',
+  'pet_honk_sproto',
+  'hub_life_medal',
+] as const;
+
+/** The six grants 0061_relic_unhold released. */
+const RELEASED_RELICS = ['genesis_shard', 'tidebreaker_belt'] as const;
+const RELEASED_PETS = ['pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup'] as const;
+
+function quoted(ids: readonly string[]): string {
+  return ids.map((id) => {
+    if (!SLUG.test(id)) throw new Error(`bad id ${id}`);
+    return `'${id}'`;
+  }).join(', ');
+}
+
+/** Test-only: hold (or release) the Shard and Honk rules so the 0033 mechanism cases have a subject. */
+function armTestHolds(on: boolean): void {
+  psql(`
+    UPDATE game.event_rule SET grant_hold = ${on ? 'true' : 'false'}
+    WHERE game_id = 'peoples-bitcoin' AND event_type = 'pb.quest_complete' AND relic_id = 'genesis_shard';
+    UPDATE game.item_rule SET grant_hold = ${on ? 'true' : 'false'} WHERE item_id = 'pet_honk_sproto'
+  `);
+}
+
+/** Every hold 0033 set for the six released ids, as it was before 0061. */
+function restorePre0060Holds(): void {
+  psql(`
+    UPDATE game.event_rule SET grant_hold = true WHERE relic_id IN (${quoted(RELEASED_RELICS)});
+    UPDATE game.item_rule SET grant_hold = true WHERE item_id IN (${quoted(RELEASED_PETS)})
+  `);
+}
+
+function productionHolds(): string {
+  return psql(`
+    SELECT COALESCE(string_agg(id, ',' ORDER BY id), '') FROM (
+      SELECT relic_id AS id FROM game.event_rule WHERE grant_hold AND relic_id IS NOT NULL
+      UNION ALL
+      SELECT item_id FROM game.item_rule WHERE grant_hold
+    ) s
+  `);
+}
+
 
 interface HeldPair {
   kind: 'relic' | 'item';
@@ -159,56 +202,130 @@ function seedLiveShard(userId: string, sessionId: string): string {
   return eventId;
 }
 
-export async function runHold(test: TestFn): Promise<void> {
-  await test('hold', '0050 lets a third Level 1 clear grant the Belt and preserves existing ownership', async () => {
-    const owned = await login('sproto-fighter');
-    const waiting = await login('sproto-fighter');
-    const shard = await login('peoples-bitcoin');
-    const eventId = seedLiveShard(shard.hub.userId, shard.sessionId);
-    // Keep an unrelated live claim and an unrelated held claim on separate users.
-    const pendingShard = await login('peoples-bitcoin');
-    await call('session.event', shardBody('migration-shard'), pendingShard.gameToken);
-    const existing = await call('session.event', {
-      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-owned',
-    }, owned.gameToken);
-    assert.equal(existing.body.granted, 'tidebreaker_belt');
-    const beltEvent = psql(`SELECT event_id::text FROM game.relic_claim
-      WHERE user_id = '${sqlId(owned.hub.userId)}' AND relic_id = 'tidebreaker_belt'`);
-    try {
-      // Restore the pre-0050 state, then let Nakama's real boot run the new migration.
-      psql(`UPDATE game.event_rule SET grant_hold = true WHERE relic_id = 'tidebreaker_belt'`);
-      for (const key of ['migration-first-win', 'migration-second-win']) {
-        const result = await call('session.event', {
-          eventId: 'fighter.story_level_complete', data: { world: 1 }, key,
-        }, waiting.gameToken);
-        assertNoop(result.body);
-      }
-      assert.equal(pendingRelics(waiting.hub.userId, 'tidebreaker_belt'), 1);
-    } finally {
-      psql("DELETE FROM game.schema_migrations WHERE id = '0050_fighter_belt_live'");
-      compose(['restart', 'nakama']);
-      compose(['up', '-d', '--no-recreate', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
-      await waitReady();
-    }
-    assert.equal(pendingRelics(waiting.hub.userId, 'tidebreaker_belt'), 0);
-    assert.equal(relicClaims(waiting.hub.userId, 'tidebreaker_belt'), 0);
-    assert.equal(psql(`SELECT event_id::text FROM game.relic_claim
-      WHERE user_id = '${sqlId(owned.hub.userId)}' AND relic_id = 'tidebreaker_belt'`), beltEvent);
-    assert.equal(psql(`SELECT event_id::text FROM game.relic_claim
-      WHERE user_id = '${sqlId(shard.hub.userId)}' AND relic_id = 'genesis_shard'`), eventId);
-    assert.equal(pendingRelics(pendingShard.hub.userId, 'genesis_shard'), 1);
-    const granted = await call('session.event', {
-      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-third-win',
-    }, waiting.gameToken);
-    assert.equal(granted.body.granted, 'tidebreaker_belt');
-    const replay = await call('session.event', {
-      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'migration-fourth-win',
-    }, waiting.gameToken);
-    assertNoop(replay.body);
-    assert.equal(relicClaims(waiting.hub.userId, 'tidebreaker_belt'), 1);
-    assert.equal(mints(waiting.hub.userId, 'tidebreaker_belt'), 1);
-  });
+/**
+ * 0061_relic_unhold on Nakama's real boot. Put the six rules back on hold, park claims the way
+ * 0033 did (two clears each, as replays arrive), then delete the migration's ledger row and restart:
+ * the runner applies 0061 again. Every pending claim must become exactly one live claim.
+ */
+async function migrationPromotesPending(): Promise<void> {
+  const owner = await login('sproto-fighter');
+  const existing = await call('session.event', {
+    eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'm60-owned',
+  }, owner.gameToken);
+  assert.equal(existing.body.granted, 'tidebreaker_belt', JSON.stringify(existing.body));
+  const beltEvent = psql(`SELECT event_id::text FROM game.relic_claim
+    WHERE user_id = '${sqlId(owner.hub.userId)}' AND relic_id = 'tidebreaker_belt'`);
+  // The Life Medal stays held through the migration.
+  const medal = await login('hpos10i');
+  await call('session.event', { eventId: 'hpos10i.boss_defeated', data: { boss: 'deathbot' }, key: 'm60-medal' }, medal.gameToken);
+  assert.equal(pendingItems(medal.hub.userId, 'hub_life_medal'), 1);
 
+  const belt = await login('sproto-fighter');
+  const shard = await login('peoples-bitcoin');
+  const honk = await login('hpos10i');
+  const waiting = [
+    { session: belt, kind: 'relic' as const, id: 'tidebreaker_belt', game: 'sproto-fighter', eventId: 'fighter.story_level_complete', data: { world: 1 } },
+    { session: shard, kind: 'relic' as const, id: 'genesis_shard', game: 'peoples-bitcoin', eventId: 'pb.quest_complete', data: { questId: 'quest_tutorial' } },
+    { session: honk, kind: 'item' as const, id: 'pet_honk_sproto', game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z1_retro_rush_hills', act: 2, time: 12 } },
+  ];
+  try {
+    restorePre0060Holds();
+    for (const row of waiting) {
+      for (const n of [1, 2]) {
+        const held = await call('session.event', { eventId: row.eventId, data: row.data, key: `m60-${row.id}-${n}` }, row.session.gameToken);
+        assertNoop(held.body, `${row.id} ${JSON.stringify(held.body)}`);
+      }
+      const user = row.session.hub.userId;
+      if (row.kind === 'relic') {
+        assert.equal(pendingRelics(user, row.id), 1, row.id);
+        assert.equal(relicClaims(user, row.id), 0, row.id);
+      } else {
+        assert.equal(pendingItems(user, row.id), 1, row.id);
+        assert.equal(num(`SELECT count(*) FROM game.item_owned WHERE user_id = '${sqlId(user)}' AND item_id = '${row.id}'`), 0, row.id);
+      }
+    }
+  } finally {
+    psql("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+    compose(['restart', 'nakama']);
+    compose(['up', '-d', '--no-recreate', '--no-build', '--wait', '--wait-timeout', '90', 'nakama']);
+    await waitReady();
+  }
+  assert.equal(num("SELECT count(*) FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1, '0061 was applied again on boot');
+  assert.equal(productionHolds(), 'hub_life_medal');
+  assert.equal(num(`SELECT count(*) FROM game.relic_claim_pending WHERE relic_id IN (${quoted(RELEASED_RELICS)})`), 0);
+  assert.equal(num(`SELECT count(*) FROM game.item_owned_pending WHERE item_id IN (${quoted(RELEASED_PETS)})`), 0);
+  assert.equal(pendingItems(medal.hub.userId, 'hub_life_medal'), 1, 'the Life Medal is still pending');
+
+  for (const row of waiting) {
+    const user = row.session.hub.userId;
+    if (row.kind === 'relic') {
+      assert.equal(relicClaims(user, row.id), 1, `${row.id} promoted to one live claim`);
+      assert.equal(mints(user, row.id), 1, `${row.id} one ledger mint`);
+      assert.equal(pendingRelics(user, row.id), 0, row.id);
+      assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND relic_id = '${row.id}'`), 1, row.id);
+      const profile = await call('profile.get', {}, row.session.hub.token);
+      assert.equal(((profile.body as { relics?: string[] }).relics ?? []).includes(row.id), true, JSON.stringify(profile.body));
+    } else {
+      assert.equal(num(`SELECT count(*) FROM game.item_owned WHERE user_id = '${sqlId(user)}' AND item_id = '${row.id}'`), 1, row.id);
+      assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = '${row.id}' AND op = 'grant_item'`), 1, row.id);
+      assert.equal(pendingItems(user, row.id), 0, row.id);
+    }
+    assert.equal(ticketBalance(user, row.game), 0, `${row.id} paid no Tickets`);
+    assert.equal(verseBalance(user), 0, `${row.id} paid no Verse`);
+    // The next qualifying clear is a no-op: still one claim.
+    const next = await call('session.event', { eventId: row.eventId, data: row.data, key: `m60-${row.id}-after` }, row.session.gameToken);
+    assertNoop(next.body, `${row.id} after ${JSON.stringify(next.body)}`);
+    if (row.kind === 'relic') {
+      assert.equal(relicClaims(user, row.id), 1, row.id);
+      assert.equal(mints(user, row.id), 1, row.id);
+    } else {
+      assert.equal(num(`SELECT count(*) FROM game.item_ledger WHERE user_id = '${sqlId(user)}' AND item_id = '${row.id}' AND op = 'grant_item'`), 1, row.id);
+    }
+  }
+  // An account that already owned the Belt keeps the same claim row.
+  assert.equal(psql(`SELECT event_id::text FROM game.relic_claim
+    WHERE user_id = '${sqlId(owner.hub.userId)}' AND relic_id = 'tidebreaker_belt'`), beltEvent);
+  assert.equal(mints(owner.hub.userId, 'tidebreaker_belt'), 1);
+}
+
+export async function runHold(test: TestFn): Promise<void> {
+  await test('hold', '0061 promotes pending Belt, Shard and pet claims exactly once and keeps existing ownership', migrationPromotesPending);
+  await test('hold', 'after 0061 only hub_life_medal is held', async () => {
+    assert.equal(productionHolds(), 'hub_life_medal');
+  });
+  await test('hold', 'a first Level 1 clear grants the Belt and a second, third and fourth keep one claim', async () => {
+    const session = await login('sproto-fighter');
+    const user = session.hub.userId;
+    const first = await call('session.event', {
+      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'belt-clear-1',
+    }, session.gameToken);
+    assert.equal(first.body.granted, 'tidebreaker_belt', JSON.stringify(first.body));
+    for (const n of [2, 3, 4]) {
+      const again = await call('session.event', {
+        eventId: 'fighter.story_level_complete', data: { world: 1 }, key: `belt-clear-${n}`,
+      }, session.gameToken);
+      assertNoop(again.body, `clear ${n} ${JSON.stringify(again.body)}`);
+    }
+    assert.equal(relicClaims(user, 'tidebreaker_belt'), 1);
+    assert.equal(mints(user, 'tidebreaker_belt'), 1);
+    assert.equal(pendingRelics(user, 'tidebreaker_belt'), 0);
+    assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'sproto-fighter'`), 1);
+    assert.equal(ticketBalance(user, 'sproto-fighter'), 0);
+    assert.equal(verseBalance(user), 0);
+  });
+  // The 0033 mechanism cases need a held Relic and a held pet: arm them for this block only.
+  armTestHolds(true);
+  try {
+    await holdMechanism(test);
+  } finally {
+    armTestHolds(false);
+  }
+  await test('hold', 'the test holds are released again', async () => {
+    assert.equal(productionHolds(), 'hub_life_medal');
+  });
+}
+
+async function holdMechanism(test: TestFn): Promise<void> {
   await test('hold', 'new genesis_shard is held with 0 T and 0 V', async () => {
     const session = await login('peoples-bitcoin');
     const user = session.hub.userId;

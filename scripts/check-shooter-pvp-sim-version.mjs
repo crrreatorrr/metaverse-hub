@@ -24,7 +24,7 @@ const SIM = 2;
 const FINGERPRINT = 'b33eada6';
 const LOADOUT = '4cdfab55';
 const CAMPAIGN_FINGERPRINT = 'cea1f88b';
-const CAMPAIGN_SHA = 'b773456a35da824676e5c132db4500cd336c2b9a3e700f3814bb26d4d94a10a2';
+const CAMPAIGN_SHA = '93806ae3727fabaace6b05b93bf3b0fbac09b4805fab2a11696a9f83f0123624';
 const GOLDEN = { outcome: 'draw', reason: 'double_ko', winner: null, tick: 65, stateHash: '532a562e' };
 // The director v2 limits shooter_protocol.ts verifyRuntime() requires. A bundle
 // with other limits marks every match broken (limits_mismatch).

@@ -60,6 +60,13 @@ Through `HubEconomy` only, with the player's `sid` from `matchJoinAttempt` and t
 - Shop buys and sells call `HubEconomy.spend` / `sell` synchronously in the tick (key `pbw:<sid>:buy|sell:<tick>:<n>`).
 - Trades move items only, never Tickets.
 
+Shop resale is capped at 45% of an item's cheapest positive buy price. The
+owner-approved exception is exactly `peoples-bitcoin` / `shop_terminal` /
+`gun_campaign_pistol` (Campaign Pistol): one-item packs buy for 2 Tickets and sell
+for 1 Ticket, with the cheapest buy also 2. This 50% resale exception preserves
+the price introduced by PR #147. Other items, shops and price combinations keep
+the 45% rule. Buying and selling the pistol still loses 1 Ticket per item.
+
 ## Limits
 
 100 players per world (soft 90 for overflow), 10 intents per tick, 8 messages per loop, 4 KB per message, 5 strikes to a kick, chat rate limits and mutes. All numbers are in PB's `src/config/balance.ts` (`NET`, `CHAT_NET`, `SOCIAL`, `TRADE`, `LOOT`), compiled into the bundle.

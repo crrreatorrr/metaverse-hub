@@ -13,7 +13,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { loadModule, plain, type LoadedModule } from './harness';
 
-const LAUNCH = ['shooter_pvp', 'shooter_pvp_wager', 'shooter_pvp_ranked', 'hub_exchange', 'verse_store', 'relic_unhold', 'diagnostics_prompt', 'maint'];
+// 0042 also seeded relic_unhold. Nothing reads it: 0061_relic_unhold releases unconditionally.
+const LAUNCH = ['shooter_pvp', 'shooter_pvp_wager', 'shooter_pvp_ranked', 'hub_exchange', 'verse_store', 'diagnostics_prompt', 'maint'];
 const U1 = '11111111-1111-4111-8111-111111111111';
 const U2 = '22222222-2222-4222-8222-222222222222';
 
@@ -55,7 +56,7 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   assert.match(sql, /percent BETWEEN 0 AND 100/);
   assert.match(sql, /updated_at timestamptz NOT NULL DEFAULT now\(\)/);
   assert.match(sql, /ON CONFLICT \(key\) DO NOTHING/, 'a replay keeps flags the owner already changed');
-  for (const key of LAUNCH) assert.match(sql, new RegExp(`\\('${key}', 'off'\\)`), `${key} seeded off`);
+  for (const key of [...LAUNCH, 'relic_unhold']) assert.match(sql, new RegExp(`\\('${key}', 'off'\\)`), `${key} seeded off`);
   assert.deepEqual(plain((mod.global.Flags as FlagsNs).LAUNCH_FLAGS), LAUNCH);
 }
 

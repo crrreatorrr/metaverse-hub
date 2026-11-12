@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { checkRegistrations, loadModule, presence, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const FP = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
+const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
 const PROTO = 1;
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
 const USERS = [0, 1, 2, 3, 4, 5].map((n) => `00000000-0000-4000-8000-00000000000${n}`);
@@ -470,8 +470,8 @@ function assertNoLedger(room: Room, label: string): void {
   const externalHash = (stateOf(m) as { stateHash?: string }).stateHash || '';
   console.log(`six-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
   assert.equal(finalMode, 'gameover');
-  assert.equal(externalTick, 7734);
-  assert.equal(externalHash, '3ec543448ecd6aafb53de3056c2425955733d2002ef65bfc117b11d531255494');
+  assert.equal(externalTick, 10347);
+  assert.equal(externalHash, '0ace8b5604e871232143b85a8ae035b9054de908604adcd1f557acdc9998ed96');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
@@ -494,7 +494,7 @@ function assertNoLedger(room: Room, label: string): void {
   const packedTick = stateOf(packedMatch).session?.state.t;
   const packedHash = (stateOf(packedMatch) as { stateHash?: string }).stateHash || '';
   console.log(`golden driver mode=${stateOf(packedMatch).endReason} tick=${packedTick} hash=${packedHash} ms=${Date.now() - packedStarted}`);
-  assert.equal(packedTick, 7734);
+  assert.equal(packedTick, 10347);
   assert.equal(stateOf(packedMatch).endReason, 'gameover');
   assert.equal(packedHash, externalHash);
   assert.equal(ledgerCount(packed), packedLedger);

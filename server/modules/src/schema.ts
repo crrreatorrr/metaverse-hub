@@ -892,7 +892,7 @@ namespace HubSchema {
       CONSTRAINT shop_price_sell CHECK (sell_price >= 0 AND sell_price < price)
     )`,
 
-    // Prices come from the CSVs. Prune then upsert. A later rebalance is a new migration.
+    // Use the original catalog so migration 0005 retains its applied checksum.
     HubShop.pruneSql(),
     HubShop.seedSql(),
 
@@ -3574,14 +3574,200 @@ namespace HubSchema {
       ],
     },
     {
-      // Any Level 1 Fighter story clear (Halloween 2008) can grant the Belt immediately.
-      // Keep the legacy world-1 event contract and existing live ownership. Old held
-      // claims are discarded; a fresh qualifying victory grants through the live path.
-      id: "0050_fighter_belt_live",
+      id: "0050_pb_campaign_pistol_price",
       statements: [
+        `UPDATE game.shop_price
+         SET price = 2, sell_price = 1
+         WHERE game = 'peoples-bitcoin' AND shop_id = 'shop_terminal' AND item_id = 'gun_campaign_pistol'`,
+      ],
+    },
+    {
+      // Hub-scope exchange (gameplay plan B1). game.exchange_tickets needs an open game session, so
+      // Tickets earned in games with no exchange screen could never become Verse. This adds a second
+      // entry to the same ledger for the plaza's Wallet tab (rpc verse.exchange). It is the body of
+      // game.exchange_tickets (0007) minus the game_session check and minus the HPOS10I refusal
+      // (owner answer in the launch plan R.6). Everything that bounds it is shared with the in-game
+      // path: the economy:<user> advisory lock, the verse:<game> earn_window bucket and its 50 Verse
+      // per game per UTC day, the 10:1 rate, the idempotency table and the same five writes. The
+      // in-game function is not replaced. No table changes, no new mint: it only debits Tickets the
+      // account already holds.
+      id: "0060_hub_exchange",
+      statements: [
+        `CREATE OR REPLACE FUNCTION game.exchange_tickets_hub(
+           p_user_id uuid, p_game_id text,
+           p_tickets bigint, p_idem_key text, p_req_hash text
+         ) RETURNS jsonb LANGUAGE plpgsql AS $fn$
+         DECLARE
+           v_response jsonb;
+           v_hash bytea;
+           v_existing_hash bytea;
+           v_day date;
+           v_used bigint;
+           v_room bigint;
+           v_verse bigint;
+           v_debit bigint;
+           v_tickets bigint;
+           v_wallet bigint;
+           v_event uuid;
+           v_receipt uuid;
+         BEGIN
+           IF p_game_id IS NULL OR p_game_id NOT IN (
+             'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto',
+             'sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle'
+           ) THEN
+             RETURN jsonb_build_object('error', 'bad_game');
+           END IF;
+           PERFORM pg_advisory_xact_lock(hashtextextended('economy:' || p_user_id::text, 0));
+           v_hash := decode(p_req_hash, 'hex');
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+           IF FOUND THEN
+             IF v_existing_hash <> v_hash THEN
+               RETURN jsonb_build_object('error', 'idempotency_mismatch');
+             END IF;
+             RETURN v_response;
+           END IF;
+           IF p_tickets IS NULL OR p_tickets <= 0 THEN
+             RETURN jsonb_build_object('error', 'below_rate');
+           END IF;
+           v_verse := p_tickets / 10;
+           IF v_verse <= 0 THEN
+             RETURN jsonb_build_object('error', 'below_rate');
+           END IF;
+           v_day := (now() AT TIME ZONE 'utc')::date;
+           SELECT amount INTO v_used FROM game.earn_window
+           WHERE user_id = p_user_id AND bucket = 'verse:' || p_game_id AND day = v_day;
+           IF NOT FOUND THEN v_used := 0; END IF;
+           v_room := 50 - v_used;
+           IF v_room <= 0 OR v_verse > v_room THEN
+             RETURN jsonb_build_object('error', 'verse_cap', 'verseCapLeft', GREATEST(v_room, 0));
+           END IF;
+           v_debit := v_verse * 10;
+           SELECT balance INTO v_tickets FROM game.tickets_balance
+           WHERE user_id = p_user_id AND game_id = p_game_id FOR UPDATE;
+           IF NOT FOUND OR v_tickets < v_debit THEN
+             RETURN jsonb_build_object('error', 'insufficient_tickets');
+           END IF;
+           UPDATE game.tickets_balance SET balance = balance - v_debit
+           WHERE user_id = p_user_id AND game_id = p_game_id
+           RETURNING balance INTO v_tickets;
+           INSERT INTO game.verse_wallet (user_id, balance) VALUES (p_user_id, v_verse)
+           ON CONFLICT (user_id) DO UPDATE
+             SET balance = game.verse_wallet.balance + EXCLUDED.balance
+           RETURNING balance INTO v_wallet;
+           v_event := gen_random_uuid();
+           v_receipt := gen_random_uuid();
+           INSERT INTO game.tickets_ledger (event_id, user_id, game_id, delta, balance_after, reason, ref_id, kind)
+           VALUES (v_event, p_user_id, p_game_id, -v_debit, v_tickets, 'exchange', v_receipt, 'exchange');
+           INSERT INTO game.verse_ledger (event_id, user_id, delta, balance_after, source, ref_id)
+           VALUES (gen_random_uuid(), p_user_id, v_verse, v_wallet, p_game_id, v_receipt);
+           INSERT INTO game.exchange_tx (receipt_id, user_id, game_id, tickets, verse, rate, idem_key)
+           VALUES (v_receipt, p_user_id, p_game_id, v_debit, v_verse, '10:1', p_idem_key);
+           INSERT INTO game.verse_earned (user_id, game_id, lifetime)
+           VALUES (p_user_id, p_game_id, v_verse)
+           ON CONFLICT (user_id, game_id) DO UPDATE
+             SET lifetime = game.verse_earned.lifetime + EXCLUDED.lifetime;
+           INSERT INTO game.earn_window (user_id, bucket, day, amount)
+           VALUES (p_user_id, 'verse:' || p_game_id, v_day, v_verse)
+           ON CONFLICT (user_id, bucket, day) DO UPDATE
+             SET amount = game.earn_window.amount + EXCLUDED.amount;
+           v_response := jsonb_build_object('game', p_game_id, 'verse', v_wallet, 'gained', v_verse, 'ticketsLeft', v_tickets, 'balance', v_tickets, 'receiptId', v_receipt, 'verseCapLeft', v_room - v_verse);
+           INSERT INTO game.idempotency (user_id, key, rpc, req_hash, response)
+           VALUES (p_user_id, p_idem_key, 'verse.exchange', v_hash, v_response);
+           RETURN v_response;
+         EXCEPTION WHEN unique_violation THEN
+           SELECT response, req_hash INTO v_response, v_existing_hash
+           FROM game.idempotency WHERE user_id = p_user_id AND key = p_idem_key;
+           IF NOT FOUND THEN RAISE; END IF;
+           IF v_existing_hash <> v_hash THEN
+             RETURN jsonb_build_object('error', 'idempotency_mismatch');
+           END IF;
+           RETURN v_response;
+         END;
+         $fn$`,
+      ],
+    },
+    {
+      // Release the client-reported grants 0033 parked (gameplay plan B3, owner decision 10.3:
+      // "migration now, promoting pending claims; release the four held pets; leave hub_life_medal").
+      //   Relics: genesis_shard (peoples-bitcoin, pb.quest_complete) and tidebreaker_belt
+      //           (sproto-fighter, fighter.story_level_complete).
+      //   Pets:   pet_honk_sproto, pet_spiral_sproto (hpos10i), pet_moon_sproto, pet_sproto_pup (peoples-bitcoin).
+      //
+      // The release is unconditional: it happens when this migration is applied, on deploy. The
+      // relic_unhold flag 0042 seeded was never read and cannot gate a migration. Nothing reads it:
+      // the key is gone from Flags.LAUNCH_FLAGS and its seeded row is left in place, inert.
+      //
+      // Unlike 0043, which deleted pending Core claims, every pending row for these six ids is
+      // promoted: the player already did the work. Promotion is set-based, with the same rows
+      // game.promote_pending_grant writes (one live claim, one item_ledger row, game_beaten for a
+      // Relic; no Tickets, no Verse) and ON CONFLICT DO NOTHING on the live tables, so an account
+      // that already owns the grant keeps its row and only loses the pending shadow. It does not
+      // call promote_pending_grant per row: that function takes one advisory lock per account, held
+      // to commit, and a large pending set would exhaust the shared lock table and fail every boot.
+      // Two table locks stand in for them. A promoted claim keeps the time the player qualified
+      // (the pending row's created_at) as claimed_at / acquired_at, so the Hall of Champions order
+      // follows who finished first. hub_life_medal stays held: it gates the Hatchery. The last
+      // statement fails the migration, and with it the boot, if any of the six is still pending.
+      id: "0061_relic_unhold",
+      statements: [
+        "LOCK TABLE game.relic_claim_pending, game.item_owned_pending IN ACCESS EXCLUSIVE MODE",
         `UPDATE game.event_rule SET grant_hold = false
-         WHERE game_id = 'sproto-fighter' AND event_type = 'fighter.story_level_complete' AND relic_id = 'tidebreaker_belt'`,
-        "DELETE FROM game.relic_claim_pending WHERE relic_id = 'tidebreaker_belt'",
+         WHERE (game_id, event_type, relic_id) IN (
+           ('sproto-fighter', 'fighter.story_level_complete', 'tidebreaker_belt'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'genesis_shard')
+         )`,
+        `UPDATE game.item_rule SET grant_hold = false
+         WHERE (game_id, event_type, item_id) IN (
+           ('hpos10i', 'hpos10i.level_complete', 'pet_honk_sproto'),
+           ('hpos10i', 'hpos10i.level_complete', 'pet_spiral_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_moon_sproto'),
+           ('peoples-bitcoin', 'pb.quest_complete', 'pet_sproto_pup')
+         )`,
+        `WITH moved AS (
+           INSERT INTO game.relic_claim (user_id, relic_id, session_id, event_id, claimed_at)
+           SELECT p.user_id, p.relic_id, p.session_id, gen_random_uuid(), p.created_at
+           FROM game.relic_claim_pending p
+           WHERE p.relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ON CONFLICT (user_id, relic_id) DO NOTHING
+           RETURNING user_id, relic_id, session_id, event_id
+         ), ledger AS (
+           INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+           SELECT m.event_id, m.user_id, 'grant_relic', m.relic_id, p.game_id, m.session_id
+           FROM moved m
+           JOIN game.relic_claim_pending p ON p.user_id = m.user_id AND p.relic_id = m.relic_id
+         )
+         INSERT INTO game.game_beaten (user_id, game_id, relic_id)
+         SELECT m.user_id, p.game_id, m.relic_id
+         FROM moved m
+         JOIN game.relic_claim_pending p ON p.user_id = m.user_id AND p.relic_id = m.relic_id
+         ON CONFLICT (user_id, game_id) DO NOTHING`,
+        "DELETE FROM game.relic_claim_pending WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')",
+        `WITH moved AS (
+           INSERT INTO game.item_owned (user_id, item_id, source, ref_id, acquired_at)
+           SELECT p.user_id, p.item_id, 'event', gen_random_uuid(), p.created_at
+           FROM game.item_owned_pending p
+           WHERE p.item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ON CONFLICT (user_id, item_id) DO NOTHING
+           RETURNING user_id, item_id, ref_id
+         )
+         INSERT INTO game.item_ledger (event_id, user_id, op, item_id, source, ref_id)
+         SELECT m.ref_id, m.user_id, 'grant_item', m.item_id, 'event', m.ref_id FROM moved m`,
+        "DELETE FROM game.item_owned_pending WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')",
+        `DO $chk$
+         BEGIN
+           IF EXISTS (
+             SELECT 1 FROM game.relic_claim_pending WHERE relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ) OR EXISTS (
+             SELECT 1 FROM game.item_owned_pending
+             WHERE item_id IN ('pet_honk_sproto', 'pet_spiral_sproto', 'pet_moon_sproto', 'pet_sproto_pup')
+           ) OR EXISTS (
+             SELECT 1 FROM game.event_rule WHERE grant_hold AND relic_id IN ('genesis_shard', 'tidebreaker_belt')
+           ) THEN
+             RAISE EXCEPTION 'relic_unhold_left_pending';
+           END IF;
+         END
+         $chk$`,
       ],
     },
   ];
@@ -3704,7 +3890,6 @@ namespace HubSchema {
   // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
   // 0046_shooter_wager_escrow is the hub's (MIGRATIONS above): Shooter-only 10-Ticket escrow.
   // It does not change Fighter wagers. 0036 and 0038 stay unused.
-  // 0050_fighter_belt_live releases the Belt hold for the first story rival.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
@@ -3717,7 +3902,16 @@ namespace HubSchema {
     REGISTERED.push({ id: m.id, statements: m.statements.slice() });
   }
 
-  /** Every migration (hub + registered), sorted by numeric prefix. Throws on a duplicate id or number. */
+  // These independently merged migrations both shipped as 0050. Preserve their
+  // full identities, statement checksums and ledger timestamps. Their bodies are
+  // independent (PB shop price; Shooter queue structures). This is the sole
+  // historical allocation exception, not permission to reuse a migration number.
+  function historical0050Pair(a: string, b: string): boolean {
+    return (a === "0050_pb_campaign_pistol_price" && b === "0050_shooter_verification_queue")
+      || (b === "0050_pb_campaign_pistol_price" && a === "0050_shooter_verification_queue");
+  }
+
+  /** Sorted by number, then full id. Only the two released 0050 identities may share a number. */
   export function all(): { id: string; statements: string[] }[] {
     var list = MIGRATIONS.concat(REGISTERED);
     var ids: { [id: string]: boolean } = {};
@@ -3728,12 +3922,12 @@ namespace HubSchema {
       if (ids[id]) throw new Error("duplicate schema migration id: " + id);
       ids[id] = true;
       var n = migrationNumber(id);
-      if (numbers[String(n)]) throw new Error("duplicate schema migration number: " + id + " and " + numbers[String(n)]);
+      if (numbers[String(n)] && !historical0050Pair(id, numbers[String(n)])) throw new Error("duplicate schema migration number: " + id + " and " + numbers[String(n)]);
       numbers[String(n)] = id;
       indexed.push({ n: n, i: i, m: list[i] });
     }
     indexed.sort(function (a, b) {
-      return a.n - b.n || a.i - b.i;
+      return a.n - b.n || (a.m.id < b.m.id ? -1 : a.m.id > b.m.id ? 1 : 0);
     });
     var out: { id: string; statements: string[] }[] = [];
     for (var j = 0; j < indexed.length; j++) out.push(indexed[j].m);

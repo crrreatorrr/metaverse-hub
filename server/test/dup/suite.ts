@@ -16,6 +16,16 @@ import {
 import { runAccounts } from './accounts.ts';
 import { runStoryBoss } from './story-boss.ts';
 import { runShooterRewards } from './shooter_rewards.ts';
+import { runShooterVerificationSchema } from './shooter_verification_schema.ts';
+import { runShooterVerificationIngest } from './shooter_verification_ingest.ts';
+import { runShooterVerificationInternal } from './shooter_verification_internal.ts';
+import { runShooterVerificationCommit } from './shooter_verification_commit.ts';
+import { runShooterVerificationSettlement } from './shooter_verification_settlement.ts';
+import { runShooterVerificationLifecycle } from './shooter_verification_lifecycle.ts';
+import { runShooterVerificationMetrics } from './shooter_verification_metrics.ts';
+import { runShooterVerificationRetention } from './shooter_verification_retention.ts';
+
+import { runShooterVerificationLeases } from './shooter_verification_leases.ts';
 import { runShooterMatch } from './shooter_match.ts';
 import { runCoopRewards } from './coop_rewards.ts';
 import { runWagers } from './wagers.ts';
@@ -27,6 +37,7 @@ import { runHubGate } from './hub_gate.ts';
 import { runMigrations } from './migrations.ts';
 import { runHold } from './hold.ts';
 import { runPets } from './pets.ts';
+import { runHubExchange } from './hub_exchange.ts';
 import { runRedeemFix } from './redeem-fix.ts';
 import { runSameTab } from './same-tab.ts';
 import { runShop } from './shop.ts';
@@ -75,7 +86,7 @@ import {
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 
-interface Outcome {
+export interface Outcome {
   category: string;
   name: string;
   status: 'pass' | 'fail' | 'pending' | 'expected-fail';
@@ -189,8 +200,8 @@ function grantFailure(flow: RelicFlow, body: RpcBody | undefined): string | null
   return `expected ${flow.relicId}, got ${detail}`;
 }
 
-/** Architect hold (0033 grant_hold). Cone, Tinubu, Breakwater, HPOS10I Core (0043), Marina Anchor, and Dragon Scale stay live. */
-const HELD_RELICS = new Set(['genesis_shard']);
+/** Architect hold (0033 grant_hold). 0061_relic_unhold released the last two held Relics (Genesis Block Shard, Tidebreaker Belt): every Relic flow is live. */
+const HELD_RELICS = new Set<string>();
 
 function isHeldRelic(flow: RelicFlow): boolean {
   return HELD_RELICS.has(flow.relicId);
@@ -1145,10 +1156,18 @@ async function hposExtras(): Promise<void> {
     assert.equal(mints(session.hub.userId, 'hpos10i_core'), 0);
   });
 
-  await test('score', 'hpos10i_act_time from an unranked session posts nothing', async () => {
+  // Unranked (plaza-entered) HPOS10I sessions post to the "open" half of the board, for accounts
+  // only. login() is a device guest, so its post is refused; bounds are checked before that.
+  await test('score', 'hpos10i_act_time from an unranked guest session posts nothing, and a time under the floor is refused', async () => {
     const session = await login('hpos10i');
     const skipped = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 1 } }, session.gameToken);
-    assert.deepEqual(skipped.body, { accepted: false, reason: 'unranked' });
+    assert.deepEqual(skipped.body, { accepted: false, reason: 'guest' });
+    for (const value of [0, 22.9, 1800.5]) {
+      const refused = await call('score.submit', { boardId: 'hpos10i_act_time', value, meta: { zone, act: 1 } }, session.gameToken);
+      assert.equal(refused.body.error, 'implausible_score', `${value} ${JSON.stringify(refused.body)}`);
+    }
+    const otherAct = await call('score.submit', { boardId: 'hpos10i_act_time', value: 40, meta: { zone, act: 2 } }, session.gameToken);
+    assert.equal(otherAct.body.error, 'bad_variant', JSON.stringify(otherAct.body));
     assert.equal(num(`SELECT count(*) FROM game.ranked_score WHERE user_id = '${sqlId(session.hub.userId)}'`), 0);
   });
 
@@ -1162,7 +1181,7 @@ async function hposExtras(): Promise<void> {
     const tooSoon = await call('score.submit', { boardId: 'hpos10i_act_time', value: 30, meta }, session.gameToken);
     assert.equal(tooSoon.body.error, 'rate_limited', JSON.stringify(tooSoon.body));
     await sleep(SCORE_GAP_MS);
-    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta: { zone, act: 2 } }, session.gameToken);
+    const worse = await call('score.submit', { boardId: 'hpos10i_act_time', value: 55.5, meta }, session.gameToken);
     assert.equal(worse.body.error, undefined, JSON.stringify(worse.body));
     assert.equal(worse.body.value, 40);
     assert.equal(worse.body.posted, false);
@@ -1717,29 +1736,69 @@ function pending(category: string, name: string, reason: string): void {
   console.log(`PENDING ${category} ${name} — ${reason}`);
 }
 
-function report(): number {
-  const categories = ['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone'];
+export function report(items: readonly Outcome[] = outcomes): number {
+  const categories = [...new Set(['idempotency', 'race', 'forged', 'wallet', 'fault', 'outbox', 'seq', 'session-cap', 'mock-clock', 'score', 'same-tab', 'redeem-fix', 'pets', 'hub-exchange', 'hold', 'migration', 'accounts', 'story-boss', 'shooter', 'shooter-verification', 'shooter-ingest', 'shooter-leases', 'shooter-internal', 'shooter-commit', 'shooter-payments', 'shooter-free', 'shooter-wager', 'coop', 'wager', 'hub-gate', 'v-coin', 'regress', 'standalone', ...items.map((item) => item.category)])];
   console.log('\nDuplication suite');
-  let failed = 0;
+  let failed = items.filter((item) => item.status === 'fail').length;
   for (const category of categories) {
-    const rows = outcomes.filter((item) => item.category === category);
+    const rows = items.filter((item) => item.category === category);
     const pass = rows.filter((item) => item.status === 'pass').length;
     const fail = rows.filter((item) => item.status === 'fail').length;
     const waiting = rows.filter((item) => item.status === 'pending').length;
     const expected = rows.filter((item) => item.status === 'expected-fail').length;
-    failed += fail;
     console.log(`${category}: ${pass} pass, ${fail} fail, ${waiting} pending, ${expected} expected-fail`);
   }
+  if (process.env.DUP_ONLY && !items.some((item) => item.status === 'pass')) {
+    failed += 1;
+    console.log('selected filter produced no pass, failing the suite');
+  }
   if (selected('shooter-free') || selected('shooter-match')) {
-    const rows = outcomes.filter((item) => item.category === 'shooter-free');
+    const rows = items.filter((item) => item.category === 'shooter-free');
     const pass = rows.filter((item) => item.status === 'pass').length;
     if (pass === 0) {
       failed += 1;
       console.log('shooter-free: category produced no pass, failing the suite');
     }
   }
+  if (selected('shooter-verification') && !items.some((item) => item.category === 'shooter-verification' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-verification: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-ingest') && !items.some((item) => item.category === 'shooter-ingest' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-ingest: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-leases') && !items.some((item) => item.category === 'shooter-leases' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-leases: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-internal') && !items.some((item) => item.category === 'shooter-internal' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-internal: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-commit') && !items.some((item) => item.category === 'shooter-commit' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-commit: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-payments') && !items.some((item) => item.category === 'shooter-payments' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-payments: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-lifecycle') && !items.some((item) => item.category === 'shooter-lifecycle' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-lifecycle: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-metrics') && !items.some((item) => item.category === 'shooter-metrics' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-metrics: category produced no pass, failing the suite');
+  }
+  if (selected('shooter-retention') && !items.some((item) => item.category === 'shooter-retention' && item.status === 'pass')) {
+    failed += 1;
+    console.log('shooter-retention: category produced no pass, failing the suite');
+
+  }
   if (selected('shooter-wager')) {
-    const rows = outcomes.filter((item) => item.category === 'shooter-wager');
+    const rows = items.filter((item) => item.category === 'shooter-wager');
     const pass = rows.filter((item) => item.status === 'pass').length;
     if (pass === 0) {
       failed += 1;
@@ -1753,11 +1812,11 @@ function report(): number {
   }
   if (failed) {
     console.log('\nFailures');
-    for (const item of outcomes.filter((row) => row.status === 'fail')) {
+    for (const item of items.filter((row) => row.status === 'fail')) {
       console.log(`- ${item.category} ${item.name}: ${item.detail?.split('\n')[0]}`);
     }
   }
-  const expected = outcomes.filter((row) => row.status === 'expected-fail');
+  const expected = items.filter((row) => row.status === 'expected-fail');
   if (expected.length) {
     console.log('\nExpected failures (redeem-fix is not on this commit)');
     for (const item of expected) {
@@ -1990,11 +2049,24 @@ export async function main(): Promise<void> {
     if (selected('same-tab')) await runSameTab(test);
     if (selected('redeem-fix')) await runRedeemFix(test);
     if (selected('pets')) await runPets(test);
+    if (selected('hub-exchange')) await runHubExchange(test);
     if (selected('hold')) await runHold(test);
     if (selected('migration')) await runMigrations(test);
     if (selected('accounts')) await runAccounts(test);
     if (selected('story-boss')) await runStoryBoss(test);
     if (selected('shooter')) await runShooterRewards(test);
+    if (selected('shooter-verification')) await runShooterVerificationSchema(test);
+    if (selected('shooter-ingest')) await runShooterVerificationIngest(test);
+    if (selected('shooter-leases')) await runShooterVerificationLeases(test);
+    if (selected('shooter-internal')) await runShooterVerificationInternal(test);
+    if (selected('shooter-commit')) await runShooterVerificationCommit(test);
+    if (selected('shooter-payments')) await runShooterVerificationSettlement(test);
+    if (selected('shooter-lifecycle')) await runShooterVerificationLifecycle(test);
+    if (selected('shooter-retention')) await runShooterVerificationRetention(test);
+    // Metrics ends with1000 retained quarantine fixtures. Run it after all
+    // other v2 fixtures, whose smaller disposable quotas must remain faithful.
+    if (selected('shooter-metrics')) await runShooterVerificationMetrics(test);
+
     if (selected('shooter-free') || selected('shooter-match')) await runShooterMatch(test);
     if (selected('coop')) await runCoopRewards(test);
     if (selected('wager')) await runWagers(test);

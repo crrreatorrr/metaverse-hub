@@ -35,6 +35,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
 import ts from 'typescript';
+import { loadModule } from '../unit/harness.ts';
 import {
   audit,
   compose,
@@ -50,6 +51,82 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../.
 const COMPOSE_FILE = path.join(ROOT, 'server/docker-compose.yml');
 const SCHEMA_FILE = path.join(ROOT, 'server/modules/src/schema.ts');
 const BOOTS = ['hub-boot-a', 'hub-boot-b'] as const;
+const PB_PRICE = '0050_pb_campaign_pistol_price';
+const VERIFICATION_ID = /^[0-9]+_shooter_(verification|verified|v2)_/;
+const VERIFICATION_TABLE = /^shooter_verification_[a-z0-9_]+$/;
+const VERIFICATION_FUNCTION = /^(shooter_verification_|issue_shooter_verification_|settle_shooter_verified_)[a-z0-9_]+$/;
+
+/** Historical CI construction only: never rollback/reapplication tooling. */
+function assertPristineVerificationDomain(): string[] {
+  assert.equal(process.env.GITHUB_ACTIONS, 'true', 'historical verification reconstruction requires disposable Actions');
+  assert.equal(process.env.HUB_MIGRATION_FIXTURE, 'verification-history');
+  assert.equal(psql('SELECT current_database()'), 'nakama');
+  assert.ok(!process.env.NAKAMA_URL || process.env.NAKAMA_URL === 'http://127.0.0.1:7350', 'literal disposable loopback target');
+  const configFlags: Record<string, string> = {
+    shooter_verification_admission: 'new_runs_enabled', shooter_verification_scheduler: 'claims_enabled',
+    shooter_verification_gateway: 'enabled', shooter_verification_payment_config: 'payments_enabled',
+    shooter_verification_retention_config: 'enabled',
+  };
+  const tables = lines("SELECT tablename FROM pg_tables WHERE schemaname='game' AND tablename LIKE 'shooter\\_verification\\_%' ESCAPE '\\' ORDER BY tablename");
+  for (const table of tables) {
+    assert.match(table, VERIFICATION_TABLE);
+    const flag = configFlags[table];
+    if (!flag) { assert.equal(num(`SELECT count(*) FROM game.${ident(table)}`), 0, `${table} contains retained verification identity/evidence; historical reconstruction refused`); continue; }
+    const rows = JSON.parse(psql(`SELECT COALESCE(jsonb_agg(to_jsonb(c)),'[]'::jsonb)::text FROM game.${ident(table)} c`)) as Record<string, unknown>[];
+    assert.equal(rows.length, 1, `${table} singleton`); assert.equal(rows[0].singleton, true); assert.equal(rows[0][flag], false, `${table} must remain default off`);
+    for (const [key, value] of Object.entries(rows[0])) {
+      if (/^(retained_|reserved_|retired_)/.test(key) || ['rate_count', 'rate_attempts'].includes(key)) assert.equal(value, 0, `${table}.${key} has activity`);
+      if (/^(max_|global_|account_)/.test(key) || ['lease_seconds', 'attempt_seconds', 'attempt_limit', 'retry_base_seconds', 'retry_max_seconds', 'slice_ticks', 'operations_per_minute', 'operator_operations_per_minute', 'minimum_retention_seconds'].includes(key)) assert.equal(value, null, `${table}.${key} is configured`);
+    }
+  }
+  return tables;
+}
+
+function dropPristineVerificationSchema(): void {
+  const tables = assertPristineVerificationDomain();
+  // No CASCADE: any dependency from an unrelated/financial object is a failure.
+  // One complete DROP handles internal FKs, including0058's derived payment_work.
+  const functions = lines(`SELECT p.proname||'|'||pg_get_function_identity_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+    WHERE n.nspname='game' AND p.prokind='f' AND (p.proname LIKE 'shooter\\_verification\\_%' ESCAPE '\\' OR p.proname LIKE 'issue\\_shooter\\_verification\\_%' ESCAPE '\\' OR p.proname LIKE 'settle\\_shooter\\_verified\\_%' ESCAPE '\\') ORDER BY p.proname,p.oid`);
+  const signatures = functions.map(row => { const split = row.indexOf('|'), name = row.slice(0, split), args = row.slice(split + 1); assert.match(name, VERIFICATION_FUNCTION); assert.ok(!/[;\n]/.test(args)); return `game.${ident(name)}(${args})`; });
+  // Any unexpected function dependency also rolls back the preceding table
+  // removal: the pristine fixture is never left half reconstructed.
+  psql(`BEGIN;${tables.length ? `DROP TABLE ${tables.map(t => `game.${ident(t)}`).join(',')};` : ''}${signatures.length ? `DROP FUNCTION ${signatures.join(',')};` : ''}COMMIT;`);
+}
+
+/** Reconstruct genuine pre-latest DDL from immutable registered statement bytes. */
+function reconstructVerificationPrefix(latest: string, history: Map<string, LedgerRow>): void {
+  assert.ok(VERIFICATION_ID.test(latest));
+  dropPristineVerificationSchema();
+  const module = loadModule({ noInit: true });
+  const registered = (module.global.HubSchema as { all(): { id: string; statements: string[] }[] }).all().filter(m => VERIFICATION_ID.test(m.id));
+  assert.equal(registered.at(-1)?.id, latest, 'latest verification migration must be the genuine last registered family entry');
+  const q = (v: string) => "'" + v.replace(/'/g, "''") + "'";
+  let sql = `BEGIN;DELETE FROM game.schema_migrations WHERE id IN(${registered.map(m => q(m.id)).join(',')});\n`;
+  for (const migration of registered.filter(m => m.id !== latest)) {
+    const prior = history.get(migration.id); assert.ok(prior, `${migration.id} history missing`);
+    const checksum = createHash('sha256').update(migration.statements.join('\n')).digest('hex');
+    assert.equal(checksum, prior.checksum, `${migration.id} unchanged historical statement bytes`);
+    sql += migration.statements.join(';\n') + `;\nINSERT INTO game.schema_migrations(id,checksum,applied_at) VALUES(${q(migration.id)},${q(checksum)},${q(prior.appliedAt + '+00')}::timestamptz);\n`;
+  }
+  execFileSync('docker', ['compose', '-f', COMPOSE_FILE, 'exec', '-T', 'postgres', 'psql', '-U', 'postgres', '-d', 'nakama', '-v', 'ON_ERROR_STOP=1', '-q', '-f', '-'], { cwd: ROOT, input: sql + 'COMMIT;', encoding: 'utf8', timeout: 30000 });
+}
+
+function financialRows(): string {
+  const tables = ['game_session', 'auth_ticket', 'tickets_balance', 'tickets_ledger', 'verse_wallet', 'verse_ledger', 'earn_window', 'exchange_tx', 'idempotency', 'shooter_run', 'shooter_digest', 'shooter_receipt', 'coop_receipt', 'coop_eligibility', 'item_ledger', 'item_owned', 'relic_claim'];
+  return tables.map(table => `${table}:${psql(`SELECT md5(COALESCE(string_agg(to_jsonb(t)::text,'' ORDER BY to_jsonb(t)::text),'')) FROM game.${ident(table)} t`)}`).join('\n');
+}
+
+function restoreParkedPbHistory(prior: LedgerRow): void {
+  const current = ledgerById().get(PB_PRICE); assert.ok(current);
+  assert.equal(current.checksum, prior.checksum, 'replayed PB checksum unchanged');
+  assert.equal(current.checksum, fileChecksum(PB_PRICE), 'PB replay uses unchanged code');
+  // The exact independent row was parked while constructing a true pre0003
+  // history. Restore its original timestamp only after real guarded replay.
+  assert.match(prior.appliedAt, /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{6}$/);
+  psql(`UPDATE game.schema_migrations SET applied_at=timestamptz '${prior.appliedAt}+00' WHERE id='${PB_PRICE}' AND checksum='${prior.checksum}'`);
+  assert.deepEqual(ledgerById().get(PB_PRICE), prior, 'parked PB full ledger row restored exactly');
+}
 
 const GAME_ID_TABLES = [
   'game_session',
@@ -92,7 +169,7 @@ function lines(sql: string, database?: string): string[] {
 }
 
 function ident(name: string): string {
-  if (!/^[a-z_]+$/.test(name)) throw new Error(`bad sql name ${name}`);
+  if (!/^[a-z_][a-z0-9_]*$/.test(name)) throw new Error(`bad sql name ${name}`);
   return name;
 }
 
@@ -133,8 +210,37 @@ export function migrationIds(): string[] {
   }
   return ids
     .map((id, index) => ({ id, index, n: Number(id.split('_')[0]) }))
-    .sort((a, b) => a.n - b.n || a.index - b.index)
+    .sort((a, b) => a.n - b.n || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
     .map((row) => row.id);
+}
+
+/**
+ * Historical fixtures rebuild a database from before some migration by deleting ledger rows and
+ * rebooting. The runner refuses to apply a migration below a recorded newer one, and a database
+ * from before `id` has no later migrations either. So later rows outside the Shooter verification
+ * family (independent of it: 0059_feedback and after) are removed for the replay; the boot applies
+ * them again in order, and `restore` checks they came back unchanged and puts back applied_at.
+ * A later migration inside the family is never removed here: that still fails the caller's guard.
+ */
+export function parkLaterMigrations(id: string): { ids: string[]; remove(): void; restore(): void } {
+  const floor = Number(id.split('_')[0]);
+  const ids = migrationIds().filter((other) => Number(other.split('_')[0]) > floor && !VERIFICATION_ID.test(other));
+  const rows = ids.map((other) => ({ id: other, row: psql(`SELECT checksum||'|'||applied_at::text FROM game.schema_migrations WHERE id='${other}'`) }));
+  for (const { id: other, row } of rows) assert.match(row, /^[0-9a-f]{64}\|\d{4}-\d{2}-\d{2} [0-9:.+-]+$/, `${other} is recorded before the replay`);
+  return {
+    ids,
+    remove(): void {
+      for (const other of ids) deleteLedgerRow(other);
+    },
+    restore(): void {
+      for (const { id: other, row } of rows) {
+        const [checksum, appliedAt] = row.split('|') as [string, string];
+        assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id='${other}'`), checksum, `${other} replays with the same checksum`);
+        assert.equal(checksum, fileChecksum(other), `${other} replay uses unchanged code`);
+        psql(`UPDATE game.schema_migrations SET applied_at=timestamptz '${appliedAt}' WHERE id='${other}' AND checksum='${checksum}'`);
+      }
+    },
+  };
 }
 
 function latestMigration(): string {
@@ -439,6 +545,10 @@ async function doPrepare(): Promise<Fixture> {
     collisionLedger: 0,
   };
   compose(['stop', 'nakama'], 180_000);
+  const parkedPb = ledgerById().get(PB_PRICE); assert.ok(parkedPb, 'independent PB history must exist before historical fixture');
+  const beforeDrop = financialRows();
+  dropPristineVerificationSchema();
+  assert.equal(financialRows(), beforeDrop, 'removing only pristine v2 DDL preserves every old financial row');
   // The fixture is a database from before 0003. 0002 inserts these open game_beaten
   // rules; a later migration (0008) removes them, so put them back the way 0002 left them.
   psql(
@@ -487,6 +597,7 @@ async function doPrepare(): Promise<Fixture> {
   psql('ALTER TABLE game.event_rule ADD PRIMARY KEY (game_id, event_type)');
   parkLaterGames();
   await bootAndReady();
+  restoreParkedPbHistory(parkedPb);
   restoreLaterGames();
   return fix;
 }
@@ -749,6 +860,33 @@ async function raceHubBoots(): Promise<void> {
 }
 
 export async function runMigrations(test: DupTest): Promise<void> {
+  await test('migration', 'historical reconstruction refuses populated or configured verification domain before any drop', async () => {
+    const ledger = migrationSnapshot(), financial = financialRows();
+    // This ephemeral probe is not a run/input/receipt. A future nonempty family
+    // table must fail closed rather than silently losing unrecognized evidence.
+    psql("CREATE TABLE game.shooter_verification_fixture_probe(marker text NOT NULL);INSERT INTO game.shooter_verification_fixture_probe VALUES('retained-test-probe')");
+    try {
+      assert.throws(() => dropPristineVerificationSchema(), /contains retained verification identity\/evidence/);
+      assert.equal(num('SELECT count(*) FROM game.shooter_verification_fixture_probe'), 1);
+      assert.equal(psql("SELECT to_regclass('game.shooter_verification_cohort')::text"), 'game.shooter_verification_cohort');
+      assert.equal(migrationSnapshot(), ledger); assert.equal(financialRows(), financial);
+    } finally { psql('DROP TABLE game.shooter_verification_fixture_probe'); }
+    psql('UPDATE game.shooter_verification_gateway SET max_requests=1');
+    try { assert.throws(() => dropPristineVerificationSchema(), /is configured/); }
+    finally { psql('UPDATE game.shooter_verification_gateway SET max_requests=NULL'); }
+    assert.equal(migrationSnapshot(), ledger); assert.equal(financialRows(), financial);
+    // An unrelated trigger depends on a family function, not its tables. This
+    // reaches the second DROP and proves its refusal rolls back the first DROP.
+    psql(`CREATE TABLE game.historical_fixture_external_dependency(id integer);
+      CREATE TRIGGER historical_fixture_external_dependency BEFORE UPDATE ON game.historical_fixture_external_dependency
+      FOR EACH ROW EXECUTE FUNCTION game.shooter_verification_retention_immutable()`);
+    try {
+      assert.throws(() => dropPristineVerificationSchema(), /depend/);
+      assert.equal(psql("SELECT to_regclass('game.shooter_verification_cohort')::text"), 'game.shooter_verification_cohort');
+      assert.equal(num("SELECT count(*) FROM pg_trigger WHERE tgrelid='game.shooter_verification_cohort'::regclass AND tgname='shooter_verification_cohort_guard'"), 1);
+      assert.equal(migrationSnapshot(), ledger); assert.equal(financialRows(), financial);
+    } finally { psql('DROP TABLE game.historical_fixture_external_dependency'); }
+  });
   await test('migration', '0002 checksum matches schema.ts', async () => {
     const stored = psql(`SELECT checksum FROM game.schema_migrations WHERE id = '0002_baseline'`);
     const file = fileChecksum('0002_baseline');
@@ -968,10 +1106,18 @@ export async function runMigrations(test: DupTest): Promise<void> {
     let failure: unknown = null;
     try {
       compose(['stop', 'nakama'], 180_000);
+      // Keep a populated, internally consistent canonical wallet/idempotency
+      // history across this upgrade, including its exact IDs and timestamps.
+      const owner = uuid(), event = uuid();
+      psql(`INSERT INTO game.tickets_balance(user_id,game_id,balance) VALUES('${owner}','peoples-bitcoin',7);
+        INSERT INTO game.tickets_ledger(event_id,user_id,game_id,delta,balance_after,reason,ref_id) VALUES('${event}','${owner}','peoples-bitcoin',7,7,'seed',NULL);
+        INSERT INTO game.idempotency(user_id,key,rpc,req_hash,response) VALUES('${owner}','historical-wallet','tickets.earn',decode(repeat('a',64),'hex'),'{"balance":7}')`);
       const before = ledgerById();
       if (before.size !== migrationIds().length || !before.has(next)) throw new Error(`ledger not ready\n${migrationSnapshot()}`);
       const economy = economySnapshot();
-      deleteLedgerRow(next);
+      const financial = financialRows();
+      if (VERIFICATION_ID.test(next)) reconstructVerificationPrefix(next, before);
+      else deleteLedgerRow(next);
       await bootAndReady();
       const after = ledgerById();
       for (const [id, row] of before) {
@@ -980,6 +1126,7 @@ export async function runMigrations(test: DupTest): Promise<void> {
       assert.equal(after.get(next)?.checksum, fileChecksum(next), `${next} checksum`);
       assert.equal(after.size, migrationIds().length);
       assert.equal(economySnapshot(), economy, `balances or ledger counts changed when ${next} applied in order`);
+      assert.equal(financialRows(), financial, 'in-order upgrade preserves exact legacy financial rows, IDs and timestamps');
     } catch (error) {
       failure = error;
     } finally {

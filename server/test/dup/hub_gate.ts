@@ -956,8 +956,9 @@ export async function runHubGate(runner: Runner): Promise<void> {
     assert.equal(verseBalance(duel.hub.userId), 0);
   });
 
-  await runner.test('regress', 'the held pairs still land in the pending tables and pay 0', async () => {
+  await runner.test('regress', 'the pairs 0061_relic_unhold released grant live once and pay 0', async () => {
     const pairs: { game: string; eventId: string; data: object; kind: 'relic' | 'item'; id: string }[] = [
+      { game: 'sproto-fighter', eventId: 'fighter.story_level_complete', data: { world: 1 }, kind: 'relic', id: 'tidebreaker_belt' },
       { game: 'peoples-bitcoin', eventId: 'pb.quest_complete', data: { questId: 'quest_tutorial' }, kind: 'relic', id: 'genesis_shard' },
       { game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z1_retro_rush_hills', act: 2, time: 12 }, kind: 'item', id: 'pet_honk_sproto' },
       { game: 'hpos10i', eventId: 'hpos10i.level_complete', data: { zone: 'z2_wizard_academy', act: 2, time: 12 }, kind: 'item', id: 'pet_spiral_sproto' },
@@ -972,20 +973,25 @@ export async function runHubGate(runner: Runner): Promise<void> {
         const before = purse(user, pair.game);
         const result = await fire(session, pair.eventId, pair.data);
         assertNoPay(result, user, pair.game, before);
-        assert.equal(result.body.granted, undefined, JSON.stringify(result.body));
-        assert.deepEqual(grantedItems(result.body), [], JSON.stringify(result.body));
+        // A second qualifying clear with a new key grants nothing more.
+        const again = await fire(session, pair.eventId, pair.data);
+        assertNoPay(again, user, pair.game, before);
         if (pair.kind === 'relic') {
-          assert.equal(relicPending(user, pair.id), 1, pair.id);
-          assert.equal(relicClaims(user, pair.id), 0, pair.id);
+          assert.equal(result.body.granted, pair.id, JSON.stringify(result.body));
+          assert.equal(again.body.granted, undefined, JSON.stringify(again.body));
+          assert.equal(relicPending(user, pair.id), 0, pair.id);
+          assert.equal(relicClaims(user, pair.id), 1, pair.id);
           assert.equal(
             num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND relic_id = '${slug(pair.id)}'`),
-            0,
+            1,
             pair.id,
           );
         } else {
-          assert.equal(pendingCount(user, pair.id), 1, pair.id);
-          assert.equal(ownedCount(user, pair.id), 0, pair.id);
-          assert.equal(itemGrants(user, pair.id), 0, pair.id);
+          assert.deepEqual(grantedItems(result.body), [pair.id], JSON.stringify(result.body));
+          assert.deepEqual(grantedItems(again.body), [], JSON.stringify(again.body));
+          assert.equal(pendingCount(user, pair.id), 0, pair.id);
+          assert.equal(ownedCount(user, pair.id), 1, pair.id);
+          assert.equal(itemGrants(user, pair.id), 1, pair.id);
         }
       } catch (error) {
         problems.push(`${pair.id}: ${error instanceof Error ? error.message : String(error)}`);

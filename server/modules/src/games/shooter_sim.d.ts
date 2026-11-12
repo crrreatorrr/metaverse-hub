@@ -33,6 +33,40 @@ interface ShooterSimApi {
   contentFingerprintOf(): string;
   bossById(id: string): { [key: string]: unknown } | null;
   pureClone<T>(value: T): T;
+  // Optional for historical artifacts; the approved v2 pin guard requires them.
+  UPLOAD_PROTOCOL_VERSION?: number;
+  REPLAY_API_VERSION?: number;
+  INCREMENTAL_CHECKPOINT_SCHEMA_VERSION?: number;
+  beginIncrementalReplay?(ctx: ShooterIncrementalContext): ShooterIncrementalResult;
+  acceptReplayBatch?(text: string, checkpoint: { [key: string]: unknown }, ctx: ShooterIncrementalContext): ShooterIncrementalResult;
+  stepReplaySlice?(checkpoint: { [key: string]: unknown }, ctx: ShooterIncrementalContext): ShooterIncrementalResult;
+  publicReplayJSON?(result: ShooterIncrementalResult): string;
+}
+
+interface ShooterIncrementalContext {
+  issuance: { [key: string]: unknown };
+  manifest: { artifact: "shooter-sim"; sourceCommit: string; sha256: string; protocol: 1; contentFingerprint: string };
+  accepted?: {
+    runId: string; sequence: number; tick0: number; n: number; sha256: string;
+    binding: { accountId: string; sessionId: string; day: string; runId: string };
+    acceptedBeforeTerminal: boolean;
+  };
+  maxWorkFrames?: number;
+  clock?: () => number;
+}
+
+interface ShooterIncrementalResult {
+  privateCheckpoint: { [key: string]: unknown } | null;
+  publicResult: {
+    version: number;
+    status: "invalid" | "pending_retryable" | "received" | "verified" | "terminal_verified";
+    reason: string; retryable: boolean; eligible: boolean; ranked: boolean; ticketsMinted: 0;
+    acceptedInputTick?: number; verifiedInputTick?: number; simulationTick?: number;
+    acceptedBatches?: number; verifiedBatches?: number;
+    framesTextBytes?: number; verifiedFramesTextBytes?: number;
+    actions?: number; verifiedActions?: number;
+    terminal?: { [key: string]: unknown } | null;
+  };
 }
 
 declare const SprotoShooterSim: ShooterSimApi;

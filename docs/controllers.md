@@ -72,11 +72,13 @@ key or click gives the prompts back to the keyboard.
 | Talking to Sprotel | D-pad / walking stick choose, A asks, B (or "See you.") leaves |
 | Login gate | D-pad / walking stick move the focus ring, A presses (tabs, Continue as guest, submit). Text fields keep focus for a device keyboard |
 
-The camera smoothly follows each new travel direction. Holding a movement direction keeps a
+The camera softens starts, stops, jumps, and manual look as well as turns. Quick direction
+changes keep the view stable; automatic follow waits briefly for a steady heading. Large
+reversals use a slower turn speed. Holding a movement direction keeps a
 straight course while the camera turns behind the avatar. The camera stick, mouse, and Z / C
 look left / right consistently. Manual camera input takes priority; follow resumes after a short
 pause while moving. Stopping preserves the avatar's facing, and clicking the camera stick
-recenters immediately. Camera and movement inputs pause while a menu, chat, or dialog is open.
+smoothly recenters. Camera and movement inputs pause while a menu, chat, or dialog is open.
 
 The arcade picker, Sprotel's panel and the chat chip show controller buttons while a pad is the last
 device used, and A gives a short rumble where the browser supports it. The A that closes the login

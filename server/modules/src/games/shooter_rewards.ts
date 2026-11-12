@@ -13,8 +13,8 @@ namespace ShooterRewards {
   export var BOARD_ID = "shooter_story_clear_ms_v1";
   export var PAY = 20;
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "c1f0d0e5f9af8edd05c840a55d7c8a66d15c2876";
-  export var BUNDLE_SHA256 = "b773456a35da824676e5c132db4500cd336c2b9a3e700f3814bb26d4d94a10a2";
+  export var COMMIT = "3763b43908312ec65cb9002a45d49bcff6b044b6";
+  export var BUNDLE_SHA256 = "93806ae3727fabaace6b05b93bf3b0fbac09b4805fab2a11696a9f83f0123624";
   export var FINGERPRINT = "cea1f88b";
   export var PROTOCOL = 1;
   var BOSSES = ["sahil", "obama", "broccoli", "glowie", "tinubu"];

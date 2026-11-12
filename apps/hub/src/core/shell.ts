@@ -4,6 +4,7 @@ import { MOVEMENT } from '../core/movement';
 import {
   HubSdkError,
   createNakamaClient,
+  installFeedback,
   type ChatChannel,
   getOrCreateDeviceId,
   type GameId,
@@ -12,7 +13,7 @@ import {
   type RecoveryCodeResult,
   type RecoveryRedeemResult,
 } from '@metaverse/hub-sdk';
-import { DefaultLoadingManager, DoubleSide, MathUtils, Ray, Timer, Vector3 } from 'three';
+import { DefaultLoadingManager, DoubleSide, MathUtils, Matrix4, Ray, Timer, Vector3, type PerspectiveCamera } from 'three';
 import { resume, signOut } from '../auth';
 import '@fontsource-variable/inter/wght.css';
 import '@fontsource/press-start-2p/latin-400.css';
@@ -32,6 +33,7 @@ import { createPetCollision } from './pet-collision';
 import { createPlanarSpeed } from './planar-speed';
 import { DEFAULT_PET_ID, EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { gameUrl, type GameUrlContext } from '../games';
+import { createExchangeKeys, exchangeErrorText, walletFromAnswer, type BalancesAnswer, type ExchangeAnswer, type WalletState } from '../wallet';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
 import { gate } from '../login';
@@ -40,8 +42,17 @@ import { initialDwell, loginReturnPath, portalContaining, portalUrl, stepPortalD
 
 import { createEngine } from './engine';
 import { createCameraFollow } from './camera-follow';
+import { createCameraArm, createCameraPitch, createCameraPreview, createCameraTarget } from './camera-motion';
 import { PAD, PAD_TUNING, createPadReader, loadMoveStick, padPrompt, rumble, saveMoveStick, stickClicks, type MoveStick, type PadFrame } from './gamepad';
 import { createPadFocus } from './pad-focus';
+import { loadInvertLook, lookVertical, saveInvertLook } from './look-settings';
+import { GAME_LIST, LAST_GAME_KEY, MATURE_OK_KEY, MATURE_QUESTION, gameInfo, needsMatureConfirm, parseLastGame, relicOfGame } from '../game-list';
+import { createHudGuide } from '../guide/hud';
+import { ONBOARDING_SEEN_KEY, onboardingFinished, onboardingStep, type OnboardingState } from '../guide/onboarding';
+import { TRIP_KEY, encodeTrip, parseTrip, tripLines, tripSummary } from '../guide/trip';
+import { parseReturnGame } from '../travel';
+import { canEmote, emoteForKey, emoteLine, type EmoteId } from '../emotes';
+import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, withTimeout } from './launch-errors';
 import type { RealmDefinition, RealmContent } from './realm';
 
 /** loadout.set_hub reply (server/modules/src/pets.ts `ack`). */
@@ -104,7 +115,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     pageFor,
     travel(game) {
       const page = pageFor(game.id);
-      if (page && !traveling && !menu.open) void travel(game, page);
+      if (page && !traveling && !menu.open) launch(game, page);
     },
     releasePointer() { keys.clear(); releasePointer(); },
     isBlocked: () => traveling || menu.open || chat.open,
@@ -208,6 +219,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const keys = new Set<string>();
   /** Which stick walks (menu → Items → Controller). The other turns the camera. */
   let moveStick: MoveStick = loadMoveStick();
+  /** Vertical look sense (menu → Items → Vertical look). True is the plaza's original inverted sense. */
+  let invertLook = loadInvertLook();
   const pad = createPadReader(PAD_TUNING, { moveStick: () => moveStick });
   const padFocus = createPadFocus();
   /** A controller was the last device used: hints show controller prompts. */
@@ -218,6 +231,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let padBlocked = true;
   let yaw = initial.yaw;
   const cameraFollow = createCameraFollow();
+  const cameraPitch = createCameraPitch();
+  const cameraTarget = createCameraTarget();
+  const cameraArm = createCameraArm();
+  const cameraPreview = createCameraPreview();
   /** Yaw the body shows: eases toward the controller's facing instead of snapping. */
   let bodyYaw = initial.yaw;
   /** Seconds off the ground, so a step down a curb does not flash the jump pose. */
@@ -228,7 +245,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let traveling = false;
   let dwell: PortalDwell = initialDwell();
   let portalError = '';
-  /** When the last travel error was shown; it stays up a few seconds even outside a ring. */
+  /** When the last travel error was shown; it stays up a few seconds even outside an entrance. */
   let portalErrorAt = -Infinity;
   let fps = 60;
   let warnedDraws = false;
@@ -238,11 +255,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let guestLabel = 'Guest';
   /** 0 = play camera, 1 = menu preview in front of the avatar. */
   let preview = 0;
-  let previewSpin = 0;
   const savedView = { yaw: 0, pitch: 0 };
   const timer = new Timer();
   timer.connect(document);
   const lookTarget = new Vector3();
+  const playerLookTarget = new Vector3();
   const desiredPos = new Vector3();
   const rayDir = new Vector3();
   const camPos = new Vector3();
@@ -280,6 +297,29 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   try { otherPetsHidden = localStorage.getItem('hub:hide-other-pets') === '1'; } catch { /* Optional preference. */ }
   remotes.setPetsHidden(otherPetsHidden);
   const overheads = createOverheads(hudRoot instanceof HTMLElement ? hudRoot : document.body);
+
+  // Onboarding and discovery (plan D1, D2, D4, D5): first-visit card, gate markers, return card, 18+ confirm.
+  const guide = createHudGuide(hudRoot instanceof HTMLElement ? hudRoot : document.body, () => {
+    onboarding.dismissed = true;
+    paintOnboarding();
+  });
+  const onboarding: OnboardingState = {
+    seen: readStored('local', ONBOARDING_SEEN_KEY, (value) => value === '1'),
+    dismissed: false,
+    relics: null,
+    reachedGate: false,
+  };
+  function paintOnboarding(): void {
+    if (!onboarding.seen && onboardingFinished(onboarding)) {
+      onboarding.seen = true;
+      writeStored('local', ONBOARDING_SEEN_KEY, '1');
+    }
+    guide.paintOnboarding(onboardingStep(onboarding));
+  }
+  paintOnboarding();
+  const markerPoint = new Vector3();
+  const markerView = new Matrix4();
+  const shotMode = Boolean(new URLSearchParams(window.location.search).get('shot'));
 
   // Sims (Menu → Sims): characters only this screen sees. They join the RemoteWorld so
   // remotes.ts draws them; their lines go to the chat log and bubbles, never the channel.
@@ -347,22 +387,38 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (chat.open) chat.hide();
       savedView.yaw = yaw;
       savedView.pitch = pitch;
-      previewSpin = 0;
+      cameraPreview.open(player.facingYaw);
     },
     onClose() {
       keys.clear();
       yaw = savedView.yaw;
       pitch = savedView.pitch;
       cameraFollow.reset();
+      cameraPitch.reset();
     },
     onSpin(delta) {
-      previewSpin += delta;
+      cameraPreview.spin(delta);
     },
     moveStick: () => moveStick,
     setMoveStick(next) {
       moveStick = next;
       saveMoveStick(next);
     },
+    invertLook: () => invertLook,
+    setInvertLook(next) {
+      invertLook = next;
+      saveInvertLook(next);
+    },
+    games: GAME_LIST,
+    gameAvailable: (id) => pageFor(id) !== null,
+    playGame(id) {
+      const game = gameInfo(id);
+      const page = pageFor(id);
+      if (!game || !page || traveling) return;
+      menu.hide();
+      launch(game, page);
+    },
+    lastGame: () => readStored('local', LAST_GAME_KEY, parseLastGame),
     deployablePets: EQUIPPABLE_PET_IDS,
     otherPetsHidden: () => otherPetsHidden,
     setOtherPetsHidden(hidden) {
@@ -372,7 +428,50 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     },
     activePet: () => activePet,
     setActivePet: deployPet,
+    loadWallet,
+    exchangeTickets,
   });
+
+  // Wallet tab (plan B1). Both calls use the hub session; the server decides every amount.
+  const exchangeKeys = createExchangeKeys(() => crypto.randomUUID());
+
+  async function loadWallet(): Promise<WalletState | null> {
+    if (!sessionPromise) return null;
+    try {
+      const session = await sessionPromise;
+      const answer = await session.client.rpc<BalancesAnswer>('tickets.balances', {}, { token: await plazaToken(session) });
+      const state = walletFromAnswer(answer);
+      showVerse(state.verse);
+      return state;
+    } catch (error) {
+      console.warn('[wallet] could not load balances', error);
+      return null;
+    }
+  }
+
+  async function exchangeTickets(game: GameId, tickets: number): Promise<{ ok: true; answer: ExchangeAnswer } | { ok: false; text: string }> {
+    if (!sessionPromise) return { ok: false, text: SERVER_SILENT_TEXT };
+    // The key is kept until the server answers, so a retry after a dropped connection replays this request.
+    const key = exchangeKeys.keyFor(game, tickets);
+    try {
+      const session = await sessionPromise;
+      const answer = await withTimeout(
+        session.client.rpc<ExchangeAnswer>('verse.exchange', { game, tickets, key }, { token: await plazaToken(session) }),
+        LAUNCH_TIMEOUT_MS,
+      );
+      exchangeKeys.settle(game, tickets);
+      showVerse(answer.verse);
+      return { ok: true, answer };
+    } catch (error) {
+      // An error body from the RPC (no HTTP status) is the server's answer: the request is finished.
+      if (error instanceof HubSdkError && error.status === undefined) {
+        exchangeKeys.settle(game, tickets);
+        return { ok: false, text: exchangeErrorText(error.code) };
+      }
+      console.warn('[wallet] exchange did not finish', error);
+      return { ok: false, text: SERVER_SILENT_TEXT };
+    }
+  }
 
   function displayName(): string {
     return look.name || guestLabel;
@@ -398,6 +497,17 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   window.addEventListener('keydown', (event) => {
     // The login gate owns the keyboard until it closes.
     if (gate.isOpen()) return;
+    // A confirm dialog (the 18+ question) owns it: Enter or Y says yes, anything that means "no" cancels.
+    if (guide.confirmOpen) {
+      if (event.code === 'Enter' || event.code === 'NumpadEnter' || event.code === 'KeyY') {
+        event.preventDefault();
+        guide.answer(true);
+      } else if (event.code === 'Escape' || event.key === 'Escape' || event.code === 'KeyN') {
+        event.preventDefault();
+        guide.answer(false);
+      }
+      return;
+    }
     // The cabinet picker owns it while it is open.
     if (content.handleKey?.(event)) return;
     if (event.code === 'Escape' || event.key === 'Escape') {
@@ -416,6 +526,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (event.target instanceof HTMLButtonElement) return;
       event.preventDefault();
       chat.show();
+      return;
+    }
+    const emote = event.repeat ? null : emoteForKey(event.code);
+    if (emote && !traveling) {
+      sendEmote(emote);
       return;
     }
     if (event.code.startsWith('Arrow') || event.code === 'Space') event.preventDefault();
@@ -441,6 +556,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   window.addEventListener('blur', () => {
     keys.clear();
     dragging = false;
+    cameraFollow.reset();
+    cameraPitch.reset();
   });
 
   const canvas = world.renderer.domElement;
@@ -467,11 +584,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   world.renderer.setAnimationLoop((timestamp) => {
     timer.update(timestamp);
     const dt = Math.min(timer.getDelta(), 0.05);
-    preview = MathUtils.damp(preview, menu.open ? 1 : 0, 9, dt);
-    if (!menu.open && preview < 0.002) preview = 0;
+    preview = cameraPreview.step(dt, menu.open);
     if (!menu.open) orbitCamera(dt);
     const pads = navigator.getGamepads?.() ?? [];
     const padMove = readPad(pad.poll(pads, timestamp), dt, pads);
+    if (controlsBlocked()) cameraPitch.reset();
+    else pitch += cameraPitch.step(dt, MOVEMENT.pitchMin - pitch, MOVEMENT.pitchMax - pitch);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
     const inputAmount = Math.hypot(input.forward, input.strafe);
@@ -513,6 +631,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       dwell = initialDwell();
       yaw = warp.yaw;
       cameraFollow.reset();
+      cameraPitch.reset();
+      cameraTarget.reset();
+      cameraArm.reset();
+      cameraPreview.reset();
+      preview = 0;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
       planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
@@ -520,7 +643,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       airTime = 0;
       world.avatar.rotation.y = -bodyYaw;
     }
-    if (!new URLSearchParams(window.location.search).get('shot')) placeCamera();
+    if (!shotMode) placeCamera(dt);
+    placeMarkers();
     placeOverhead(dt);
     fadeLabels();
     updateHint();
@@ -547,6 +671,17 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     }
   });
 
+  /** Keys 1 / 2 / 3: show the emote over your own head at once and send it to the shard. */
+  let lastEmoteAt = -Infinity;
+  function sendEmote(id: EmoteId): void {
+    const now = performance.now();
+    const line = emoteLine(id);
+    if (!line || !canEmote(lastEmoteAt, now)) return;
+    lastEmoteAt = now;
+    chat.floatOwn(line);
+    plaza?.emote(id);
+  }
+
   function isTypingTarget(target: EventTarget | null): boolean {
     if (!(target instanceof HTMLElement)) return false;
     if (target instanceof HTMLInputElement) return TEXT_INPUT_TYPES.has(target.type);
@@ -568,14 +703,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   function controlsBlocked(): boolean {
-    return gate.isOpen() || traveling || menu.open || chat.open || Boolean(content.overlayOpen?.()) || isTypingTarget(document.activeElement);
+    return gate.isOpen() || traveling || menu.open || chat.open || guide.confirmOpen || Boolean(content.overlayOpen?.()) || isTypingTarget(document.activeElement);
   }
 
   function turnCamera(horizontal: number, vertical: number): void {
     if (horizontal === 0 && vertical === 0) return;
-    yaw += horizontal;
-    pitch = MathUtils.clamp(pitch + vertical, MOVEMENT.pitchMin, MOVEMENT.pitchMax);
     cameraFollow.manualLook(horizontal);
+    cameraPitch.queue(lookVertical(vertical, invertLook));
   }
 
   function readInput(padMove: PadMove = NO_PAD_MOVE): MoveInput {
@@ -634,6 +768,12 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       return NO_PAD_MOVE;
     }
 
+    if (guide.confirmOpen) {
+      if (frame.pressed(PAD.A)) guide.answer(true);
+      else if (frame.pressed(PAD.B)) guide.answer(false);
+      return NO_PAD_MOVE;
+    }
+
     const pickerKey = frame.pressed(PAD.A) ? 'Enter' : frame.pressed(PAD.B) ? 'Escape' : frame.nav ? NAV_KEYS[frame.nav] : '';
     if (content.overlayOpen?.()) {
       if (pickerKey) {
@@ -657,7 +797,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       }
       if (root && frame.nav) padFocus.move(root, frame.nav);
       if (root && frame.pressed(PAD.A)) padFocus.activate(root);
-      previewSpin += frame.look.x * PAD_TUNING.previewSpinRate * dt;
+      cameraPreview.spin(frame.look.x * PAD_TUNING.previewSpinRate * dt);
       return NO_PAD_MOVE;
     }
 
@@ -670,6 +810,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       menu.show();
       return NO_PAD_MOVE;
     }
+    // B closes the top card (help, return card, first-visit card) before it goes back to being "run".
+    if (frame.pressed(PAD.B) && guide.dismissable) guide.dismiss();
     if (frame.pressed(PAD.VIEW)) {
       chat.show();
       return NO_PAD_MOVE;
@@ -685,8 +827,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     }
     const clicks = stickClicks(moveStick);
     if (frame.pressed(clicks.look)) {
-      yaw = player.facingYaw;
-      pitch = MOVEMENT.initialPitch;
+      cameraPitch.recenter(MOVEMENT.initialPitch - pitch);
       cameraFollow.recenter();
     }
     const moving = frame.move.x !== 0 || frame.move.y !== 0;
@@ -712,62 +853,89 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   /**
    * Spring arm from `look` toward yaw/pitch, pulled in when the BVH is in the
-   * way. Writes into `out`.
+   * way. Writes into `out` and returns the unobstructed fraction of the view.
    */
-  function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number, out: Vector3): Vector3 {
+  function armFrom(target: Vector3, armYaw: number, armPitch: number, arm: number, out: Vector3, dt: number): number {
     const cp = Math.cos(armPitch);
     desiredPos.set(
       target.x - Math.sin(armYaw) * arm * cp,
       target.y + Math.sin(armPitch) * arm,
       target.z + Math.cos(armYaw) * arm * cp,
     );
-    rayDir.subVectors(desiredPos, target);
+    // Collision starts at the actual player, so a lagging focus point cannot cut through a corner.
+    rayDir.subVectors(desiredPos, playerLookTarget);
     const len = rayDir.length();
     out.copy(desiredPos);
     if (len > 0.001) {
       rayDir.multiplyScalar(1 / len);
-      ray.origin.copy(target);
+      ray.origin.copy(playerLookTarget);
       ray.direction.copy(rayDir);
       const hit = world.collider.bvh.raycastFirst(ray, DoubleSide);
-      if (hit && hit.distance < len && hit.distance > 0.05) {
-        out.copy(target).addScaledVector(rayDir, Math.max(MOVEMENT.armMin, hit.distance - MOVEMENT.armOffset));
-      }
+      const clearance = hit && hit.distance < len ? Math.max(0.05, hit.distance - MOVEMENT.armOffset) / len : 1;
+      const fraction = cameraArm.step(dt, clearance);
+      out.copy(playerLookTarget).addScaledVector(rayDir, len * fraction);
+      return fraction;
     }
-    return out;
+    return 1;
   }
 
   /**
    * Third-person spring arm. Mouse yaw/pitch orbit the avatar; the BVH keeps the camera out of walls.
    * With the menu open the camera swings in front of the avatar and the view shifts right of the panel.
    */
-  function placeCamera(): void {
-    const target = lookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
+  function placeCamera(dt: number): void {
+    playerLookTarget.set(player.position.x, player.position.y - CAMERA_LOOK_DROP, player.position.z);
+    const target = lookTarget.copy(cameraTarget.step(dt, playerLookTarget));
+    let focusFraction: number;
     if (preview > 0) {
       // Swing round the avatar on the arm (angles, not positions), so the camera never cuts through the body.
       const height = bodyHeight();
       const feet = player.position.y - STAND_Y;
       previewLook.set(player.position.x, feet + height * 0.55, player.position.z);
       target.lerp(previewLook, preview);
-      const front = player.facingYaw + Math.PI + previewSpin;
-      const turn = Math.atan2(Math.sin(front - yaw), Math.cos(front - yaw));
-      armFrom(
+      focusFraction = armFrom(
         target,
-        yaw + turn * preview,
+        cameraPreview.yaw(yaw),
         MathUtils.lerp(pitch, 0.08, preview),
         MathUtils.lerp(CAMERA_ARM, 2.2 + height * 1.25, preview),
         camPos,
+        dt,
       );
     } else {
-      armFrom(target, yaw, pitch, CAMERA_ARM, camPos);
+      focusFraction = armFrom(target, yaw, pitch, CAMERA_ARM, camPos, dt);
     }
     world.camera.position.copy(camPos);
     world.camera.position.y = Math.max(world.camera.position.y, content.cameraFloor(world.camera.position));
+    // Compress focus lag with the arm as well: a nearby wall must never put the focus
+    // behind the camera and flip the view toward the player.
+    target.lerpVectors(playerLookTarget, target, focusFraction);
     world.camera.lookAt(target);
     const width = window.innerWidth;
     const height = window.innerHeight;
     const shift = preview > 0 ? (menu.panelWidth / 2) * preview : 0;
     if (shift > 0.5) world.camera.setViewOffset(width, height, -shift, 0, width, height);
     else if (world.camera.view?.enabled) world.camera.clearViewOffset();
+  }
+
+  /** Gate markers: a label over each entrance in view, or at the screen edge toward it. */
+  function placeMarkers(): void {
+    const points = content.waypoints?.() ?? [];
+    const visible = points.length > 0 && !shotMode && !gate.isOpen() && !menu.open && !traveling && !guide.confirmOpen;
+    if (!visible) {
+      guide.updateMarkers(points, player.position, () => markerPoint, 1, { width: 1, height: 1 }, false);
+      return;
+    }
+    const camera = world.camera as PerspectiveCamera;
+    camera.updateMatrixWorld();
+    markerView.copy(camera.matrixWorld).invert();
+    guide.updateMarkers(
+      points,
+      player.position,
+      (point) => markerPoint.set(point.x, point.y, point.z).applyMatrix4(markerView),
+      MathUtils.degToRad(camera.fov),
+      { width: window.innerWidth, height: window.innerHeight },
+      true,
+    );
   }
 
   /** Keeps the chat line over the avatar's head, shrinking a little with distance. */
@@ -801,7 +969,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     const near = enabled ? nearestPortal(player.position.x, player.position.z) : null;
     const inside = enabled ? portalContaining(PORTALS, player.position.x, player.position.z) : null;
     const interaction = content.interactions?.find(item => item.active());
-    // A ring error clears when you step out; an arcade error stays long enough to read.
+    // An entrance error clears when you step out; an arcade error stays long enough to read.
     if (!inside && performance.now() - portalErrorAt > PORTAL_ERROR_MS) portalError = '';
     const closed = near && !pageFor(near.id) ? near : null;
     const entering = inside && pageFor(inside.id) && (traveling || (dwell.elapsed > 0 && !dwell.held));
@@ -814,7 +982,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
             : entering && inside
               ? `${look}Entering ${inside.label}…`
               : near
-                ? `${look}Walk into the ring to enter ${near.label}`
+                ? `${look}Walk through the entrance to play ${near.label}`
                 : `${look}${usingPad ? padHint(moveStick) : CONTROLS_HINT}`;
     const shown = usingPad ? padPrompt(text) : text;
     if (hint.textContent !== shown) hint.textContent = shown;
@@ -841,18 +1009,66 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       return;
     }
     const hit = portalContaining(PORTALS, player.position.x, player.position.z);
+    if ((hit || content.atLauncher?.()) && !onboarding.reachedGate) {
+      onboarding.reachedGate = true;
+      paintOnboarding();
+    }
     const stepped = stepPortalDwell(dwell, hit?.id ?? null, dt);
     dwell = stepped.state;
     if (!stepped.ready || !hit) return;
     const page = pageFor(hit.id);
     if (!page) return;
-    void travel(hit, page);
+    launch(hit, page);
+  }
+
+  /** Browser storage can throw on access (private windows, blocked site data): never let it stop the plaza. */
+  function readStored<T>(where: 'local' | 'session', key: string, parse: (stored: string | null) => T): T {
+    try {
+      return parse((where === 'local' ? localStorage : sessionStorage).getItem(key));
+    } catch {
+      return parse(null);
+    }
+  }
+
+  function writeStored(where: 'local' | 'session', key: string, value: string): void {
+    try {
+      (where === 'local' ? localStorage : sessionStorage).setItem(key, value);
+    } catch {
+      // The choice lasts for this visit only.
+    }
+  }
+
+  /** True after "Enter" on the 18+ question in this visit, when storage is off. */
+  let matureOk = false;
+
+  /**
+   * Every launch goes through here (rings, the cabinet, the Games tab). A game marked mature asks
+   * once per browser first; declining leaves the player where they stand, and the ring's dwell
+   * stays spent until they step out.
+   */
+  function launch(game: { id: GameId; label: string; color: string; mature?: boolean }, page: string): void {
+    if (traveling || guide.confirmOpen) return;
+    const mature = { mature: Boolean(game.mature) || Boolean(gameInfo(game.id)?.mature) };
+    const stored = matureOk ? '1' : readStored('local', MATURE_OK_KEY, (value) => value);
+    if (!needsMatureConfirm(mature, stored)) {
+      void travel(game, page);
+      return;
+    }
+    keys.clear();
+    releasePointer();
+    void guide.confirm(MATURE_QUESTION, `${game.label} is adult satire (18+).`, 'Enter', 'Stay here').then((yes) => {
+      keys.clear();
+      if (!yes) return;
+      // The yes is remembered only once the launch has gone through (travel stores it): a failed
+      // launch asks again next time.
+      void travel(game, page, true);
+    });
   }
 
   const ENTER_FADE_MS = 700;
   const PORTAL_ERROR_MS = 5000;
 
-  async function travel(portal: { id: GameId; label: string; color: string }, page: string): Promise<void> {
+  async function travel(portal: { id: GameId; label: string; color: string }, page: string, matureConfirmed = false): Promise<void> {
     traveling = true;
     if (chat.open) chat.hide();
     releasePointer();
@@ -861,12 +1077,24 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     wipe.classList.add('on');
     const shownAt = performance.now();
     try {
-      const session = await boot();
-      const entered = await session.client.rpc<PortalEnterResult>(
-        'portal.enter',
-        { game: portal.id, ranked: false },
-        { token: session.token },
-      );
+      // One timer covers the session and the ticket, so a hung request cannot leave the wipe up.
+      const entered = await withTimeout((async () => {
+        const session = await boot();
+        return session.client.rpc<PortalEnterResult>(
+          'portal.enter',
+          { game: portal.id, ranked: false },
+          { token: session.token },
+        );
+      })(), LAUNCH_TIMEOUT_MS);
+      // The timer may have fired and cleared the wipe while this was still resolving.
+      if (!traveling) return;
+      if (matureConfirmed) {
+        matureOk = true;
+        writeStored('local', MATURE_OK_KEY, '1');
+      }
+      writeStored('local', LAST_GAME_KEY, portal.id);
+      // What the account had when it left, for the return card (D4).
+      writeStored('session', TRIP_KEY, encodeTrip({ game: portal.id, relics: [...shownRelics], verse: shownVerse, at: Date.now() }));
       plaza?.travel(portal.id);
       const remain = ENTER_FADE_MS - (performance.now() - shownAt);
       if (remain > 0) {
@@ -878,7 +1106,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     } catch (error) {
       traveling = false;
       wipe.classList.remove('on');
-      portalError = error instanceof Error ? error.message : 'Could not open that portal';
+      portalError = launchErrorText(error, portal.label);
       portalErrorAt = performance.now();
       hint.textContent = portalError;
       console.error(error);
@@ -929,7 +1157,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   function formatVerse(value: number): string { return value.toLocaleString('en-US'); }
 
+  let shownVerse = 0;
   function showVerse(balance: number): void {
+    shownVerse = balance;
     menu.setVerse(balance);
     const node = document.querySelector('#verse');
     if (node) node.textContent = `Verse ${formatVerse(balance)}`;
@@ -938,6 +1168,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   let shownRelics: readonly string[] = [];
   function showRelics(ids: readonly string[]): void {
     shownRelics = ids;
+    onboarding.relics = ids.length;
+    paintOnboarding();
     engine.setRelics(ids);
     content.onRelicsChanged?.(ids.filter(isRelicId));
     menu.setRelics(ids);
@@ -988,6 +1220,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       menu.setPets(profile.pets?.owned ?? null);
       adoptServerPet(profile.pets);
       const session = { client, token: auth.token, userId: auth.userId, deviceId, username };
+      showTripCard(session, profile);
       await content.onSession?.(session);
       bindAccount(session);
       if (status) {
@@ -998,11 +1231,40 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     } catch (error) {
       sessionPromise = null;
       if (status) {
-        status.textContent = 'Nakama offline';
+        status.textContent = OFFLINE_STATUS_TEXT;
         status.dataset.state = 'offline';
       }
       throw error;
     }
+  }
+
+  /**
+   * Back from a game (`#from=<game>` and a snapshot stored when the plaza handed over the tab):
+   * say what the trip earned, once.
+   */
+  function showTripCard(session: HubSession, profile: ProfileResult): void {
+    const from = parseReturnGame(window.location.hash);
+    const before = readStored('session', TRIP_KEY, (stored) => parseTrip(stored, Date.now()));
+    try {
+      sessionStorage.removeItem(TRIP_KEY);
+    } catch {
+      // Storage may be off.
+    }
+    if (!from || !before || before.game !== from) return;
+    const summary = tripSummary(before, { relics: profile.relics, verse: profile.verse ?? 0 }, relicOfGame);
+    const info = gameInfo(from);
+    const relicName = (id: string) => RELICS.find((relic) => relic.id === id)?.name ?? 'a Relic';
+    const show = (tickets: number | null) =>
+      guide.showTrip(`Back from ${summary.label}`, tripLines(summary, relicName, tickets), info?.color ?? '#ffd21f');
+    show(null);
+    // The Ticket line needs the hub-scope balances RPC; older servers answer 404 and the card stays as it is.
+    void session.client.rpc<BalancesAnswer>('tickets.balances', {}, { token: session.token }).then(
+      (answer) => {
+        const row = walletFromAnswer(answer).rows.find((entry) => entry.game === from);
+        if (row && row.balance > 0) show(row.balance);
+      },
+      () => undefined,
+    );
   }
 
   function setGuest(userId: string, username: string | null = null): void {
@@ -1185,6 +1447,13 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       });
       void joinShardChat(session, plaza.room);
       plaza.profile({ character: look.character, staff: look.staff, pet: activePet });
+      // Another player's emote: a line over their head. Your own echo has no remote and is skipped
+      // (it was shown when the key was pressed).
+      plaza.onEmote((event) => {
+        const line = emoteLine(event.e);
+        const who = remoteWorld.players.get(event.s);
+        if (line && who) overheads.show(who.userId, line);
+      });
       showPlazaStatus('online', '');
       const syncRoster = () => {
         if (!plaza) return;
@@ -1207,14 +1476,103 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     startBots(remoteWorld, botCount, undefined, new URLSearchParams(location.search).has('botPets'));
   }
 
-  void boot()
-    .then((session) => {
-      sessionLabel = session.username ? `Signed in as ${session.username}` : 'Guest linked';
-      if (!botCount) void startPlaza(session);
-    })
-    .catch((error: unknown) => {
-      hint.textContent = error instanceof Error ? error.message : 'Nakama is not running';
-    });
+  /** True once a session has started the plaza socket; a retry must not start a second one. */
+  let plazaStarted = false;
+  let sessionRetry: number | null = null;
+  let toldOffline = false;
+
+  function firstSession(): void {
+    void boot()
+      .then((session) => {
+        sessionLabel = session.username ? `Signed in as ${session.username}` : 'Guest linked';
+        if (!botCount && !plazaStarted) {
+          plazaStarted = true;
+          void startPlaza(session);
+        }
+      })
+      .catch((error: unknown) => {
+        console.warn('[hub] no session yet', error);
+        // Say it once; the status line keeps "Offline: playing solo" while the retries run.
+        if (!toldOffline && !portalError) {
+          toldOffline = true;
+          portalError = SERVER_SILENT_TEXT;
+          portalErrorAt = performance.now();
+        }
+        scheduleSessionRetry();
+      });
+  }
+
+  /** After a failed first session, try again every 15 s while the tab is visible. */
+  function scheduleSessionRetry(): void {
+    if (sessionRetry !== null) return;
+    sessionRetry = window.setTimeout(() => {
+      sessionRetry = null;
+      if (document.visibilityState === 'hidden') {
+        document.addEventListener('visibilitychange', scheduleSessionRetry, { once: true });
+        return;
+      }
+      firstSession();
+    }, SESSION_RETRY_MS);
+  }
+
+  // Back from a game through the browser's page cache: the page resumes mid-trip, with the
+  // wipe still up and `traveling` set. Clear both so the plaza is usable again.
+  window.addEventListener('pageshow', (event) => {
+    if (!event.persisted) return;
+    traveling = false;
+    dwell = initialDwell();
+    wipe.classList.remove('on');
+  });
+
+  firstSession();
+
+  // Press N twice: feedback about the hub itself (docs/feedback.md). The plaza is shared, so it
+  // keeps running behind the window; held movement keys are released instead.
+  installFeedback({
+    title: 'Metaverse Hub',
+    version: __HUB_BUILD__,
+    transport: {
+      async access() {
+        try {
+          const session = await boot();
+          if (!session.username) return { ok: false, reason: 'sign_in_required' };
+          await session.client.rpc('feedback.can', {}, { token: await plazaToken(session) });
+          return { ok: true, username: session.username };
+        } catch (error) {
+          return { ok: false, reason: error instanceof HubSdkError && error.code !== 'rpc_failed' ? error.code : 'offline' };
+        }
+      },
+      async submit(input) {
+        const session = await boot();
+        const result = await session.client.rpc<{ id: string }>('feedback.submit', input, { token: await plazaToken(session) });
+        return { id: result.id };
+      },
+    },
+    enabled: () => !gate.isOpen() && !traveling,
+    pause() {
+      keys.clear();
+      return false;
+    },
+    canvases: () => [canvas],
+    context: () => ({
+      level: definition.id,
+      mode: plazaState === 'online' ? 'online' : 'solo',
+      position: { x: round2(player.position.x), y: round2(player.position.y), z: round2(player.position.z) },
+      player: { moving: keys.size > 0, menuOpen: menu.open, chatOpen: chat.open },
+      extra: { plaza: plazaState, plazaDetail, signedIn: sessionLabel },
+    }),
+    theme: {
+      font: 'var(--font, "Inter Variable", system-ui, sans-serif)',
+      background: 'rgba(7, 6, 15, 0.6)',
+      panel: 'rgba(10, 11, 26, 0.94)',
+      text: '#eef3ff',
+      muted: '#a8b4ca',
+      accent: '#3de1ff',
+      accentText: '#07060f',
+      border: 'rgba(255, 255, 255, 0.16)',
+      radius: '12px',
+    },
+  });
 
   function createDebug(): HubDebugState & { element: HTMLElement } {
     const element = document.querySelector('#debug');
@@ -1225,6 +1583,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     return Object.assign(state, { element });
   }
 
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
 }
 
 /** Controller movement handed to the player controller, merged with the keyboard. */

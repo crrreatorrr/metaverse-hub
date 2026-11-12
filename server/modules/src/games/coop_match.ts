@@ -276,6 +276,7 @@ namespace CoopMatch {
         nonNeutral: Number(row["nonNeutral"] || 0),
         neutralAlive: Number(row["neutralAlive"] || 0),
         downTicks: Number(row["downTicks"] || 0),
+        out: Number(row["out"] || 0) === 1 ? 1 : 0,
       });
     }
     return out;

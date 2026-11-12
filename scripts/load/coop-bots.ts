@@ -2,7 +2,7 @@
 //   docker compose -f server/docker-compose.yml up --build -d
 //   npx tsx scripts/load/coop-bots.ts
 // Confirms coop.version is enabled with zero rewards, the fault-inject seed-3
-// six-seat fight reaches the offline gameover (tick 7734, same stateHash),
+// six-seat fight reaches the offline gameover (tick 10347, same stateHash),
 // and ten concurrent matches stay under a 25 ms p95. Tickets stay at zero.
 // Prints COOP_REPORT as one JSON line.
 import { execFileSync } from 'node:child_process';
@@ -12,8 +12,8 @@ import { call, login, waitReady, type GameLogin } from '../../server/test/dup/ha
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
-const GOLDEN_TICK = 7734;
-const GOLDEN_HASH = '3ec543448ecd6aafb53de3056c2425955733d2002ef65bfc117b11d531255494';
+const GOLDEN_TICK = 10347;
+const GOLDEN_HASH = '0ace8b5604e871232143b85a8ae035b9054de908604adcd1f557acdc9998ed96';
 const BENCH_MATCHES = 10;
 const BENCH_MS = 8000;
 

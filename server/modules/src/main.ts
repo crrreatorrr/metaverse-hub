@@ -84,6 +84,14 @@ function rpcTicketsBalance(ctx: nkruntime.Context, logger: nkruntime.Logger, nk:
   return guard(HubRpc.ticketsBalance, ctx, logger, nk, payload);
 }
 
+function rpcTicketsBalances(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.ticketsBalances, ctx, logger, nk, payload);
+}
+
+function rpcVerseExchange(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRpc.verseExchange, ctx, logger, nk, payload);
+}
+
 function rpcRecoveryCreate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRpc.recoveryCreate, ctx, logger, nk, payload);
 }
@@ -106,6 +114,14 @@ function rpcSprotoDevReplay(ctx: nkruntime.Context, logger: nkruntime.Logger, nk
 
 function rpcHubJoin(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubRealtimeRpc.join, ctx, logger, nk, payload);
+}
+
+function rpcHubPresence(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.presence, ctx, logger, nk, payload);
+}
+
+function rpcHubChampions(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubRealtimeRpc.champions, ctx, logger, nk, payload);
 }
 
 function rpcChatReport(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
@@ -241,6 +257,8 @@ function InitModule(
   initializer.registerRpc("tickets.spend", rpcTicketsSpend);
   initializer.registerRpc("tickets.sell", rpcTicketsSell);
   initializer.registerRpc("tickets.balance", rpcTicketsBalance);
+  initializer.registerRpc("tickets.balances", rpcTicketsBalances);
+  initializer.registerRpc("verse.exchange", rpcVerseExchange);
   initializer.registerRpc("recovery.create", rpcRecoveryCreate);
   initializer.registerRpc("recovery.redeem", rpcRecoveryRedeem);
   initializer.registerRpc("verse.board", rpcVerseBoard);
@@ -260,7 +278,15 @@ function InitModule(
     matchSignal: sprotoDuelSignal,
   });
   initializer.registerRpc("hub.join", rpcHubJoin);
+  initializer.registerRpc("hub.presence", rpcHubPresence);
+  initializer.registerRpc("hub.champions", rpcHubChampions);
   initializer.registerRpc("chat.report", rpcChatReport);
+  initializer.registerRpc("feedback.can", rpcFeedbackCan);
+  initializer.registerRpc("feedback.submit", rpcFeedbackSubmit);
+  initializer.registerRpc("feedback.admin.login", rpcFeedbackAdminLogin);
+  initializer.registerRpc("feedback.admin.list", rpcFeedbackAdminList);
+  initializer.registerRpc("feedback.admin.get", rpcFeedbackAdminGet);
+  initializer.registerRpc("feedback.admin.update", rpcFeedbackAdminUpdate);
   initializer.registerMatch("hub", {
     matchInit: hubInit,
     matchJoinAttempt: hubJoinAttempt,
@@ -304,6 +330,18 @@ function InitModule(
   // >>> game: sproto-shooter registrations
   initializer.registerRpc("shooter.run.issue", rpcShooterRunIssue);
   initializer.registerRpc("shooter.run.submit", rpcShooterRunSubmit);
+  initializer.registerRpc("shooter.internal.pending", rpcShooterInternalPending);
+  initializer.registerRpc("shooter.internal.repair", rpcShooterInternalRepair);
+  initializer.registerRpc("shooter.internal.ops", rpcShooterInternalOps);
+  initializer.registerRpc("shooter.internal.maintenance", rpcShooterInternalMaintenance);
+  initializer.registerRpc("shooter.internal.receipt", rpcShooterInternalReceipt);
+  initializer.registerRpc("shooter.internal.claim", rpcShooterInternalClaim);
+  initializer.registerRpc("shooter.internal.renew", rpcShooterInternalRenew);
+  initializer.registerRpc("shooter.internal.retry", rpcShooterInternalRetry);
+  initializer.registerRpc("shooter.internal.result", rpcShooterInternalResult);
+  initializer.registerRpc("shooter.run.append", rpcShooterRunAppend);
+  initializer.registerRpc("shooter.run.status", rpcShooterRunStatus);
+  initializer.registerRpc("shooter.run.finish", rpcShooterRunFinish);
   initializer.registerMatch("sproto_shooter_free", { matchInit: sprotoShooterFreeInit, matchJoinAttempt: sprotoShooterFreeJoinAttempt, matchJoin: sprotoShooterFreeJoin, matchLeave: sprotoShooterFreeLeave, matchLoop: sprotoShooterFreeLoop, matchTerminate: sprotoShooterFreeTerminate, matchSignal: sprotoShooterFreeSignal });
   initializer.registerRpc("shooter.version", rpcShooterVersion);
   initializer.registerRpc("shooter.room_create", rpcShooterRoomCreate);

@@ -10,6 +10,65 @@ const bvh = new MeshBVH(floor);
 const speeds = { walk: MOVEMENT.walk, sprint: MOVEMENT.sprint };
 const delta = (from: number, to: number) => Math.atan2(Math.sin(to - from), Math.cos(to - from));
 
+// Large reversals wait for a stable direction, stay below 45 degrees/second, and remain slower than ordinary
+// turns. Measure the whole motion at several frame rates, including acceleration and arrival.
+for (const hz of [30, 60, 120]) {
+  const follow = createCameraFollow();
+  let yaw = 0;
+  let previousSpeed = 0;
+  let atOneSecond = 0;
+  let atTwoSeconds = 0;
+  for (let frame = 1; frame <= hz * 9; frame++) {
+    const next = follow.step(1 / hz, yaw, Math.PI, true);
+    const speed = (next - yaw) * hz;
+    assert.ok(next >= yaw && next <= Math.PI, 'reversal moves steadily toward the target without overshooting');
+    assert.ok(speed <= 45 * Math.PI / 180, 'reverse turn has a comfortable speed limit');
+    if (frame <= hz / 10) assert.ok(speed >= previousSpeed, 'reversal eases into motion');
+    if (frame === hz / 10) assert.ok(next < 5 * Math.PI / 180, 'first 100 ms does not whip around');
+    if (frame === hz) atOneSecond = next;
+    if (frame === hz * 2) atTwoSeconds = next;
+    previousSpeed = speed;
+    yaw = next;
+  }
+  assert.ok(atOneSecond > Math.PI / 18 && atOneSecond < Math.PI / 6, '180-degree turn stays calm through the first second');
+  assert.ok(Math.abs(yaw - Math.PI) < 0.001, 'slower reversal still settles on the target');
+  const normal = createCameraFollow();
+  let normalYaw = 0;
+  for (let frame = 0; frame < hz * 2; frame++) normalYaw = normal.step(1 / hz, normalYaw, Math.PI / 2, true);
+  assert.ok(normalYaw > Math.PI / 3 && normalYaw < Math.PI / 2, 'ordinary turns stay responsive and ease toward arrival');
+  assert.ok(normalYaw > atTwoSeconds, 'ordinary turns are faster than reversing');
+}
+
+// A recenter also eases around while standing still. Manual look cancels it, and a warp
+// clears its accumulated velocity so the next view cannot inherit a leftover turn.
+{
+  const follow = createCameraFollow();
+  follow.recenter();
+  let yaw = follow.step(1 / 60, 0, Math.PI, false);
+  assert.ok(yaw > 0 && yaw < 0.01, 'recenter starts smoothly instead of snapping 180 degrees');
+  for (let frame = 1; frame < 540; frame++) yaw = follow.step(1 / 60, yaw, Math.PI, false);
+  assert.ok(Math.abs(yaw - Math.PI) < 0.001, 'idle recenter reaches the avatar heading');
+  follow.recenter();
+  yaw = follow.step(0.2, yaw, 0, false);
+  follow.manualLook(0);
+  const cancelled = follow.step(2, yaw, 0, false);
+  assert.ok(Math.abs(cancelled - yaw) < 0.1, 'manual orbit cancels an idle recenter and brakes gently');
+  assert.ok(Math.abs(follow.step(2, cancelled, 0, false) - cancelled) < 0.001, 'cancelled recenter stays at rest');
+  follow.reset();
+  assert.equal(follow.step(1 / 60, 0, 0, true), 0, 'warp reset clears angular momentum');
+}
+
+// Tiny analog fluctuations around directly backward keep the chosen orbit direction.
+{
+  const follow = createCameraFollow();
+  let yaw = 0;
+  for (let frame = 0; frame < 60; frame++) {
+    const next = follow.step(1 / 60, yaw, Math.PI + (frame % 2 ? 0.0005 : -0.0005), true);
+    assert.ok(next >= yaw, 'backward stick jitter cannot reverse the camera orbit');
+    yaw = next;
+  }
+}
+
 // Run the real capsule and camera together. Holding any direction must stay on a straight
 // course while the camera catches up, including reverse, diagonals, and the +/- pi seam.
 for (const initialYaw of [0, Math.PI - 0.1]) {
@@ -21,14 +80,14 @@ for (const initialYaw of [0, Math.PI - 0.1]) {
       player.spawn(0, STAND_Y, 0, initialYaw);
       let yaw = initialYaw;
       const target = initialYaw + Math.atan2(strafe, forward);
-      for (let frame = 0; frame < hz * 2; frame++) {
+      for (let frame = 0; frame < hz * 9; frame++) {
         const input = { forward, strafe, yaw: follow.movementYaw(yaw, forward, strafe), sprint: false, jump: false };
         player.step(1 / hz, input, speeds);
         yaw = follow.step(1 / hz, yaw, player.facingYaw, true);
       }
       assert.ok(Math.abs(delta(yaw, target)) < 0.001, `camera follows ${forward},${strafe} at ${hz} Hz`);
-      assert.ok(Math.abs(player.position.x - Math.sin(target) * MOVEMENT.walk * 2) < 0.001, 'held input keeps its world heading');
-      assert.ok(Math.abs(player.position.z + Math.cos(target) * MOVEMENT.walk * 2) < 0.001, 'automatic orbit does not steer the capsule');
+      assert.ok(Math.abs(player.position.x - Math.sin(target) * MOVEMENT.walk * 9) < 0.001, 'held input keeps its world heading');
+      assert.ok(Math.abs(player.position.z + Math.cos(target) * MOVEMENT.walk * 9) < 0.001, 'automatic orbit does not steer the capsule');
       finalYaws.push(yaw);
 
       const facing = player.facingYaw;
@@ -79,15 +138,16 @@ for (const start of [Math.PI / 2, -Math.PI + 0.1]) {
   const follow = createCameraFollow();
   follow.movementYaw(0, 0, 1);
   follow.manualLook(-1);
-  assert.equal(follow.movementYaw(-1, 0, 1), -1, 'manual look steers with the camera');
-  assert.equal(follow.step(0.5, -1, 1, true), -1, 'manual look suppresses follow');
-  follow.manualLook(-1);
-  assert.equal(follow.step(0.5, -1, 1, true), -1, 'continued manual input keeps priority');
-  assert.equal(follow.step(0, -1, 1, true), -1, 'zero delta does not move the camera');
-  const resumed = follow.step(0.5, -1, 1, true);
-  assert.ok(resumed > -1 && resumed < 1, 'follow eases back without snapping');
+  assert.equal(follow.movementYaw(0, 0, 1), 0, 'queued look does not abruptly redirect movement');
+  const shown = follow.step(0.5, 0, 1, true);
+  assert.ok(shown < 0 && shown > -0.4, 'large manual input is eased and bounded');
+  assert.ok(Math.abs(follow.movementYaw(shown, 0, 1) - shown) < 1e-10, 'movement tracks only the manual rotation shown');
+  follow.manualLook(0);
+  const held = follow.step(0.5, shown, 1, true);
+  assert.ok(held < 0, 'continued manual input keeps automatic follow suppressed');
+  assert.equal(follow.step(0, held, 1, true), held, 'zero delta does not move the camera');
   follow.reset();
-  assert.ok(follow.step(1 / 60, -1, 1, true) > -1, 'reset clears the manual grace period');
+  assert.ok(follow.step(1, -1, 1, true) > -1, 'reset clears the manual grace period');
 }
 
 // Looking vertically and recentering during an auto-followed side/backward run must not
@@ -99,10 +159,44 @@ for (const [forward, strafe] of [[0, 1], [-1, 0]]) {
   const yaw = follow.step(2, 0, facing, true);
   follow.manualLook(0);
   assert.equal(follow.movementYaw(yaw, forward, strafe), 0, 'pitch-only look preserves travel direction');
+  let coasting = yaw;
+  for (let frame = 0; frame < 60; frame++) {
+    follow.manualLook(0);
+    coasting = follow.step(1 / 60, coasting, facing, true);
+    assert.equal(follow.movementYaw(coasting, forward, strafe), 0, 'pitch-only look cannot steer movement through inherited yaw momentum');
+  }
   follow.manualLook(0.1);
-  assert.equal(follow.movementYaw(yaw + 0.1, forward, strafe), 0.1, 'manual yaw turns movement by just the requested amount');
+  assert.equal(follow.movementYaw(coasting, forward, strafe), 0, 'manual yaw is buffered rather than snapping movement');
+  const moved = follow.step(1 / 60, coasting, facing, true);
+  const basis = follow.movementYaw(moved, forward, strafe);
+  assert.ok(Math.abs(basis - (moved - coasting)) < 1e-10, 'manual yaw applies only the visible rotation');
   follow.recenter();
-  assert.equal(follow.movementYaw(facing + 0.1, forward, strafe), 0.1, 'recenter preserves held movement');
+  assert.equal(follow.movementYaw(moved, forward, strafe), basis, 'recenter preserves held movement');
+}
+
+// Quick digital and analog reversals must not make the view chase every tap.
+for (const hz of [30, 60, 120]) {
+  const follow = createCameraFollow();
+  let yaw = 0;
+  for (let frame = 0; frame < hz * 4; frame++) {
+    const heading = Math.floor(frame / hz / 0.12) % 2 ? -Math.PI / 2 : Math.PI / 2;
+    yaw = follow.step(1 / hz, yaw, heading, true);
+    assert.ok(Math.abs(yaw) < 0.01, 'rapid direction changes leave the view stable');
+  }
+}
+
+// A one-pixel horizontal input cannot transfer automatic coasting into several degrees
+// of unintended player steering.
+{
+  const follow = createCameraFollow();
+  follow.movementYaw(0, 0, 1);
+  let yaw = follow.step(1.5, 0, Math.PI / 2, true);
+  follow.manualLook(0.0017);
+  for (let frame = 0; frame < 90; frame++) {
+    yaw = follow.step(1 / 60, yaw, Math.PI / 2, true);
+    const basis = follow.movementYaw(yaw, 0, 1);
+    assert.ok(basis >= 0 && basis <= 0.00170001, 'automatic coasting cannot amplify a tiny steering request');
+  }
 }
 
 floor.dispose();
