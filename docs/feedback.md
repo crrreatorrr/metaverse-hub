@@ -97,10 +97,18 @@ pauseMenuButton.onclick = () => feedback.open(); // optional
 A WebGL game whose loop stops while paused should render one frame in `beforeCapture`, or the
 screenshot taken from the pause menu is blank.
 
-The screenshot copies only canvases. A game whose menus or HUD are HTML passes `overlay`, which
-returns a whole-viewport canvas of that HTML (transparent where the game shows through), drawn over
-the canvases. It may be async; the window waits for it at most 3 s. Without it, an HTML main
-menu is missing from the screenshot and only the background behind it shows.
+The screenshot shows the whole page as the player sees it: the canvases, with the page's HTML
+(menus, HUD, panels) drawn over them. Since SDK 0.7.2 the SDK draws the HTML itself, with
+modern-screenshot (MIT, vendored in `packages/hub-sdk/src/third_party`, loaded a few seconds after
+start), so a game needs no code for it. Before that only canvases were copied, and an HTML main
+menu came out as the background behind it. Notes for games:
+
+- `canvases` names the canvases copied directly; every other canvas is drawn as part of the HTML.
+- Game frames are held while the HTML is copied (well under a second) and the window waits for it
+  at most 3 s.
+- Web fonts from another origin (Google Fonts) are drawn only if their `<link>` has
+  `crossorigin="anonymous"`; otherwise text falls back to a system font in the screenshot.
+- `overlay: false` turns the HTML off; a function in `overlay` draws it instead of the SDK.
 
 ## From a terminal
 

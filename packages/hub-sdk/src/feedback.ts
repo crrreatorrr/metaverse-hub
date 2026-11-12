@@ -6,6 +6,7 @@
 // else (screenshot, context snapshot) happens once, when the window opens.
 import { HubSdkError } from './errors';
 import type { HubSdk } from './types';
+import { capturePage, loadPageShot, pageBackground } from './pageShot';
 
 export const FEEDBACK_CATEGORIES = [
   { id: 'broke', label: 'Something broke' },
@@ -97,13 +98,13 @@ export interface FeedbackOptions {
   /** Canvases to capture, back to front. Default: every visible canvas on the page. */
   canvases?(): HTMLCanvasElement[];
   /**
-   * A picture of the page's HTML (menus, HUD text), drawn over the canvases. The SDK only copies
-   * canvases, so a game whose screens are HTML draws them here, for example with a DOM-to-canvas
-   * library on its UI root. Return a canvas covering the whole viewport, transparent where the
-   * game shows through, or null. It may be async: the window waits for it at most 3 s. With an
-   * overlay the screenshot always covers the whole viewport.
+   * The screenshot shows the whole page: the canvases, then the page's HTML (menus, HUD, panels)
+   * drawn over them. By default the SDK draws the HTML itself (document.body, minus the canvases
+   * above and anything not displayed). Pass a function to draw it yourself instead: return a
+   * canvas covering the whole viewport, transparent where the canvases show through, or null; it
+   * may be async. Pass `false` for canvases only. The window waits for the HTML at most 3 s.
    */
-  overlay?(): HTMLCanvasElement | null | Promise<HTMLCanvasElement | null>;
+  overlay?: false | (() => HTMLCanvasElement | null | Promise<HTMLCanvasElement | null>);
   /** Recent errors from the game's own crash guard, newest last. Added to the ones caught here. */
   errors?(): unknown[];
   /** Return false to ignore the shortcut right now (a text prompt of the game's own is open). */
@@ -281,7 +282,7 @@ function captureCanvases(list: HTMLCanvasElement[], maxWidth: number, page = fal
   out.height = Math.max(1, Math.round(height * scale));
   const g = out.getContext('2d');
   if (!g) return null;
-  g.fillStyle = '#000';
+  g.fillStyle = page ? pageBackground() : '#000';
   g.fillRect(0, 0, out.width, out.height);
   let drawn = 0;
   for (const { canvas, rect } of visible) {
@@ -834,11 +835,12 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
     const run = () => {
       if (done) return;
       done = true;
-      const page = typeof options.overlay === 'function';
+      const page = options.overlay !== false;
       let capture: { shot: HTMLCanvasElement; drawn: number } | null = null;
+      let list: HTMLCanvasElement[] = [];
       try {
         options.beforeCapture?.();
-        const list = options.canvases?.() ?? Array.from(document.querySelectorAll('canvas'));
+        list = options.canvases?.() ?? Array.from(document.querySelectorAll('canvas'));
         // Copy the canvases now: a WebGL frame is only readable in this task.
         capture = captureCanvases(list, 960, page);
       } catch {
@@ -860,8 +862,12 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
         openPanel(source, any ? shot : null, captured);
       };
       const timer = window.setTimeout(() => finish(null), OVERLAY_WAIT_MS);
+      const drawHtml =
+        typeof options.overlay === 'function'
+          ? options.overlay
+          : () => capturePage(document.body, [...list, ...(host ? [host] : [])], 960, OVERLAY_WAIT_MS);
       Promise.resolve()
-        .then(() => options.overlay!())
+        .then(() => drawHtml())
         .then(
           (overlay) => {
             window.clearTimeout(timer);
@@ -942,7 +948,11 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
   window.addEventListener('unhandledrejection', onError);
   window.addEventListener('online', onOnline);
   // Learn early whether this player may send feedback, without competing with startup.
-  const warm = window.setTimeout(() => void checkAccess(), 4000);
+  const warm = window.setTimeout(() => {
+    void checkAccess();
+    // The HTML-drawing library, so the first screenshot does not wait for it.
+    if (options.overlay === undefined) loadPageShot().catch(() => undefined);
+  }, 4000);
 
   return {
     open(source = 'manual') {

@@ -23,7 +23,7 @@ function sourceFiles(dir) {
   for (const name of readdirSync(dir).sort()) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out.push(...sourceFiles(full));
-    else if (name.endsWith('.ts')) out.push(full);
+    else if (name.endsWith('.ts') || name.endsWith('.js')) out.push(full);
   }
   return out;
 }
@@ -47,7 +47,8 @@ export function writeIife(outFile) {
     platform: 'browser',
     target: 'es2022',
     outfile: outFile,
-    legalComments: 'none',
+    // Keep license notices of bundled third-party code (src/third_party), at the end of the file.
+    legalComments: 'eof',
     charset: 'utf8',
     sourcemap: false,
     minify: false,
