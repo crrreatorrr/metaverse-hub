@@ -7,10 +7,13 @@
 namespace HubFeedback {
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var PUBLIC_ID = /^[A-Z0-9]{2,10}-\d{4,9}$/;
+  var PR_URL = /^https:\/\/github\.com\/[A-Za-z0-9_.-]{1,100}\/[A-Za-z0-9_.-]{1,100}\/pull\/\d{1,9}$/;
   var IMAGE = /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/]+={0,2}$/;
 
   export var CATEGORIES = ["broke", "unclear", "too_hard", "too_easy", "controls", "performance", "other"];
   export var STATUSES = ["open", "in_progress", "fixed", "resolved"];
+  /** A note's pull request as GitHub last reported it ("" = not checked yet). */
+  export var PR_STATES = ["open", "draft", "merged", "closed"];
   export var MAX_PAYLOAD = 240000;
   export var MAX_IMAGE = 200000;
   export var MAX_NOTE = 2000;
@@ -238,7 +241,8 @@ namespace HubFeedback {
   // jsonb columns come back as text: Nakama hands raw jsonb to the runtime as a byte array.
   var LIST_COLUMNS =
     "public_id, game, user_id, username, source, status, categories::text AS categories, note, level, mode, pos_x, pos_y, pos_z, version, " +
-    "client_time, game_time, has_image, resolution, verification, fixed_commit, " +
+    "client_time, game_time, has_image, resolution, verification, fixed_commit, pr_url, pr_state, " +
+    "to_char(pr_checked_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS pr_checked_at, " +
     "to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, " +
     "to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS updated_at";
 
@@ -271,6 +275,9 @@ namespace HubFeedback {
       resolution: row.resolution,
       verification: row.verification,
       fixedCommit: row.fixed_commit,
+      prUrl: row.pr_url || "",
+      prState: row.pr_state || "",
+      prCheckedAt: row.pr_checked_at || null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     };
@@ -349,11 +356,14 @@ namespace HubFeedback {
   }
 
   /**
-   * {token, id, status?, resolution?, verification?, fixedCommit?, comment?, runId?} → {item}.
+   * {token, id, status?, resolution?, verification?, fixedCommit?, prUrl?, comment?, runId?} → {item}.
    * "resolved" needs a resolution summary and a verification note (how the fix was checked),
    * either in this call or already on the note. Resolving deletes the screenshot.
    * runId: the agent of a check run sends its run; the change is refused (run_not_running) once
    * that run is canceled, failed or finished, so an agent that outlived its run changes nothing.
+   * prUrl: the GitHub pull request with the fix ("" clears it). A PR link written as the fixing
+   * commit becomes the note's PR when it has none. A new PR starts with an unknown state until
+   * the worker next asks GitHub (feedback.admin.prstate).
    */
   export function adminUpdate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 8192);
@@ -368,7 +378,7 @@ namespace HubFeedback {
       var live = nk.sqlQuery("SELECT 1 AS ok FROM game.feedback_run WHERE id = $1 AND state = 'running'", [runId]);
       if (!live.length) return fail("run_not_running", "Check run " + String(runId) + " is not running; stop working these notes");
     }
-    var rows = nk.sqlQuery("SELECT id, status, resolution, verification, fixed_commit FROM game.feedback WHERE public_id = $1", [id]);
+    var rows = nk.sqlQuery("SELECT id, status, resolution, verification, fixed_commit, pr_url FROM game.feedback WHERE public_id = $1", [id]);
     if (!rows.length) return fail("not_found");
     var row = rows[0];
     var status = body.status === undefined ? String(row.status) : text(body.status, 16);
@@ -376,6 +386,13 @@ namespace HubFeedback {
     var resolution = body.resolution === undefined ? String(row.resolution || "") : text(body.resolution, 600).replace(/^\s+|\s+$/g, "");
     var verification = body.verification === undefined ? String(row.verification || "") : text(body.verification, 600).replace(/^\s+|\s+$/g, "");
     var fixedCommit = body.fixedCommit === undefined ? String(row.fixed_commit || "") : text(body.fixedCommit, 120).replace(/^\s+|\s+$/g, "");
+    var prUrl = String(row.pr_url || "");
+    if (body.prUrl !== undefined) {
+      prUrl = text(body.prUrl, 300).replace(/^\s+|\s+$/g, "");
+      if (prUrl && !PR_URL.test(prUrl)) return fail("bad_pr_url", "A pull request link looks like https://github.com/<owner>/<repo>/pull/<number>");
+    } else if (!prUrl && PR_URL.test(fixedCommit)) {
+      prUrl = fixedCommit;
+    }
     if (status === "resolved") {
       if (!resolution) return fail("resolution_required", "A resolved note needs a short resolution summary");
       if (!verification) return fail("verification_required", "Say how the fix was verified before marking a note resolved");
@@ -386,6 +403,9 @@ namespace HubFeedback {
       `WITH u AS (
          UPDATE game.feedback
             SET status = $2, resolution = $3, verification = $4, fixed_commit = $5, updated_at = now(),
+                pr_state = CASE WHEN pr_url = $8 THEN pr_state ELSE '' END,
+                pr_checked_at = CASE WHEN pr_url = $8 THEN pr_checked_at ELSE NULL END,
+                pr_url = $8,
                 resolved_at = CASE WHEN $2 = 'resolved' THEN COALESCE(resolved_at, now()) ELSE NULL END,
                 has_image = CASE WHEN $2 = 'resolved' THEN false ELSE has_image END
           WHERE id = $1
@@ -394,11 +414,51 @@ namespace HubFeedback {
          DELETE FROM game.feedback_image WHERE $2 = 'resolved' AND feedback_id IN (SELECT id FROM u)
        )
        INSERT INTO game.feedback_event (feedback_id, status, by_name, summary) SELECT id, $2, $6, $7 FROM u RETURNING id`,
-      [row.id, status, resolution, verification, fixedCommit, by, summary],
+      [row.id, status, resolution, verification, fixedCommit, by, summary, prUrl],
     );
     logger.info("feedback " + id + " -> " + status + " by " + by);
     var after = nk.sqlQuery("SELECT " + LIST_COLUMNS + " FROM game.feedback WHERE id = $1", [row.id]);
     return JSON.stringify({ ok: true, item: after.length ? shape(after[0]) : null });
+  }
+
+  /**
+   * {token, prs: [{url, state}]} → {updated}. The worker reports what GitHub says about each
+   * pull request linked from a note; every note with that link takes the state. A change of state
+   * goes into the note's history ("PR merged"), so the panel shows when it happened.
+   */
+  export function adminPrState(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 65536);
+    if (!body) return fail("bad_json");
+    var by = admin(ctx, nk, body);
+    if (!by) return fail("unauthorized");
+    if (Object.prototype.toString.call(body.prs) !== "[object Array]") return fail("bad_prs");
+    var prs = body.prs as unknown[];
+    if (prs.length > 200) return fail("too_many");
+    var updated = 0;
+    for (var i = 0; i < prs.length; i++) {
+      var pr = prs[i];
+      if (!isObject(pr)) return fail("bad_prs");
+      var url = text(pr.url, 300);
+      var state = text(pr.state, 16);
+      if (!PR_URL.test(url)) return fail("bad_pr_url");
+      if (PR_STATES.indexOf(state) < 0) return fail("bad_pr_state");
+      var rows = nk.sqlQuery(
+        `WITH old AS (
+           SELECT id, status, pr_state FROM game.feedback WHERE pr_url = $1 FOR UPDATE
+         ), u AS (
+           UPDATE game.feedback f SET pr_state = $2, pr_checked_at = now()
+             FROM old WHERE f.id = old.id
+             RETURNING f.id, old.status, old.pr_state AS was
+         ), e AS (
+           INSERT INTO game.feedback_event (feedback_id, status, by_name, summary)
+           SELECT id, status, $3, 'PR ' || $2 FROM u WHERE was <> $2
+         )
+         SELECT count(*) AS n FROM u`,
+        [url, state, by],
+      );
+      updated += rows.length ? Number(rows[0].n) : 0;
+    }
+    return JSON.stringify({ ok: true, updated: updated });
   }
 
   // ------------------------------------------------------------------ check runs
@@ -554,6 +614,7 @@ function rpcFeedbackAdminLogin(c: nkruntime.Context, l: nkruntime.Logger, n: nkr
 function rpcFeedbackAdminList(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminList(c, l, n, p); }
 function rpcFeedbackAdminGet(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminGet(c, l, n, p); }
 function rpcFeedbackAdminUpdate(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminUpdate(c, l, n, p); }
+function rpcFeedbackAdminPrState(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminPrState(c, l, n, p); }
 function rpcFeedbackAdminCheck(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminCheck(c, l, n, p); }
 function rpcFeedbackAdminRuns(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRuns(c, l, n, p); }
 function rpcFeedbackAdminClaim(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminClaim(c, l, n, p); }
@@ -624,9 +685,10 @@ HubSchema.register({
 });
 
 // Check runs: the panel's Check button queues one, the worker on the owner's machine claims it.
-// The partial unique index allows one queued-or-running run at a time.
+// The partial unique index allows one queued-or-running run at a time. Each note also keeps the
+// pull request with its fix and that PR's state as GitHub last reported it.
 HubSchema.register({
-  id: "0064_feedback_runs",
+  id: "0064_feedback_check",
   statements: [
     `CREATE TABLE IF NOT EXISTS game.feedback_run (
        id bigserial PRIMARY KEY,
@@ -641,5 +703,9 @@ HubSchema.register({
        finished_at timestamptz
      )`,
     "CREATE UNIQUE INDEX IF NOT EXISTS feedback_run_one_active ON game.feedback_run ((true)) WHERE state IN ('queued', 'running')",
+    "ALTER TABLE game.feedback ADD COLUMN IF NOT EXISTS pr_url text NOT NULL DEFAULT ''",
+    "ALTER TABLE game.feedback ADD COLUMN IF NOT EXISTS pr_state text NOT NULL DEFAULT '' CHECK (pr_state IN ('', 'open', 'draft', 'merged', 'closed'))",
+    "ALTER TABLE game.feedback ADD COLUMN IF NOT EXISTS pr_checked_at timestamptz",
+    "CREATE INDEX IF NOT EXISTS feedback_pr_url ON game.feedback (pr_url) WHERE pr_url <> ''",
   ],
 });

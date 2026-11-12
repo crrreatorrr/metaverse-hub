@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROMPT_MARK, envNumber, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, envNumber, prStateOf, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
@@ -114,6 +114,40 @@ assert.equal(envNumber('90', 20, 5), 90);
   assert.equal(takeWorkerLock({ logDir }, () => false), 0); // stale lock taken over
   releaseWorkerLock({ logDir });
   assert.ok(!existsSync(join(logDir, 'worker.pid')));
+}
+
+// Pull request states from GitHub.
+assert.equal(prStateOf({ state: 'MERGED', isDraft: false }), 'merged');
+assert.equal(prStateOf({ state: 'CLOSED' }), 'closed');
+assert.equal(prStateOf({ state: 'OPEN', isDraft: true }), 'draft');
+assert.equal(prStateOf({ state: 'OPEN', isDraft: false }), 'open');
+assert.equal(prStateOf({}), '');
+
+// The sync asks GitHub once per PR (several notes may share one) and reports what it learned;
+// a PR GitHub cannot answer for is skipped, not reported wrong.
+{
+  const A = 'https://github.com/o/r/pull/1';
+  const B = 'https://github.com/o/r/pull/2';
+  const C = 'https://github.com/o/r/pull/3';
+  const notes = { open: [{ id: 'X-1', prUrl: '', createdAt: '1' }], in_progress: [{ id: 'X-2', prUrl: A, createdAt: '2' }], fixed: [{ id: 'X-3', prUrl: A, createdAt: '3' }, { id: 'X-4', prUrl: B, createdAt: '4' }, { id: 'X-5', prUrl: C, createdAt: '5' }] };
+  const sent = [];
+  const client = {
+    rpc: async (id, body) => {
+      if (id === 'feedback.admin.list') return { items: body.offset ? [] : notes[body.status], total: notes[body.status].length, counts: {} };
+      sent.push(body);
+      return { ok: true };
+    },
+  };
+  const asked = [];
+  const view = async (url) => {
+    asked.push(url);
+    if (url === C) throw new Error('Could not resolve to a PullRequest');
+    return url === A ? { state: 'MERGED' } : { state: 'OPEN', isDraft: true };
+  };
+  const prs = await syncPullRequests(client, view);
+  assert.deepEqual(asked, [A, B, C]);
+  assert.deepEqual(prs, [{ url: A, state: 'merged' }, { url: B, state: 'draft' }]);
+  assert.deepEqual(sent, [{ prs }]);
 }
 
 console.log('feedback worker ok');

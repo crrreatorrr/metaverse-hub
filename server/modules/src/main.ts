@@ -287,6 +287,7 @@ function InitModule(
   initializer.registerRpc("feedback.admin.list", rpcFeedbackAdminList);
   initializer.registerRpc("feedback.admin.get", rpcFeedbackAdminGet);
   initializer.registerRpc("feedback.admin.update", rpcFeedbackAdminUpdate);
+  initializer.registerRpc("feedback.admin.prstate", rpcFeedbackAdminPrState);
   initializer.registerRpc("feedback.admin.check", rpcFeedbackAdminCheck);
   initializer.registerRpc("feedback.admin.runs", rpcFeedbackAdminRuns);
   initializer.registerRpc("feedback.admin.claim", rpcFeedbackAdminClaim);

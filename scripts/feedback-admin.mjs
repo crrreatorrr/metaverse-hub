@@ -4,7 +4,7 @@
 //   HUB_URL=https://<domain> NAKAMA_SERVER_KEY=<client key> node scripts/feedback-admin.mjs list [--game sproto-shooter] [--status open]
 //   ... list --unresolved --json   every note not resolved (open, in progress, fixed), all pages
 //   ... get SHOOTER-0042 [--image out.jpg]
-//   ... update SHOOTER-0042 --status fixed --resolution "Lowered boss HP" --commit abc1234
+//   ... update SHOOTER-0042 --status fixed --resolution "Lowered boss HP" --commit abc1234 --pr https://github.com/<owner>/<repo>/pull/<n>
 //   ... update SHOOTER-0042 --status resolved --verification "Replayed L3 on build abc1234"
 //
 // The login defaults to 333 / 333 (FEEDBACK_ADMIN_USER / FEEDBACK_ADMIN_PASS override it).
@@ -12,7 +12,7 @@
 // Under a check run (FEEDBACK_RUN_ID, set by feedback-worker.mjs) every update names the run, and
 // the server refuses it once the run is canceled or over.
 import { writeFileSync } from 'node:fs';
-import { feedbackClient } from './feedback-rpc.mjs';
+import { feedbackClient, listUnresolved } from './feedback-rpc.mjs';
 
 const [command, ...rest] = process.argv.slice(2);
 const BOOLEAN = new Set(['json', 'unresolved']);
@@ -24,21 +24,9 @@ for (let i = 0; i < rest.length; i++) {
   else flags[rest[i].slice(2)] = rest[++i] ?? '';
 }
 
-/** Every page of one query (the server returns at most 500 notes per call). */
-async function listAll(rpc, query) {
-  const items = [];
-  let counts = {};
-  for (let offset = 0; ; offset += 500) {
-    const out = await rpc('feedback.admin.list', { ...query, limit: 500, offset });
-    counts = out.counts;
-    items.push(...out.items);
-    if (out.items.length < 500 || items.length >= out.total) return { items, counts, total: items.length };
-  }
-}
-
 async function main() {
   if (!['list', 'get', 'update'].includes(command)) {
-    console.error('usage: feedback-admin.mjs list|get|update [id] [--game g] [--status s] [--resolution t] [--verification t] [--commit c] [--comment t] [--image file]');
+    console.error('usage: feedback-admin.mjs list|get|update [id] [--game g] [--status s] [--resolution t] [--verification t] [--commit c] [--pr url] [--comment t] [--image file]');
     process.exit(2);
   }
   const { rpc } = feedbackClient();
@@ -46,11 +34,7 @@ async function main() {
     const query = { game: flags.game, category: flags.category, q: flags.q };
     let out;
     if (flags.unresolved) {
-      // One after another: the first call logs in, the others reuse it.
-      const parts = [];
-      for (const status of ['open', 'in_progress', 'fixed']) parts.push(await listAll(rpc, { ...query, status }));
-      const items = parts.flatMap((p) => p.items).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
-      out = { items, total: items.length, counts: parts[0].counts };
+      out = await listUnresolved(rpc, query);
     } else {
       out = await rpc('feedback.admin.list', { ...query, status: flags.status, limit: Number(flags.limit ?? 200) });
     }
@@ -68,6 +52,7 @@ async function main() {
     if (flags.resolution !== undefined) body.resolution = flags.resolution;
     if (flags.verification !== undefined) body.verification = flags.verification;
     if (flags.commit !== undefined) body.fixedCommit = flags.commit;
+    if (flags.pr !== undefined) body.prUrl = flags.pr;
     if (flags.comment !== undefined) body.comment = flags.comment;
     console.log(JSON.stringify((await rpc('feedback.admin.update', body)).item, null, 2));
   }

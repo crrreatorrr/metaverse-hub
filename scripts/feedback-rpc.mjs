@@ -101,3 +101,24 @@ export function feedbackClient(config = feedbackConfig(), fetchImpl = fetch) {
 
   return { rpc, login };
 }
+
+/** Every page of one list query (the server returns at most 500 notes per call). */
+export async function listAll(rpc, query) {
+  const items = [];
+  let counts = {};
+  for (let offset = 0; ; offset += 500) {
+    const out = await rpc('feedback.admin.list', { ...query, limit: 500, offset });
+    counts = out.counts;
+    items.push(...out.items);
+    if (out.items.length < 500 || items.length >= out.total) return { items, counts, total: items.length };
+  }
+}
+
+/** Every note not resolved (open, in progress, fixed), oldest first. */
+export async function listUnresolved(rpc, query = {}) {
+  // One status after another: the first call logs in, the others reuse it.
+  const parts = [];
+  for (const status of ['open', 'in_progress', 'fixed']) parts.push(await listAll(rpc, { ...query, status }));
+  const items = parts.flatMap((p) => p.items).sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id));
+  return { items, total: items.length, counts: parts[0].counts };
+}

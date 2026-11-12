@@ -52,6 +52,11 @@ button { cursor: pointer; }
 .pill.fixed { color: var(--violet); border-color: var(--violet); }
 .pill.resolved { color: var(--green); border-color: var(--green); }
 .pill.cat { color: var(--text-2); }
+.pill.pr.open { color: var(--green); border-color: var(--green); }
+.pill.pr.draft, .pill.pr.unknown { color: var(--text-2); border-style: dashed; }
+.pill.pr.merged { color: var(--violet); border-color: var(--violet); background: color-mix(in srgb, var(--violet) 14%, transparent); }
+.pill.pr.closed { color: var(--red-2); border-color: var(--red-2); }
+.kv dd a { color: var(--cyan); }
 
 .panel { background: var(--glass-strong); border: 1px solid var(--line); border-radius: var(--r-m); padding: 14px; display: grid; gap: 12px; }
 .panel h2 { font-size: 15px; margin: 0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }

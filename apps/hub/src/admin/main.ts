@@ -23,12 +23,17 @@ interface Note {
   resolution: string;
   verification: string;
   fixedCommit: string;
+  /** The GitHub pull request with the fix, and its state as the worker last read it. */
+  prUrl: string;
+  prState: PrState | '';
+  prCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
   meta?: Record<string, unknown>;
 }
 
 type Status = 'open' | 'in_progress' | 'fixed' | 'resolved';
+type PrState = 'open' | 'draft' | 'merged' | 'closed';
 type Counts = Record<string, Partial<Record<Status, number>>>;
 
 /** A Check run (feedback.admin.check): one pass by the agent over every note not yet resolved. */
@@ -47,6 +52,18 @@ interface Run {
 
 const STATUS_LABEL: Record<Status, string> = { open: 'Open', in_progress: 'In progress', fixed: 'Fixed, to verify', resolved: 'Resolved' };
 const STATUS_COLOR: Record<Status, string> = { open: '#f5b942', in_progress: '#3de1ff', fixed: '#8d7dff', resolved: '#4ade80' };
+const PR_LABEL: Record<PrState, string> = { open: 'PR open', draft: 'PR draft', merged: 'PR merged', closed: 'PR closed' };
+
+/** "PR #184 · merged" for a note with a pull request, else null. */
+function prPill(note: Note): HTMLElement | null {
+  if (!note.prUrl) return null;
+  const n = /\/pull\/(\d+)$/.exec(note.prUrl)?.[1] ?? '';
+  const state = note.prState ? PR_LABEL[note.prState] : 'PR, state not checked yet';
+  const pill = el('span', `pill pr ${note.prState || 'unknown'}`, `${state.replace('PR', `PR #${n}`)}`);
+  pill.title = note.prCheckedAt ? `${note.prUrl} · checked ${when(note.prCheckedAt)}` : note.prUrl;
+  return pill;
+}
+
 const CATEGORY_LABEL: Record<string, string> = {
   broke: 'Something broke',
   unclear: 'Unclear what to do',
@@ -245,7 +262,10 @@ async function showPanel(): Promise<void> {
 }
 
 /** Reloads the notes. `keepDetail` leaves the open note's panel alone (the run bar's refresh). */
+let lastListAt = 0;
+
 async function load(keepDetail = false): Promise<void> {
+  lastListAt = Date.now();
   const body: Record<string, unknown> = { limit: 300 };
   if (filter.game) body.game = filter.game;
   if (filter.status) body.status = filter.status;
@@ -306,6 +326,8 @@ function renderList(): void {
       row.setAttribute('aria-current', String(note.id === selectedId));
       const l1 = el('div', 'l1');
       l1.append(el('span', 'id', note.id), el('span', `pill ${note.status}`, STATUS_LABEL[note.status]));
+      const pr = prPill(note);
+      if (pr) l1.append(pr);
       for (const c of note.categories) l1.append(el('span', 'pill cat', CATEGORY_LABEL[c] ?? c));
       if (note.source === 'crash') l1.append(el('span', 'pill cat', 'After an error'));
       const l3 = el('div', 'l3');
@@ -490,6 +512,9 @@ async function loadRuns(): Promise<void> {
   // leave the open note's form alone so nothing typed there is lost.
   const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
   if (lastRun && key !== lastRun) void load(true);
+  // Pull request states change on GitHub's clock (the worker syncs them): refresh at least
+  // every 30 seconds so a merge shows without pressing Refresh.
+  else if (Date.now() - lastListAt >= 29000) void load(true);
   lastRun = key;
   scheduleRuns(result.active ? 5000 : 30000);
 }
@@ -541,6 +566,8 @@ async function select(id: string): Promise<void> {
   const panel = el('div', 'panel');
   const title = el('h2');
   title.append(el('span', '', note.id), el('span', `pill ${note.status}`, STATUS_LABEL[note.status]));
+  const titlePr = prPill(note);
+  if (titlePr) title.append(titlePr);
   for (const c of note.categories) title.append(el('span', 'pill cat', CATEGORY_LABEL[c] ?? c));
   panel.append(title, el('div', 'note', note.note || '(no note)'));
 
@@ -558,6 +585,16 @@ async function select(id: string): Promise<void> {
     if (value === null || value === undefined || value === '') return;
     kv.append(el('dt', '', label), el('dd', '', typeof value === 'string' ? value : JSON.stringify(value)));
   };
+  if (note.prUrl) {
+    const link = el('a', '', note.prUrl.replace('https://github.com/', ''));
+    link.href = note.prUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    const dd = el('dd');
+    dd.append(link, ` · ${note.prState ? PR_LABEL[note.prState].replace('PR ', '') : 'not checked yet'}`);
+    if (note.prCheckedAt) dd.append(` · checked ${when(note.prCheckedAt)}`);
+    kv.append(el('dt', '', 'Pull request'), dd);
+  }
   row('Player', `${note.username} (${note.userId})`);
   row('Game', GAME_LABEL[note.game] ?? note.game);
   row('Sent', `${when(note.createdAt)} (server)`);
@@ -603,6 +640,10 @@ async function select(id: string): Promise<void> {
   const commit = el('input', 'field');
   commit.value = note.fixedCommit;
   commit.maxLength = 120;
+  const pr = el('input', 'field');
+  pr.value = note.prUrl;
+  pr.maxLength = 300;
+  pr.placeholder = 'https://github.com/<owner>/<repo>/pull/<number>';
   const comment = el('input', 'field');
   comment.maxLength = 600;
   const error = el('div', 'error');
@@ -621,7 +662,8 @@ async function select(id: string): Promise<void> {
     labelled('Status', status),
     labelled('Resolution summary (what changed)', resolution),
     labelled('How the fix was verified (needed to resolve)', verification),
-    labelled('Fixing commit or pull request', commit),
+    labelled('Fixing commit', commit),
+    labelled('Pull request (its state updates on its own)', pr),
     labelled('Comment for the history (optional)', comment),
     line,
   );
@@ -637,6 +679,7 @@ async function select(id: string): Promise<void> {
     if (resolution.value !== note.resolution) body.resolution = resolution.value;
     if (verification.value !== note.verification) body.verification = verification.value;
     if (commit.value !== note.fixedCommit) body.fixedCommit = commit.value;
+    if (pr.value.trim() !== note.prUrl) body.prUrl = pr.value.trim();
     adminRpc('feedback.admin.update', body)
       .then(() => load())
       .catch((e: unknown) => {
@@ -646,6 +689,8 @@ async function select(id: string): Promise<void> {
             ? 'Say how the fix was verified before resolving.'
             : code === 'resolution_required'
               ? 'Add a short resolution summary before resolving.'
+              : code === 'bad_pr_url'
+                ? 'The pull request link should look like https://github.com/<owner>/<repo>/pull/<number>.'
               : 'Could not save. Try again.';
         save.disabled = false;
       });

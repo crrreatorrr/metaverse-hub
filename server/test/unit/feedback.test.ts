@@ -93,8 +93,8 @@ let token = '';
 
 // Resolving needs a resolution and a verification note, and deletes the screenshot.
 {
-  mod.nk.onSql(/SELECT id, status, resolution, verification, fixed_commit FROM game\.feedback/, () => [
-    { id: 7, status: 'fixed', resolution: '', verification: '', fixed_commit: '' },
+  mod.nk.onSql(/SELECT id, status, resolution, verification, fixed_commit, pr_url FROM game\.feedback/, () => [
+    { id: 7, status: 'fixed', resolution: '', verification: '', fixed_commit: '', pr_url: '' },
   ]);
   const base = { token, id: 'shooter-0001' };
   assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'resolved' }).error, 'resolution_required');
@@ -105,7 +105,7 @@ let token = '';
   assert.equal(r.ok, true);
   const u = mod.nk.sqlCalls.filter((c) => c.sql.includes('UPDATE game.feedback')).pop()!;
   assert.match(u.sql, /DELETE FROM game\.feedback_image WHERE \$2 = 'resolved'/);
-  assert.deepEqual([...u.args], [7, 'resolved', 'Lowered boss HP', 'Replayed L3 on build abc', 'abc1234', '333', 'Lowered boss HP']);
+  assert.deepEqual([...u.args], [7, 'resolved', 'Lowered boss HP', 'Replayed L3 on build abc', 'abc1234', '333', 'Lowered boss HP', '']);
   assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'in_progress' }).ok, true);
 
   // An agent's update names its check run; once that run is not running, nothing changes.
@@ -122,8 +122,9 @@ let token = '';
 {
   const all = (mod.global.HubSchema as { all(): { id: string; statements: string[] }[] }).all();
   const ids = all.map((m) => m.id);
-  assert.ok(ids.indexOf('0064_feedback_runs') > ids.indexOf('0063_coop_settle_fingerprint'));
-  const sql = all.find((m) => m.id === '0064_feedback_runs')!.statements.join('\n');
+  assert.ok(ids.indexOf('0064_feedback_check') > ids.indexOf('0063_coop_settle_fingerprint'));
+  const sql = all.find((m) => m.id === '0064_feedback_check')!.statements.join('\n');
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS pr_state text NOT NULL DEFAULT '' CHECK \(pr_state IN \('', 'open', 'draft', 'merged', 'closed'\)\)/);
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS feedback_run_one_active ON game\.feedback_run \(\(true\)\) WHERE state IN \('queued', 'running'\)/);
 }
 
@@ -224,6 +225,42 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   const cancel = runSql().filter((c) => c.sql.includes("SET state = 'canceled'")).pop()!;
   assert.match(cancel.sql, /state IN \('queued', 'running'\)/);
   assert.deepEqual([...cancel.args], [3, 'Canceled by 333.']);
+}
+
+// Pull requests: a note keeps the PR with its fix; the worker reports GitHub's state for it.
+{
+  const PR = 'https://github.com/crrreatorrr/sproto-shooter/pull/42';
+  const lastUpdate = () => mod.nk.sqlCalls.filter((c) => c.sql.includes('UPDATE game.feedback\n') || /UPDATE game\.feedback\s+SET status/.test(c.sql)).pop()!;
+  mod.nk.onSql(/SELECT id, status, resolution, verification, fixed_commit, pr_url FROM game\.feedback/, () => [
+    { id: 7, status: 'in_progress', resolution: '', verification: '', fixed_commit: '', pr_url: '' },
+  ]);
+  const base = { token, id: 'SHOOTER-0001' };
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, prUrl: 'https://evil.example/pull/1' }).error, 'bad_pr_url');
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, prUrl: PR + '/files' }).error, 'bad_pr_url');
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'fixed', prUrl: PR }).ok, true);
+  let u = lastUpdate();
+  assert.equal(u.args[7], PR);
+  // A new link resets the state; the same link keeps it.
+  assert.match(u.sql, /pr_state = CASE WHEN pr_url = \$8 THEN pr_state ELSE '' END/);
+  // A PR link given as the fixing commit becomes the PR when the note has none.
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'fixed', fixedCommit: PR }).ok, true);
+  u = lastUpdate();
+  assert.deepEqual([u.args[4], u.args[7]], [PR, PR]);
+  // "" clears it.
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, prUrl: '' }).ok, true);
+  assert.equal(lastUpdate().args[7], '');
+
+  // prstate: admin only, checked input, one statement per PR, history on a change of state.
+  assert.equal(mod.call('feedback.admin.prstate', HUB, { prs: [] }).error, 'unauthorized');
+  assert.equal(mod.call('feedback.admin.prstate', HUB, { token }).error, 'bad_prs');
+  assert.equal(mod.call('feedback.admin.prstate', HUB, { token, prs: [{ url: PR, state: 'approved' }] }).error, 'bad_pr_state');
+  assert.equal(mod.call('feedback.admin.prstate', HUB, { token, prs: [{ url: 'nope', state: 'open' }] }).error, 'bad_pr_url');
+  mod.nk.onSql(/UPDATE game\.feedback f SET pr_state/, () => [{ n: 2 }]);
+  const r = mod.call('feedback.admin.prstate', HUB, { token, prs: [{ url: PR, state: 'merged' }, { url: PR.replace('42', '43'), state: 'open' }] });
+  assert.deepEqual(r, { ok: true, updated: 4 });
+  const ps = mod.nk.sqlCalls.filter((c) => c.sql.includes('UPDATE game.feedback f SET pr_state'));
+  assert.deepEqual([...ps[ps.length - 2]!.args], [PR, 'merged', '333']);
+  assert.match(ps[0]!.sql, /'PR ' \|\| \$2 FROM u WHERE was <> \$2/);
 }
 
 console.log('feedback ok');

@@ -8,6 +8,10 @@
 // run, and only the worker that claimed a run may report on it, so two workers (or two presses
 // of Check) never work the same notes. Canceling the run in the panel stops the agent.
 //
+// It also keeps each note's pull request state current: every FEEDBACK_PR_SYNC_SECONDS (120; 0
+// turns it off) it asks GitHub (`gh pr view`, with the gh login on this machine) about every PR
+// linked from an unresolved note and reports open, draft, merged or closed to the hub.
+//
 //   HUB_URL=https://<domain> NAKAMA_SERVER_KEY=<client key> node scripts/feedback-worker.mjs
 //   ... --once        claim at most one run, work it, exit
 //   ... --dry-run     claim and finish runs without starting the agent (to test the wiring)
@@ -16,12 +20,12 @@
 // FEEDBACK_MAX_MINUTES (240), FEEDBACK_AGENT (claude), FEEDBACK_PERMISSION_MODE (auto),
 // FEEDBACK_GAMES_DIR (the folder that holds metaverse-hub and the game repos),
 // FEEDBACK_LOG_DIR (~/.feedback-worker). The login is the panel's (see feedback-rpc.mjs).
-import { spawn, execFileSync } from 'node:child_process';
+import { execFile, execFileSync, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { feedbackClient, feedbackConfig, RpcError } from './feedback-rpc.mjs';
+import { feedbackClient, feedbackConfig, listUnresolved, RpcError } from './feedback-rpc.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const hubRoot = resolve(here, '..');
@@ -88,6 +92,40 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function envNumber(value, fallback, min) {
   const n = Number(value);
   return Number.isFinite(n) && value !== undefined && value !== '' ? Math.max(min, n) : fallback;
+}
+
+/** GitHub's answer for one PR (`gh pr view --json state,isDraft`) → the hub's PR state. */
+export function prStateOf(view) {
+  const state = String(view?.state ?? '').toUpperCase();
+  if (state === 'MERGED') return 'merged';
+  if (state === 'CLOSED') return 'closed';
+  if (state === 'OPEN') return view.isDraft ? 'draft' : 'open';
+  return '';
+}
+
+const ghView = (url) =>
+  new Promise((done, failed) =>
+    execFile('gh', ['pr', 'view', url, '--json', 'state,isDraft'], { timeout: 30000 }, (error, stdout) => {
+      if (error) failed(error);
+      else done(JSON.parse(stdout));
+    }),
+  );
+
+/** Asks GitHub about every PR linked from an unresolved note and reports the states. */
+export async function syncPullRequests(client, view = ghView) {
+  const { items } = await listUnresolved(client.rpc);
+  const urls = [...new Set(items.map((n) => n.prUrl).filter(Boolean))];
+  const prs = [];
+  for (const url of urls) {
+    try {
+      const state = prStateOf(await view(url));
+      if (state) prs.push({ url, state });
+    } catch (error) {
+      log(`could not read ${url} from GitHub: ${String(error?.message ?? error).split('\n')[0]}`);
+    }
+  }
+  for (let i = 0; i < prs.length; i += 200) await client.rpc('feedback.admin.prstate', { prs: prs.slice(i, i + 200) });
+  return prs;
 }
 
 /** Signals a process group; quiet when it is already gone. */
@@ -286,6 +324,7 @@ async function main() {
     pollMs: envNumber(env.FEEDBACK_POLL_SECONDS, 20, 5) * 1000,
     heartbeatMs: envNumber(env.FEEDBACK_HEARTBEAT_SECONDS, 60, 2) * 1000,
     maxMinutes: envNumber(env.FEEDBACK_MAX_MINUTES, 240, 5),
+    prSyncMs: env.FEEDBACK_PR_SYNC_SECONDS === '0' ? 0 : envNumber(env.FEEDBACK_PR_SYNC_SECONDS, 120, 30) * 1000,
     agent: env.FEEDBACK_AGENT ?? 'claude',
     permissionMode: env.FEEDBACK_PERMISSION_MODE ?? 'auto',
     hubRoot,
@@ -323,6 +362,24 @@ async function main() {
     if (agentGroup) killGroup(agentGroup, 'SIGKILL');
     releaseWorkerLock(opts);
   });
+  if (opts.prSyncMs) {
+    // Beside the runs, never blocked by one: a merge shows in the panel within a sync.
+    let syncing = false;
+    const sync = async () => {
+      if (syncing) return;
+      syncing = true;
+      try {
+        const prs = await syncPullRequests(client);
+        if (prs.length) log(`pull requests: ${prs.map((p) => `${p.url.replace('https://github.com/', '')} ${p.state}`).join(', ')}`);
+      } catch (error) {
+        log(`pull request sync failed: ${error.message}`);
+      } finally {
+        syncing = false;
+      }
+    };
+    await sync();
+    setInterval(sync, opts.prSyncMs).unref();
+  }
   for (;;) {
     let run = null;
     try {

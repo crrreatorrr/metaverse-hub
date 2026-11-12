@@ -67,7 +67,7 @@ export.
 **Check** at the top of the panel starts the agent on every note that is not resolved yet.
 
 1. The panel calls `feedback.admin.check`. The server queues one run in `game.feedback_run`
-   (migration `0064_feedback_runs`). A unique index allows one queued-or-running run, so a second
+   (migration `0064_feedback_check`). A unique index allows one queued-or-running run, so a second
    press, or a press in another tab, shows the run already in flight instead of starting another.
 2. The worker on the owner's computer claims the queued run and starts Claude Code headless with
    `docs/feedback-check.md`, the playbook. Start it once and leave it running:
@@ -90,6 +90,16 @@ export.
    run, and the server refuses it once the run is canceled or over, so a stopped agent changes
    nothing more. If the worker itself is killed, its next start stops the agent it left behind.
 
+### Pull request state
+
+Each note can carry the pull request with its fix (the agent sets it; the panel's form edits it).
+The list and the note show its status next to the PR's state: open, draft, merged or closed. The
+worker keeps those current: every two minutes it asks GitHub (`gh pr view`, with the `gh` login
+on that computer) about the PR of every unresolved note and reports the answers with
+`feedback.admin.prstate`. A change of state goes into the note's history. The panel refreshes the
+list every 30 seconds, so a merge shows on its own. `FEEDBACK_PR_SYNC_SECONDS` changes the
+interval; `0` turns the sync off. Without a running worker the states stop updating.
+
 The worker never merges, deploys or pushes to `main`. Its log for each run is in
 `~/.feedback-worker/run-<id>.log`. `--dry-run` claims and closes runs without starting the
 agent, to test the wiring; `--once` works one run and exits.
@@ -103,7 +113,8 @@ agent, to test the wiring; `--once` works one run and exits.
 | `feedback.admin.login` | any session | `{user, pass}` → admin token |
 | `feedback.admin.list` | admin token | Notes, counts per game and status |
 | `feedback.admin.get` | admin token | One note with its screenshot and history |
-| `feedback.admin.update` | admin token | Status, resolution, verification, fixing commit |
+| `feedback.admin.update` | admin token | Status, resolution, verification, fixing commit, pull request link |
+| `feedback.admin.prstate` | admin token | The worker reports each linked PR's state from GitHub |
 | `feedback.admin.check` | admin token | Queue a check run over every unresolved note, or return the one in flight |
 | `feedback.admin.runs` | admin token | The run in flight and the latest runs |
 | `feedback.admin.claim` | admin token | The worker takes the queued run |
