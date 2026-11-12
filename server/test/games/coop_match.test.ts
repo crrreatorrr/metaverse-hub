@@ -470,8 +470,8 @@ function assertNoLedger(room: Room, label: string): void {
   const externalHash = (stateOf(m) as { stateHash?: string }).stateHash || '';
   console.log(`six-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
   assert.equal(finalMode, 'gameover');
-  assert.equal(externalTick, 10347);
-  assert.equal(externalHash, '0ace8b5604e871232143b85a8ae035b9054de908604adcd1f557acdc9998ed96');
+  assert.equal(externalTick, 13044);
+  assert.equal(externalHash, 'b59977c3c75c1880db5419ccb432fe93f6d4bfa82b0f177737ff54b8b490e269');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
@@ -494,7 +494,7 @@ function assertNoLedger(room: Room, label: string): void {
   const packedTick = stateOf(packedMatch).session?.state.t;
   const packedHash = (stateOf(packedMatch) as { stateHash?: string }).stateHash || '';
   console.log(`golden driver mode=${stateOf(packedMatch).endReason} tick=${packedTick} hash=${packedHash} ms=${Date.now() - packedStarted}`);
-  assert.equal(packedTick, 10347);
+  assert.equal(packedTick, 13044);
   assert.equal(stateOf(packedMatch).endReason, 'gameover');
   assert.equal(packedHash, externalHash);
   assert.equal(ledgerCount(packed), packedLedger);
