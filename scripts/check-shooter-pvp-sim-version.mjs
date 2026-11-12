@@ -21,10 +21,10 @@ const protocolPath = join(root, 'server/modules/src/games/shooter_protocol.ts');
 const REPO = 'crrreatorrr/sproto-shooter';
 const PROTOCOL = 2;
 const SIM = 2;
-const FINGERPRINT = 'b33eada6';
+const FINGERPRINT = 'dc00f234';
 const LOADOUT = '4cdfab55';
-const CAMPAIGN_FINGERPRINT = 'cea1f88b';
-const CAMPAIGN_SHA = 'f265e71d26000d593d352f186d94cd065e217447fbfdd075b9fdc604ac7f738c';
+const CAMPAIGN_FINGERPRINT = '73c6eb0f';
+const CAMPAIGN_SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
 const GOLDEN = { outcome: 'draw', reason: 'double_ko', winner: null, tick: 65, stateHash: '532a562e' };
 // The director v2 limits shooter_protocol.ts verifyRuntime() requires. A bundle
 // with other limits marks every match broken (limits_mismatch).

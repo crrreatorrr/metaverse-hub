@@ -3913,6 +3913,8 @@ namespace HubSchema {
   // 0062_hub_exchange_open is the hub's (MIGRATIONS above): it turns the hub_exchange flag on.
   // 0063_coop_settle_fingerprint is registered from src/games/coop_rewards.ts. It swaps the
   // fingerprint literal in game.settle_coop_clear for the vendored Coop sim's; no row changes.
+  // 0065_shooter_campaign_fingerprint is registered from src/games/shooter_rewards.ts. It swaps
+  // the fingerprint literal in game.settle_shooter_clear for the vendored campaign sim's; no row changes.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

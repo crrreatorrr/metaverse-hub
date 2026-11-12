@@ -18,7 +18,7 @@ import { call, login, psql, sleep as sqlSleep, ticketBalance, waitReady, type Ga
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
-const FP = 'b33eada6';
+const FP = 'dc00f234';
 const PROTOCOL = 2;
 const SIM = 2;
 const PIN = JSON.parse(readFileSync(join(process.cwd(), 'server/modules/vendor/shooter-pvp-sim.pin.json'), 'utf8')) as {
@@ -330,7 +330,7 @@ const report = {
   failures,
   ledger,
   pin: { commit: PIN.commit, fingerprint: PIN.contentFingerprint, loadoutHash: PIN.loadoutHash, protocol: PIN.protocol, sim: PIN.sim, bundleSha256: PIN.sha256 },
-  campaignFingerprint: 'cea1f88b',
+  campaignFingerprint: '73c6eb0f',
   latencyMs: [100, 200],
   jitterMs: [0, 17, 11, 22],
   forfeit: forfeited,

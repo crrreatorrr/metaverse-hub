@@ -259,9 +259,11 @@ var SprotoShooterSim = (() => {
     staminaRegenDelay: 0.55,
     staminaRegen: 1.7,
     staminaRefill: 0.28,
-    grappleRange: 30,
+    grappleRange: 16,
     grappleCd: 6,
-    grapplePull: 90,
+    grapplePull: 54,
+    grappleSpeed: 12.5,
+    grappleReleaseSpeed: 8.5,
     grappleArrive: 1.35,
     dashSpeed: 24,
     dashTime: 0.15,
@@ -10417,6 +10419,12 @@ var SprotoShooterSim = (() => {
   }
   var yawTo = (a, b) => Math.atan2(-(b.x - a.x), -(b.z - a.z));
 
+  // src/sim/grappleMotion.js
+  function grappleSpeedScale(x, y, z, limit) {
+    const speed = Math.hypot(x, y, z);
+    return speed > limit ? limit / speed : 1;
+  }
+
   // src/sim/grapple.js
   function inBox2(box3, x, y, z) {
     if (!box3 || !box3.min || !box3.max) return false;
@@ -10439,7 +10447,7 @@ var SprotoShooterSim = (() => {
     for (let i = 0; i < zones.length; i++) if (inBox2(zones[i], x, y, z)) return true;
     return false;
   }
-  function snapAnchor(state, point, maxDist) {
+  function snapAnchor(state, point, origin, maxDist) {
     const anchors = state.level && state.level.grappleAnchors || [];
     let best = null;
     let bd = 2.4;
@@ -10449,7 +10457,7 @@ var SprotoShooterSim = (() => {
       if (!at2) continue;
       const d = Math.hypot(at2[0] - point.x, (at2[1] || 0) - point.y, at2[2] - point.z);
       const reach = a.r == null ? 2.4 : a.r;
-      if (d <= reach && d < bd && Math.hypot(at2[0] - point.x, at2[2] - point.z) < maxDist) {
+      if (d <= reach && d < bd && Math.hypot(at2[0] - origin.x, (at2[1] || 0) - origin.y, at2[2] - origin.z) <= maxDist) {
         bd = d;
         best = { x: at2[0], y: at2[1] || 0, z: at2[2], id: a.id || null };
       }
@@ -10465,6 +10473,7 @@ var SprotoShooterSim = (() => {
       const at2 = a.at;
       if (!at2) continue;
       const ox = at2[0] - origin.x, oy = (at2[1] || 0) - origin.y, oz = at2[2] - origin.z;
+      if (Math.hypot(ox, oy, oz) > maxDist) continue;
       const t = ox * dir.x + oy * dir.y + oz * dir.z;
       if (t < 0.4 || t > maxDist) continue;
       const px = origin.x + dir.x * t, py = origin.y + dir.y * t, pz = origin.z + dir.z * t;
@@ -10508,7 +10517,7 @@ var SprotoShooterSim = (() => {
     const along = anchorOnRay(state, origin, dir, maxDist);
     if (along && (!hit || along.t <= hit.t + 0.4)) hit = along;
     if (hit) {
-      const snapped = snapAnchor(state, hit, maxDist);
+      const snapped = snapAnchor(state, hit, origin, maxDist);
       if (snapped) hit = snapped;
     }
     if (!hit || blocked(state, hit.x, hit.y, hit.z)) return null;
@@ -10549,43 +10558,55 @@ var SprotoShooterSim = (() => {
       if (p.vel.y > 0) p.vel.y = 0;
     }
   }
+  function limitSpeed(p, limit) {
+    const k = grappleSpeedScale(p.vel.x, p.vel.y, p.vel.z, limit);
+    p.vel.x *= k;
+    p.vel.y *= k;
+    p.vel.z *= k;
+  }
+  function releaseGrapple(state, p) {
+    if (!p.grapple) return;
+    limitSpeed(p, TUNING.grappleReleaseSpeed);
+    p.grapple = null;
+    emit(state, "grappleRelease", { playerId: p.id });
+  }
   function tickGrapple(state, p, dt) {
     if (p.grappleCd > 0) p.grappleCd = Math.max(0, p.grappleCd - dt);
     const c = p.cmd || {};
     const held = !!(c.held && c.held.grapple);
     if (!held || p.downed) {
-      if (p.grapple) {
-        emit(state, "grappleRelease", { playerId: p.id });
-        p.grapple = null;
-      }
+      releaseGrapple(state, p);
       return;
     }
     if (!p.grapple) {
       if (p.grappleCd > 0) return;
       const hook3 = findHook(state, p);
       p.grappleCd = TUNING.grappleCd;
-      if (!hook3) return;
+      if (!hook3) {
+        p.grappleMiss = true;
+        return;
+      }
+      delete p.grappleMiss;
       p.grapple = hook3;
       emit(state, "grapple", { playerId: p.id, pos: { x: hook3.x, y: hook3.y, z: hook3.z }, id: hook3.id });
     }
     const hook2 = p.grapple;
     if (!stillClear(state, p, hook2)) {
-      emit(state, "grappleRelease", { playerId: p.id });
-      p.grapple = null;
+      releaseGrapple(state, p);
       return;
     }
     const originY = p.pos.y + 0.9;
     const dx = hook2.x - p.pos.x, dy = hook2.y - originY, dz = hook2.z - p.pos.z;
     const dist = Math.hypot(dx, dy, dz) || 1;
     if (dist < TUNING.grappleArrive) {
-      emit(state, "grappleRelease", { playerId: p.id });
-      p.grapple = null;
+      releaseGrapple(state, p);
       return;
     }
     const pull = TUNING.grapplePull * dt;
     p.vel.x += dx / dist * pull;
     p.vel.y += dy / dist * pull;
     p.vel.z += dz / dist * pull;
+    limitSpeed(p, TUNING.grappleSpeed);
     const room2 = sealOf(state, p);
     if (room2) {
       const pad = 0.45;
@@ -10986,9 +11007,12 @@ var SprotoShooterSim = (() => {
     }
     return true;
   }
-  function onBeam(m, px, pz, time) {
+  function searchlightYaw(m, time) {
     const span2 = m.sweep > 0 ? Math.sin(time * Math.PI * 2 / m.sweep) * 0.9 : 0;
-    const yaw = (m.yaw || 0) + span2;
+    return (m.yaw || 0) + span2;
+  }
+  function onBeam(m, px, pz, time) {
+    const yaw = searchlightYaw(m, time);
     const fx = -Math.sin(yaw);
     const fz = -Math.cos(yaw);
     const dx = px - m.at[0];
@@ -11140,7 +11164,7 @@ var SprotoShooterSim = (() => {
         if (p.stamina <= 0) p.staminaLock = true;
         emit(state, "slide", { playerId: p.id });
       }
-      const hooked = !!p.grapple || !!(c.held && c.held.grapple);
+      const hooked = !!p.grapple;
       if (m.mode === "dash") {
         m.dashT -= dt;
         p.vel.x = m.dashDir.x * TUNING.dashSpeed;
@@ -11228,7 +11252,6 @@ var SprotoShooterSim = (() => {
         }
       }
       const seal2 = sealOf(state, p);
-      tickGrapple(state, p, dt);
       if (m.mode !== "dash") p.vel.y -= TUNING.gravity * dt;
       if (state.mode === "campaign" && state.level && state.level.gravityMult !== 1 && m.mode !== "dash") {
         p.vel.y -= TUNING.gravity * (state.level.gravityMult - 1) * dt;
@@ -11246,6 +11269,7 @@ var SprotoShooterSim = (() => {
         }
         if (p.onGround && !infinite && lv.fuel < 100) lv.fuel = Math.min(100, lv.fuel + 25 * dt);
       }
+      tickGrapple(state, p, dt);
       p.pos.x += p.vel.x * dt;
       p.pos.y += p.vel.y * dt;
       p.pos.z += p.vel.z * dt;
@@ -15838,7 +15862,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "70794a1704fb977c7c6380d766d7e20f082104ed";
+  var SOURCE_COMMIT = "2215995f40d999f31336815296e1e7b7726f932a";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
