@@ -350,9 +350,13 @@ namespace CoopMatch {
       }, CoopProtocol.LIMITS.afkAliveTicks);
       // Marina Anchor: any banked stage-1 clear grants it to each human account still in the
       // fight, whatever the Ticket decision (practice, God Mode, stage select, late join and AFK
-      // included). A seat released to the CPU and a row with no seats do not count. Earn-once in
-      // SQL, so a retry or a second clear grants nothing; it never touches Tickets.
-      if (facts.canonicalBossId === StageRelics.COOP_BOSS && !released && row.slots >= 1) {
+      // included). A seat released to the CPU and a row with no seats do not count, and neither
+      // does an account the sim reports out for the kill (all of its seats dead when the boss
+      // fell; a downed seat is not dead): it was not in the fight at the clear, the same rule that
+      // refuses its Tickets (CoopRewards.decide, knocked_out). Nothing is recorded against it, so
+      // its next stage-1 clear where it is not out grants the Anchor. Earn-once in SQL, so a
+      // retry or a second clear grants nothing; it never touches Tickets.
+      if (facts.canonicalBossId === StageRelics.COOP_BOSS && !released && row.slots >= 1 && row.out !== 1) {
         try {
           var anchor = StageRelics.grantCoopClear(nk, row.accountId, sid);
           if (anchor) logger.info("coop relic granted " + anchor + " user " + row.accountId);

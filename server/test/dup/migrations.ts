@@ -897,14 +897,14 @@ export async function runMigrations(test: DupTest): Promise<void> {
     assert.match(stored, /^[0-9a-f]{64}$/);
   });
 
-  await test('migration', '0042/0049 server_flags seeds every launch flag off and enforces its checks', async () => {
+  await test('migration', '0042/0049 server_flags seeds every launch flag off, 0062 opens hub_exchange, and the checks hold', async () => {
     const duelFlag = '0049_sproto_duel_wager_flag';
     assert.equal(migrationIds().filter((id) => id === duelFlag).length, 1, 'root Duel migration is discovered once');
     assert.equal(psql(`SELECT checksum FROM game.schema_migrations WHERE id = '${duelFlag}'`), fileChecksum(duelFlag), 'root Duel migration checksum');
     const rows = psql(`SELECT key || '=' || state || ':' || percent || ':' || cardinality(allowlist) FROM game.server_flags ORDER BY key`);
     assert.deepEqual(rows.split('\n'), [
       'diagnostics_prompt=off:0:0',
-      'hub_exchange=off:0:0',
+      'hub_exchange=on:0:0',
       'maint=off:0:0',
       'relic_unhold=off:0:0',
       'shooter_pvp=off:0:0',

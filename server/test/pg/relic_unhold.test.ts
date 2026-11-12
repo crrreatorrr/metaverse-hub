@@ -124,7 +124,9 @@ const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN 
   assert.equal(medalPending, 1);
   const ledgerBefore = count(pg, 'SELECT 1 FROM game.tickets_ledger') + count(pg, 'SELECT 1 FROM game.verse_ledger');
 
-  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+  // The runner refuses an unapplied id below the highest recorded one, so the rows of every later
+  // migration go too and the boot replays them after 0061 (they are all safe to apply twice).
+  pg.run("DELETE FROM game.schema_migrations WHERE id >= '0061_relic_unhold'");
   const rebooted = pg.reload();
   assert.deepEqual(rebooted.logger.lines.filter((line) => line.level === 'error'), []);
   assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1);
@@ -175,7 +177,7 @@ const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN 
   }
 
   // Applying the migration once more changes nothing (no pending rows, same counts).
-  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+  pg.run("DELETE FROM game.schema_migrations WHERE id >= '0061_relic_unhold'");
   pg.reload();
   for (const relic of RELICS) assert.equal(mints(waiting, relic.id, 'grant_relic'), 1);
   for (const pet of PETS) assert.equal(mints(waiting, pet.id, 'grant_item'), 1);
@@ -227,7 +229,7 @@ const HOLD_PETS = `UPDATE game.item_rule SET grant_hold = true WHERE item_id IN 
     );
   }
   const claimsBefore = count(pg, "SELECT 1 FROM game.relic_claim WHERE relic_id = 'genesis_shard'");
-  pg.run("DELETE FROM game.schema_migrations WHERE id = '0061_relic_unhold'");
+  pg.run("DELETE FROM game.schema_migrations WHERE id >= '0061_relic_unhold'");
   const booted = pg.reload();
   assert.deepEqual(booted.logger.lines.filter((line) => line.level === 'error'), [], 'the boot applies 0061 without running out of lock memory');
   assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0061_relic_unhold'"), 1);

@@ -66,7 +66,7 @@ http://127.0.0.1:5173/hub/#from=sproto
 
 **Finding and launching games.** HUD markers name the five entrances and the Bar with the distance in metres, and fade when you are within 20 m. The Esc menu opens on **Games**: all eight games with their Relic, your Tickets and a Play button (Esc then Enter relaunches the last one). A first-visit card walks a new player through gate, Relic and return, and the **?** button explains Tickets, Verse and Relics. People's Bitcoin asks "18+ satire. Enter?" once per browser. Coming back from a game shows what the trip earned.
 
-**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migration `0060_hub_exchange` and the `hub_exchange` launch flag turned on; until then the tab lists balances and its buttons read "Not open yet".
+**Wallet.** Menu → Wallet lists the Tickets held in each game and exchanges them for Verse from the plaza (10 Tickets = 1 Verse, up to 50 Verse per game per UTC day, shared with the in-game exchange). It needs server migrations `0060_hub_exchange` and `0062_hub_exchange_open`, which turns the `hub_exchange` launch flag on. If an operator sets that flag off again, the tab still lists balances and its buttons read "Not open yet".
 
 **Emotes.** Keys 1, 2 and 3 wave, dance and cheer: a short line over your head that players near you see too (one per second).
 
@@ -147,7 +147,7 @@ realtimeFromSdk(sdk)                  // realtime client on the game session (ma
 
 Since migration `0061_relic_unhold`, every Relic in this table is granted on the qualifying event (the Genesis Block Shard and Tidebreaker Belt were held until then, and claims recorded while they were held were promoted). The only grant still held is the Life Medal item.
 
-The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`). `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
+The Marina Anchor and the Dragon Scale pay no Tickets, unlock no items in other games and do not count toward the Four Lights. The banked online Coop match also grants the Marina Anchor on the server to each human account at a stage-1 clear (migration `0045_coop_shooter_relics`), except an account that was out (all of its seats dead) when the boss fell; that account gets it on its next stage-1 clear where it is not out. `coop.boss_clear` and `shooter.boss_clear` are server-only names; a client gets `server_reason`.
 
 The same events also grant cosmetic pets once per player through `game.item_rule` (migration `0030_m6_item_grants`): HPOS10I act 2 of `z1_retro_rush_hills` and `z2_wizard_academy`, NOBU bosses `bird` and `cat`, Sproto boss `obama`, and People's Bitcoin quests `quest_moonward` and `quest_hatchery`. Every successful `session.event` response has `granted_items` (a list, `[]` when none). See [docs/m6-server-prep.md](docs/m6-server-prep.md).
 

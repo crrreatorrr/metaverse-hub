@@ -2387,8 +2387,10 @@ namespace HubSchema {
       // Does not revoke or rewrite game.relic_claim / game.item_owned. A matching
       // rule with grant_hold goes to the pending table (earn-once PK, ON CONFLICT
       // DO NOTHING) and pays nothing: no Tickets, no Verse, no item_ledger, no
-      // game_beaten, no derived staff/pet. sproto_wager_hold counts fighter_win
-      // tickets_ledger rows only, so a pending row cannot qualify a wager.
+      // game_beaten, no derived staff/pet. A pending row cannot qualify a wager
+      // either: sproto_wager_hold has had no qualifying count since 0032 (the 0010
+      // rule counted fighter_win ledger rows, a reason nobody can earn since 0031;
+      // server/test/pg/wager_eligibility.test.ts pins that it stays gone).
       // Story-boss allowlist rows (match pins a boss) and server-recorded results
       // stay live. Promotion is game.promote_pending_grant; nothing calls it yet,
       // and it is not an RPC.
@@ -3770,6 +3772,24 @@ namespace HubSchema {
          $chk$`,
       ],
     },
+    {
+      // Open the plaza exchange (owner decision, 2026-11-12). 0042 seeded hub_exchange off and
+      // verse.exchange answers exchange_off until the flag is on. This turns it on for everybody
+      // when the migration is applied, on deploy. The upsert also covers a database where the row
+      // was removed. allowlist and percent are left as they are; they do nothing while state is on.
+      //
+      // It runs once: the ledger row stops later boots from applying it again, and 0042's seed is
+      // ON CONFLICT DO NOTHING, so nothing at boot writes this row afterwards. An operator closes
+      // the exchange by hand (set the row's state to 'off'; the statement is in server/README.md)
+      // and it stays closed across restarts.
+      // Only a replay (its schema_migrations row deleted by hand) would open it again.
+      // No mint and no cap change: the exchange only debits Tickets the account already holds.
+      id: "0062_hub_exchange_open",
+      statements: [
+        `INSERT INTO game.server_flags (key, state) VALUES ('hub_exchange', 'on')
+         ON CONFLICT (key) DO UPDATE SET state = 'on', updated_at = now()`,
+      ],
+    },
   ];
 
   function migrationSource(statements: string[]): string {
@@ -3890,6 +3910,9 @@ namespace HubSchema {
   // dragon_scale (Shooter Wave Mode wave 1), and adds their two live, Ticket-free event_rule rows.
   // 0046_shooter_wager_escrow is the hub's (MIGRATIONS above): Shooter-only 10-Ticket escrow.
   // It does not change Fighter wagers. 0036 and 0038 stay unused.
+  // 0062_hub_exchange_open is the hub's (MIGRATIONS above): it turns the hub_exchange flag on.
+  // 0063_coop_settle_fingerprint is registered from src/games/coop_rewards.ts. It swaps the
+  // fingerprint literal in game.settle_coop_clear for the vendored Coop sim's; no row changes.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

@@ -9,6 +9,7 @@ import {
   canonicalGameId,
   isBoardId,
   isRelicId,
+  type EventResult,
   type ExchangeResult,
   type GameId,
   type HubSdk,
@@ -614,8 +615,12 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       }
       if (!active) return {};
       const result = await sendOnce(active, 'session.event', key, { eventId, data });
-      const granted = result && typeof result === 'object' ? (result as { granted?: unknown }).granted : undefined;
-      return typeof granted === 'string' && isRelicId(granted) ? { granted } : {};
+      const answer = result && typeof result === 'object' ? (result as { granted?: unknown; tickets?: unknown }) : {};
+      const out: EventResult = {};
+      if (typeof answer.granted === 'string' && isRelicId(answer.granted)) out.granted = answer.granted;
+      // The server names `tickets` only when this event credited some (a story boss, 0.7.1).
+      if (typeof answer.tickets === 'number' && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0) out.tickets = answer.tickets;
+      return out;
     },
 
     async submitScore(boardId, value, meta) {

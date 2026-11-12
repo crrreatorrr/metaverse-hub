@@ -121,7 +121,8 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.ok(mod.registered.rpcs.has('verse.exchange'), 'verse.exchange registered');
   const hub = { userId: USER_A, vars: { scope: 'hub' } };
   const game = { userId: USER_A, vars: { scope: 'game', game: 'nobu', sid: SID, ranked: '0' } };
-  // The hub_exchange launch flag gates the exchange. Off (the seeded state, or no row): refused
+  // The hub_exchange launch flag gates the exchange (on since 0062_hub_exchange_open). Off (the
+  // operator closed it, or no row): refused
   // before anything else is read, and tickets.balances says so.
   let flagState = 'off';
   mod.nk.onSql('FROM game.server_flags WHERE key', (args) => (args[0] === 'hub_exchange' ? [{ result: JSON.stringify({ state: flagState, allowlist: [], percent: 0 }) }] : []));
@@ -176,6 +177,12 @@ assert.ok(mod.registered.matches.has('sproto_duel'));
   assert.equal(mod.call<{ error?: string }>('tickets.exchange', { userId: USER_A, vars: { scope: 'game', game: 'hpos10i', sid: SID, ranked: '0' } }, { tickets: 10, key: 'k' }).error, 'exchange_not_allowed');
   const ids = plain((mod.global.HubSchema as { all(): { id: string }[] }).all().map((m) => m.id));
   assert.ok(ids.includes('0060_hub_exchange'));
+  // 0062 opens the exchange with one upsert that only ever writes state 'on'.
+  const open = (mod.global.HubSchema as { all(): { id: string; statements: string[] }[] }).all().find((m) => m.id === '0062_hub_exchange_open');
+  assert.ok(open, '0062_hub_exchange_open is registered');
+  assert.equal(open.statements.length, 1);
+  assert.match(open.statements[0]!, /INSERT INTO game\.server_flags \(key, state\) VALUES \('hub_exchange', 'on'\)\s+ON CONFLICT \(key\) DO UPDATE SET state = 'on', updated_at = now\(\)$/);
+  assert.ok(ids.indexOf('0062_hub_exchange_open') > ids.indexOf('0061_relic_unhold'));
 }
 
 // HubEconomy: same SQL and request hash as the RPCs; input validation.

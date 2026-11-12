@@ -111,7 +111,9 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0059 | hub | `games/hub_feedback.ts` | `0059_feedback` |
 | 0060 | hub | `schema.ts` | `0060_hub_exchange` (`game.exchange_tickets_hub`, the Wallet tab's hub-scope exchange) |
 | 0061 | hub | `schema.ts` | `0061_relic_unhold` (releases the held Genesis Block Shard, Tidebreaker Belt and four pets; promotes their pending claims) |
-| 0062+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0062 | hub | `schema.ts` | `0062_hub_exchange_open` (turns the `hub_exchange` flag on: the plaza exchange is open) |
+| 0063 | sproto-coop-battle | `games/coop_rewards.ts` | `0063_coop_settle_fingerprint` (`game.settle_coop_clear` labels receipts with the vendored Coop sim fingerprint `fb9f2679…`; no row or amount changes) |
+| 0064+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 

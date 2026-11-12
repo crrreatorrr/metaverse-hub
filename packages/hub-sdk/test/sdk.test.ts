@@ -426,6 +426,15 @@ async function liveSdk(): Promise<void> {
       if (id === 'session.event') {
         const data = body as { key?: string; data?: { godMode?: boolean } };
         if (data.key === 'bad') throw new HubSdkError('idempotency_mismatch', 'mismatch');
+        // What the server answers for a story boss that paid, with and without a Relic (0.7.1).
+        if (data.key === 'boss-paid') return { granted_items: [], tickets: 20 } as T;
+        if (data.key === 'boss-and-relic') return { granted: 'tinubu_crown', granted_items: [], tickets: 20 } as T;
+        if (data.key === 'boss-zero') return { granted_items: [], tickets: 0 } as T;
+        if (data.key === 'boss-rematch') return { granted_items: [] } as T;
+        if (typeof data.key === 'string' && data.key.startsWith('boss-junk-')) {
+          const junk: Record<string, unknown> = { 'boss-junk-text': '20', 'boss-junk-neg': -20, 'boss-junk-frac': 2.5, 'boss-junk-nan': Number.NaN, 'boss-junk-null': null, 'boss-junk-big': 2 ** 60 };
+          return { tickets: junk[data.key] } as T;
+        }
         assert.equal(data.data?.godMode, true);
         return { granted: 'tinubu_crown' } as T;
       }
@@ -464,7 +473,15 @@ async function liveSdk(): Promise<void> {
   const refreshed = await sdk.init('sproto');
   assert.deepEqual(refreshed.relics, ['tinubu_crown']);
   const grant = await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 4, godMode: true }, 'beat');
-  assert.deepEqual(grant, { granted: 'tinubu_crown' });
+  assert.deepEqual(grant, { granted: 'tinubu_crown' }, 'no tickets key when the server sends none');
+  // 0.7.1: the Tickets the server credited for the event come back, as an optional field.
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-paid'), { tickets: 20 });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu' }, 'boss-and-relic'), { granted: 'tinubu_crown', tickets: 20 });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-zero'), { tickets: 0 });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-rematch'), {}, 'a boss that paid nothing has no tickets key');
+  for (const key of ['boss-junk-text', 'boss-junk-neg', 'boss-junk-frac', 'boss-junk-nan', 'boss-junk-null', 'boss-junk-big']) {
+    assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, key), {}, `${key} is not a Ticket amount`);
+  }
   const earned = await sdk.earnTickets(20, 'win', 'e1');
   assert.deepEqual(earned, { balance: 20, capped: false });
   const traded = await sdk.exchange(20, 'x1');
