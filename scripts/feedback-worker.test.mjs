@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { promptFor, summaryOf, workerName } from './feedback-worker.mjs';
+import { envNumber, promptFor, stopLeftoverAgent, summaryOf, workerName } from './feedback-worker.mjs';
 import { feedbackClient } from './feedback-rpc.mjs';
 
 // Summary: the last SUMMARY: line onward, else the tail; exit codes show on failures.
@@ -66,6 +66,23 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   assert.equal((await feedbackClient(config, fake).rpc('feedback.admin.runs')).token, live);
   assert.equal(logins(), before);
   assert.ok(calls.every((c) => c.url.startsWith('http://hub/')));
+}
+
+// Numbers from the environment: junk falls back to the default instead of a 1 ms loop.
+assert.equal(envNumber('20s', 20, 5), 20);
+assert.equal(envNumber(undefined, 60, 2), 60);
+assert.equal(envNumber('', 60, 2), 60);
+assert.equal(envNumber('1', 20, 5), 5);
+assert.equal(envNumber('90', 20, 5), 90);
+
+// A leftover agent is stopped only when its pid still runs the agent.
+{
+  const logDir = mkdtempSync(join(tmpdir(), 'fw-pid-'));
+  assert.equal(stopLeftoverAgent({ logDir }), 0); // no file
+  writeFileSync(join(logDir, 'agent.pid'), JSON.stringify({ pgid: 999999, agent: '/usr/local/bin/claude', runId: 3 }));
+  assert.equal(stopLeftoverAgent({ logDir }, () => '/Applications/Safari.app/Contents/MacOS/Safari\n'), 3); // pid reused: left alone, run still reported
+  writeFileSync(join(logDir, 'agent.pid'), JSON.stringify({ pgid: 999999, agent: '/usr/local/bin/claude', runId: 3 }));
+  assert.equal(stopLeftoverAgent({ logDir }, () => { throw new Error('no such process'); }), 3); // gone
 }
 
 console.log('feedback worker ok');

@@ -79,13 +79,16 @@ export.
    Until a worker runs, the panel says the run is waiting for the worker.
 3. The agent marks each note `in_progress`, fixes them with one subagent per game repo, each on
    its own branch and pull request, and marks them `fixed`. A separate verifier subagent then checks
-   each fix against the note. Only a verified note becomes `resolved`, with the evidence as its
-   verification note. Notes it cannot fix go back to `open` with a comment saying what the owner
-   needs to decide.
+   each fix against the note. A note becomes `resolved` only when the fix is verified and merged to
+   `main`, with the evidence as its verification note. A verified fix whose PR is still open stays
+   `fixed` with the evidence in its history, and the next Check after the merge resolves it. Notes
+   it cannot fix go back to `open` with a comment saying what the owner needs to decide.
 4. The worker sends a heartbeat every minute. The panel shows the run's state and, at the end,
    the agent's summary. A run whose heartbeat stops for 30 minutes is marked failed, so a crashed
    worker does not block the next Check. **Cancel** in the panel stops the agent at its next
-   heartbeat. Notes keep the status they had reached.
+   heartbeat. Notes keep the status they had reached. Every note change the agent makes names its
+   run, and the server refuses it once the run is canceled or over, so a stopped agent changes
+   nothing more. If the worker itself is killed, its next start stops the agent it left behind.
 
 The worker never merges, deploys or pushes to `main`. Its log for each run is in
 `~/.feedback-worker/run-<id>.log`. `--dry-run` claims and closes runs without starting the

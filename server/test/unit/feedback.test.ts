@@ -107,6 +107,15 @@ let token = '';
   assert.match(u.sql, /DELETE FROM game\.feedback_image WHERE \$2 = 'resolved'/);
   assert.deepEqual([...u.args], [7, 'resolved', 'Lowered boss HP', 'Replayed L3 on build abc', 'abc1234', '333', 'Lowered boss HP']);
   assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'in_progress' }).ok, true);
+
+  // An agent's update names its check run; once that run is not running, nothing changes.
+  const n = mod.nk.sqlCalls.filter((c) => c.sql.includes('UPDATE game.feedback')).length;
+  mod.nk.onSql(/FROM game\.feedback_run WHERE id = \$1 AND state = 'running'/, []);
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'fixed', runId: 4 }).error, 'run_not_running');
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'fixed', runId: 'x' }).error, 'bad_run');
+  assert.equal(mod.nk.sqlCalls.filter((c) => c.sql.includes('UPDATE game.feedback')).length, n);
+  mod.nk.onSql(/FROM game\.feedback_run WHERE id = \$1 AND state = 'running'/, [{ ok: 1 }]);
+  assert.equal(mod.call('feedback.admin.update', HUB, { ...base, status: 'fixed', runId: 4 }).ok, true);
 }
 
 // Check runs (migration 0064): one queued-or-running run at a time.

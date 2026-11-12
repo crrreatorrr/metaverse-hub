@@ -17,9 +17,9 @@
 // FEEDBACK_GAMES_DIR (the folder that holds metaverse-hub and the game repos),
 // FEEDBACK_LOG_DIR (~/.feedback-worker). The login is the panel's (see feedback-rpc.mjs).
 import { spawn, execFileSync } from 'node:child_process';
-import { createWriteStream, mkdirSync, readFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient, feedbackConfig, RpcError } from './feedback-rpc.mjs';
 
@@ -84,17 +84,59 @@ function log(...parts) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/** Stops the agent and everything it started; quiet when the group is already gone. */
-function killGroup(child, signal) {
+/** A number from the environment; the default when it is missing or not a number. */
+export function envNumber(value, fallback, min) {
+  const n = Number(value);
+  return Number.isFinite(n) && value !== undefined && value !== '' ? Math.max(min, n) : fallback;
+}
+
+/** Signals a process group; quiet when it is already gone. */
+function killGroup(pgid, signal) {
   try {
-    process.kill(-child.pid, signal);
+    process.kill(-pgid, signal);
   } catch {
     // Already exited.
   }
 }
 
-/** Stops the agent of the run in hand, if any (set while a run is worked). */
+/**
+ * The agent of the last run, kept on disk while it runs. If the worker died without stopping it
+ * (SIGKILL, a crash, a power cut), the next start stops that agent before claiming anything, so
+ * two agents never work the notes at once.
+ */
+function pidFile(opts) {
+  return join(opts.logDir, 'agent.pid');
+}
+
+/** → the run id the last worker left unfinished (0 if none); stops its agent if it still runs. */
+export function stopLeftoverAgent(opts, ps = (pid) => execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' })) {
+  let saved;
+  try {
+    saved = JSON.parse(readFileSync(pidFile(opts), 'utf8'));
+  } catch {
+    return 0;
+  }
+  rmSync(pidFile(opts), { force: true });
+  const runId = Number(saved.runId) || 0;
+  const pgid = Number(saved.pgid);
+  let command = '';
+  try {
+    command = pgid > 1 ? ps(pgid) : '';
+  } catch {
+    // Gone already.
+  }
+  // Only when that pid still runs the agent: a pid the system gave to something else is left alone.
+  if (command && command.includes(basename(String(saved.agent)))) {
+    log(`stopping the agent left from run #${runId} (pid ${pgid})`);
+    killGroup(pgid, 'SIGTERM');
+    setTimeout(() => killGroup(pgid, 'SIGKILL'), 5000).unref();
+  }
+  return runId;
+}
+
+/** The run in hand: its stop(), and the agent's process group while it runs. */
 let current = null;
+let agentGroup = 0;
 let quitting = false;
 
 async function work(run, client, opts) {
@@ -109,6 +151,7 @@ async function work(run, client, opts) {
   mkdirSync(opts.logDir, { recursive: true });
   const logPath = join(opts.logDir, `run-${run.id}.log`);
   const logFile = createWriteStream(logPath, { flags: 'a' });
+  logFile.on('error', (error) => log(`run #${run.id}: cannot write ${logPath}: ${error.message}`));
   const args = ['-p', promptFor(run, opts), '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
   const child = spawn(opts.agent, args, {
     cwd: opts.gamesDir,
@@ -125,14 +168,22 @@ async function work(run, client, opts) {
   child.stdout.on('data', keep);
   child.stderr.on('data', keep);
   log(`run #${run.id}: agent started (pid ${child.pid}), log ${logPath}`);
+  if (child.pid) {
+    agentGroup = child.pid;
+    writeFileSync(pidFile(opts), JSON.stringify({ pgid: child.pid, agent: opts.agent, runId: run.id }));
+  }
 
   let stopped = '';
+  let exited = false;
   const stop = (why) => {
-    if (stopped) return;
+    // After the agent exited its pid may belong to another program: never signal it then.
+    if (stopped || exited) return;
     stopped = why;
     log(`run #${run.id}: stopping the agent (${why})`);
-    killGroup(child, 'SIGTERM');
-    setTimeout(() => killGroup(child, 'SIGKILL'), 15000).unref();
+    killGroup(child.pid, 'SIGTERM');
+    setTimeout(() => {
+      if (!exited) killGroup(child.pid, 'SIGKILL');
+    }, 15000).unref();
   };
   current = stop;
   const deadline = setTimeout(() => stop(`no result after ${opts.maxMinutes} minutes`), opts.maxMinutes * 60000);
@@ -151,11 +202,18 @@ async function work(run, client, opts) {
     });
     // 'exit', not 'close': a tool the agent left behind may hold the pipes open.
     child.on('exit', (c, signal) => {
-      killGroup(child, 'SIGTERM');
-      setTimeout(() => done(c ?? (signal ? 143 : 1)), 500);
+      // Stop what the agent left running, then let its pid go.
+      killGroup(child.pid, 'SIGTERM');
+      setTimeout(() => {
+        killGroup(child.pid, 'SIGKILL');
+        exited = true;
+        done(c ?? (signal ? 143 : 1));
+      }, 500);
     });
   });
   current = null;
+  agentGroup = 0;
+  rmSync(pidFile(opts), { force: true });
   clearInterval(beat);
   clearTimeout(deadline);
   logFile.end();
@@ -182,9 +240,9 @@ async function main() {
     once: argv.includes('--once'),
     dryRun: argv.includes('--dry-run'),
     worker: workerName(env.FEEDBACK_WORKER_NAME ?? hostname()),
-    pollMs: Math.max(5, Number(env.FEEDBACK_POLL_SECONDS ?? 20)) * 1000,
-    heartbeatMs: Math.max(2, Number(env.FEEDBACK_HEARTBEAT_SECONDS ?? 60)) * 1000,
-    maxMinutes: Math.max(5, Number(env.FEEDBACK_MAX_MINUTES ?? 240)),
+    pollMs: envNumber(env.FEEDBACK_POLL_SECONDS, 20, 5) * 1000,
+    heartbeatMs: envNumber(env.FEEDBACK_HEARTBEAT_SECONDS, 60, 2) * 1000,
+    maxMinutes: envNumber(env.FEEDBACK_MAX_MINUTES, 240, 5),
     agent: env.FEEDBACK_AGENT ?? 'claude',
     permissionMode: env.FEEDBACK_PERMISSION_MODE ?? 'auto',
     hubRoot,
@@ -193,8 +251,18 @@ async function main() {
   };
   const client = feedbackClient(config);
   log(`feedback worker ${opts.worker} on ${config.base}, games in ${opts.gamesDir}${opts.dryRun ? ' (dry run)' : ''}`);
-  // Ctrl-C or a service stop: stop the agent, report the run failed, then exit.
-  for (const signal of ['SIGINT', 'SIGTERM']) {
+  mkdirSync(opts.logDir, { recursive: true });
+  const leftover = opts.dryRun ? 0 : stopLeftoverAgent(opts);
+  if (leftover) {
+    // Close that run now instead of leaving it to the 30-minute stale check.
+    await client
+      .rpc('feedback.admin.run', { id: leftover, worker: opts.worker, state: 'failed', summary: 'The worker stopped before the agent finished. Press Check to start again.' })
+      .then(() => log(`run #${leftover} reported failed (the last worker stopped mid-run)`))
+      .catch(() => {});
+  }
+  // Ctrl-C, a closed terminal or a service stop: stop the agent, report the run failed, exit.
+  // A second signal does not wait: it kills the agent's group at once.
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
     process.on(signal, () => {
       if (quitting) process.exit(130);
       quitting = true;
@@ -202,6 +270,10 @@ async function main() {
       else process.exit(0);
     });
   }
+  // Any other way out (a crash, process.exit above): never leave the agent running behind us.
+  process.on('exit', () => {
+    if (agentGroup) killGroup(agentGroup, 'SIGKILL');
+  });
   for (;;) {
     let run = null;
     try {

@@ -349,9 +349,11 @@ namespace HubFeedback {
   }
 
   /**
-   * {token, id, status?, resolution?, verification?, fixedCommit?, comment?} → {item}.
+   * {token, id, status?, resolution?, verification?, fixedCommit?, comment?, runId?} → {item}.
    * "resolved" needs a resolution summary and a verification note (how the fix was checked),
    * either in this call or already on the note. Resolving deletes the screenshot.
+   * runId: the agent of a check run sends its run; the change is refused (run_not_running) once
+   * that run is canceled, failed or finished, so an agent that outlived its run changes nothing.
    */
   export function adminUpdate(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 8192);
@@ -360,6 +362,12 @@ namespace HubFeedback {
     if (!by) return fail("unauthorized");
     var id = text(body.id, 32).toUpperCase();
     if (!PUBLIC_ID.test(id)) return fail("bad_id");
+    if (body.runId !== undefined && body.runId !== null && body.runId !== "") {
+      var runId = Math.floor(Number(body.runId));
+      if (!(runId > 0)) return fail("bad_run");
+      var live = nk.sqlQuery("SELECT 1 AS ok FROM game.feedback_run WHERE id = $1 AND state = 'running'", [runId]);
+      if (!live.length) return fail("run_not_running", "Check run " + String(runId) + " is not running; stop working these notes");
+    }
     var rows = nk.sqlQuery("SELECT id, status, resolution, verification, fixed_commit FROM game.feedback WHERE public_id = $1", [id]);
     if (!rows.length) return fail("not_found");
     var row = rows[0];

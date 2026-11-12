@@ -8,7 +8,7 @@
 // 600) until it expires. The server allows 10 logins per device per ten minutes, and an agent
 // working a check calls the CLI once per note, so logging in on every call would lock it out.
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -73,8 +73,12 @@ export function feedbackClient(config = feedbackConfig(), fetchImpl = fetch) {
     token = (await post('/v2/rpc/feedback.admin.login?unwrap=true', { user: config.user, pass: config.pass }, bearer)).token;
     if (file) {
       try {
+        // Temp file and rename: a CLI call running beside this one never reads half a file.
         mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
-        writeFileSync(file, JSON.stringify({ bearer, token }), { mode: 0o600 });
+        const temp = `${file}.${process.pid}.tmp`;
+        writeFileSync(temp, JSON.stringify({ bearer, token }), { mode: 0o600 });
+        chmodSync(temp, 0o600);
+        renameSync(temp, file);
       } catch {
         // A read-only home: log in each time instead.
       }

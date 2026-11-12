@@ -473,14 +473,17 @@ function scheduleRuns(ms: number): void {
 }
 
 async function loadRuns(): Promise<void> {
-  if (!adminToken) return;
+  const token = adminToken;
+  if (!token) return;
   let result: { active: Run | null; runs: Run[] };
   try {
     result = await adminRpc('feedback.admin.runs', { limit: 1 });
   } catch {
-    scheduleRuns(30000);
+    if (adminToken === token) scheduleRuns(30000);
     return;
   }
+  // Signed out (or in again) while this was in flight: the panel it was for is gone.
+  if (adminToken !== token) return;
   const latest = result.active ?? result.runs[0] ?? null;
   renderRun(result.active, result.active ? null : latest);
   // The agent changes note statuses while it works: refresh the list with each heartbeat, but
@@ -627,14 +630,14 @@ async function select(id: string): Promise<void> {
     event.preventDefault();
     save.disabled = true;
     error.textContent = '';
-    adminRpc('feedback.admin.update', {
-      id: note.id,
-      status: status.value,
-      resolution: resolution.value,
-      verification: verification.value,
-      fixedCommit: commit.value,
-      comment: comment.value,
-    })
+    // Only what was changed here: the agent may have moved this note since the form opened,
+    // and resending the old values would undo its work.
+    const body: Record<string, unknown> = { id: note.id, comment: comment.value };
+    if (status.value !== note.status) body.status = status.value;
+    if (resolution.value !== note.resolution) body.resolution = resolution.value;
+    if (verification.value !== note.verification) body.verification = verification.value;
+    if (commit.value !== note.fixedCommit) body.fixedCommit = commit.value;
+    adminRpc('feedback.admin.update', body)
       .then(() => load())
       .catch((e: unknown) => {
         const code = e instanceof HubSdkError ? e.code : '';
