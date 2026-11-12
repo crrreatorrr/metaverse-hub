@@ -17,6 +17,11 @@ const MEDIA_WAIT_MS = 1000;
 
 /** Marks a container of a canvas copied directly while the page is drawn (see capturePage). */
 const UNDER = 'data-hub-feedback-under';
+/** Marks a selected <option> or a checked box while the page is drawn (see capturePage). */
+const CHOSEN = 'data-hub-feedback-chosen';
+/** Marks an element with auto margins while the page is drawn: its value lists the sides. */
+const AUTO = 'data-hub-feedback-auto';
+const SIDES = ['top', 'right', 'bottom', 'left'] as const;
 
 let library: Promise<Library> | null = null;
 
@@ -97,12 +102,46 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
       }
     }
   }
+  // The copy keeps attributes, not live state: a <select> showed its first option (or nothing) and
+  // a ticked box showed empty. Mark the chosen ones and set `selected`/`checked` in the copy.
+  const chosen: Element[] = [];
+  for (const node of Array.from(root.querySelectorAll('option, input'))) {
+    const on = node instanceof HTMLOptionElement ? node.selected : node instanceof HTMLInputElement && (node.type === 'checkbox' || node.type === 'radio') && node.checked;
+    if (on) {
+      node.setAttribute(CHOSEN, '');
+      chosen.push(node);
+    }
+  }
+  // The copy carries computed styles, not the page's stylesheets, and an auto margin computes to a
+  // number of pixels (0 for a grid or flex item), so a button centred with `margin: auto` came out
+  // at the left. computedStyleMap still says `auto` (Chromium and Safari; elsewhere this is
+  // skipped). Mark those elements and put the auto margins back in the copy.
+  const autos: Element[] = [];
+  for (const node of Array.from(root.querySelectorAll('*'))) {
+    if (typeof node.computedStyleMap !== 'function') break;
+    let sides = '';
+    try {
+      const map = node.computedStyleMap();
+      for (const side of SIDES) if (String(map.get(`margin-${side}`)) === 'auto') sides += side[0];
+    } catch {
+      break;
+    }
+    if (sides) {
+      node.setAttribute(AUTO, sides);
+      autos.push(node);
+    }
+  }
+  // The library always lays the copy out with the browser's default body margin (8px) and drops
+  // the page's own, so a page with `body { margin: 0 }` came out 8px right and down.
+  const margin = getComputedStyle(root).margin;
   const release = holdFrames();
   const deadline = window.setTimeout(release, holdMs);
   const done = () => {
     window.clearTimeout(deadline);
     release();
     for (const parent of under) parent.removeAttribute(UNDER);
+    for (const node of chosen) node.removeAttribute(CHOSEN);
+    for (const node of autos) node.removeAttribute(AUTO);
     for (const canvas of frozen) delete (canvas as { toDataURL?: unknown }).toDataURL;
   };
   const width = Math.max(1, window.innerWidth);
@@ -115,10 +154,22 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
         scale: Math.min(1, maxWidth / width),
         backgroundColor: null,
         // The root's own background is behind the canvases on the page, not over them.
-        style: { background: 'transparent' },
+        style: { background: 'transparent', margin },
         timeout: Math.min(MEDIA_WAIT_MS, holdMs),
         onCloneEachNode: (cloned) => {
-          if (cloned instanceof HTMLElement && cloned.hasAttribute(UNDER)) cloned.style.setProperty('background', 'none', 'important');
+          if (!(cloned instanceof HTMLElement)) return;
+          if (cloned.hasAttribute(UNDER)) cloned.style.setProperty('background', 'none', 'important');
+          const sides = cloned.getAttribute(AUTO);
+          if (sides !== null) {
+            for (const side of SIDES) if (sides.includes(side[0])) cloned.style.setProperty(`margin-${side}`, 'auto');
+            cloned.removeAttribute(AUTO);
+          }
+          if (cloned instanceof HTMLOptionElement || cloned instanceof HTMLInputElement) {
+            const attribute = cloned instanceof HTMLOptionElement ? 'selected' : 'checked';
+            if (cloned.hasAttribute(CHOSEN)) cloned.setAttribute(attribute, '');
+            else cloned.removeAttribute(attribute);
+            cloned.removeAttribute(CHOSEN);
+          }
         },
         filter: (node) => !(node instanceof Element) || (!skip.includes(node) && visible(node)),
       }),
@@ -129,6 +180,8 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
 
 /** Element.checkVisibility, or the computed display where it is missing (Safari before 17.4). */
 function visible(node: Element): boolean {
+  // An <option> has no box of its own, so it never counts as visible, but its <select> shows it.
+  if (node instanceof HTMLOptionElement || node instanceof HTMLOptGroupElement) return true;
   if (typeof node.checkVisibility === 'function') return node.checkVisibility();
   return getComputedStyle(node).display !== 'none';
 }

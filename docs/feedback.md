@@ -109,6 +109,12 @@ menu came out as the background behind it. Notes for games:
 - Web fonts from another origin (Google Fonts) are drawn only if their `<link>` has
   `crossorigin="anonymous"`; otherwise text falls back to a system font in the screenshot.
 - `overlay: false` turns the HTML off; a function in `overlay` draws it instead of the SDK.
+- Pass only the game's main canvas (or canvases) in `canvases`. A small canvas with CSS rounding or
+  a border (a round minimap) loses both when copied directly; drawn with the HTML it keeps them.
+- Known limits: the HTML is always drawn over the copied canvases, even an element the page hides
+  behind one. `<progress>` and `<meter>` bars and input placeholders keep the browser's default
+  look. A page opened from `file://` sends no screenshot, because the browser will not export a
+  canvas there.
 
 ## From a terminal
 
