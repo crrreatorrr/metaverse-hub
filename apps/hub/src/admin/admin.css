@@ -88,3 +88,11 @@ pre { margin: 0; background: var(--field); border: 1px solid var(--line); border
 .runbar.running { border-color: var(--cyan); }
 .runbar.done { border-color: var(--green); }
 .runbar.failed, .runbar.canceled { border-color: var(--red-2); }
+
+.worker { display: flex; align-items: center; gap: 8px; padding-right: 6px; margin-right: 2px; border-right: 1px solid var(--line); }
+.worker[hidden] { display: none; }
+.wdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.wdot.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
+.wdot.off { background: var(--text-3); }
+.workerlog { margin: 0 0 12px; max-height: 260px; }
+.workerlog[hidden] { display: none; }

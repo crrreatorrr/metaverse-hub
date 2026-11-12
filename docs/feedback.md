@@ -76,7 +76,11 @@ export.
    HUB_URL=https://<domain> NAKAMA_SERVER_KEY=<client key> node scripts/feedback-worker.mjs
    ```
 
-   Until a worker runs, the panel says the run is waiting for the worker.
+   Until a worker runs, the panel says the run is waiting for the worker. On the local dev server
+   (`npm run dev`, `http://127.0.0.1:5173/admin/`) the panel has a **Start worker** / **Stop
+   worker** control with the worker's log instead: the dev server starts the worker in the
+   background (`apps/hub/feedback-worker-dev.ts`), writing to `~/.feedback-worker/worker.log`.
+   Production serves the panel without that control.
 3. The agent marks each note `in_progress`, fixes them with one subagent per game repo, each on
    its own branch and pull request, and marks them `fixed`. A separate verifier subagent then checks
    each fix against the note. A note becomes `resolved` only when the fix is verified and merged to
@@ -102,7 +106,10 @@ interval; `0` turns the sync off. Without a running worker the states stop updat
 
 The worker never merges, deploys or pushes to `main`. Its log for each run is in
 `~/.feedback-worker/run-<id>.log`. `--dry-run` claims and closes runs without starting the
-agent, to test the wiring; `--once` works one run and exits.
+agent, to test the wiring; `--once` works one run and exits. While the agent works, the worker
+prints each step (and each subagent's steps, labelled with the subagent) to its terminal and the
+run log, and the panel's run bar shows the latest one. The raw stream is kept in
+`~/.feedback-worker/run-<id>.jsonl`.
 
 ## RPCs
 

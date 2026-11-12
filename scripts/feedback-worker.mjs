@@ -215,6 +215,38 @@ export async function stopLeftoverAgent(opts, ps = psCommand, isAlive = alive) {
   return runId;
 }
 
+const short = (text, max) => {
+  const flat = String(text ?? '').replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+};
+
+/**
+ * One event of the agent's stream (`claude -p --output-format stream-json`) → readable progress
+ * lines. A subagent's steps carry its description, e.g. "[Fix HUB-0001 in metaverse-hub] Bash:
+ * Run the tests". `agents` remembers each subagent's description by its tool call id.
+ */
+export function describeEvent(event, agents) {
+  const lines = [];
+  if (event?.type !== 'assistant' || !Array.isArray(event.message?.content)) return lines;
+  const who = event.parent_tool_use_id ? `[${agents.get(event.parent_tool_use_id) ?? 'subagent'}] ` : '';
+  for (const part of event.message.content) {
+    if (part.type === 'tool_use') {
+      const input = part.input ?? {};
+      if (part.name === 'Agent' || part.name === 'Task') {
+        agents.set(part.id, short(input.description || 'subagent', 60));
+        lines.push(`${who}started subagent: ${short(input.description || input.prompt, 100)}`);
+      } else if (part.name === 'SubagentHandback') {
+        lines.push(`${who}finished`);
+      } else {
+        lines.push(`${who}${part.name}: ${short(input.description || input.command || input.file_path || input.pattern || input.url || '', 110)}`);
+      }
+    } else if (part.type === 'text' && part.text?.trim()) {
+      lines.push(`${who}says: ${short(part.text, 160)}`);
+    }
+  }
+  return lines;
+}
+
 /** The run in hand: its stop(), and the agent's process group while it runs. */
 let current = null;
 let agentGroup = 0;
@@ -233,7 +265,9 @@ async function work(run, client, opts) {
   const logPath = join(opts.logDir, `run-${run.id}.log`);
   const logFile = createWriteStream(logPath, { flags: 'a' });
   logFile.on('error', (error) => log(`run #${run.id}: cannot write ${logPath}: ${error.message}`));
-  const args = ['-p', promptFor(run, opts), '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
+  // stream-json: every step arrives as it happens, so this terminal, the run log and the panel
+  // can show what the agent is doing instead of nothing until it ends.
+  const args = ['-p', promptFor(run, opts), '--output-format', 'stream-json', '--verbose', '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
   const child = spawn(opts.agent, args, {
     cwd: opts.gamesDir,
     env: { ...process.env, FEEDBACK_RUN_ID: String(run.id), HUB_URL: opts.config.base, NAKAMA_SERVER_KEY: opts.config.serverKey },
@@ -241,12 +275,45 @@ async function work(run, client, opts) {
     // Its own process group, so stopping it also stops the shells and tools it started.
     detached: true,
   });
+  // The agent's own words (not its subagents'), for the SUMMARY line at the end.
   let output = '';
+  const said = (text) => {
+    output = `${output}\n${text}`.slice(-20000);
+  };
   const keep = (chunk) => {
-    output = (output + chunk.toString()).slice(-20000);
+    said(chunk.toString());
     logFile.write(chunk);
   };
-  child.stdout.on('data', keep);
+  const rawFile = createWriteStream(join(opts.logDir, `run-${run.id}.jsonl`), { flags: 'a' });
+  rawFile.on('error', () => {});
+  const agents = new Map();
+  let step = '';
+  let pending = '';
+  child.stdout.on('data', (chunk) => {
+    pending += chunk.toString();
+    const lines = pending.split('\n');
+    pending = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      let event;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        keep(`${line}\n`); // not the stream (an older agent, or a stand-in): keep it as text
+        continue;
+      }
+      rawFile.write(`${line}\n`);
+      if (event.type === 'assistant' && !event.parent_tool_use_id) {
+        for (const part of event.message?.content ?? []) if (part.type === 'text') said(part.text);
+      }
+      if (event.type === 'result' && typeof event.result === 'string') said(event.result);
+      for (const text of describeEvent(event, agents)) {
+        step = text;
+        log(`run #${run.id}: ${text}`);
+        logFile.write(`[${new Date().toISOString()}] ${text}\n`);
+      }
+    }
+  });
   child.stderr.on('data', keep);
   log(`run #${run.id}: agent started (pid ${child.pid}), log ${logPath}`);
   if (child.pid) {
@@ -268,13 +335,21 @@ async function work(run, client, opts) {
   };
   current = stop;
   const deadline = setTimeout(() => stop(`no result after ${opts.maxMinutes} minutes`), opts.maxMinutes * 60000);
+  // The panel shows the latest step as the run's summary until the final one replaces it.
+  let shown = '';
+  let lastBeat = Date.now();
   const beat = setInterval(() => {
-    client.rpc('feedback.admin.run', { id: run.id, worker }).catch((error) => {
+    const progress = step && step !== shown ? `Working: ${step}` : '';
+    if (!progress && Date.now() - lastBeat < opts.heartbeatMs) return;
+    shown = step;
+    lastBeat = Date.now();
+    const body = progress ? { id: run.id, worker, summary: progress } : { id: run.id, worker };
+    client.rpc('feedback.admin.run', body).catch((error) => {
       // Canceled in the panel, or failed as stale: someone else owns these notes now.
       if (error instanceof RpcError && error.code === 'not_running') stop('the run was canceled or taken over');
       else log(`run #${run.id}: heartbeat failed: ${error.message}`);
     });
-  }, opts.heartbeatMs);
+  }, Math.min(opts.heartbeatMs, 10000));
 
   const code = await new Promise((done) => {
     child.on('error', (error) => {
@@ -298,6 +373,7 @@ async function work(run, client, opts) {
   clearInterval(beat);
   clearTimeout(deadline);
   logFile.end();
+  rawFile.end();
   if (stopped === 'the run was canceled or taken over') {
     log(`run #${run.id}: stopped, not reporting (${stopped})`);
     return;

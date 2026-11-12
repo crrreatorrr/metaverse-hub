@@ -144,6 +144,7 @@ function clock(seconds: number | null): string {
 
 function showLogin(message = ''): void {
   window.clearTimeout(runTimer);
+  window.clearTimeout(workerTimer);
   app.replaceChildren();
   const form = el('form', 'login');
   const user = el('input', 'field');
@@ -208,7 +209,9 @@ async function showPanel(): Promise<void> {
   checkButton = el('button', 'btn primary', 'Check');
   checkButton.title = 'Start the agent on every note that is not resolved yet';
   checkButton.addEventListener('click', () => void startCheck());
-  who.append(checkButton, exportJson, exportCsv, out);
+  workerBox = el('div', 'worker');
+  workerBox.hidden = true;
+  who.append(workerBox, checkButton, exportJson, exportCsv, out);
   top.append(el('h1', '', 'Feedback'), who);
   runBox = el('div', 'runbar');
   runBox.setAttribute('role', 'status');
@@ -255,10 +258,13 @@ async function showPanel(): Promise<void> {
   left.append(mapBox, listBox);
   detailBox = el('div');
   cols.append(left, detailBox);
-  wrap.append(top, runBox, tabsBox, filters, cols);
+  workerLog = el('pre', 'workerlog');
+  workerLog.hidden = true;
+  wrap.append(top, workerLog, runBox, tabsBox, filters, cols);
   app.append(wrap);
   await load();
   await loadRuns();
+  await loadWorker();
 }
 
 /** Reloads the notes. `keepDetail` leaves the open note's panel alone (the run bar's refresh). */
@@ -533,7 +539,12 @@ function renderRun(active: Run | null, last: Run | null, message = ''): void {
   if (run) {
     parts.push(el('b', '', `${RUN_LABEL[run.state]} · check #${run.id}`));
     const detail: string[] = [`${run.noteCount} note${run.noteCount === 1 ? '' : 's'}`];
-    if (run.state === 'queued') detail.push(`asked ${when(run.requestedAt)}; start the worker on your computer if it is not running`);
+    if (run.state === 'queued')
+      detail.push(
+        workerAvailable
+          ? `asked ${when(run.requestedAt)}; waiting for the worker (Start worker above if it is stopped)`
+          : `asked ${when(run.requestedAt)}; waiting for the worker. Start it on your computer: npm run feedback:worker`,
+      );
     if (run.state === 'running') detail.push(`on ${run.worker} since ${when(run.startedAt ?? run.requestedAt)}`);
     if (run.finishedAt && !active) detail.push(when(run.finishedAt));
     parts.push(el('span', '', detail.join(' · ')));
@@ -546,6 +557,70 @@ function renderRun(active: Run | null, last: Run | null, message = ''): void {
     cancel.addEventListener('click', () => void cancelRun(active));
     runBox.append(cancel);
   }
+}
+
+// ------------------------------------------------------------------ worker
+//
+// On the local dev server (`npm run dev`) the panel can see, start and stop the worker on this
+// computer (apps/hub/feedback-worker-dev.ts). Production has no such endpoint: the control stays
+// hidden and the run bar says how to start the worker by hand.
+
+interface WorkerState {
+  available: true;
+  running: boolean;
+  pid: number | null;
+  log: string;
+}
+
+let workerBox: HTMLElement;
+let workerLog: HTMLElement;
+let workerTimer = 0;
+let workerAvailable = false;
+
+async function workerCall(path: string, method: 'GET' | 'POST'): Promise<WorkerState | null> {
+  try {
+    const response = await fetch(path, { method, headers: { Accept: 'application/json', 'X-Feedback-Worker': '1' } });
+    if (!response.ok || !(response.headers.get('content-type') ?? '').includes('application/json')) return null;
+    const state = (await response.json()) as WorkerState;
+    return state.available ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadWorker(): Promise<void> {
+  window.clearTimeout(workerTimer);
+  if (!adminToken) return;
+  renderWorker(await workerCall('/__feedback/worker', 'GET'));
+  if (workerAvailable) workerTimer = window.setTimeout(() => void loadWorker(), 5000);
+}
+
+async function workerAction(action: 'start' | 'stop', button: HTMLButtonElement): Promise<void> {
+  button.disabled = true;
+  button.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
+  renderWorker(await workerCall(`/__feedback/worker/${action}`, 'POST'));
+  void loadRuns();
+}
+
+function renderWorker(state: WorkerState | null): void {
+  workerAvailable = !!state;
+  workerBox.hidden = !state;
+  if (!state) {
+    workerLog.hidden = true;
+    return;
+  }
+  const dot = el('span', `wdot ${state.running ? 'on' : 'off'}`);
+  const label = el('span', '', state.running ? `Worker running (pid ${state.pid})` : 'Worker stopped');
+  const toggle = el('button', 'btn', state.running ? 'Stop worker' : 'Start worker');
+  toggle.addEventListener('click', () => void workerAction(state.running ? 'stop' : 'start', toggle));
+  const logButton = el('button', 'btn', workerLog.hidden ? 'Log' : 'Hide log');
+  logButton.addEventListener('click', () => {
+    workerLog.hidden = !workerLog.hidden;
+    renderWorker(state);
+  });
+  workerBox.replaceChildren(dot, label, toggle, logButton);
+  workerLog.textContent = state.log || 'The worker has not written anything yet. A worker started in a terminal writes there instead.';
+  if (!workerLog.hidden) workerLog.scrollTop = workerLog.scrollHeight;
 }
 
 // ------------------------------------------------------------------ detail

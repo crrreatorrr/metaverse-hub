@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, rmSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { defineConfig, type Plugin, type UserConfig } from 'vite';
+import { feedbackWorkerDev } from './feedback-worker-dev.ts';
 import { nakamaServerKeyFromEnv } from './server-key.ts';
 
 const nakama = 'http://127.0.0.1:7350';
@@ -133,7 +134,7 @@ function realmPages(): Plugin {
     if (command === 'serve') preferFetchedBuilds();
     return {
     base: '/',
-    plugins: [redirectRoot(), dropFetchedBuilds(), realmPages()],
+    plugins: [redirectRoot(), dropFetchedBuilds(), realmPages(), feedbackWorkerDev(nakama)],
     resolve: {
       alias: {
         '@metaverse/hub-sdk': resolve(__dirname, '../../packages/hub-sdk/src/index.ts'),

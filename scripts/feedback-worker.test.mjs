@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROMPT_MARK, envNumber, prStateOf, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, describeEvent, envNumber, prStateOf, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
@@ -148,6 +148,20 @@ assert.equal(prStateOf({}), '');
   assert.deepEqual(asked, [A, B, C]);
   assert.deepEqual(prs, [{ url: A, state: 'merged' }, { url: B, state: 'draft' }]);
   assert.deepEqual(sent, [{ prs }]);
+}
+
+// The agent's stream as readable progress; subagent steps carry the subagent's description.
+{
+  const agents = new Map();
+  const say = (content, parent = null) => describeEvent({ type: 'assistant', parent_tool_use_id: parent, message: { content } }, agents);
+  assert.deepEqual(say([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls', description: 'List unresolved feedback notes' } }]), ['Bash: List unresolved feedback notes']);
+  assert.deepEqual(say([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { description: 'Fix HUB-0001 in metaverse-hub', prompt: 'x' } }]), ['started subagent: Fix HUB-0001 in metaverse-hub']);
+  assert.deepEqual(say([{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/a/b.ts' } }], 'a1'), ['[Fix HUB-0001 in metaverse-hub] Read: /a/b.ts']);
+  assert.deepEqual(say([{ type: 'tool_use', id: 't3', name: 'SubagentHandback', input: { message: 'done' } }], 'a1'), ['[Fix HUB-0001 in metaverse-hub] finished']);
+  assert.deepEqual(say([{ type: 'text', text: '  Both notes\n are in progress. ' }]), ['says: Both notes are in progress.']);
+  assert.deepEqual(say([{ type: 'thinking', thinking: 'hm' }]), []);
+  assert.deepEqual(describeEvent({ type: 'system', subtype: 'init' }, agents), []);
+  assert.ok(say([{ type: 'text', text: 'x'.repeat(500) }])[0].length <= 'says: '.length + 160);
 }
 
 console.log('feedback worker ok');
