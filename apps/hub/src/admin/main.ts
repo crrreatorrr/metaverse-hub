@@ -31,6 +31,20 @@ interface Note {
 type Status = 'open' | 'in_progress' | 'fixed' | 'resolved';
 type Counts = Record<string, Partial<Record<Status, number>>>;
 
+/** A Check run (feedback.admin.check): one pass by the agent over every note not yet resolved. */
+interface Run {
+  id: number;
+  state: 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+  requestedBy: string;
+  worker: string;
+  summary: string;
+  noteCount: number;
+  requestedAt: string;
+  startedAt: string | null;
+  heartbeatAt: string | null;
+  finishedAt: string | null;
+}
+
 const STATUS_LABEL: Record<Status, string> = { open: 'Open', in_progress: 'In progress', fixed: 'Fixed, to verify', resolved: 'Resolved' };
 const STATUS_COLOR: Record<Status, string> = { open: '#f5b942', in_progress: '#3de1ff', fixed: '#8d7dff', resolved: '#4ade80' };
 const CATEGORY_LABEL: Record<string, string> = {
@@ -112,6 +126,7 @@ function clock(seconds: number | null): string {
 // ------------------------------------------------------------------ login
 
 function showLogin(message = ''): void {
+  window.clearTimeout(runTimer);
   app.replaceChildren();
   const form = el('form', 'login');
   const user = el('input', 'field');
@@ -173,8 +188,14 @@ async function showPanel(): Promise<void> {
     sessionStorage.removeItem(TOKEN_KEY);
     showLogin();
   });
-  who.append(exportJson, exportCsv, out);
+  checkButton = el('button', 'btn primary', 'Check');
+  checkButton.title = 'Start the agent on every note that is not resolved yet';
+  checkButton.addEventListener('click', () => void startCheck());
+  who.append(checkButton, exportJson, exportCsv, out);
   top.append(el('h1', '', 'Feedback'), who);
+  runBox = el('div', 'runbar');
+  runBox.setAttribute('role', 'status');
+  runBox.hidden = true;
 
   tabsBox = el('div', 'tabs');
   tabsBox.setAttribute('role', 'tablist');
@@ -217,9 +238,10 @@ async function showPanel(): Promise<void> {
   left.append(mapBox, listBox);
   detailBox = el('div');
   cols.append(left, detailBox);
-  wrap.append(top, tabsBox, filters, cols);
+  wrap.append(top, runBox, tabsBox, filters, cols);
   app.append(wrap);
   await load();
+  await loadRuns();
 }
 
 async function load(): Promise<void> {
@@ -397,6 +419,102 @@ function drawMap(canvas: HTMLCanvasElement, points: Note[]): void {
     }
     if (best) void select(best.id);
   };
+}
+
+// ------------------------------------------------------------------ check runs
+//
+// Check queues one run on the hub server. The worker on the owner's machine
+// (scripts/feedback-worker.mjs) claims it and starts the agent, which works the notes and moves
+// their statuses. The server allows one queued-or-running run, so a second Check shows the run
+// already in flight instead of starting another.
+
+let runBox: HTMLElement;
+let checkButton: HTMLButtonElement;
+let runTimer = 0;
+let lastRun = '';
+
+const RUN_LABEL: Record<Run['state'], string> = {
+  queued: 'Waiting for the worker',
+  running: 'Working',
+  done: 'Last check finished',
+  failed: 'Last check failed',
+  canceled: 'Last check canceled',
+};
+
+async function startCheck(): Promise<void> {
+  checkButton.disabled = true;
+  try {
+    const result = await adminRpc<{ run: Run | null; created: boolean }>('feedback.admin.check');
+    if (!result.run) renderRun(null, null, 'Nothing to check: every note is resolved.');
+    else renderRun(result.run, null, result.created ? '' : 'A check is already in progress.');
+  } catch {
+    renderRun(null, null, 'Could not start a check. Is the hub server up?');
+    checkButton.disabled = false;
+    return;
+  }
+  scheduleRuns(3000);
+}
+
+async function cancelRun(run: Run): Promise<void> {
+  if (!window.confirm(`Cancel check #${run.id}? Notes keep the status the agent gave them so far.`)) return;
+  try {
+    await adminRpc('feedback.admin.run', { id: run.id, state: 'canceled' });
+  } catch {
+    // Already finished: the next poll shows how it ended.
+  }
+  await loadRuns();
+}
+
+function scheduleRuns(ms: number): void {
+  window.clearTimeout(runTimer);
+  runTimer = window.setTimeout(() => void loadRuns(), ms);
+}
+
+async function loadRuns(): Promise<void> {
+  if (!adminToken) return;
+  let result: { active: Run | null; runs: Run[] };
+  try {
+    result = await adminRpc('feedback.admin.runs', { limit: 1 });
+  } catch {
+    scheduleRuns(30000);
+    return;
+  }
+  const latest = result.active ?? result.runs[0] ?? null;
+  renderRun(result.active, result.active ? null : latest);
+  // A run that moved on (claimed, finished) changes note statuses: reload the list with it.
+  const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
+  if (lastRun && key !== lastRun) void load();
+  lastRun = key;
+  scheduleRuns(result.active ? 5000 : 30000);
+}
+
+function renderRun(active: Run | null, last: Run | null, message = ''): void {
+  checkButton.disabled = !!active;
+  checkButton.textContent = active ? 'Checking…' : 'Check';
+  const run = active ?? last;
+  if (!run && !message) {
+    runBox.hidden = true;
+    return;
+  }
+  runBox.hidden = false;
+  runBox.className = `runbar ${run ? run.state : ''}`;
+  const parts: (Node | string)[] = [];
+  if (run) {
+    parts.push(el('b', '', `${RUN_LABEL[run.state]} · check #${run.id}`));
+    const detail: string[] = [`${run.noteCount} note${run.noteCount === 1 ? '' : 's'}`];
+    if (run.state === 'queued') detail.push(`asked ${when(run.requestedAt)}; start the worker on your computer if it is not running`);
+    if (run.state === 'running') detail.push(`on ${run.worker} since ${when(run.startedAt ?? run.requestedAt)}`);
+    if (run.finishedAt && !active) detail.push(when(run.finishedAt));
+    parts.push(el('span', '', detail.join(' · ')));
+    if (run.summary) parts.push(el('span', 'sum', run.summary));
+  }
+  if (message) parts.push(el('span', 'msg', message));
+  runBox.replaceChildren(...parts);
+  if (active) {
+    const cancel = el('button', 'btn', 'Cancel');
+    cancel.addEventListener('click', () => void cancelRun(active));
+    runBox.append(cancel);
+  }
 }
 
 // ------------------------------------------------------------------ detail

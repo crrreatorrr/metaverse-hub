@@ -20,6 +20,7 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0061 | `0061_relic_unhold`: releases the held Genesis Block Shard, Tidebreaker Belt and four held pets and promotes their pending claims (gameplay plan B3), branch `claude/trusting-ramanujan-63h582`. PR #140 (Belt wording and tests) carries no migration: its Belt release is this one |
 | 0062 | `0062_hub_exchange_open`: turns the `hub_exchange` server flag on, so the plaza Wallet exchange (`verse.exchange`) is open; an operator can still set it off by hand. Branch `claude/open-plaza-exchange` |
 | 0063 | `0063_coop_settle_fingerprint`: rewrites the fingerprint literal inside `game.settle_coop_clear` from 0041's `f8705ec4…` to the vendored Coop sim's `fb9f2679…` (`CoopRewards.FINGERPRINT`); stored receipts and payouts are untouched. Branch `claude/open-plaza-exchange` |
+| 0064 | `0064_feedback_runs`: `game.feedback_run`, the queue behind the feedback admin panel's Check button (one queued-or-running run at a time), branch `claude/feedback-check-trigger` |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied

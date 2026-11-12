@@ -235,8 +235,9 @@ namespace HubFeedback {
     return sameText(rest, tokenFor(ctx, nk, user, stored, exp)) ? user : null;
   }
 
+  // jsonb columns come back as text: Nakama hands raw jsonb to the runtime as a byte array.
   var LIST_COLUMNS =
-    "public_id, game, user_id, username, source, status, categories, note, level, mode, pos_x, pos_y, pos_z, version, " +
+    "public_id, game, user_id, username, source, status, categories::text AS categories, note, level, mode, pos_x, pos_y, pos_z, version, " +
     "client_time, game_time, has_image, resolution, verification, fixed_commit, " +
     "to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at, " +
     "to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS updated_at";
@@ -333,7 +334,7 @@ namespace HubFeedback {
     if (!admin(ctx, nk, body)) return fail("unauthorized");
     var id = text(body.id, 32).toUpperCase();
     if (!PUBLIC_ID.test(id)) return fail("bad_id");
-    var rows = nk.sqlQuery("SELECT id, meta, " + LIST_COLUMNS + " FROM game.feedback WHERE public_id = $1", [id]);
+    var rows = nk.sqlQuery("SELECT id, meta::text AS meta, " + LIST_COLUMNS + " FROM game.feedback WHERE public_id = $1", [id]);
     if (!rows.length) return fail("not_found");
     var item = shape(rows[0]);
     item.meta = jsonField(rows[0].meta, {});
@@ -391,6 +392,152 @@ namespace HubFeedback {
     var after = nk.sqlQuery("SELECT " + LIST_COLUMNS + " FROM game.feedback WHERE id = $1", [row.id]);
     return JSON.stringify({ ok: true, item: after.length ? shape(after[0]) : null });
   }
+
+  // ------------------------------------------------------------------ check runs
+  //
+  // "Check" in the admin panel queues one run that works through every note not yet resolved.
+  // A worker on the owner's machine (scripts/feedback-worker.mjs) claims the queued run, starts
+  // the agent, and sends a heartbeat while it works. One run at a time: a unique index allows a
+  // single queued-or-running row, so pressing Check twice, or from two tabs, never starts a
+  // second run over the same notes. A running run whose heartbeat stops is failed after
+  // RUN_STALE_SECONDS, so a crashed worker does not block the next Check.
+
+  export var RUN_STATES = ["queued", "running", "done", "failed", "canceled"];
+  export var RUN_STALE_SECONDS = 30 * 60;
+  var WORKER = /^[A-Za-z0-9._:@-]{1,64}$/;
+
+  var RUN_COLUMNS =
+    "id, state, requested_by, worker, summary, note_count, " +
+    "to_char(requested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS requested_at, " +
+    "to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, " +
+    "to_char(heartbeat_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS heartbeat_at, " +
+    "to_char(finished_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS finished_at";
+
+  function runShape(row: { [key: string]: unknown }): { [key: string]: unknown } {
+    return {
+      id: Number(row.id),
+      state: row.state,
+      requestedBy: row.requested_by,
+      worker: row.worker,
+      summary: row.summary,
+      noteCount: Number(row.note_count || 0),
+      requestedAt: row.requested_at,
+      startedAt: row.started_at || null,
+      heartbeatAt: row.heartbeat_at || null,
+      finishedAt: row.finished_at || null,
+    };
+  }
+
+  /** Fails a running run whose worker stopped sending heartbeats. */
+  function expireStale(nk: nkruntime.Nakama): void {
+    nk.sqlExec(
+      "UPDATE game.feedback_run SET state = 'failed', finished_at = now(), " +
+        "summary = CASE WHEN summary = '' THEN 'The worker stopped answering.' ELSE summary END " +
+        "WHERE state = 'running' AND heartbeat_at < now() - make_interval(secs => $1)",
+      [RUN_STALE_SECONDS],
+    );
+  }
+
+  function activeRun(nk: nkruntime.Nakama): { [key: string]: unknown } | null {
+    var rows = nk.sqlQuery("SELECT " + RUN_COLUMNS + " FROM game.feedback_run WHERE state IN ('queued', 'running') ORDER BY id DESC LIMIT 1", []);
+    return rows.length ? runShape(rows[0]) : null;
+  }
+
+  /**
+   * {token} → {run, created}. Queues a run over every note that is not resolved, or returns the
+   * run already queued or running (created: false). Nothing to do: {run: null, created: false}.
+   */
+  export function adminCheck(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 1024);
+    if (!body) return fail("bad_json");
+    var by = admin(ctx, nk, body);
+    if (!by) return fail("unauthorized");
+    expireStale(nk);
+    var active = activeRun(nk);
+    if (active) return JSON.stringify({ ok: true, run: active, created: false });
+    var open = nk.sqlQuery("SELECT count(*) AS n FROM game.feedback WHERE status <> 'resolved'", []);
+    var count = open.length ? Number(open[0].n) : 0;
+    if (!count) return JSON.stringify({ ok: true, run: null, created: false, noteCount: 0 });
+    // A second Check racing this one hits the unique index and inserts nothing.
+    var rows = nk.sqlQuery(
+      "INSERT INTO game.feedback_run (state, requested_by, note_count) VALUES ('queued', $1, $2) ON CONFLICT DO NOTHING RETURNING " + RUN_COLUMNS,
+      [by, count],
+    );
+    if (!rows.length) return JSON.stringify({ ok: true, run: activeRun(nk), created: false });
+    logger.info("feedback check run " + String(rows[0].id) + " queued by " + by + " over " + String(count) + " notes");
+    return JSON.stringify({ ok: true, run: runShape(rows[0]), created: true });
+  }
+
+  /** {token, limit?} → {active, runs}: the run in flight, if any, and the latest runs. */
+  export function adminRuns(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 1024);
+    if (!body) return fail("bad_json");
+    if (!admin(ctx, nk, body)) return fail("unauthorized");
+    expireStale(nk);
+    var limit = Math.max(1, Math.min(20, Math.floor(num(body.limit) || 5)));
+    var rows = nk.sqlQuery("SELECT " + RUN_COLUMNS + " FROM game.feedback_run ORDER BY id DESC LIMIT " + String(limit), []);
+    var runs: unknown[] = [];
+    for (var i = 0; i < rows.length; i++) runs.push(runShape(rows[i]));
+    return JSON.stringify({ ok: true, active: activeRun(nk), runs: runs, staleSeconds: RUN_STALE_SECONDS });
+  }
+
+  /** {token, worker} → {run}: the worker takes the queued run, or gets run: null. */
+  export function adminClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 1024);
+    if (!body) return fail("bad_json");
+    if (!admin(ctx, nk, body)) return fail("unauthorized");
+    var worker = text(body.worker, 64);
+    if (!WORKER.test(worker)) return fail("bad_worker");
+    expireStale(nk);
+    var rows = nk.sqlQuery(
+      "UPDATE game.feedback_run SET state = 'running', worker = $1, started_at = now(), heartbeat_at = now() " +
+        "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
+        "AND state = 'queued' RETURNING " + RUN_COLUMNS,
+      [worker],
+    );
+    if (!rows.length) return JSON.stringify({ ok: true, run: null });
+    logger.info("feedback check run " + String(rows[0].id) + " claimed by " + worker);
+    return JSON.stringify({ ok: true, run: runShape(rows[0]) });
+  }
+
+  /**
+   * {token, id, worker?, state?, summary?} → {run}.
+   * The worker that holds a running run sends a heartbeat (no state) and finishes it ("done" or
+   * "failed"); any other worker gets not_running and must stop. The panel cancels a queued or
+   * running run with state "canceled" and no worker.
+   */
+  export function adminRun(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 4096);
+    if (!body) return fail("bad_json");
+    var by = admin(ctx, nk, body);
+    if (!by) return fail("unauthorized");
+    var id = Math.floor(num(body.id) || 0);
+    if (id <= 0) return fail("bad_id");
+    var state = body.state === undefined ? "" : text(body.state, 16);
+    var summary = text(body.summary, 2000).replace(/^\s+|\s+$/g, "");
+    var rows: { [key: string]: unknown }[];
+    if (state === "canceled") {
+      rows = nk.sqlQuery(
+        "UPDATE game.feedback_run SET state = 'canceled', finished_at = now(), summary = $2 WHERE id = $1 AND state IN ('queued', 'running') RETURNING " + RUN_COLUMNS,
+        [id, summary || "Canceled by " + by + "."],
+      );
+    } else {
+      if (state && state !== "done" && state !== "failed") return fail("bad_state");
+      var worker = text(body.worker, 64);
+      if (!WORKER.test(worker)) return fail("bad_worker");
+      rows = nk.sqlQuery(
+        "UPDATE game.feedback_run SET heartbeat_at = now(), " +
+          "state = CASE WHEN $3 = '' THEN state ELSE $3 END, " +
+          "finished_at = CASE WHEN $3 = '' THEN finished_at ELSE now() END, " +
+          "summary = CASE WHEN $4 = '' THEN summary ELSE $4 END " +
+          "WHERE id = $1 AND worker = $2 AND state = 'running' RETURNING " + RUN_COLUMNS,
+        [id, worker, state, summary],
+      );
+    }
+    if (!rows.length) return fail("not_running", "This run is not running (finished, canceled, or taken over)");
+    if (state) logger.info("feedback check run " + String(id) + " -> " + state + " by " + by);
+    return JSON.stringify({ ok: true, run: runShape(rows[0]) });
+  }
 }
 
 function rpcFeedbackCan(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.can(c, l, n, p); }
@@ -399,6 +546,10 @@ function rpcFeedbackAdminLogin(c: nkruntime.Context, l: nkruntime.Logger, n: nkr
 function rpcFeedbackAdminList(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminList(c, l, n, p); }
 function rpcFeedbackAdminGet(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminGet(c, l, n, p); }
 function rpcFeedbackAdminUpdate(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminUpdate(c, l, n, p); }
+function rpcFeedbackAdminCheck(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminCheck(c, l, n, p); }
+function rpcFeedbackAdminRuns(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRuns(c, l, n, p); }
+function rpcFeedbackAdminClaim(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminClaim(c, l, n, p); }
+function rpcFeedbackAdminRun(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRun(c, l, n, p); }
 
 // The admin row is user "333" with password "333", as the owner asked. pass_sha256 is
 // sha256("hub-feedback-admin:" || password); change it with one UPDATE on game.feedback_admin.
@@ -461,5 +612,26 @@ HubSchema.register({
        created_at timestamptz NOT NULL DEFAULT now()
      )`,
     "INSERT INTO game.feedback_admin (username, pass_sha256) VALUES ('333', encode(sha256(convert_to('hub-feedback-admin:333', 'UTF8')), 'hex')) ON CONFLICT (username) DO NOTHING",
+  ],
+});
+
+// Check runs: the panel's Check button queues one, the worker on the owner's machine claims it.
+// The partial unique index allows one queued-or-running run at a time.
+HubSchema.register({
+  id: "0064_feedback_runs",
+  statements: [
+    `CREATE TABLE IF NOT EXISTS game.feedback_run (
+       id bigserial PRIMARY KEY,
+       state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'running', 'done', 'failed', 'canceled')),
+       requested_by text NOT NULL DEFAULT '',
+       worker text NOT NULL DEFAULT '',
+       summary text NOT NULL DEFAULT '',
+       note_count integer NOT NULL DEFAULT 0,
+       requested_at timestamptz NOT NULL DEFAULT now(),
+       started_at timestamptz,
+       heartbeat_at timestamptz,
+       finished_at timestamptz
+     )`,
+    "CREATE UNIQUE INDEX IF NOT EXISTS feedback_run_one_active ON game.feedback_run ((true)) WHERE state IN ('queued', 'running')",
   ],
 });

@@ -62,6 +62,35 @@ The panel has one tab per game and one for the hub, filters by status and option
 position map per level, the note's screenshot and details, the status form, and JSON and CSV
 export.
 
+## Check
+
+**Check** at the top of the panel starts the agent on every note that is not resolved yet.
+
+1. The panel calls `feedback.admin.check`. The server queues one run in `game.feedback_run`
+   (migration `0064_feedback_runs`). A unique index allows one queued-or-running run, so a second
+   press, or a press in another tab, shows the run already in flight instead of starting another.
+2. The worker on the owner's computer claims the queued run and starts Claude Code headless with
+   `docs/feedback-check.md`, the playbook. Start it once and leave it running:
+
+   ```bash
+   HUB_URL=https://<domain> NAKAMA_SERVER_KEY=<client key> node scripts/feedback-worker.mjs
+   ```
+
+   Until a worker runs, the panel says the run is waiting for the worker.
+3. The agent marks each note `in_progress`, fixes them with one subagent per game repo, each on
+   its own branch and pull request, and marks them `fixed`. A separate verifier subagent then checks
+   each fix against the note. Only a verified note becomes `resolved`, with the evidence as its
+   verification note. Notes it cannot fix go back to `open` with a comment saying what the owner
+   needs to decide.
+4. The worker sends a heartbeat every minute. The panel shows the run's state and, at the end,
+   the agent's summary. A run whose heartbeat stops for 30 minutes is marked failed, so a crashed
+   worker does not block the next Check. **Cancel** in the panel stops the agent at its next
+   heartbeat. Notes keep the status they had reached.
+
+The worker never merges, deploys or pushes to `main`. Its log for each run is in
+`~/.feedback-worker/run-<id>.log`. `--dry-run` claims and closes runs without starting the
+agent, to test the wiring; `--once` works one run and exits.
+
 ## RPCs
 
 | RPC | Caller | Purpose |
@@ -72,6 +101,10 @@ export.
 | `feedback.admin.list` | admin token | Notes, counts per game and status |
 | `feedback.admin.get` | admin token | One note with its screenshot and history |
 | `feedback.admin.update` | admin token | Status, resolution, verification, fixing commit |
+| `feedback.admin.check` | admin token | Queue a check run over every unresolved note, or return the one in flight |
+| `feedback.admin.runs` | admin token | The run in flight and the latest runs |
+| `feedback.admin.claim` | admin token | The worker takes the queued run |
+| `feedback.admin.run` | admin token | The worker's heartbeat and result; the panel's cancel |
 
 ## Adding it to a game
 
