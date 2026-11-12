@@ -273,7 +273,12 @@ export function createPadReader(tuning: PadTuning = PAD_TUNING, options: PadRead
       );
 
       // Menu steps: latched D-pad buttons do not count, the walking stick does (it has no "press").
-      const latchedPad = { ...pad, buttons: pad.buttons.map((button, index) => (latched.has(index) ? { pressed: false, value: 0 } : button)) };
+      // Copy fields by name: a real Gamepad keeps index and axes as prototype getters, so a spread drops them.
+      const latchedPad: PadSnapshot = {
+        index: pad.index,
+        axes: pad.axes,
+        buttons: pad.buttons.map((button, index) => (latched.has(index) ? { pressed: false, value: 0 } : button)),
+      };
       const dir = navDirection(latchedPad, tuning, axes.move[0]);
       let nav: NavDir | null = null;
       if (dir !== navDir) {

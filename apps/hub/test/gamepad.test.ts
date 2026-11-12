@@ -176,6 +176,25 @@ function pad(index: number, down: readonly number[] = [], axes: readonly number[
   assert.equal(pickInDirection([], -1, 'down'), -1);
 }
 
+// A browser Gamepad keeps index and axes as prototype getters, so an object spread drops them.
+// The reader must still see the stick (a throw here froze the plaza whenever a controller was connected).
+{
+  class BrowserPad {
+    readonly #buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+    get index(): number { return 0; }
+    get connected(): boolean { return true; }
+    get buttons(): readonly { pressed: boolean; value: number }[] { return this.#buttons; }
+    get axes(): readonly number[] { return [0.9, 0, 0, 0]; }
+  }
+  const browserPad = new BrowserPad();
+  assert.equal(({ ...browserPad } as Partial<PadSnapshot>).axes, undefined, 'the spread really drops axes');
+  const reader = createPadReader();
+  const frame = reader.poll([browserPad], 0);
+  assert.equal(frame.connected, true);
+  assert.equal(frame.nav, 'right', 'the stick still steers menus');
+  assert.ok(frame.move.x > 0, 'the stick still walks');
+}
+
 console.log('gamepad tests passed');
 
 // latch(): a button held when a screen closes under it is ignored until released.
