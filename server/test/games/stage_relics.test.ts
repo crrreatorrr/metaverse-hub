@@ -189,6 +189,70 @@ function fakeClaims(mod: LoadedModule): Set<string> {
   assert.equal(grants(mod).find((row) => row.args[0] === SECOND)?.args[1], SID2);
 }
 
+// An account that is out when the boss falls (all of its seats dead) gets no Anchor, like its
+// Tickets. A downed seat is not out. Its next stage-1 clear where it is not out grants it.
+{
+  interface Seat { st: string; dead?: boolean; lives?: number; hp?: number }
+  const seatsOf = (mod: LoadedModule, m: MatchDriver, userId: string): Seat[] => {
+    const session = live(mod, m).session as unknown as { seats: { slot: number; human: boolean; accountId: string | null }[]; state: { players: Seat[] } };
+    return session.seats.filter((seat) => seat.human && seat.accountId === userId).map((seat) => session.state.players[seat.slot]!);
+  };
+  const pair = (mod: LoadedModule): MatchDriver => {
+    const created = mod.call<{ matchId: string }>('coop.room_create', coopCtx(), {});
+    const m = mod.driver(created.matchId);
+    const a = presence(USER, 'ada', 's-a');
+    const b = presence(SECOND, 'bea', 's-b');
+    m.join([a], coopCtx());
+    m.join([b], coopCtx(SECOND, SID2));
+    m.loop([{ sender: a, opCode: OP.HELLO, data: { t: 'hello', protocol: 1, fingerprint: FP, devices: ['k1', 'k2'] } }]);
+    m.loop([{ sender: b, opCode: OP.HELLO, data: { t: 'hello', protocol: 1, fingerprint: FP, devices: ['k1'] } }]);
+    m.loop([{ sender: a, opCode: OP.READY, data: { t: 'ready' } }, { sender: b, opCode: OP.READY, data: { t: 'ready' } }]);
+    assert.equal(stateOf(m).phase, 'playing');
+    return m;
+  };
+  const kill = (seat: Seat): void => { seat.st = 'dead'; seat.dead = true; seat.lives = 0; seat.hp = 0; };
+
+  const mod = loadCoop();
+  const owned = fakeClaims(mod);
+  const m = pair(mod);
+  kill(seatsOf(mod, m, SECOND)[0]!);
+  killBoss(mod, m);
+  assert.equal(settles(mod).find((row) => row.args[0] === SECOND)?.args[9], 'knocked_out');
+  assert.equal(settles(mod).find((row) => row.args[0] === USER)?.args[9], 'clear');
+  assert.deepEqual(grants(mod).map((row) => row.args[0]), [USER], 'only the account still standing is asked for');
+  assert.equal(owned.has(SECOND), false);
+  m.loop([]);
+  m.loop([]);
+  assert.equal(grants(mod).length, 1, 'the out account is not asked for later in that encounter either');
+
+  // A later stage-1 clear in which that account is not out grants it, once.
+  m.terminate();
+  const again = start(mod, SECOND, SID2);
+  killBoss(mod, again.m);
+  const second = grants(mod).filter((row) => row.args[0] === SECOND);
+  assert.equal(second.length, 1);
+  assert.equal(second[0]!.args[1], SID2);
+  assert.ok(owned.has(SECOND));
+
+  // One dead seat of two, and a downed only seat: nobody is out, both are granted.
+  const upMod = loadCoop();
+  fakeClaims(upMod);
+  const up = pair(upMod);
+  kill(seatsOf(upMod, up, USER)[0]!);
+  seatsOf(upMod, up, SECOND)[0]!.st = 'down';
+  killBoss(upMod, up);
+  assert.deepEqual(grants(upMod).map((row) => row.args[0]).sort(), [USER, SECOND]);
+
+  // Out in God Mode: no Tickets (god_mode) and no Anchor either.
+  const godMod = loadCoop();
+  fakeClaims(godMod);
+  const god = pair(godMod);
+  live(godMod, god).session!.state.god = true;
+  kill(seatsOf(godMod, god, SECOND)[0]!);
+  killBoss(godMod, god);
+  assert.deepEqual(grants(godMod).map((row) => row.args[0]), [USER]);
+}
+
 // A seat released to the CPU does not earn it.
 {
   const mod = loadCoop();

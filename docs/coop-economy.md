@@ -43,7 +43,10 @@ Not eligible:
 - A seat taken after the encounter started.
 - AFK, as defined above.
 - A seat released to CPU after the 15 second grace. That player can be eligible on the next encounter if they are there at its start.
+- Out for the kill (`knocked_out`): every seat of the account was dead when the boss fell. A downed seat is not dead. The flag is per encounter, so the next boss starts clean.
 - A closed session, an expired lease, or a missing login. The replacement session does not receive that terminal's award.
+
+The Marina Anchor Relic is a separate grant at a banked stage-1 clear. It ignores the Ticket decision (practice, God Mode, a stage jump, a late seat and AFK still get it), with two exceptions shared with Tickets: a seat released to CPU, and an account that was out for the kill. An account that was out gets the Anchor on its next stage-1 clear where it is not out.
 
 Guests can play. Banking still requires a redeemed game session. An anonymous socket cannot mint.
 
