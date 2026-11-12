@@ -244,7 +244,8 @@ async function showPanel(): Promise<void> {
   await loadRuns();
 }
 
-async function load(): Promise<void> {
+/** Reloads the notes. `keepDetail` leaves the open note's panel alone (the run bar's refresh). */
+async function load(keepDetail = false): Promise<void> {
   const body: Record<string, unknown> = { limit: 300 };
   if (filter.game) body.game = filter.game;
   if (filter.status) body.status = filter.status;
@@ -264,6 +265,7 @@ async function load(): Promise<void> {
   renderTabs();
   renderMap();
   renderList();
+  if (keepDetail && selectedId) return;
   if (selectedId && items.some((n) => n.id === selectedId)) void select(selectedId);
   else detailBox.replaceChildren(el('div', 'empty', items.length ? 'Pick a note to see its screenshot and details.' : ''));
 }
@@ -481,9 +483,10 @@ async function loadRuns(): Promise<void> {
   }
   const latest = result.active ?? result.runs[0] ?? null;
   renderRun(result.active, result.active ? null : latest);
-  // A run that moved on (claimed, finished) changes note statuses: reload the list with it.
+  // The agent changes note statuses while it works: refresh the list with each heartbeat, but
+  // leave the open note's form alone so nothing typed there is lost.
   const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
-  if (lastRun && key !== lastRun) void load();
+  if (lastRun && key !== lastRun) void load(true);
   lastRun = key;
   scheduleRuns(result.active ? 5000 : 30000);
 }
