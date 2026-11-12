@@ -4,7 +4,9 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { envNumber, promptFor, stopLeftoverAgent, summaryOf, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, envNumber, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
+import { readFileSync, existsSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
 
 // Summary: the last SUMMARY: line onward, else the tail; exit codes show on failures.
@@ -75,14 +77,43 @@ assert.equal(envNumber('', 60, 2), 60);
 assert.equal(envNumber('1', 20, 5), 5);
 assert.equal(envNumber('90', 20, 5), 90);
 
-// A leftover agent is stopped only when its pid still runs the agent.
+// The real playbook carries the mark that identifies a leftover feedback agent.
+{
+  const hubRoot = fileURLToPath(new URL('..', import.meta.url));
+  assert.ok(promptFor({ id: 1, requestedBy: '333', requestedAt: 'now', noteCount: 1 }, { hubRoot, gamesDir: '/g' }).startsWith(PROMPT_MARK));
+}
+
+// A leftover agent is stopped only when its worker is gone and its pid still runs the feedback agent.
 {
   const logDir = mkdtempSync(join(tmpdir(), 'fw-pid-'));
-  assert.equal(stopLeftoverAgent({ logDir }), 0); // no file
-  writeFileSync(join(logDir, 'agent.pid'), JSON.stringify({ pgid: 999999, agent: '/usr/local/bin/claude', runId: 3 }));
-  assert.equal(stopLeftoverAgent({ logDir }, () => '/Applications/Safari.app/Contents/MacOS/Safari\n'), 3); // pid reused: left alone, run still reported
-  writeFileSync(join(logDir, 'agent.pid'), JSON.stringify({ pgid: 999999, agent: '/usr/local/bin/claude', runId: 3 }));
-  assert.equal(stopLeftoverAgent({ logDir }, () => { throw new Error('no such process'); }), 3); // gone
+  const file = join(logDir, 'agent.pid');
+  const save = (worker) => writeFileSync(file, JSON.stringify({ pgid: 999999, agent: '/usr/local/bin/claude', runId: 3, worker }));
+  const dead = () => false;
+  assert.equal(await stopLeftoverAgent({ logDir }), 0); // no file
+  // Its worker is alive (a second worker starting beside it): not a leftover, file kept.
+  save(424242);
+  assert.equal(await stopLeftoverAgent({ logDir }, () => `claude -p ${PROMPT_MARK}`, (pid) => pid === 424242), 0);
+  assert.ok(existsSync(file));
+  // Pid reused by something else, or by an interactive claude: left alone, run still reported.
+  save(424242);
+  assert.equal(await stopLeftoverAgent({ logDir }, () => '/Applications/Safari.app/Contents/MacOS/Safari\n', dead), 3);
+  save(424242);
+  assert.equal(await stopLeftoverAgent({ logDir }, () => 'claude --resume\n', dead), 3);
+  save(424242);
+  assert.equal(await stopLeftoverAgent({ logDir }, () => { throw new Error('no such process'); }, dead), 3); // gone
+  assert.ok(!existsSync(file));
+}
+
+// One worker per log folder.
+{
+  const logDir = mkdtempSync(join(tmpdir(), 'fw-lock-'));
+  assert.equal(takeWorkerLock({ logDir }), 0);
+  assert.equal(readFileSync(join(logDir, 'worker.pid'), 'utf8'), String(process.pid));
+  writeFileSync(join(logDir, 'worker.pid'), '424242');
+  assert.equal(takeWorkerLock({ logDir }, (pid) => pid === 424242), 424242); // live other worker
+  assert.equal(takeWorkerLock({ logDir }, () => false), 0); // stale lock taken over
+  releaseWorkerLock({ logDir });
+  assert.ok(!existsSync(join(logDir, 'worker.pid')));
 }
 
 console.log('feedback worker ok');

@@ -100,22 +100,63 @@ function killGroup(pgid, signal) {
 }
 
 /**
- * The agent of the last run, kept on disk while it runs. If the worker died without stopping it
- * (SIGKILL, a crash, a power cut), the next start stops that agent before claiming anything, so
- * two agents never work the notes at once.
+ * The agent of the last run, kept on disk while it runs (with the worker that started it). If
+ * that worker died without stopping it (SIGKILL, a crash, a power cut), the next start stops the
+ * agent before claiming anything, so two agents never work the notes at once.
  */
 function pidFile(opts) {
   return join(opts.logDir, 'agent.pid');
 }
 
+/** Marks the prompt the worker passes, so only a feedback agent is ever taken for a leftover. */
+export const PROMPT_MARK = '# Feedback check playbook';
+
+function alive(pid) {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+/**
+ * One worker per log folder (one per machine by default): → the pid of a live worker that holds
+ * the lock, or 0 once this process holds it.
+ */
+export function takeWorkerLock(opts, isAlive = alive) {
+  const file = join(opts.logDir, 'worker.pid');
+  try {
+    const other = Number(readFileSync(file, 'utf8'));
+    if (other > 1 && other !== process.pid && isAlive(other)) return other;
+  } catch {
+    // No lock yet.
+  }
+  writeFileSync(file, String(process.pid));
+  return 0;
+}
+
+export function releaseWorkerLock(opts) {
+  const file = join(opts.logDir, 'worker.pid');
+  try {
+    if (Number(readFileSync(file, 'utf8')) === process.pid) rmSync(file, { force: true });
+  } catch {
+    // Gone.
+  }
+}
+
+const psCommand = (pid) => execFileSync('ps', ['-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' });
+
 /** → the run id the last worker left unfinished (0 if none); stops its agent if it still runs. */
-export function stopLeftoverAgent(opts, ps = (pid) => execFileSync('ps', ['-o', 'command=', '-p', String(pid)], { encoding: 'utf8' })) {
+export async function stopLeftoverAgent(opts, ps = psCommand, isAlive = alive) {
   let saved;
   try {
     saved = JSON.parse(readFileSync(pidFile(opts), 'utf8'));
   } catch {
     return 0;
   }
+  // The worker that wrote it is still at work: its agent is not a leftover.
+  if (Number(saved.worker) > 1 && Number(saved.worker) !== process.pid && isAlive(Number(saved.worker))) return 0;
   rmSync(pidFile(opts), { force: true });
   const runId = Number(saved.runId) || 0;
   const pgid = Number(saved.pgid);
@@ -125,11 +166,13 @@ export function stopLeftoverAgent(opts, ps = (pid) => execFileSync('ps', ['-o', 
   } catch {
     // Gone already.
   }
-  // Only when that pid still runs the agent: a pid the system gave to something else is left alone.
-  if (command && command.includes(basename(String(saved.agent)))) {
+  // Only the feedback agent itself: a pid the system gave to anything else, an interactive
+  // claude session included, is left alone.
+  if (command.includes(basename(String(saved.agent))) && command.includes(PROMPT_MARK)) {
     log(`stopping the agent left from run #${runId} (pid ${pgid})`);
     killGroup(pgid, 'SIGTERM');
-    setTimeout(() => killGroup(pgid, 'SIGKILL'), 5000).unref();
+    for (let i = 0; i < 50 && isAlive(pgid); i++) await sleep(100);
+    if (isAlive(pgid)) killGroup(pgid, 'SIGKILL');
   }
   return runId;
 }
@@ -170,7 +213,7 @@ async function work(run, client, opts) {
   log(`run #${run.id}: agent started (pid ${child.pid}), log ${logPath}`);
   if (child.pid) {
     agentGroup = child.pid;
-    writeFileSync(pidFile(opts), JSON.stringify({ pgid: child.pid, agent: opts.agent, runId: run.id }));
+    writeFileSync(pidFile(opts), JSON.stringify({ pgid: child.pid, agent: opts.agent, runId: run.id, worker: process.pid }));
   }
 
   let stopped = '';
@@ -252,7 +295,12 @@ async function main() {
   const client = feedbackClient(config);
   log(`feedback worker ${opts.worker} on ${config.base}, games in ${opts.gamesDir}${opts.dryRun ? ' (dry run)' : ''}`);
   mkdirSync(opts.logDir, { recursive: true });
-  const leftover = opts.dryRun ? 0 : stopLeftoverAgent(opts);
+  const other = takeWorkerLock(opts);
+  if (other) {
+    console.error(`Another feedback worker is already running (pid ${other}). One per machine is enough.`);
+    process.exit(1);
+  }
+  const leftover = opts.dryRun ? 0 : await stopLeftoverAgent(opts);
   if (leftover) {
     // Close that run now instead of leaving it to the 30-minute stale check.
     await client
@@ -273,6 +321,7 @@ async function main() {
   // Any other way out (a crash, process.exit above): never leave the agent running behind us.
   process.on('exit', () => {
     if (agentGroup) killGroup(agentGroup, 'SIGKILL');
+    releaseWorkerLock(opts);
   });
   for (;;) {
     let run = null;
