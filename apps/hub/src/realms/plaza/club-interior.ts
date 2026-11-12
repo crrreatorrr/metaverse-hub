@@ -7,12 +7,12 @@ import { WORLD_ROOT, animated, glow, loadGLTF } from '../../v2/core';
 import { INTERIOR_ORIGIN, makeLeaderboardTexture, type InteriorBuild } from './interior';
 import { loadNeonSign } from './neon-sign';
 import { CLUB_MARKERS } from './club-interior-colliders';
-import { CLUB_INTERIOR_SCALE, SCALED_CLUB_COLLIDERS, scaleClubPoint } from './club-interior-scale';
+import { CLUB_INTERIOR_SCALE, SCALED_CLUB_COLLIDERS, SPROTEL_SCALE, scaleClubPoint } from './club-interior-scale';
 import { SPROTEL_INTERACT_RADIUS, createSprotelController, type SprotelClip, type SprotelController } from './sprotel-npc';
 
 /**
  * HPOS10I Club interior (club-interior.glb + -lod1). Authored at 20 x 14 x 5.2 m,
- * mounted 30% larger at 26 x 18.2 x 6.76 m. Sprotel stays at his authored size.
+ * mounted 30% larger at 26 x 18.2 x 6.76 m. Sprotel is 20% larger than authored (SPROTEL_SCALE).
  * Local origin = threshold centre at floor level, room interior is +Z (x from -15 to +5, z from 0 to 14).
  * The group is movable: by default it is mounted at INTERIOR_ORIGIN (y = -300) like the old procedural room,
  * so scene.ts keeps working. Pass `at`/`yaw` to put it behind a plaza building door instead.
@@ -196,7 +196,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   g.add(storeAnchor);
 
   // Sprotel behind the bar on barman_spot, facing the stools. Skinned: clone with SkeletonUtils so the
-  // cached GLTF scene stays reusable. His collider moves with the room but retains its authored size.
+  // cached GLTF scene stays reusable. His collider moves with the room and grows by SPROTEL_SCALE, not the room scale.
   let npc: Object3D | null = null;
   let sprotel: SprotelController | null = null;
   if (npcGltf) {
@@ -207,8 +207,8 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
     npcAnchor.name = 'sprotel_anchor';
     npcAnchor.position.set(...spot.pos);
     npcAnchor.rotation.y = spot.yaw;
-    // A separate parent protects the inverse scale from animation tracks on the NPC root.
-    npcAnchor.scale.setScalar(1 / CLUB_INTERIOR_SCALE);
+    // A separate parent protects the scale from animation tracks on the NPC root. Cancel the room scale, then apply his own.
+    npcAnchor.scale.setScalar(SPROTEL_SCALE / CLUB_INTERIOR_SCALE);
     npc.position.set(0, 0, 0);
     npc.rotation.y = 0;
     npcAnchor.add(npc);
@@ -220,7 +220,8 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
     g.add(npcAnchor);
     // Resting clip when nobody is near (default wipe_glass). Clips are native to his skeleton: played directly.
     const restClip: SprotelClip = (typeof wantNpc === 'object' && wantNpc.clip) || 'wipe_glass';
-    sprotel = createSprotelController(npc, npcGltf.animations, restClip, SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE);
+    // The radius is measured in his local space, so divide out his own scale to keep the world-space trigger unchanged.
+    sprotel = createSprotelController(npc, npcGltf.animations, restClip, SPROTEL_INTERACT_RADIUS * CLUB_INTERIOR_SCALE / SPROTEL_SCALE);
     npc.userData.mixer = sprotel.mixer;
     npc.userData.clips = npcGltf.animations;
   }

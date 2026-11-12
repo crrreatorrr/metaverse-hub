@@ -1,7 +1,7 @@
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
-  { ignores: ['**/dist/**', '**/node_modules/**', 'server/modules/build/**', 'server/modules/vendor/**', 'services/shooter-verifier/artifacts/**', 'apps/hub/public/**'] },
+  { ignores: ['**/dist/**', '**/node_modules/**', 'server/modules/build/**', 'server/modules/vendor/**', 'services/shooter-verifier/artifacts/**', 'apps/hub/public/**', 'packages/hub-sdk/src/third_party/**'] },
   ...tseslint.configs.recommended,
   {
     rules: {
