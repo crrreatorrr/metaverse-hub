@@ -466,7 +466,7 @@ const report = {
   staging: false,
   soak: false,
   hardware,
-  pin: { protocol: 1, fingerprint: FP, commit: '2b65bdb1552f9fdba4645a729ccdd60ad879e7c0' },
+  pin: { protocol: 1, fingerprint: FP, commit: '2c6de7a8e951f78e6017007dcc1493d3dbae3561' },
   sixSeat: {
     helloMs,
     helloP95: helloSorted[Math.min(helloSorted.length - 1, Math.ceil(helloSorted.length * 0.95) - 1)] ?? null,

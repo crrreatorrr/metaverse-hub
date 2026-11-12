@@ -729,8 +729,11 @@ function skyline(): InstancedMesh {
   const towers = new InstancedMesh(
     new BoxGeometry(1, 1, 1),
     new MeshStandardMaterial({
-      color: '#857a7e',
+      color: '#140c26',
       map: windowsTex(),
+      emissive: '#ffffff',
+      emissiveMap: windowsTex(),
+      emissiveIntensity: 0.9,
       roughness: 0.6,
     }),
     90,
@@ -755,12 +758,12 @@ function windowsTex(): CanvasTexture {
   canvas.height = 256;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('2d context unavailable');
-  ctx.fillStyle = '#555159';
+  ctx.fillStyle = '#000';
   ctx.fillRect(0, 0, 64, 256);
   for (let r = 0; r < 32; r += 1) {
     for (let k = 0; k < 4; k += 1) {
       if (Math.random() < 0.35) {
-        ctx.fillStyle = Math.random() < 0.5 ? '#696670' : '#7c7476';
+        ctx.fillStyle = Math.random() < 0.5 ? '#7a5cff' : '#ff6ad5';
         ctx.fillRect(4 + k * 15, 4 + r * 8, 9, 4);
       }
     }
