@@ -2,6 +2,7 @@ import {
   BoxGeometry,
   CanvasTexture,
   Color,
+  Curve,
   CylinderGeometry,
   DoubleSide,
   Euler,
@@ -9,17 +10,22 @@ import {
   InstancedMesh,
   Matrix4,
   Mesh,
+  MeshBasicMaterial,
   MeshStandardMaterial,
   NearestFilter,
   PlaneGeometry,
   Quaternion,
+  RepeatWrapping,
   ShaderMaterial,
+  SphereGeometry,
   SRGBColorSpace,
+  TorusGeometry,
+  TubeGeometry,
   Vector3,
 } from 'three';
 import type { PortalConfig } from '../../config';
 import { portalPosition } from '../../layout';
-import { animated, bakeInstanceColors, groundY, instanced, part } from '../../v2/core';
+import { animated, bakeInstanceColors, glow, groundY, instanced, neonMat, part } from '../../v2/core';
 import { SIGN_FONT, buildingSign } from '../../v2/signs';
 
 const Y = -Math.PI / 2;
@@ -53,14 +59,14 @@ export function buildPlazaEntrance(portal: PortalConfig): Group {
 export async function castle(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'castle';
-  const mtn = await part('C1-mountain', { h: 30, yaw: 0, glow: 0 });
+  const mtn = await part('C1-mountain', { h: 30, yaw: 0, glow: 0.12 });
   mtn.scale.set(1.35, 1, 1.15);
   g.add(mtn);
   const gy = (x: number, z: number) => groundY(mtn, x, z, 26) - 0.6;
-  g.add(at(await part('C2-tower', { h: 46, yaw: Y, glow: 0 }), 0, gy(0, -10), -10));
-  g.add(at(await part('C3-cluster', { h: 38, yaw: Y, glow: 0 }), 22, gy(22, -6), -6, -0.25));
-  g.add(at(await part('C4-hall', { h: 24, yaw: Y, glow: 0 }), -24, gy(-24, -4), -4, 0.2));
-  g.add(at(await part('C5-viaduct', { h: 15, yaw: Y, glow: 0 }), -24, gy(-24, -22) * 0.7, -22, 0.25));
+  g.add(at(await part('C2-tower', { h: 46, yaw: Y }), 0, gy(0, -10), -10));
+  g.add(at(await part('C3-cluster', { h: 38, yaw: Y }), 22, gy(22, -6), -6, -0.25));
+  g.add(at(await part('C4-hall', { h: 24, yaw: Y }), -24, gy(-24, -4), -4, 0.2));
+  g.add(at(await part('C5-viaduct', { h: 15, yaw: Y }), -24, gy(-24, -22) * 0.7, -22, 0.25));
   const portalZ = 46;
   return { group: g, depth: 86, portalZ };
 }
@@ -68,17 +74,17 @@ export async function castle(): Promise<{ group: Group; depth: number; portalZ: 
 export async function whiteHouse(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'white-house';
-  const main = await part('W1-main', { h: 30, yaw: Y, glow: 0 });
+  const main = await part('W1-main', { h: 30, yaw: Y, glow: 0.2 });
   g.add(main);
   const size = main.userData.size as Vector3;
   const mw = size.x;
   const md = size.z;
-  const portico = await part('W2-portico', { h: 27, yaw: Y, glow: 0 });
+  const portico = await part('W2-portico', { h: 27, yaw: Y, glow: 0.2 });
   g.add(at(portico, 0, 0, md / 2 + (portico.userData.size as Vector3).z / 2 - 3));
-  const wingL = await part('W3-wing', { h: 24, yaw: Y, glow: 0 });
+  const wingL = await part('W3-wing', { h: 24, yaw: Y, glow: 0.2 });
   const ww = (wingL.userData.size as Vector3).x;
   g.add(at(wingL, -(mw / 2 + ww / 2 - 1.5), 0, -2));
-  const wingR = await part('W3-wing', { h: 24, yaw: Y, glow: 0 });
+  const wingR = await part('W3-wing', { h: 24, yaw: Y, glow: 0.2 });
   wingR.scale.x = -1;
   g.add(at(wingR, mw / 2 + ww / 2 - 1.5, 0, -2));
   const pole = new Mesh(
@@ -105,6 +111,9 @@ export async function whiteHouse(): Promise<{ group: Group; depth: number; porta
     }
     fp.needsUpdate = true;
   });
+  const trim = new Mesh(new BoxGeometry(mw + 2 * ww - 3, 0.35, 0.35), neonMat('#ffc233', 3));
+  trim.position.set(0, 24.2, md / 2 - 1.5);
+  g.add(glow(trim));
   g.add(coinField(26, 40, md / 2 + 26));
   return { group: g, depth: md + 20, portalZ: md / 2 + 30 };
 }
@@ -141,6 +150,8 @@ function coinField(n: number, spread: number, z0: number): InstancedMesh {
     color: '#ffcc33',
     metalness: 1,
     roughness: 0.25,
+    emissive: '#ff9d00',
+    emissiveIntensity: 0.9,
   });
   const im = new InstancedMesh(geo, mat, n);
   im.name = 'gold-coins';
@@ -169,19 +180,22 @@ function coinField(n: number, spread: number, z0: number): InstancedMesh {
   animated.push(upd);
   im.computeBoundingSphere();
   if (im.boundingSphere) im.boundingSphere.radius += 30;
+  glow(im);
   return im;
 }
 
 export async function greenHill(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'green-hill';
-  const terr = await part('G1-terrain', { h: 34, yaw: Y, glow: 0 });
+  const terr = await part('G1-terrain', { h: 34, yaw: Y });
   g.add(terr);
   const terrSize = terr.userData.size as Vector3;
   const tw = terrSize.x;
   const td = terrSize.z;
-  g.add(at(await part('G2-plateau', { h: 48, glow: 0 }), -tw / 2 - 6, 0, -td / 2 + 4, 0.3));
-  g.add(at(await part('G2-plateau', { h: 40, glow: 0 }), tw / 2 + 5, 0, -td / 4, -0.2));
+  g.add(at(await part('G2-plateau', { h: 48 }), -tw / 2 - 6, 0, -td / 2 + 4, 0.3));
+  g.add(at(await part('G2-plateau', { h: 40 }), tw / 2 + 5, 0, -td / 4, -0.2));
+  g.add(at(loopTrack(14), -tw / 4, 33.5, -td / 4, 0));
+  g.add(at(loopTrack(9), tw / 2 + 5, 40, -td / 4, -0.2));
   const plat = new InstancedMesh(
     new BoxGeometry(8, 2.2, 5),
     new MeshStandardMaterial({ map: checker(), roughness: 0.8 }),
@@ -196,7 +210,7 @@ export async function greenHill(): Promise<{ group: Group; depth: number; portal
   spots.forEach((p, i) => plat.setMatrixAt(i, new Matrix4().makeTranslation(p[0], p[1], p[2])));
   plat.instanceMatrix.needsUpdate = true;
   g.add(plat);
-  g.add(at(waterfall(9, 26), 0, 13, td / 2 - 3));
+  g.add(glow(at(waterfall(9, 26), 0, 13, td / 2 - 3)));
   g.add(await instanced('G3-palm', [
     { p: [-tw / 2 + 3, 34, 4] },
     { p: [-tw / 2 + 10, 30, 12], r: 1 },
@@ -206,7 +220,7 @@ export async function greenHill(): Promise<{ group: Group; depth: number; portal
     { p: [tw / 2 + 14, 0, 6], r: 1.5 },
     { p: [-tw / 2 - 16, 0, -4], r: 0.3 },
     { p: [4, 34, -td / 2 + 6], r: 2.2 },
-  ], { h: 16, glow: 0 }));
+  ], { h: 16 }));
   return { group: g, depth: td, portalZ: td / 2 + 16 };
 }
 
@@ -229,6 +243,42 @@ function checker(): CanvasTexture {
   return texture;
 }
 
+class LoopCurve extends Curve<Vector3> {
+  constructor(
+    private readonly radius: number,
+    private readonly side: number,
+    private readonly inset: number,
+  ) {
+    super();
+  }
+
+  override getPoint(t: number, target = new Vector3()): Vector3 {
+    const a = t * Math.PI * 2;
+    const rr = this.radius - this.inset;
+    return target.set(Math.sin(a) * rr, this.radius - Math.cos(a) * rr, (t - 0.5) * 6 + this.side);
+  }
+}
+
+function loopTrack(r: number): Group {
+  const g = new Group();
+  g.name = 'loop';
+  const tex = checker();
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = RepeatWrapping;
+  tex.repeat.set(24, 1);
+  g.add(new Mesh(
+    new TubeGeometry(new LoopCurve(r, 0, 0), 160, 1.2, 8, false),
+    new MeshStandardMaterial({ map: tex, roughness: 0.7 }),
+  ));
+  for (const sd of [-1, 1]) {
+    g.add(glow(new Mesh(
+      new TubeGeometry(new LoopCurve(r, sd, 1.1), 160, 0.14, 6, false),
+      neonMat('#39ff6a', 4),
+    )));
+  }
+  return g;
+}
+
 function waterfall(w: number, h: number): Mesh {
   const material = new ShaderMaterial({
     transparent: true,
@@ -249,23 +299,23 @@ function waterfall(w: number, h: number): Mesh {
 export async function club(): Promise<{ group: Group; depth: number; door: Group }> {
   const g = new Group();
   g.name = 'bahamas-club';
-  g.add(at(await part('B1-building', { h: 27, yaw: 0, glow: 0 }), -17, 0, 8));
-  g.add(at(await part('B2-tree', { h: 40, glow: 0 }), 10, 0, -2, 0.6));
-  g.add(at(await part('B3-tailfin', { h: 30, yaw: Y, glow: 0 }), 34, 0, 2, -0.35));
+  g.add(at(await part('B1-building', { h: 27, yaw: 0, glow: 0.22 }), -17, 0, 8));
+  g.add(at(await part('B2-tree', { h: 40, glow: 0.12 }), 10, 0, -2, 0.6));
+  g.add(at(await part('B3-tailfin', { h: 30, yaw: Y, glow: 0.25 }), 34, 0, 2, -0.35));
   g.add(await instanced('B4-table', [
     { p: [14, 0, 20] },
     { p: [24, 0, 22], r: 0.2 },
     { p: [18, 0, 30], r: -0.1 },
     { p: [30, 0, 32], r: 0.3 },
     { p: [6, 0, 30], r: 0.1 },
-  ], { h: 3.2, glow: 0 }));
+  ], { h: 3.2 }));
   g.add(await instanced('B5-palm', [
     { p: [-40, 0, -2] },
     { p: [-36, 0, -16], r: 1, s: 0.9 },
     { p: [48, 0, 14], r: 2 },
     { p: [46, 0, -8], r: 0.4, s: 1.1 },
     { p: [-20, 0, -22], r: 1.2 },
-  ], { h: 26, glow: 0 }));
+  ], { h: 26 }));
   const plank = new BoxGeometry(0.9, 4, 0.3);
   const fenceMat = new MeshStandardMaterial({ roughness: 0.6 });
   const pts: number[] = [];
@@ -278,13 +328,16 @@ export async function club(): Promise<{ group: Group; depth: number; door: Group
   });
   fence.name = 'picket-fence';
   g.add(bakeInstanceColors(fence));
-  const crest = new Mesh(
-    new PlaneGeometry(7, 5.2),
-    new MeshStandardMaterial({ map: textTex('10', '#f0ddb3', '#313d51', 512, 380, SIGN_FONT), roughness: 0.8 }),
+  const ten = new Mesh(
+    new PlaneGeometry(13, 10),
+    new MeshBasicMaterial({ map: neonText('10'), transparent: true, toneMapped: false }),
   );
-  crest.position.set(-17, 31, 14);
-  crest.name = 'sign-10';
-  g.add(crest);
+  ten.position.set(-17, 31, 14);
+  ten.name = 'sign-10';
+  const poles = new Mesh(new BoxGeometry(9, 0.4, 0.4), neonMat('#00e5ff', 3));
+  poles.position.set(-17, 26.4, 14);
+  g.add(glow(poles));
+  g.add(glow(ten));
   const banner = new Mesh(
     new PlaneGeometry(18, 3.6),
     new MeshStandardMaterial({ map: textTex('CLUB HPOS10I', '#ffffff', '#1f4fd1', 1024, 180, SIGN_FONT), roughness: 0.6 }),
@@ -293,19 +346,31 @@ export async function club(): Promise<{ group: Group; depth: number; door: Group
   banner.name = 'sign-hpos10i-banner';
   g.add(banner);
   g.add(at(signpost(), 2, 0, 41, 0.15));
+  const bulbs = new InstancedMesh(new SphereGeometry(0.28, 8, 6), neonMat('#ffd27a', 4), 60);
+  for (let i = 0; i < 60; i += 1) {
+    const t = i / 59;
+    bulbs.setMatrixAt(i, new Matrix4().makeTranslation(-8 + t * 40, 16 - Math.sin(t * Math.PI) * 4 + (i % 2) * 0.3, 18 + Math.sin(t * 9) * 3));
+  }
+  bulbs.instanceMatrix.needsUpdate = true;
+  g.add(glow(bulbs));
   const door = new Group();
   door.name = 'club-door';
-  const trim = new MeshStandardMaterial({ color: '#7b6d5e', roughness: 0.8 });
-  const lintel = new Mesh(new BoxGeometry(5.6, 0.36, 0.45), trim);
-  lintel.position.y = 4.2;
-  door.add(lintel);
+  const frame = new Mesh(new TorusGeometry(2.6, 0.18, 8, 32, Math.PI), neonMat('#ffd21f', 4));
+  frame.position.y = 4.2;
+  door.add(glow(frame));
   for (const x of [-2.6, 2.6]) {
-    const post = new Mesh(new BoxGeometry(0.36, 4.2, 0.36), trim);
+    const post = new Mesh(new BoxGeometry(0.36, 4.2, 0.36), neonMat('#ffd21f', 4));
     post.position.set(x, 2.1, 0);
-    door.add(post);
+    door.add(glow(post));
   }
-  const barSign = buildingSign('sign-the-bar', 'THE BAR', '', '#dbc9a2', '', false);
-  barSign.position.set(0, 5.2, 0.24);
+  const inside = new Mesh(
+    new PlaneGeometry(5.2, 6.8),
+    new MeshBasicMaterial({ color: '#ffb35c', transparent: true, opacity: 0.55 }),
+  );
+  inside.position.y = 3.4;
+  door.add(inside);
+  const barSign = buildingSign('sign-the-bar', 'THE BAR', '', '#ffd21f');
+  barSign.position.set(0, 7.55, 0.2);
   door.add(barSign);
   at(door, -17, 0, 22);
   g.add(door);
@@ -365,19 +430,46 @@ export function textTex(txt: string, fg: string, bg: string, w: number, h: numbe
 export async function kennel(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'kennel';
-  const house = await part('K1-house', { h: 50, yaw: Y, glow: 0 });
+  const house = await part('K1-house', { h: 50, yaw: Y, glow: 0.2 });
   g.add(house);
   const houseSize = house.userData.size as Vector3;
   const hd = houseSize.z;
   const hw = houseSize.x;
-  const bowl = await part('K3-bowl', { h: 7, yaw: Y, metal: 0.6, glow: 0 });
+  const bowl = await part('K3-bowl', { h: 7, yaw: Y, metal: 0.6, glow: 0.3 });
   bowl.scale.setScalar(1.6);
   g.add(at(bowl, -hw / 2 + 2, 0, hd / 2 + 22));
+  const ring = new Mesh(new TorusGeometry(11, 0.25, 8, 64), neonMat('#ffb020', 4));
+  ring.rotation.x = Math.PI / 2;
+  ring.position.set(-hw / 2 + 2, 0.2, hd / 2 + 22);
+  g.add(glow(ring));
   g.add(await instanced('K2-bone', [
     { p: [hw / 2 + 10, 0, hd / 2 + 6], r: 0.6 },
     { p: [hw / 2 + 4, 0, -hd / 4], r: 2 },
     { p: [-hw / 2 - 10, 0, -6], r: 1.1 },
     { p: [hw / 2 - 2, 0, hd / 2 + 20], r: -0.4 },
-  ], { h: 3.4, useLod1: false, glow: 0 }));
+  ], { h: 3.4, useLod1: false, glow: 0.3 }));
   return { group: g, depth: hd, portalZ: hd / 2 + 6 };
+}
+
+export function neonText(txt: string): CanvasTexture {
+  const c = document.createElement('canvas');
+  c.width = 1024;
+  c.height = 800;
+  const x = c.getContext('2d');
+  if (!x) throw new Error('2d context unavailable');
+  x.font = `640px ${SIGN_FONT}, Arial Black, sans-serif`;
+  x.textAlign = 'center';
+  x.textBaseline = 'middle';
+  x.lineWidth = 34;
+  x.strokeStyle = '#00e5ff';
+  x.shadowColor = '#00e5ff';
+  x.shadowBlur = 50;
+  x.strokeText(txt, 512, 430);
+  x.shadowColor = '#ff4fd8';
+  x.shadowBlur = 40;
+  x.fillStyle = '#ff6ae0';
+  x.fillText(txt, 512, 430);
+  const texture = new CanvasTexture(c);
+  texture.colorSpace = SRGBColorSpace;
+  return texture;
 }
