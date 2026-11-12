@@ -178,7 +178,7 @@ Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `spr
 | `pb.quest_complete` with quest `quest_tutorial` | `genesis_shard` |
 | `nobu.boss_defeated` with boss `cone` | `cones_tip` |
 | `sproto.boss_defeated` with boss `tinubu` | `tinubu_crown` |
-| `fighter.story_level_complete` with world `1` | `tidebreaker_belt` |
+| `fighter.story_level_complete` with world `1` (Halloween 2008 story victory) | `tidebreaker_belt` |
 | `arcade.boss_defeated` with boss `bront` | `breakwater_coin` |
 | `coop.stage_clear` with stage `1` (Sproto Coop Battle) | `marina_anchor` |
 | `shooter.wave_clear` with wave `1` (Sproto Shooter, Wave Mode) | `dragon_scale` |
