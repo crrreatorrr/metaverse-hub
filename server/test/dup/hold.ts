@@ -293,6 +293,26 @@ export async function runHold(test: TestFn): Promise<void> {
   await test('hold', 'after 0061 only hub_life_medal is held', async () => {
     assert.equal(productionHolds(), 'hub_life_medal');
   });
+  await test('hold', 'a first Level 1 clear grants the Belt and a second, third and fourth keep one claim', async () => {
+    const session = await login('sproto-fighter');
+    const user = session.hub.userId;
+    const first = await call('session.event', {
+      eventId: 'fighter.story_level_complete', data: { world: 1 }, key: 'belt-clear-1',
+    }, session.gameToken);
+    assert.equal(first.body.granted, 'tidebreaker_belt', JSON.stringify(first.body));
+    for (const n of [2, 3, 4]) {
+      const again = await call('session.event', {
+        eventId: 'fighter.story_level_complete', data: { world: 1 }, key: `belt-clear-${n}`,
+      }, session.gameToken);
+      assertNoop(again.body, `clear ${n} ${JSON.stringify(again.body)}`);
+    }
+    assert.equal(relicClaims(user, 'tidebreaker_belt'), 1);
+    assert.equal(mints(user, 'tidebreaker_belt'), 1);
+    assert.equal(pendingRelics(user, 'tidebreaker_belt'), 0);
+    assert.equal(num(`SELECT count(*) FROM game.game_beaten WHERE user_id = '${sqlId(user)}' AND game_id = 'sproto-fighter'`), 1);
+    assert.equal(ticketBalance(user, 'sproto-fighter'), 0);
+    assert.equal(verseBalance(user), 0);
+  });
   // The 0033 mechanism cases need a held Relic and a held pet: arm them for this block only.
   armTestHolds(true);
   try {
