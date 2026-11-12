@@ -1210,7 +1210,8 @@ var SprotoShooterSim = (() => {
   var VICTORY_TICKETS = 150;
   var MAX_TIER = 10;
   var tierEnemyMult = (t) => Math.pow(1.15, t - 1);
-  var tierArenaHpMult = (t) => Math.pow(1.18, t - 1);
+  var ARENA_HP = { step: 1.18, knee: 7, lateStep: 1.1 };
+  var tierArenaHpMult = (t) => Math.pow(ARENA_HP.step, Math.min(t, ARENA_HP.knee) - 1) * Math.pow(ARENA_HP.lateStep, Math.max(0, t - ARENA_HP.knee));
   var SECOND_WIND = { step: 3, min: 3 };
   var secondWindTime = (base, downs) => Math.max(SECOND_WIND.min, base - SECOND_WIND.step * downs);
   var WAVE_SPELLS = ["chainZap", "swarm", "manaShield", "meteor"];
@@ -1219,6 +1220,8 @@ var SprotoShooterSim = (() => {
     for (const id of pool) if (!unlocks || !unlocks[id]) return id;
     return null;
   }
+  var tierExtraElites = (tier, gi = 0) => Math.floor((tier - (tier >= 7 && gi % 2 === 0 ? 2 : 1)) / 2);
+  var tierExtraAlive = (tier) => tier >= 8 ? 4 : tier >= 4 ? 2 : 0;
   var WAVE2_BOSSES = ["carMonster", "moleMonster", "monster"];
   var LATE_BOSS_HP = 0.7;
   var tierWaveCache = /* @__PURE__ */ new Map();
@@ -1228,9 +1231,8 @@ var SprotoShooterSim = (() => {
     const key2 = index * 100 + tier;
     if (tierWaveCache.has(key2)) return tierWaveCache.get(key2);
     const robots = tier >= 4 && index >= 1;
-    const extraElites = Math.floor((tier - 1) / 2);
     let shooters = robots ? 1 : 0;
-    const groups = base.groups.map((g) => {
+    const groups = base.groups.map((g, gi) => {
       const spawns = [];
       for (const s of g.spawns) {
         if (robots && s.type === "obama" && s.count >= 2) {
@@ -1243,7 +1245,7 @@ var SprotoShooterSim = (() => {
           spawns.push(S("robotShooter", 1, s.count > 1 ? 0 : s.elites));
         } else spawns.push(S(s.type, s.count, s.elites));
       }
-      let left = extraElites;
+      let left = tierExtraElites(tier, gi);
       for (const s of spawns) {
         const add3 = Math.min(left, s.count - s.elites);
         s.elites += add3;
@@ -1254,7 +1256,7 @@ var SprotoShooterSim = (() => {
     let types = base.boss.types;
     if (index === 1 && tier >= 4) types = [WAVE2_BOSSES[(tier - 4) % WAVE2_BOSSES.length]];
     const late = index === WAVES.length - 1 && tier >= 7 ? ["sprotoBeast"] : [];
-    const out = { ...base, maxAlive: base.maxAlive + 2 * Math.floor((tier - 1) / 3), groups, boss: { ...base.boss, types, late, lateHp: LATE_BOSS_HP } };
+    const out = { ...base, maxAlive: base.maxAlive + tierExtraAlive(tier), groups, boss: { ...base.boss, types, late, lateHp: LATE_BOSS_HP } };
     tierWaveCache.set(key2, out);
     return out;
   }
@@ -12841,6 +12843,11 @@ var SprotoShooterSim = (() => {
     }
     if (opts.freshLoadout && real && (state.mode === "sandbox" && !state.testMode || mode === "campaign" && state.mode !== "campaign")) resetLoadout(state, p);
     if (state.bossFight && mode !== "boss" && mode !== "test") resetLoadout(state, p);
+    const fromOutside = state.mode !== "waves" && (state.mode !== "sandbox" || state.testMode || !!opts.freshLoadout);
+    if (mode === "waves" && fromOutside) {
+      state.pickups = [];
+      resetProgress(state, p, startingLoadout(p));
+    }
     state.testMode = mode === "test";
     state.bossFight = null;
     if (mode === "waves") {
@@ -12963,6 +12970,9 @@ var SprotoShooterSim = (() => {
     p.swapT = 0;
     p.ammo = { ...TUNING.startAmmo };
   }
+  function startingLoadout(p) {
+    return p.guns.every((g, i) => i === 0 ? !!g && g.source === "start" : !g);
+  }
   var LOADOUT_MAX_GUNS = 8;
   function loadLoadout(state, p, a) {
     if (state.mode !== "waves" || !a || typeof a !== "object") return;
@@ -12993,7 +13003,9 @@ var SprotoShooterSim = (() => {
       if (fits && !p.guns[slot]) p.guns[slot] = gun;
       else spare.push(gun);
     }
-    spare.forEach((gun, i) => spawnGunPickup(state, gun, aheadOf(p, 2 + i * 0.8), "stash"));
+    spare.forEach((gun, i) => {
+      spawnGunPickup(state, gun, aheadOf(p, 2 + i * 0.8), "stash").ttl = Infinity;
+    });
     if (!p.guns.some(Boolean)) {
       resetLoadout(state, p);
       return;
@@ -13030,8 +13042,9 @@ var SprotoShooterSim = (() => {
     gun.source = "stash";
     return gun;
   }
-  function resetProgress(state, p) {
-    resetLoadout(state, p);
+  function resetProgress(state, p, keepGuns = false) {
+    if (keepGuns) p.ammo = { ...TUNING.startAmmo };
+    else resetLoadout(state, p);
     for (const id of SKILL_IDS) p.skills[id] = { level: 1, xp: 0, total: 0 };
     for (const perk of PERKS) if (perk.level > 1 && p.perks[perk.id]) p.perks[perk.id] = false;
     p.buffs.killFrenzy.stacks = 0;
@@ -15825,7 +15838,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "3763b43908312ec65cb9002a45d49bcff6b044b6";
+  var SOURCE_COMMIT = "70794a1704fb977c7c6380d766d7e20f082104ed";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
