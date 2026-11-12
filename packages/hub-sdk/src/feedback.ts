@@ -96,6 +96,14 @@ export interface FeedbackOptions {
   beforeCapture?(): void;
   /** Canvases to capture, back to front. Default: every visible canvas on the page. */
   canvases?(): HTMLCanvasElement[];
+  /**
+   * A picture of the page's HTML (menus, HUD text), drawn over the canvases. The SDK only copies
+   * canvases, so a game whose screens are HTML draws them here, for example with a DOM-to-canvas
+   * library on its UI root. Return a canvas covering the whole viewport, transparent where the
+   * game shows through, or null. It may be async: the window waits for it at most 1.5 s. With an
+   * overlay the screenshot always covers the whole viewport.
+   */
+  overlay?(): HTMLCanvasElement | null | Promise<HTMLCanvasElement | null>;
   /** Recent errors from the game's own crash guard, newest last. Added to the ones caught here. */
   errors?(): unknown[];
   /** Return false to ignore the shortcut right now (a text prompt of the game's own is open). */
@@ -243,20 +251,24 @@ interface Stroke {
   points: number[];
 }
 
-/** Composite the page's canvases into one image no wider than `maxWidth`. */
-function captureCanvases(list: HTMLCanvasElement[], maxWidth: number): HTMLCanvasElement | null {
+/**
+ * Composite the page's canvases into one image no wider than `maxWidth`, and count the canvases
+ * drawn. With `page`, the image covers the whole viewport and is returned even when no canvas
+ * could be drawn, so an overlay can go on top.
+ */
+function captureCanvases(list: HTMLCanvasElement[], maxWidth: number, page = false): { shot: HTMLCanvasElement; drawn: number } | null {
   const vw = Math.max(1, window.innerWidth);
   const vh = Math.max(1, window.innerHeight);
   const visible = list
     .map((canvas) => ({ canvas, rect: canvas.getBoundingClientRect() }))
     .filter(({ canvas, rect }) => canvas.width > 0 && canvas.height > 0 && rect.width > 1 && rect.height > 1 && rect.right > 0 && rect.bottom > 0 && rect.left < vw && rect.top < vh);
-  if (!visible.length) return null;
+  if (!visible.length && !page) return null;
   // One canvas: capture exactly its box. Several (minimap, effects): keep the page layout.
   let left = 0;
   let top = 0;
   let width = vw;
   let height = vh;
-  if (visible.length === 1) {
+  if (visible.length === 1 && !page) {
     const r = visible[0]!.rect;
     left = r.left;
     top = r.top;
@@ -281,8 +293,21 @@ function captureCanvases(list: HTMLCanvasElement[], maxWidth: number): HTMLCanva
       // A tainted or lost canvas: skip it.
     }
   }
-  return drawn ? out : null;
+  return drawn || page ? { shot: out, drawn } : null;
 }
+
+/** Draw a whole-viewport overlay over a whole-viewport capture. */
+function drawOverlay(shot: HTMLCanvasElement, overlay: HTMLCanvasElement | null): boolean {
+  if (!overlay || overlay.width < 1 || overlay.height < 1) return false;
+  try {
+    shot.getContext('2d')?.drawImage(overlay, 0, 0, shot.width, shot.height);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const OVERLAY_WAIT_MS = 1500;
 
 function encode(canvas: HTMLCanvasElement, max: number): string {
   let source = canvas;
@@ -335,6 +360,8 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
   let host: HTMLDivElement | null = null;
   let root: HTMLDivElement | null = null;
   let panelOpen = false;
+  /** A screenshot is being taken: a second shortcut must not start another. */
+  let capturing = false;
   let closePanel: (() => void) | null = null;
   let panelKey: ((event: KeyboardEvent) => void) | null = null;
   let toastTimer = 0;
@@ -792,7 +819,7 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
   }
 
   function begin(source: 'manual' | 'crash'): void {
-    if (panelOpen || disposed) return;
+    if (panelOpen || capturing || disposed) return;
     if (access && !access.ok) {
       toast(refusal(access.reason));
       // Standalone never changes; a sign-in might have happened since.
@@ -801,20 +828,50 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
     }
     // Snapshot and screenshot first, in the next frame: a later-registered frame callback runs
     // after the game's own, so a WebGL canvas still holds the frame it just drew.
+    capturing = true;
     const captured = snapshot(source);
     let done = false;
     const run = () => {
       if (done) return;
       done = true;
-      let shot: HTMLCanvasElement | null = null;
+      const page = typeof options.overlay === 'function';
+      let capture: { shot: HTMLCanvasElement; drawn: number } | null = null;
       try {
         options.beforeCapture?.();
         const list = options.canvases?.() ?? Array.from(document.querySelectorAll('canvas'));
-        shot = captureCanvases(list, 960);
+        // Copy the canvases now: a WebGL frame is only readable in this task.
+        capture = captureCanvases(list, 960, page);
       } catch {
-        shot = null;
+        capture = null;
       }
-      openPanel(source, shot, captured);
+      if (!page || !capture) {
+        capturing = false;
+        openPanel(source, capture?.shot ?? null, captured);
+        return;
+      }
+      const { shot, drawn } = capture;
+      let finished = false;
+      const finish = (overlay: HTMLCanvasElement | null) => {
+        if (finished) return;
+        finished = true;
+        capturing = false;
+        // Without a canvas or an overlay the page capture is only a black frame: send none.
+        const any = drawOverlay(shot, overlay) || drawn > 0;
+        openPanel(source, any ? shot : null, captured);
+      };
+      const timer = window.setTimeout(() => finish(null), OVERLAY_WAIT_MS);
+      Promise.resolve()
+        .then(() => options.overlay!())
+        .then(
+          (overlay) => {
+            window.clearTimeout(timer);
+            finish(overlay ?? null);
+          },
+          () => {
+            window.clearTimeout(timer);
+            finish(null);
+          },
+        );
     };
     requestAnimationFrame(run);
     // A hidden tab never gets a frame: open anyway.

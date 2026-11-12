@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.7.2 adds one optional `installFeedback` option, `overlay`. The feedback screenshot copies only canvases, so a game whose menus and HUD are HTML passes `overlay` to draw that HTML over them (Sproto Duel uses a DOM-to-canvas library on its UI root). The SDK waits for it at most 1.5 s. Games that do not pass it need no change.
+
 Version 0.7.1 adds one optional field: the live `reportEvent` now returns `tickets`, the Tickets the server credited for that event (20 for a story boss reported with `sproto.boss_defeated` or `fighter.boss_defeated`), so a game can tell the player what a boss paid. It is absent when the event paid nothing, and existing callers that read only `granted` need no change. Sproto Duel and Sproto Fighter re-vendor to use it; the other games' events pay no Tickets.
 
 Version 0.7.0 adds in-game feedback: `installFeedback` (the N-N feedback window), `feedbackTransportFromSdk`, and two optional `HubSdk` methods, `feedbackAccess` and `submitFeedback` (`feedback.can`, `feedback.submit`). See `docs/feedback.md` in metaverse-hub. Nothing else changes; games re-vendor and add a small adapter.
