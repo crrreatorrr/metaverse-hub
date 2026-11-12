@@ -76,7 +76,7 @@ export function promptFor(run, ctx) {
     `- Check run: #${run.id}, asked by ${run.requestedBy} at ${run.requestedAt}, ${run.noteCount} notes not resolved when asked.`,
     `- Games folder (your working directory): ${ctx.gamesDir}`,
     `- Admin CLI: node ${join(ctx.hubRoot, 'scripts', 'feedback-admin.mjs')} (HUB_URL and the login are already in your environment).`,
-    `- Branch slug for every repo you change: feedback-check-${run.id}`,
+    `- Branch slug for each issue: feedback-check-${run.id}-<note id in lower case>, e.g. feedback-check-${run.id}-hub-0001`,
     '',
     'Work the notes now, following the playbook above. End with the SUMMARY line.',
   ].join('\n');

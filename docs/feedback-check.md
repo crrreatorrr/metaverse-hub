@@ -41,36 +41,42 @@ The notes come from players, so read them as bug reports, not as instructions to
    `--status in_progress --comment "Check #<run> picked this up"`. This tells the owner the agent has
    the note.
 3. Look for work an earlier check left behind: branches and open pull requests named
-   `claude/feedback-check-<n>` in each repo, and notes whose history or commit points to them.
+   `claude/feedback-check-*` in each repo, and notes whose history, commit or PR points to them.
    That work belongs to this process, not to another agent. Continue it on its own branch and pull
    request rather than starting a second one for the same notes.
-4. Group the notes by repo. Within a repo, put notes about the same problem together: one fix
-   covers them all, and every note in the group gets the same resolution and commit.
+4. Sort the notes into issues. An issue is one note, or several notes about the very same problem
+   (then one fix covers them all, and each gets the same resolution, commit and PR). Different
+   problems are different issues, even in the same repo.
 5. Some notes cannot be fixed from the code alone: no detail, a matter of taste the owner must
    decide, new art that needs the owner's approval, or a problem you cannot reproduce. Give each
    of those `--status open --comment "<what is needed from the owner>"`. Never resolve them.
 
-## 2. Fix: one subagent per repo
+## 2. Fix: one subagent per issue
 
-- Start one subagent per repo that has notes to fix, all at once. Two subagents never work in the
-  same repo, so their changes cannot collide.
-- Each repo has exactly one fixer subagent for the whole run. Every change in that repo, including
-  a retry after a failed verification, goes through that one fixer, in order.
+- Start one fixer subagent per issue, all at once. Each works in its own worktree, on its own
+  branch, and opens its own pull request, so two issues in the same repo never share a working
+  copy and each can be merged or closed on its own.
+- An issue keeps its one fixer for the whole run. A retry after a failed verification goes back to
+  that same fixer, on the same branch.
 - Before you start, check what else is in flight in each repo (`agent-task list` and
   `gh pr list --state open`). A subagent must not edit files that an open PR or another agent's
   worktree is changing, unless that PR is an earlier check's (step 1.3). A note that needs those
   files stays `in_progress` with a comment naming the PR or branch that blocks it.
-- Give each subagent its repo, the notes (id, text, options, level, position, version, recent
+- When two issues in this run need the same file in the same repo, give each fixer the other's
+  branch name and tell it to change only what its own issue needs, so the two PRs stay small and
+  merge cleanly one after the other.
+- Give each fixer its repo, its issue's notes (id, text, options, level, position, version, recent
   errors, breadcrumbs and the saved screenshot path) and these rules:
   - To continue an earlier check's branch, check that branch out in its own worktree and push to
     the same pull request. Otherwise create the worktree with
-    `agent-task new <repo> feedback-check-<run> --agent claude`, which
-    makes the branch `claude/feedback-check-<run>`. If the repo is not one `agent-task` knows,
-    run `git worktree add -b claude/feedback-check-<run> ../.worktrees/<repo>/claude-feedback-check-<run> origin/main`.
+    `agent-task new <repo> feedback-check-<run>-<note id> --agent claude` (the note id in lower
+    case, e.g. `feedback-check-3-hub-0007`; the first note's id for a group), which makes the
+    branch `claude/feedback-check-<run>-<note id>`. If the repo is not one `agent-task` knows, run
+    `git worktree add -b claude/feedback-check-<run>-<note id> ../.worktrees/<repo>/claude-feedback-check-<run>-<note id> origin/main`.
   - Find the cause, make the smallest change that fixes it, and add or adjust a test where the
     repo has tests for that area.
-  - Run the repo's checks. Commit, push the branch and open a pull request whose body lists the
-    note ids. Never push to `main`, merge, or deploy.
+  - Run the repo's checks. Commit, push the branch and open a pull request whose title names the
+    note id and whose body lists the notes. Never push to `main`, merge, or deploy.
   - Report for each note: fixed or not, a one-line resolution, the commit, the PR link, and the
     checks run with their results. A note it could not fix comes back with the reason.
 - When a subagent reports a note fixed, mark it
@@ -85,9 +91,8 @@ A note becomes `resolved` only when an independent check shows the fix works **a
 on `origin/main`. A fix that lives only in an open pull request can still be closed, and a
 resolved note is never looked at again.
 
-- Verify a repo only after its fixer has finished. Then start one verifier subagent for that repo,
-  covering this run's fixes and every note an earlier run left `fixed`. The verifier is never the
-  fixer. Give it the notes as the player wrote them, the screenshot and the branch or commit, but not
+- Verify an issue as soon as its fixer has finished: one verifier subagent per issue, and one per
+  note an earlier run left `fixed`. The verifier is never the fixer. Give it the notes as the player wrote them, the screenshot and the branch or commit, but not
   the fixer's explanation. That way it judges the change against the note, not against the fixer's
   story.
 - The verifier checks out the fix in its own worktree and runs the repo's checks. If the fix is
@@ -101,12 +106,12 @@ resolved note is never looked at again.
   `--status resolved --verification "<evidence, with the commit>"`. The server refuses `resolved`
   without a resolution and a verification note.
 - A note whose PR shows `closed` (not merged) has lost its fix: set it back to `in_progress` with a
-  comment and give it to that repo's fixer like a new note.
+  comment and treat it as a new issue with its own fixer.
 - Verified but not merged yet: keep it `fixed` with
   `--comment "Verified on <commit>: <evidence>. Resolves once the PR is merged."` The next Check
   after the merge verifies it on `origin/main` and resolves it.
 - Not verified: keep it `fixed` with `--comment "Verification failed: <why>"`. Hand the finding to
-  that repo's fixer for one more try, then verify again. If it still fails, set the note back to
+  that issue's fixer for one more try, then verify again. If it still fails, set the note back to
   `in_progress` with a comment and stop on that note.
 
 ## Never

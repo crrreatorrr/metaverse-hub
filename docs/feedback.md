@@ -81,9 +81,10 @@ export.
    worker** control with the worker's log instead: the dev server starts the worker in the
    background (`apps/hub/feedback-worker-dev.ts`), writing to `~/.feedback-worker/worker.log`.
    Production serves the panel without that control.
-3. The agent marks each note `in_progress`, fixes them with one subagent per game repo, each on
-   its own branch and pull request, and marks them `fixed`. A separate verifier subagent then checks
-   each fix against the note. A note becomes `resolved` only when the fix is verified and merged to
+3. The agent marks each note `in_progress` and starts one fixer subagent per issue (a note, or
+   several notes about the very same problem), each in its own worktree, on its own branch and pull
+   request, and marks them `fixed`. A separate verifier subagent per issue then checks each fix
+   against the note. A note becomes `resolved` only when the fix is verified and merged to
    `main`, with the evidence as its verification note. A verified fix whose PR is still open stays
    `fixed` with the evidence in its history, and the next Check after the merge resolves it. Notes
    it cannot fix go back to `open` with a comment saying what the owner needs to decide.

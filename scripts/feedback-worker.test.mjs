@@ -30,7 +30,7 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   const prompt = promptFor({ id: 7, requestedBy: '333', requestedAt: '2026-11-12T20:00:00Z', noteCount: 3 }, { hubRoot: root, gamesDir: '/games' });
   assert.match(prompt, /^# Playbook/);
   assert.match(prompt, /Check run: #7, asked by 333 .* 3 notes/);
-  assert.match(prompt, /Branch slug for every repo you change: feedback-check-7/);
+  assert.match(prompt, /Branch slug for each issue: feedback-check-7-<note id in lower case>, e.g. feedback-check-7-hub-0001/);
   assert.match(prompt, /Games folder \(your working directory\): \/games/);
 }
 
