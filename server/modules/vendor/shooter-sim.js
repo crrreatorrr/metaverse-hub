@@ -193,9 +193,10 @@ var SprotoShooterSim = (() => {
     meteor: { id: "meteor", name: "Meteor Bonk", key: "T", mana: "all", cd: 30, damage: 300, radius: 6, delay: 1, knockback: 14 }
   };
   var SPELL_IDS = ["gooBolt", "chainZap", "swarm", "manaShield", "meteor"];
-  var xpToNext = (skillId, level) => {
+  var WAVE_XP_GROWTH = 1.75;
+  var xpToNext = (skillId, level, mode) => {
     const s = SKILLS[skillId];
-    return Math.round(s.xpBase * Math.pow(s.xpGrowth, level - 1));
+    return Math.round(s.xpBase * Math.pow(mode === "waves" ? WAVE_XP_GROWTH : s.xpGrowth, level - 1));
   };
 
   // src/sim/spellbook.js
@@ -631,6 +632,16 @@ var SprotoShooterSim = (() => {
   }
   Object.assign(ENEMIES, {
     boomMidget: dress("midget", { name: "Boom Midget", hp: 34, color: 16733491, archetype: { deathBlast: { radius: 3.2, damage: 28 } } }),
+    // Runs at you, lights its fuse inside `trigger` metres and goes off `delay` seconds later. Shot first,
+    // the same bomb goes off among its friends. It never punches: the bomb is the attack.
+    kamikazeMidget: dress("midget", {
+      name: "Kamikaze Midget",
+      hp: 26,
+      speed: 9.6,
+      damage: 0,
+      color: 16726815,
+      archetype: { fuse: { trigger: 2.4, delay: 0.5, radius: 3.4, damage: 26 }, deathBlast: { radius: 3.4, damage: 30 } }
+    }),
     riotMidget: dress("midget", { name: "Riot Midget", hp: 58, speed: 5.4, color: 8954048, archetype: { frontShield: 0.3 } }),
     sewerMidget: dress("midget", { name: "Sewer Midget", hp: 36, color: 6989903, archetype: { burrow: { every: 5, duration: 0.6 } } }),
     floretSprout: dress("midget", { name: "Floret Sprout", hp: 48, speed: 6.2, color: 7003962, archetype: { mortar: { every: 3, damage: 8, speed: 11 } } }),
@@ -1197,7 +1208,56 @@ var SprotoShooterSim = (() => {
   ];
   var INTERMISSION_TIME = 15;
   var VICTORY_TICKETS = 150;
+  var MAX_TIER = 10;
   var tierEnemyMult = (t) => Math.pow(1.15, t - 1);
+  var tierArenaHpMult = (t) => Math.pow(1.18, t - 1);
+  var SECOND_WIND = { step: 3, min: 3 };
+  var secondWindTime = (base, downs) => Math.max(SECOND_WIND.min, base - SECOND_WIND.step * downs);
+  var WAVE_SPELLS = ["chainZap", "swarm", "manaShield", "meteor"];
+  function nextWaveSpell(unlocks, tier) {
+    const pool = tier >= 2 ? WAVE_SPELLS : WAVE_SPELLS.slice(0, 2);
+    for (const id of pool) if (!unlocks || !unlocks[id]) return id;
+    return null;
+  }
+  var WAVE2_BOSSES = ["carMonster", "moleMonster", "monster"];
+  var LATE_BOSS_HP = 0.7;
+  var tierWaveCache = /* @__PURE__ */ new Map();
+  function tierWave(index, tier = 1) {
+    const base = WAVES[index];
+    if (!base || !(tier > 1)) return base;
+    const key2 = index * 100 + tier;
+    if (tierWaveCache.has(key2)) return tierWaveCache.get(key2);
+    const robots = tier >= 4 && index >= 1;
+    const extraElites = Math.floor((tier - 1) / 2);
+    let shooters = robots ? 1 : 0;
+    const groups = base.groups.map((g) => {
+      const spawns = [];
+      for (const s of g.spawns) {
+        if (robots && s.type === "obama" && s.count >= 2) {
+          const lasers = Math.floor(s.count / 2);
+          const keepElites = Math.min(s.count - lasers, s.elites);
+          spawns.push(S("obama", s.count - lasers, keepElites), S("robotLaser", lasers, s.elites - keepElites));
+        } else if (shooters > 0 && s.type === "bigObama") {
+          shooters--;
+          if (s.count > 1) spawns.push(S("bigObama", s.count - 1, Math.min(s.count - 1, s.elites)));
+          spawns.push(S("robotShooter", 1, s.count > 1 ? 0 : s.elites));
+        } else spawns.push(S(s.type, s.count, s.elites));
+      }
+      let left = extraElites;
+      for (const s of spawns) {
+        const add3 = Math.min(left, s.count - s.elites);
+        s.elites += add3;
+        left -= add3;
+      }
+      return { ...g, spawns };
+    });
+    let types = base.boss.types;
+    if (index === 1 && tier >= 4) types = [WAVE2_BOSSES[(tier - 4) % WAVE2_BOSSES.length]];
+    const late = index === WAVES.length - 1 && tier >= 7 ? ["sprotoBeast"] : [];
+    const out = { ...base, maxAlive: base.maxAlive + 2 * Math.floor((tier - 1) / 3), groups, boss: { ...base.boss, types, late, lateHp: LATE_BOSS_HP } };
+    tierWaveCache.set(key2, out);
+    return out;
+  }
   var tierRewardMult = (t) => 1 + 0.1 * (t - 1);
 
   // src/data/guns.js
@@ -1677,6 +1737,7 @@ var SprotoShooterSim = (() => {
     return p;
   }
   var sk = () => ({ level: 1, xp: 0, total: 0 });
+  var ladderMode = (state) => state.mode === "waves" || state.mode === "boss";
   function createEnemy(state, type, { tier = state.tier, elite = false, pos = { x: 0, z: 0 }, summoned = false } = {}) {
     const def = ENEMIES[type];
     const tm = tierEnemyMult(tier);
@@ -1714,7 +1775,8 @@ var SprotoShooterSim = (() => {
       bigHeadT: 0,
       hitFlash: 0
     };
-    e.maxHp = Math.round(def.hp * tm * (elite ? ELITE.hpMult : 1) * state.tuning.enemyHpMult);
+    const hm = ladderMode(state) ? tierArenaHpMult(tier) : tm;
+    e.maxHp = Math.round(def.hp * hm * (elite ? ELITE.hpMult : 1) * state.tuning.enemyHpMult);
     e.hp = e.maxHp;
     if (def.archetype && def.archetype.audit) e.ai.audit = true;
     if (def.armour) e.ai.armour = "hard";
@@ -1775,7 +1837,8 @@ var SprotoShooterSim = (() => {
         fade: 1
       }
     };
-    e.maxHp = Math.round(def.hp * tm * (paired ? 0.85 : 1) * state.tuning.enemyHpMult);
+    const hm = ladderMode(state) ? tierArenaHpMult(tier) : tm;
+    e.maxHp = Math.round(def.hp * hm * (paired ? 0.85 : 1) * state.tuning.enemyHpMult);
     e.hp = e.maxHp;
     state.enemies.push(e);
     return e;
@@ -1897,7 +1960,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ],
@@ -1907,7 +1970,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ],
@@ -1933,7 +1996,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ],
@@ -1943,7 +2006,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ],
@@ -1953,7 +2016,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ],
@@ -1962,8 +2025,8 @@ var SprotoShooterSim = (() => {
       { kind: "resource", resId: "bossCore", min: 1, max: 1, chance: 1, noScale: true },
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
-      { kind: "gun", count: 1, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "gun", count: 1, chance: 1, table: "boss", arena: { count: 2 } },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.25, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 45, max: 45, chance: 1 }
     ],
@@ -1974,7 +2037,7 @@ var SprotoShooterSim = (() => {
       { kind: "bigHealth", count: 2, chance: 1 },
       { kind: "ammo", count: 3, chance: 1 },
       { kind: "gun", count: 2, chance: 1, table: "boss" },
-      { kind: "bossGun", chance: 1, table: "boss" },
+      { kind: "bossGun", chance: 1, table: "boss", arena: { chance: 0.5, shift: 0 } },
       // a Ray Gun or Big Bullets
       { kind: "tickets", min: 60, max: 60, chance: 1 }
     ]
@@ -2017,7 +2080,8 @@ var SprotoShooterSim = (() => {
     const tierM = 1 + 0.1 * ((ctx.tier || 1) - 1);
     const eliteM = ctx.elite ? ELITE.dropMult : 1;
     const out = [];
-    for (const entry of table) {
+    for (const base of table) {
+      const entry = ctx.arena && base.arena ? { ...base, ...base.arena } : base;
       let chance = entry.chance;
       if (entry.kind === "gun" && ctx.elite) chance = Math.min(0.6, chance * ELITE.gunMult);
       if (ctx.summoned && entry.kind === "gun") chance *= 0.25;
@@ -2027,14 +2091,14 @@ var SprotoShooterSim = (() => {
       for (let c = 0; c < count; c++) {
         switch (entry.kind) {
           case "resource": {
-            const base = int(rng, entry.min, entry.max);
-            const amt = entry.noScale ? base : Math.round(base * tierM * eliteM);
+            const base2 = int(rng, entry.min, entry.max);
+            const amt = entry.noScale ? base2 : Math.round(base2 * tierM * eliteM);
             out.push({ kind: "resource", resId: entry.resId, amount: amt });
             break;
           }
           case "tickets": {
-            const base = int(rng, entry.min, entry.max);
-            out.push({ kind: "tickets", amount: Math.round(base * tierM * eliteM) });
+            const base2 = int(rng, entry.min, entry.max);
+            out.push({ kind: "tickets", amount: Math.round(base2 * tierM * eliteM) });
             break;
           }
           case "health":
@@ -2058,7 +2122,7 @@ var SprotoShooterSim = (() => {
           }
           case "bossGun": {
             const type = BOSS_GUN_TYPES[Math.min(BOSS_GUN_TYPES.length - 1, Math.floor(float(rng) * BOSS_GUN_TYPES.length))];
-            const quality = rollQuality(rng, entry.table, 1);
+            const quality = rollQuality(rng, entry.table, entry.shift ?? 1);
             out.push({ kind: "gun", type, quality, seed: next(rng), level: ctx.tier || 1, source: "boss" });
             break;
           }
@@ -2100,8 +2164,8 @@ var SprotoShooterSim = (() => {
     s.total += amount;
     state.run.xpGained[skillId] += amount;
     emit(state, "xpGain", { playerId: p.id, skill: skillId, amount });
-    while (s.level < SKILLS[skillId].maxLevel && s.xp >= xpToNext(skillId, s.level)) {
-      s.xp -= xpToNext(skillId, s.level);
+    while (s.level < SKILLS[skillId].maxLevel && s.xp >= xpToNext(skillId, s.level, state.mode)) {
+      s.xp -= xpToNext(skillId, s.level, state.mode);
       s.level++;
       emit(state, "levelUp", { playerId: p.id, skill: skillId, level: s.level });
       for (const perk of PERKS) {
@@ -2362,6 +2426,18 @@ var SprotoShooterSim = (() => {
     const a = archetypeOf(e);
     if (!a || !target) return;
     const ai = e.ai;
+    if (a.fuse && !ai.detonate) {
+      if (ai.fuseT == null) {
+        const d = Math.hypot(target.pos.x - e.pos.x, target.pos.z - e.pos.z);
+        if (d <= a.fuse.trigger && Math.abs(target.pos.y - e.pos.y) < 3) {
+          ai.fuseT = a.fuse.delay;
+          emit(state, "fuseLit", { id: e.id, pos: { ...e.pos }, delay: a.fuse.delay });
+        }
+      } else {
+        ai.fuseT -= dt;
+        if (ai.fuseT <= 0) ai.detonate = true;
+      }
+    }
     if (a.burrow) {
       ai.burrowCd = (ai.burrowCd == null ? a.burrow.every : ai.burrowCd) - dt;
       if (ai.burrowCd <= 0) {
@@ -2868,6 +2944,16 @@ var SprotoShooterSim = (() => {
       units: units2.map(([type, count, partId]) => partId ? { type, count, partId } : { type, count })
     };
   }
+  var carAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [3, 1.4, 1.6], mat: "metal" });
+  var binAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [2.4, 1.4, 1.4], mat: "metal" });
+  var planterAt = (id, x, z) => box({ id, at: [x, 0.6, z], size: [1.6, 1.2, 1.6], mat: "stone" });
+  function sides(id, length, { h = 6, gapS = null } = {}) {
+    const z = h < 2 ? [1.7, 30.3] : [1.4, 30.6];
+    const w = h < 2 ? 0.5 : 0.8;
+    const wall2 = (tag, x0, x1, zz) => box({ id: `${id}-side-${tag}`, at: [(x0 + x1) / 2, h / 2, zz], size: [x1 - x0, h, w], mat: "concrete" });
+    const south = gapS ? [wall2("s1", 0, gapS[0], z[1]), wall2("s2", gapS[1], length, z[1])] : [wall2("s", 0, length, z[1])];
+    return [wall2("n", 0, length, z[0]), ...south];
+  }
   function ammo(id, at2, ammoType = "bullets", amount = 60) {
     return { kind: "ammo", id, at: at2, ammoType, amount };
   }
@@ -2893,10 +2979,17 @@ var SprotoShooterSim = (() => {
     exit: zone(190, 200),
     geometry: [
       floor("S1-floor", 200),
+      ...sides("S1", 200),
       box({ id: "S1-truck", at: [62, 1.2, 8], size: [4, 2.4, 2.4], mat: "metal" }),
       box({ id: "S1-cover-a", at: [54, 0.7, 8], size: [2.4, 1.4, 1.4], mat: "metal" }),
       box({ id: "S1-cover-b", at: [54, 0.7, 24], size: [2.4, 1.4, 1.4], mat: "metal" }),
       box({ id: "S1-barricade", at: [150, 1.1, 8], size: [1.2, 2.2, 4], mat: "metal" }),
+      // Party cover (E1) and a second firing line at the barricade (E2). The middle of the road stays open.
+      carAt("S1-car-a", 70, 22),
+      carAt("S1-car-b", 77, 11),
+      carAt("S1-car-c", 132, 20),
+      binAt("S1-bin-c", 140, 10),
+      box({ id: "S1-barricade-s", at: [154, 1.1, 24], size: [1.2, 2.2, 4], mat: "metal" }),
       sphere({ id: "S1-tinubu", at: [40, 14, 48], r: 8, mat: "gold" }),
       cone({ id: "S1-tinubu-hat", at: [40, 22, 48], r: 5, h: 8, mat: "gold" }),
       box({ id: "S1-sign", at: [20, 6, -6], size: [14, 2, 0.6], mat: "neon" }),
@@ -2963,7 +3056,9 @@ var SprotoShooterSim = (() => {
         squads: [
           squad("A", { type: "onEnter" }, [["obama", 3]], [[150, 0, 12], [152, 0, 16], [150, 0, 20]]),
           squad("B", { type: "onKills", n: 2 }, [["midget", 3]], [[140, 0, 24]], "door"),
-          squad("C", { type: "onKills", n: 5 }, [["obama", 2]], [[146, 4, 8]], "hidden")
+          squad("C", { type: "onKills", n: 5 }, [["obama", 2]], [[146, 4, 8]], "hidden"),
+          // First Kamikaze Midgets. They start 20 m out on open road, so the fuse is seen before it is felt.
+          squad("K", { type: "onKills", n: 3 }, [["kamikazeMidget", 2]], [[126, 0, 14], [126, 0, 18]], "door")
         ]
       }
     ]
@@ -2978,10 +3073,15 @@ var SprotoShooterSim = (() => {
     grappleAnchors: [{ id: "S2-hook", at: [30, 4.6, 8], r: 1.8 }],
     geometry: [
       floor("S2-floor", 180),
+      ...sides("S2", 180),
       box({ id: "S2-alley-n", at: [40, 2, 4], size: [70, 4, 1], mat: "concrete" }),
       box({ id: "S2-alley-s", at: [40, 2, 28], size: [70, 4, 1], mat: "concrete" }),
       cylinder({ id: "S2-pillar", at: [78, 0, 12], r: 0.5, h: 4, mat: "stone" }),
       box({ id: "S2-tank", at: [130, 1.2, 16], size: [3, 2.4, 3], mat: "metal" }),
+      // Shrine court corners for the hold, and a car to duck the flyers behind.
+      binAt("S2-bin-a", 88, 10),
+      binAt("S2-bin-b", 88, 22),
+      carAt("S2-car-a", 146, 21),
       // Walk up, or hook the crown and let go. Slide down the far side.
       ramp({ id: "S2-slide-up", at: [22, 1.1, 8], size: [3.2, 2.2, 12], yaw: 90, mat: "metal" }),
       box({ id: "S2-slide-crown", at: [30, 1.95, 8], size: [4, 0.5, 3.2], mat: "metal" }),
@@ -3013,7 +3113,9 @@ var SprotoShooterSim = (() => {
           squad("A", { type: "onEnter" }, [["midget", 5]], [[52, 0, 16]], "door"),
           squad("B", { type: "time", t: 7 }, [["midget", 3]], [[30, 0, 16]], "door"),
           squad("C", { type: "onKills", n: 6 }, [["midget", 2]], [[40, 4, 16]], "drop"),
-          squad("D", { type: "onRemain", n: 1 }, [["midget", 2]], [[52, 0, 16]], "door")
+          squad("D", { type: "onRemain", n: 1 }, [["midget", 2]], [[52, 0, 16]], "door"),
+          // Down the corridor at you: shoot them in the pack and the swarm thins itself.
+          squad("K", { type: "onKills", n: 4 }, [["kamikazeMidget", 2]], [[58, 0, 16]], "door")
         ]
       },
       {
@@ -3051,7 +3153,11 @@ var SprotoShooterSim = (() => {
     grappleAnchors: [{ id: "S3-hook", at: [58, 6.2, 5], r: 1.8 }],
     geometry: [
       floor("S3-floor", 90),
+      ...sides("S3", 90),
       box({ id: "S3-kiosk", at: [40, 1, 8], size: [3, 2, 3], mat: "neon" }),
+      box({ id: "S3-kiosk-b", at: [64, 1, 22], size: [3, 2, 3], mat: "neon" }),
+      planterAt("S3-planter-a", 32, 19.5),
+      planterAt("S3-planter-b", 50, 11),
       cylinder({ id: "S3-pillar-w", at: [28, 0, 10], r: 0.6, h: 6, mat: "stone" }),
       cylinder({ id: "S3-pillar-e", at: [52, 0, 22], r: 0.6, h: 6, mat: "stone" }),
       ramp({ id: "S3-balc-ramp", at: [48, 1.825, 5], size: [3, 3.65, 12], yaw: 90, mat: "metal" }),
@@ -3109,8 +3215,14 @@ var SprotoShooterSim = (() => {
     exit: zone(118, 130),
     geometry: [
       floor("S4-floor", 130),
+      ...sides("S4", 130),
       box({ id: "S4-ramp", at: [36, 0.4, 8], size: [16, 0.5, 4], mat: "concrete" }),
       box({ id: "S4-car", at: [24, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
+      // It is a car park: parked rows on the south side of the ramp deck and two on the sealed roof.
+      carAt("S4-car-b", 14, 22),
+      carAt("S4-car-c", 32, 23.5),
+      carAt("S4-car-d", 86, 25.5),
+      carAt("S4-car-e", 100, 9),
       box({ id: "S4-core", at: [90, 1.5, 8], size: [4, 3, 4], mat: "metal" })
     ],
     weapons: [],
@@ -3147,6 +3259,7 @@ var SprotoShooterSim = (() => {
           squad("B", { type: "onKills", n: 3 }, [["obama", 2]], [[28, 3, 10]], "hidden"),
           squad("C", { type: "onKills", n: 6 }, [["midget", 2]], [[36, 0, 20]], "hidden"),
           squad("D", { type: "onKills", n: 8 }, [["midget", 3]], [[44, 0, 16]], "hidden"),
+          squad("K", { type: "onKills", n: 5 }, [["kamikazeMidget", 3]], [[50, 0, 14]], "hidden"),
           squad("E", { type: "onKills", n: 11 }, [["robotShooter", 1]], [[58, 0, 16]]),
           squad("G", { type: "onEnter" }, [["gateGenerator", 1, "S4-gen"]], [[52, 0, 22]])
         ]
@@ -3177,10 +3290,16 @@ var SprotoShooterSim = (() => {
     exit: zone(128, 140),
     geometry: [
       floor("S5-floor", 140),
+      ...sides("S5", 140, { h: 1.1, gapS: [47, 57] }),
       box({ id: "S5-toll", at: [52, 1.2, 8], size: [1, 2.4, 4], mat: "metal" }),
       box({ id: "S5-canopy", at: [52, 4.5, 16], size: [8, 0.5, 12], mat: "concrete" }),
       box({ id: "S5-rail-n", at: [52, 5.35, 9.7], size: [8.4, 1.2, 0.8], mat: "concrete" }),
       box({ id: "S5-car", at: [30, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
+      // Stalled traffic: the Big Obama is met alone among cars, and they are how you get behind him.
+      carAt("S5-car-b", 40, 20),
+      carAt("S5-car-c", 72, 11),
+      carAt("S5-car-d", 108, 20),
+      carAt("S5-car-e", 116, 11),
       // Stair up to the mana battery, then a catwalk and a downhill slide back
       // to the road. The deck at z 16 stays a flat walk under the canopy.
       box({ id: "S5-stair-pad", at: [52, -0.25, 32.5], size: [8, 0.5, 8], mat: "concrete" }),
@@ -3223,8 +3342,12 @@ var SprotoShooterSim = (() => {
     intro: card("Gate Plaza", ["A Big Bitcoin Obama is counting the take.", "The gate does not open until he drops it."]),
     geometry: [
       floor("S6-floor", 110),
+      ...sides("S6", 110),
       cylinder({ id: "S6-fountain", at: [48, 0, 8], r: 2, h: 2, mat: "stone" }),
       box({ id: "S6-stand", at: [40, 1.2, 8], size: [6, 2.4, 4], mat: "stone" }),
+      planterAt("S6-planter-a", 40, 22),
+      planterAt("S6-planter-b", 78, 10),
+      planterAt("S6-planter-c", 78, 22),
       box({ id: "S6-gate-l", at: [96, 6, 6], size: [2, 12, 2], mat: "gold" }),
       box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" }),
       // Walk-up perch for the flying adds. No hook: a fling here leaves the floor.
@@ -3270,6 +3393,7 @@ var SprotoShooterSim = (() => {
           squad("P2a", { type: "onKills", n: 8 }, [["midget", 4]], [[70, 0, 8]], "door"),
           squad("P2b", { type: "onKills", n: 12 }, [["midget", 4]], [[70, 0, 24]], "door"),
           squad("P2c", { type: "onKills", n: 16 }, [["midget", 4]], [[64, 0, 16]], "door"),
+          squad("P2k", { type: "onKills", n: 14 }, [["kamikazeMidget", 3]], [[72, 0, 16]], "door"),
           squad("P3a", { type: "onKills", n: 20 }, [["flyingMidget", 3]], [[90, 8, 16]], "air"),
           squad("P3b", { type: "onKills", n: 24 }, [["flyingMidget", 3]], [[90, 8, 12]], "air")
         ]
@@ -10085,7 +10209,7 @@ var SprotoShooterSim = (() => {
       explode(state, centerOf(e), { radius: blast.radius, damage: blast.damage, minFalloff: 0.4, selfMult: 0, knockback: 4 }, lh.sourceId || 0, "fire", "world");
     }
     const p = state.players[state.localPlayerId];
-    const ctx = { elite: e.elite, tier: e.tier, playerGunTypes: p.guns.filter((g) => g && !GUN_TYPES_BY_ID[g.type].bossOnly).map((g) => g.ammoType), summoned: e.summoned, boss: !!e.boss };
+    const ctx = { elite: e.elite, tier: e.tier, playerGunTypes: p.guns.filter((g) => g && !GUN_TYPES_BY_ID[g.type].bossOnly).map((g) => g.ammoType), summoned: e.summoned, boss: !!e.boss, arena: state.mode === "waves" || state.mode === "boss" };
     if (!e.noAmmoDrop) {
       const specs = rollDrops(state.rng, e.type, ctx);
       spawnDrops(state, specs, centerOf(e));
@@ -10162,7 +10286,12 @@ var SprotoShooterSim = (() => {
   }
   function startDowned(state, p) {
     p.downed = true;
-    p.downedT = TUNING.secondWindTime;
+    if (state.mode === "campaign") p.downedT = TUNING.secondWindTime;
+    else {
+      const downs = p.downCount || 0;
+      p.downedT = secondWindTime(TUNING.secondWindTime, downs);
+      p.downCount = downs + 1;
+    }
     p.spells.manaShieldOn = false;
     emit(state, "playerDowned", { playerId: p.id });
   }
@@ -10248,6 +10377,28 @@ var SprotoShooterSim = (() => {
       }
     }
     return null;
+  }
+
+  // src/sim/campaign/abyss.js
+  var DROP = 30;
+  var cache2 = /* @__PURE__ */ new Map();
+  function lowest(rt) {
+    let y = 0;
+    for (const sec of rt.sections || []) {
+      for (const g of sec.geometry || []) {
+        if (!g.at) continue;
+        const half = g.size ? g.size[1] / 2 : g.r && !g.h ? g.r : 0;
+        y = Math.min(y, g.at[1] - half);
+      }
+      if (sec.terrain && sec.terrain.origin) y = Math.min(y, sec.terrain.origin[1] || 0);
+      if (sec.start) y = Math.min(y, sec.start[1] || 0);
+    }
+    return y;
+  }
+  function abyssY(level) {
+    if (!level || !level.id) return -Infinity;
+    if (!cache2.has(level.id)) cache2.set(level.id, lowest(getLevelRuntime(level.id)) - DROP);
+    return cache2.get(level.id);
   }
 
   // src/core/math.js
@@ -11123,6 +11274,16 @@ var SprotoShooterSim = (() => {
         } else if (p.onGround && state.level.voids) {
           state.level.safePos = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
         }
+        if (p.pos.y < abyssY(state.level)) {
+          p.hp = 0;
+          p.shield = 0;
+          p.vel.x = p.vel.y = p.vel.z = 0;
+          p.dead = true;
+          p.downed = false;
+          p.respawnT = TUNING.sandboxRespawn;
+          emit(state, "playerFell", { playerId: p.id });
+          emit(state, "playerDied", { playerId: p.id });
+        }
       } else if (p.pos.y <= 0) {
         p.pos.y = 0;
         if (p.vel.y < 0) {
@@ -11507,6 +11668,7 @@ var SprotoShooterSim = (() => {
     p.vel = { x: 0, y: 0, z: 0 };
     p.invulnT = 2;
     p.unkillableUsed = false;
+    if (p.downCount != null) delete p.downCount;
     emit(state, "playerRespawn", { playerId: p.id });
   }
 
@@ -11680,7 +11842,7 @@ var SprotoShooterSim = (() => {
   }
   function initWave(state, idx) {
     const w = state.wave;
-    const cfg = WAVES[idx];
+    const cfg = tierWave(idx, state.tier);
     w.index = idx;
     w.phase = "pre";
     w.t = 0;
@@ -11690,6 +11852,7 @@ var SprotoShooterSim = (() => {
     w.killedCount = 0;
     w.totalCount = cfg.groups.reduce((n, g) => n + g.spawns.reduce((m, s) => m + s.count, 0), 0);
     w.bossIds = [];
+    if (w.lateIdx != null) delete w.lateIdx;
     emit(state, "wavePre", { waveIndex: idx, name: cfg.name });
   }
   var alive = (state) => state.enemies.filter((e) => !e.dead && !e.boss && e.type !== "dummy").length;
@@ -11716,7 +11879,7 @@ var SprotoShooterSim = (() => {
   function waveDirector(state, dt) {
     const w = state.wave;
     if (state.mode !== "waves" || !w) return;
-    const cfg = WAVES[w.index];
+    const cfg = tierWave(w.index, state.tier);
     const p = state.players[state.localPlayerId];
     w.t += dt;
     state.run.time += dt;
@@ -11786,8 +11949,21 @@ var SprotoShooterSim = (() => {
         }
         break;
       case "boss": {
-        const bossesAlive = state.enemies.some((e) => !e.dead && w.bossIds.includes(e.id));
-        if (!bossesAlive && alive(state) === 0) {
+        const bossCount = state.enemies.filter((e) => !e.dead && w.bossIds.includes(e.id)).length;
+        const late = cfg.boss.late || [];
+        if ((w.lateIdx || 0) < late.length && bossCount <= 1) {
+          const type = late[w.lateIdx || 0];
+          w.lateIdx = (w.lateIdx || 0) + 1;
+          const away = Math.atan2(-p.pos.x, -p.pos.z) + (Math.hypot(p.pos.x, p.pos.z) < 1 ? Math.PI : 0);
+          const b = createBoss(state, type, { pos: { x: Math.sin(away) * 22, z: Math.cos(away) * 22 } });
+          b.maxHp = Math.round(b.maxHp * cfg.boss.lateHp);
+          b.hp = b.maxHp;
+          w.bossIds.push(b.id);
+          emit(state, "bossIntro", { types: [type] });
+          emit(state, "bossSpawn", { id: b.id, bossType: type });
+          break;
+        }
+        if (bossCount === 0 && alive(state) === 0) {
           w.phase = "cleared";
           w.t = 0;
           clearWave(state);
@@ -11828,13 +12004,19 @@ var SprotoShooterSim = (() => {
   }
   function clearWave(state) {
     const w = state.wave;
-    const cfg = WAVES[w.index];
+    const cfg = tierWave(w.index, state.tier);
     const p = state.players[state.localPlayerId];
     const tk = Math.round(cfg.clearTickets * tierRewardMult(state.tier));
     p.tickets += tk;
     state.run.ticketsEarned += tk;
     emit(state, "waveCleared", { waveIndex: w.index, tickets: tk });
     emit(state, "ticketsGained", { amount: tk, reason: "Wave clear" });
+    const spell = nextWaveSpell(p.spellUnlocks, state.tier);
+    if (spell) {
+      grantSpell(state, p, spell);
+      emit(state, "spellUnlocked", { playerId: p.id, spellId: spell });
+    }
+    for (const pl of Object.values(state.players)) if (pl.downCount != null) delete pl.downCount;
   }
 
   // src/sim/campaign/weather.js
@@ -12205,6 +12387,7 @@ var SprotoShooterSim = (() => {
       tickDuelBoss(state, e, dt);
     }
     if (lv.format === "v2") {
+      tickLava(state, state.players[state.localPlayerId], dt);
       v2Post(state, dt);
       const again = state.level;
       if (again && again._rewind) {
@@ -12392,6 +12575,8 @@ var SprotoShooterSim = (() => {
     }
   }
   var MOD_SPEED = { turbo: 1.35, taxSeason: 0.82, redTape: 0.9 };
+  var LAVA_TIME = 20;
+  var LAVA_DPS = 4;
   function grantModifier(state, p, id) {
     if (!id || state.level.modifiers[id]) return;
     state.level.modifiers[id] = true;
@@ -12421,8 +12606,17 @@ var SprotoShooterSim = (() => {
     if (mods.bigHead) {
       for (const e of state.enemies) if (!e.dead) e.bigHeadT = 999;
     }
-    if (mods.floorIsLava) damagePlayer(state, p, { base: 6 * dt, sourceKind: "world", fromPos: p.pos });
+    tickLava(state, p, dt);
     if (mods.fuelInfinite) state.level.fuel = 100;
+  }
+  function tickLava(state, p, dt) {
+    const lv = state.level, mods = lv.modifiers;
+    if (!mods || !mods.floorIsLava) return;
+    lv.lavaT = (lv.lavaT == null ? LAVA_TIME : lv.lavaT) - dt;
+    if (lv.lavaT <= 0) {
+      mods.floorIsLava = false;
+      delete lv.lavaT;
+    } else if (p.onGround && !p.dead) damagePlayer(state, p, { base: LAVA_DPS * dt, sourceKind: "world", fromPos: p.pos });
   }
   function giveWorldGun(state, p, type) {
     const slot = p.guns.findIndex((g2, i) => !g2 && i < p.unlockedSlots);
@@ -12613,6 +12807,8 @@ var SprotoShooterSim = (() => {
         return startMode(state, p, a.mode, a.tier, a);
       case "transitionDone":
         return transitionDone(state);
+      case "loadLoadout":
+        return loadLoadout(state, p, a);
       case "debug":
         return debugOp(state, p, a.op, a.args || {});
     }
@@ -12623,7 +12819,10 @@ var SprotoShooterSim = (() => {
     state.hazards.length = 0;
     state.allies.length = 0;
     state.pickups = state.pickups.filter((k) => k.kind === "gun");
+    const real = mode === "waves" || mode === "campaign" || mode === "boss";
+    if (real) state.pickups = state.pickups.filter((k) => !SANDBOX_SOURCES.includes(k.gun && k.gun.source));
     state.run = newRunStats();
+    if (p.downCount != null) delete p.downCount;
     if (p.dead || p.downed) respawn(state, p);
     p.hp = p.maxHp;
     p.shield = p.maxShield;
@@ -12631,11 +12830,16 @@ var SprotoShooterSim = (() => {
     p.pos = { x: 0, y: 0, z: 8 };
     p.prevPos = { ...p.pos };
     p.vel = { x: 0, y: 0, z: 0 };
+    if (state.mode === "waves" && mode !== "waves") {
+      state.pickups = [];
+      resetProgress(state, p);
+    }
     if (state.testMode && mode !== "test") {
       resetLoadout(state, p);
       state.tuning.infiniteAmmo = false;
       setGodMode(state, p, false);
     }
+    if (opts.freshLoadout && real && (state.mode === "sandbox" && !state.testMode || mode === "campaign" && state.mode !== "campaign")) resetLoadout(state, p);
     if (state.bossFight && mode !== "boss" && mode !== "test") resetLoadout(state, p);
     state.testMode = mode === "test";
     state.bossFight = null;
@@ -12689,6 +12893,7 @@ var SprotoShooterSim = (() => {
       emit(state, "bossFightOver", { won: false, boss: f.type, hpLeft: boss2.hp / boss2.maxHp });
     }
   }
+  var SANDBOX_SOURCES = ["sandbox", "debug"];
   var SANDBOX_DUCK_POS = { x: 1.5, z: 4.5 };
   function placeSandboxLegendary(state, p, tier) {
     const has = p.guns.some((g) => g && g.type === "duckgun") || state.pickups.some((k2) => !k2.dead && k2.gun && k2.gun.type === "duckgun");
@@ -12757,6 +12962,86 @@ var SprotoShooterSim = (() => {
     p.reloadT = 0;
     p.swapT = 0;
     p.ammo = { ...TUNING.startAmmo };
+  }
+  var LOADOUT_MAX_GUNS = 8;
+  function loadLoadout(state, p, a) {
+    if (state.mode !== "waves" || !a || typeof a !== "object") return;
+    for (const id of SKILL_IDS) {
+      const src = a.skills && a.skills[id];
+      const level = Math.floor(Number(src && src.level));
+      if (!(level >= 1 && level <= SKILLS[id].maxLevel)) continue;
+      const xp = level >= SKILLS[id].maxLevel ? 0 : Math.min(Math.max(0, Number(src.xp) || 0), xpToNext(id, level, "waves") - 1);
+      const sk2 = p.skills[id];
+      if (level < sk2.level || level === sk2.level && xp <= sk2.xp) continue;
+      sk2.level = level;
+      sk2.xp = xp;
+      sk2.total = Math.max(sk2.total, Number(src.total) || 0);
+    }
+    for (const perk of PERKS) if (p.skills[perk.skill].level >= perk.level) p.perks[perk.id] = true;
+    applySkillPassives(state, p);
+    p.hp = p.maxHp;
+    const guns = [];
+    for (const spec of Array.isArray(a.guns) ? a.guns.slice(0, LOADOUT_MAX_GUNS) : []) {
+      const g = gunFromSpec(state, spec);
+      if (g) guns.push({ gun: g, slot: Math.floor(Number(spec.slot)) });
+    }
+    if (!guns.length) return;
+    p.guns = [null, null, null, null, null];
+    const spare = [];
+    for (const { gun, slot } of guns) {
+      const fits = slot === LEGENDARY_SLOT ? gun.quality === "legendary" : slot >= 0 && slot < p.unlockedSlots;
+      if (fits && !p.guns[slot]) p.guns[slot] = gun;
+      else spare.push(gun);
+    }
+    spare.forEach((gun, i) => spawnGunPickup(state, gun, aheadOf(p, 2 + i * 0.8), "stash"));
+    if (!p.guns.some(Boolean)) {
+      resetLoadout(state, p);
+      return;
+    }
+    p.activeSlot = Math.max(0, p.guns.findIndex((g, i) => g && i !== LEGENDARY_SLOT));
+    if (!p.guns[p.activeSlot]) p.activeSlot = p.guns.findIndex(Boolean);
+    p.reloadT = 0;
+    p.swapT = 0;
+  }
+  function gunFromSpec(state, spec) {
+    if (!spec || typeof spec !== "object") return null;
+    const def = GUN_TYPES_BY_ID[spec.type];
+    const level = Math.floor(Number(spec.level));
+    if (!def || def.legendaryOnly || !QUALITIES_BY_ID[spec.quality] || !Number.isFinite(spec.seed) || !(level >= 1 && level <= MAX_TIER)) return null;
+    const forced = { type: def.id, quality: spec.quality };
+    if (MANUFACTURERS_BY_ID[spec.manufacturer]) forced.manufacturer = spec.manufacturer;
+    if (ELEMENTS_BY_ID[spec.element]) forced.element = spec.element;
+    if (spec.quality === "legendary" && WACKY_BY_ID[spec.wacky] && WACKY_BY_ID[spec.wacky].allowedTypes.includes(def.id)) forced.wacky = spec.wacky;
+    if (spec.parts && typeof spec.parts === "object") {
+      const parts = {};
+      let fitted = 0;
+      for (const slot of SLOTS) {
+        const id = spec.parts[slot];
+        if (id === "stock") parts[slot] = id;
+        else if (PARTS_BY_ID[id] && PARTS_BY_ID[id].slot === slot) {
+          parts[slot] = id;
+          fitted++;
+        }
+      }
+      if (fitted <= QUALITIES_BY_ID[spec.quality].partSlots && Object.keys(parts).length === SLOTS.length) forced.parts = parts;
+    }
+    const gun = generateGun({ seed: spec.seed >>> 0, level, forced, arcane: !!spec.arcane });
+    gun.id = nextId(state);
+    gun.source = "stash";
+    return gun;
+  }
+  function resetProgress(state, p) {
+    resetLoadout(state, p);
+    for (const id of SKILL_IDS) p.skills[id] = { level: 1, xp: 0, total: 0 };
+    for (const perk of PERKS) if (perk.level > 1 && p.perks[perk.id]) p.perks[perk.id] = false;
+    p.buffs.killFrenzy.stacks = 0;
+    p.buffs.killFrenzy.t = 0;
+    p.unkillableUsed = false;
+    p.spellUnlocks = { gooBolt: true };
+    syncSpellbook(state, p);
+    applySkillPassives(state, p);
+    p.hp = p.maxHp;
+    p.shield = p.maxShield;
   }
   function aheadOf(p, d = 10) {
     return { x: p.pos.x - Math.sin(p.yaw) * d, z: p.pos.z - Math.cos(p.yaw) * d };
@@ -12842,7 +13127,7 @@ var SprotoShooterSim = (() => {
         break;
       case "levelSkill": {
         const s = p.skills[args.skill];
-        if (s && s.level < 10) addXp(state, p, args.skill, (xpToNext(args.skill, s.level) - s.xp + 1) / (1 + 0.1 * (state.tier - 1)));
+        if (s && s.level < 10) addXp(state, p, args.skill, (xpToNext(args.skill, s.level, state.mode) - s.xp + 1) / (1 + 0.1 * (state.tier - 1)));
         break;
       }
       case "maxSkills":
@@ -13575,6 +13860,18 @@ var SprotoShooterSim = (() => {
         }
         if (e.ai.bubble > 0) e.ai.bubble -= dt;
         tickArchetype(state, e, target, dt);
+        if (state.mode === "campaign" && e.pos.y < abyssY(state.level)) {
+          damageEnemy(state, e, { base: e.maxHp * 100, sourceId: state.localPlayerId, sourceKind: "world", zone: "body" });
+          if (!e.dead) {
+            e.dead = true;
+            e.hp = 0;
+          }
+        }
+        if (e.ai.detonate && !e.dead) {
+          const fuse = def.archetype.fuse;
+          enemyAoE(state, { x: e.pos.x, y: e.pos.y + def.height * 0.5, z: e.pos.z }, fuse.radius, fuse.damage, "enemy");
+          damageEnemy(state, e, { base: e.maxHp * 100, sourceId: 0, sourceKind: "world", zone: "body" });
+        }
       }
       if (def.flying) {
         if (e.state === "stagger" || e.state === "spawning") e.vel.y += ((e.state === "spawning" ? 2 : -3) - e.vel.y) * Math.min(1, 5 * dt);
@@ -15528,7 +15825,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "7960d8525627a56ef2415ba9ff70e7ffe7784465";
+  var SOURCE_COMMIT = "3763b43908312ec65cb9002a45d49bcff6b044b6";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
