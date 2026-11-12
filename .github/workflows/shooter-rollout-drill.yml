@@ -1,0 +1,73 @@
+name: shooter-rollout-core-drill
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - server/test/shooter-rollout-drill.test.ts
+      - server/test/dup/shooter_verification_e2e_*.ts
+      - server/modules/src/games/shooter_verification*.ts
+      - services/shooter-verifier/**
+      - .github/workflows/shooter-rollout-drill.yml
+permissions:
+  contents: read
+jobs:
+  actual-combined-core-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      HUB_SHOOTER_FIXTURE: integration
+      NAKAMA_URL: http://127.0.0.1:7350
+      ROLLOUT_DRILL_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Static checks for the combined drill and imported fixture helpers
+        run: |
+          npx eslint server/test/shooter-rollout-drill.test.ts
+          npx tsc --noEmit --allowImportingTsExtensions --esModuleInterop --strict --target ES2022 --module ESNext --moduleResolution bundler --skipLibCheck --types node server/test/shooter-rollout-drill.test.ts
+      - name: Create only disposable credentials and transport profile
+        run: |
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot actual disposable Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Execute one combined core drill with real coordinator and offline worker
+        run: npx tsx server/test/shooter-rollout-drill.test.ts
+        env:
+          SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+      - name: Retain only the bounded closed drill report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: shooter-core-rollout-drill
+          path: ${{ runner.temp }}/shooter-rollout-drill-report.json
+          if-no-files-found: warn
+      - name: Delete disposable containers and private journals
+        if: always()
+        timeout-minutes: 2
+        run: |
+          if test -n "${SHOOTER_OPS_CI_DIRECTORY:-}"; then
+            timeout 90s docker compose -f server/docker-compose.yml -f services/shooter-verifier/ops/compose.ci.yml --profile shooter-verification down --volumes --timeout 10
+            case "$SHOOTER_OPS_CI_DIRECTORY" in
+              "$RUNNER_TEMP"/shooter-e2e-*) sudo rm -rf -- "$SHOOTER_OPS_CI_DIRECTORY" ;;
+              *) echo 'Refusing unexpected fixture cleanup directory'; exit 1 ;;
+            esac
+          else
+            timeout 90s docker compose -f server/docker-compose.yml down --volumes --timeout 10
+          fi

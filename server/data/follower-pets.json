@@ -10,6 +10,16 @@
     "relic": ""
   },
   {
+    "id": "pet_pepe_bull",
+    "name": "Pepe Bull",
+    "model": "pet_pepe_bull.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": ""
+  },
+  {
     "id": "pet_nobu",
     "name": "Nobu",
     "model": "pet_nobu.glb",
@@ -28,5 +38,65 @@
     "idleAnimation": "idle",
     "ticketsPrice": 0,
     "relic": "hpos10i_core"
+  },
+  {
+    "id": "pet_fighter",
+    "name": "Fighter Pet",
+    "model": "pet_fighter.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "tidebreaker_belt"
+  },
+  {
+    "id": "pet_mecha",
+    "name": "Mecha Pet",
+    "model": "pet_mecha.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "breakwater_coin"
+  },
+  {
+    "id": "pet_president",
+    "name": "President Pet",
+    "model": "pet_president.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "genesis_shard"
+  },
+  {
+    "id": "pet_wizard",
+    "name": "Wizard Pet",
+    "model": "pet_wizard.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "tinubu_crown"
+  },
+  {
+    "id": "pet_runner",
+    "name": "Runner Pet",
+    "model": "pet_runner.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "hpos10i_core"
+  },
+  {
+    "id": "pet_soldier",
+    "name": "Soldier Pet",
+    "model": "pet_soldier.glb",
+    "size": 0.6,
+    "followSpeed": 8,
+    "idleAnimation": "idle",
+    "ticketsPrice": 0,
+    "relic": "dragon_scale"
   }
 ]

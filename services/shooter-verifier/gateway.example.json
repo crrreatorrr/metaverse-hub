@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "url": "http://127.0.0.1:7350",
+  "timeoutMs": 10000,
+  "workerId": "provision-only-after-approval",
+  "keyId": "provision-only-after-approval",
+  "credentialSource": "coordinator-secret-store-only; no secrets in this file",
+  "accountToken": null,
+  "token": null
+}

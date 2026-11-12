@@ -37,7 +37,10 @@ including attempts to create them before the first profile request.
 
 The shared realm shell installs a pet capsule against that realm's existing BVH,
 including the Bar's collision geometry. Bounded swept steps and exponential easing
-trail the owner's movement heading at 1.5 m. A gap over 10 m or a large vertical
+trail the owner's movement heading at 3 m. Pets render at twice their authored
+size, including both animated LODs, the starter orb, and remote impostors. Their
+collision capsule, animated clearance bounds, and owner spacing scale with them.
+A gap over 10 m or a large vertical
 warp resets at the owner's traversable position and resumes following. Reloads
 and realm changes hydrate equipment from the account profile and match join.
 

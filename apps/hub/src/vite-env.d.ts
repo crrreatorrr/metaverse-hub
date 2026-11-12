@@ -17,6 +17,9 @@ interface ImportMetaEnv {
 /** Inlined by vite.config.ts (server-key.ts). A non-development build fails if VITE_NAKAMA_SERVER_KEY is empty. */
 declare const __NAKAMA_SERVER_KEY__: string;
 
+/** Short commit of this hub build (vite.config.ts), or `dev`. */
+declare const __HUB_BUILD__: string;
+
 interface HubDebugState {
   drawCalls: number;
   fps: number;

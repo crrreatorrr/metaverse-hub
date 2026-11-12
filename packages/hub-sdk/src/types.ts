@@ -1,3 +1,4 @@
+import type { FeedbackAccess, FeedbackSubmission } from './feedback';
 /** Game ids stored on the server and used in `/hub#from=<game>` and `play/<game>`. */
 export const GAME_IDS = [
   'hpos10i',
@@ -155,6 +156,14 @@ export interface TicketBalanceResult {
 
 export interface EventResult {
   granted?: RelicId;
+  /**
+   * Tickets the server credited for this event (0.7.1), for example 20 for a story boss in
+   * Sproto Duel or Sproto Fighter. Absent when the event paid nothing (most events, a boss
+   * already paid today, a cap), in a standalone or mock session, and from a server that does
+   * not send it. A replayed key returns the stored answer, so the same number comes back
+   * without a second credit: show it, do not add it to a balance; read `getBalance` for that.
+   */
+  tickets?: number;
   /** Cosmetic items (pets) this event granted, from the live server (migration 0030). `[]` when none. */
   granted_items?: string[];
 }
@@ -206,6 +215,16 @@ export interface HubSdk {
    * (`bad_save`, `save_too_large`). Standalone resolves `{ data: null, updatedAt: 0 }`.
    */
   writeSave?(data: Record<string, unknown>): Promise<SaveResult>;
+  /**
+   * May this player send in-game feedback (`feedback.can`)? Signed-in hub accounts only:
+   * standalone play answers `{ ok: false, reason: 'standalone' }`, a guest `sign_in_required`.
+   */
+  feedbackAccess?(): Promise<FeedbackAccess>;
+  /**
+   * Send one feedback note (`feedback.submit`) and get its id, e.g. `SHOOTER-0042`. Errors throw
+   * `HubSdkError` (`standalone`, `sign_in_required`, `rate_limited`, `empty`, `bad_image`).
+   */
+  submitFeedback?(input: FeedbackSubmission): Promise<{ id: string }>;
 }
 
 /**

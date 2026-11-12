@@ -3,7 +3,10 @@
 //   marina_anchor  Sproto Coop Battle (sproto-coop-battle). Clearing stage 1, Tidebreak Marina
 //                  (boss 01-marina-bront). The client reports `coop.stage_clear` with
 //                  `{ "stage": 1 }` from local and hosted games. The authoritative Coop match also
-//                  grants it to each human account at a banked stage-1 clear (CoopMatch.applyPay).
+//                  grants it to each human account at a banked stage-1 clear (CoopMatch.applyPay),
+//                  except an account that was out (all of its seats dead) when the boss fell.
+//                  That exception covers the server grant only: the client report above is not
+//                  verified, so the Coop client must not send it for a player who was out.
 //   dragon_scale   Sproto Shooter (sproto-shooter). Clearing wave 1 of Wave Mode. The client reports
 //                  `shooter.wave_clear` with `{ "wave": 1 }`. There is no server evidence for Wave
 //                  Mode, so this is a client report only.

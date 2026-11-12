@@ -1,24 +1,31 @@
 import { RELICS, ownsFourLights } from './core/relics';
 import type { RelicId } from '@metaverse/hub-sdk';
+import { DEFAULT_PET_ID } from './v2/pets';
 import { CHARACTERS, DEFAULT_STAFF, STAFFS, STAFF_RELICS, holdsStaff, type CharacterId, type StaffId } from './config';
 import { cleanName, defaultLook, type AvatarLook } from './look';
 import { PERSONAS, QUIET } from './sims/director';
 import { MAX_SIMS } from './sims/sims';
 import { SIM_SPEEDS, cleanSimName, defaultSimName, newSimId, type SimSettings } from './sims/store';
 import type { MoveStick } from './core/gamepad';
+import type { GameId } from '@metaverse/hub-sdk';
+import { relicOfGame, type GameInfo } from './game-list';
+import { WALLET_CLOSED_LABEL, WALLET_CLOSED_TEXT, WALLET_OFFLINE_TEXT, WALLET_RATE_LINE, applyExchange, exchangeOffer, offerLabel, type ExchangeAnswer, type WalletState } from './wallet';
+import { HELD_NOTE, HELD_PET_NOTE, grantBadge, isHeld, storePriceLine } from './v2/store-info';
 
-export type MenuTab = 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets';
+export type MenuTab = 'games' | 'items' | 'avatar' | 'edit' | 'relics' | 'sims' | 'pets' | 'wallet';
 
 /** Tab order, for the controller's LB / RB. */
-export const MENU_TAB_ORDER: readonly MenuTab[] = ['items', 'avatar', 'edit', 'relics', 'sims', 'pets'];
+export const MENU_TAB_ORDER: readonly MenuTab[] = ['games', 'items', 'avatar', 'edit', 'relics', 'sims', 'pets', 'wallet'];
 
 const TABS: readonly { id: MenuTab; label: string; key: string; icon: PixelIcon }[] = [
-  { id: 'items', label: 'Items', key: '1', icon: 'bag' },
-  { id: 'avatar', label: 'Avatar', key: '2', icon: 'helmet' },
-  { id: 'edit', label: 'Edit', key: '3', icon: 'palette' },
-  { id: 'relics', label: 'Relics', key: '4', icon: 'gem' },
-  { id: 'sims', label: 'Sims', key: '5', icon: 'star' },
-  { id: 'pets', label: 'Pets', key: '6', icon: 'paw' },
+  { id: 'games', label: 'Games', key: '1', icon: 'staff' },
+  { id: 'items', label: 'Items', key: '2', icon: 'bag' },
+  { id: 'avatar', label: 'Avatar', key: '3', icon: 'helmet' },
+  { id: 'edit', label: 'Edit', key: '4', icon: 'palette' },
+  { id: 'relics', label: 'Relics', key: '5', icon: 'gem' },
+  { id: 'sims', label: 'Sims', key: '6', icon: 'star' },
+  { id: 'pets', label: 'Pets', key: '7', icon: 'paw' },
+  { id: 'wallet', label: 'Wallet', key: '8', icon: 'coin' },
 ];
 
 /** Pixel art made with Higgsfield, in `public/world/ui/`. */
@@ -35,36 +42,32 @@ function pixelIcon(name: PixelIcon, className = 'px-icon'): HTMLImageElement {
 
 /** Where each Relic comes from. Matches the `reportEvent` table in the README. */
 /** `fighter`: the Sproto Fighter character this Relic unlocks (see Sproto Fighter's src/hub/roster.ts). */
-const RELIC_INFO: Record<RelicId, { game: string; how: string; pet: string; fighter: string; unlock?: string }> = {
-  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', pet: 'Speed Sproto', fighter: 'Sun God' },
-  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', pet: '', fighter: 'Captain Green', unlock: 'Genesis Block Shard aura · Moonward Staff (Sproto Duel)' },
-  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', pet: 'Nobu', fighter: 'Pissing Sproto' },
-  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', pet: 'Duelist Sproto', fighter: 'Captain Sproto', unlock: "Tinubu's Crown aura · Fighter Staff (Sproto Duel)" },
+const RELIC_INFO: Record<RelicId, { game: string; how: string; fighter: string; unlock?: string }> = {
+  hpos10i_core: { game: 'HPOS10I', how: 'Clear Retro Rush Hills, act 1.', fighter: 'Sun God' },
+  genesis_shard: { game: "The People's Bitcoin", how: 'Finish the tutorial quest.', fighter: 'Captain Green', unlock: 'Genesis Block Shard aura · Moonward Staff (Sproto Duel)' },
+  cones_tip: { game: 'NOBU: Saviour Dog', how: 'Defeat Cone.', fighter: 'Pissing Sproto' },
+  tinubu_crown: { game: 'Sproto Duel', how: 'Defeat Tinubu.', fighter: 'Captain Sproto', unlock: "Tinubu's Crown aura · Fighter Staff (Sproto Duel)" },
   tidebreaker_belt: {
     game: 'Sproto Fighter (Bar arcade)',
     how: 'Win Story World 1, Tidebreaker Marina.',
-    pet: '',
     fighter: '',
     unlock: "Tidebreaker Belt aura · Fighter's Might (Sproto Duel) · Champion's Crown (NOBU) · Champion Sproto (People's Bitcoin) · Tidebreaker skin (HPOS10I)",
   },
   breakwater_coin: {
     game: 'Sproto Arcade (Bar arcade)',
     how: 'Beat Fat Head Dave at Tidebreak Marina, the first story boss. God mode counts.',
-    pet: '',
     fighter: 'Pissing Sproto',
     unlock: "Alien Ray Staff (Sproto Duel) · Nobu skin (HPOS10I) · Nobu summon (People's Bitcoin) · Pissing Sproto (Sproto Fighter) · plus Wizard Hat II (NOBU)",
   },
   marina_anchor: {
     game: 'Sproto Coop Battle (Bar arcade)',
     how: 'Clear stage 1, Tidebreak Marina, alone or online. God mode counts.',
-    pet: '',
     fighter: '',
     unlock: 'Marina Anchor aura · no items in other games yet',
   },
   dragon_scale: {
     game: 'Sproto Shooter (The Range)',
     how: 'Clear wave 1 of Wave Mode. God mode counts.',
-    pet: '',
     fighter: '',
     unlock: 'Dragon Scale aura · Shooter Staff (Sproto Duel)',
   },
@@ -80,6 +83,13 @@ interface PetInfo {
 
 /** Hub pet catalog, mirrored from `server/modules/src/pets.ts` and docs/m6-server-prep.md. */
 const PETS: readonly PetInfo[] = [
+  { id: DEFAULT_PET_ID, name: 'Pepe Bull', from: 'Free starter companion' },
+  { id: 'pet_fighter', name: 'Fighter Pet', from: 'Relic: Tidebreaker Belt', relic: 'tidebreaker_belt' },
+  { id: 'pet_mecha', name: 'Mecha Pet', from: 'Relic: Breakwater Coin', relic: 'breakwater_coin' },
+  { id: 'pet_president', name: 'President Pet', from: 'Relic: Genesis Block Shard', relic: 'genesis_shard' },
+  { id: 'pet_wizard', name: 'Wizard Pet', from: "Relic: Tinubu's Crown", relic: 'tinubu_crown' },
+  { id: 'pet_runner', name: 'Runner Pet', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
+  { id: 'pet_soldier', name: 'Soldier Pet', from: 'Relic: Dragon Scale', relic: 'dragon_scale' },
   { id: 'pet_starter', name: 'Spark', from: 'Free starter companion' },
   { id: 'pet_speed_sproto', name: 'Speed Sproto', from: 'Relic: HPOS10I Core', relic: 'hpos10i_core' },
   { id: 'pet_nobu', name: 'Nobu', from: "Relic: Cone's Tip", relic: 'cones_tip' },
@@ -93,8 +103,8 @@ const PETS: readonly PetInfo[] = [
   { id: 'pet_presidential_sproto', name: 'Presidential Sproto', from: 'Sproto Duel: defeat Obama' },
   { id: 'pet_moon_sproto', name: 'Moon Sproto', from: "People's Bitcoin: Moonward quest" },
   { id: 'pet_sproto_pup', name: 'Sproto Pup', from: "People's Bitcoin: Hatchery quest" },
-  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: 'Store: 400 Verse' },
-  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: 'Store: 600 Verse' },
+  { id: 'pet_hopium_sproto', name: 'Hopium Sproto', from: storePriceLine('pet_hopium_sproto') },
+  { id: 'pet_coom_sproto', name: 'Coom Sproto', from: storePriceLine('pet_coom_sproto') },
 ];
 
 export interface MenuOptions {
@@ -127,6 +137,21 @@ export interface MenuOptions {
   restartSims: () => void;
   /** The act the sims' story is in, for the Sims page. */
   simAct: () => string;
+  /** Vertical look: true is the plaza's original inverted sense. */
+  invertLook: () => boolean;
+  setInvertLook: (inverted: boolean) => void;
+  /** The eight games, in Games-tab order. */
+  games: readonly GameInfo[];
+  /** False when a game's page is not set: its row says "Coming soon". */
+  gameAvailable: (id: GameId) => boolean;
+  /** Launch a game from the menu (the plaza closes the menu and travels). */
+  playGame: (id: GameId) => void;
+  /** The game this browser launched last, for the default focus. */
+  lastGame: () => GameId | null;
+  /** Tickets per game from the server, or null when the hub server cannot be reached. */
+  loadWallet: () => Promise<WalletState | null>;
+  /** Exchange `tickets` of one game's Tickets for Verse. `text` says why it failed. */
+  exchangeTickets: (game: GameId, tickets: number) => Promise<{ ok: true; answer: ExchangeAnswer } | { ok: false; text: string }>;
 }
 
 export interface Menu {
@@ -200,10 +225,51 @@ export function createMenu(options: MenuOptions): Menu {
   panel.append(head, tabBar, content, foot);
 
   let open = false;
-  let tab: MenuTab = 'avatar';
+  let tab: MenuTab = 'games';
   let relics = new Set<string>();
   let serverPets: Set<string> | null = null;
   let verse = 0;
+
+  // ---------- Games (the first page: every game in two inputs; walking stays the scenic route)
+  const gamesPage = bodies.get('games') as HTMLElement;
+  const gamesList = el('ul', 'menu-grid game-rows');
+  gamesPage.append(
+    el('h3', 'menu-h', 'Games'),
+    el('p', 'menu-note', 'Eight games, one Relic each. Play from here, or walk to a gate. Tickets you earn show up in Wallet.'),
+    gamesList,
+  );
+  const playButtons = new Map<GameId, HTMLButtonElement>();
+
+  function paintGames(): void {
+    gamesList.replaceChildren();
+    playButtons.clear();
+    const last = options.lastGame();
+    for (const game of options.games) {
+      const relic = relicOfGame(game.id);
+      const owns = relic !== undefined && relics.has(relic);
+      const relicName = RELICS.find((socket) => socket.id === relic)?.name ?? 'Relic';
+      const wallet = walletState?.rows.find((row) => row.game === game.id);
+      const card = el('li', `pet-card game-row${owns ? ' owned' : ''}${game.id === last ? ' last' : ''}`);
+      card.dataset.game = game.id;
+      card.style.setProperty('--accent', game.color);
+      const text = el('div', 'pet-text');
+      const facts = [`${relicName}: ${owns ? 'owned' : 'not yet'}`];
+      if (wallet) facts.push(`${wallet.balance.toLocaleString('en-US')} Tickets`);
+      facts.push(game.where);
+      text.append(el('strong', '', game.label), el('span', 'pet-from', game.blurb), el('span', 'pet-from game-facts', facts.join(' · ')));
+      const available = options.gameAvailable(game.id);
+      const play = el('button', 'pet-deploy game-play', available ? (game.id === last ? 'Play again' : 'Play') : 'Coming soon');
+      play.type = 'button';
+      play.disabled = !available;
+      play.setAttribute('aria-label', available ? `Play ${game.label}` : `${game.label}: coming soon`);
+      play.addEventListener('click', () => {
+        if (available) options.playGame(game.id);
+      });
+      playButtons.set(game.id, play);
+      card.append(el('span', 'game-swatch'), text, play);
+      gamesList.append(card);
+    }
+  }
 
   // ---------- Items
   const itemsPage = bodies.get('items') as HTMLElement;
@@ -219,7 +285,7 @@ export function createMenu(options: MenuOptions): Menu {
   const padNote = el('p', 'menu-note small', '');
   const stickRow = el('div', 'chip-row');
   const stickButtons = new Map<MoveStick, HTMLButtonElement>();
-  for (const [stick, label] of [['right', 'Right stick moves'], ['left', 'Left stick moves']] as const) {
+  for (const [stick, label] of [['left', 'Left stick moves'], ['right', 'Right stick moves']] as const) {
     const chip = el('button', 'chip', label);
     chip.type = 'button';
     chip.dataset.stick = stick;
@@ -232,6 +298,23 @@ export function createMenu(options: MenuOptions): Menu {
   }
   itemsPage.append(el('h3', 'menu-h', 'Controller'), stickRow, padNote);
 
+  // ---------- Look (mouse, keys and controller share one vertical sense)
+  const lookRow = el('div', 'chip-row');
+  const lookButtons = new Map<boolean, HTMLButtonElement>();
+  for (const [inverted, label] of [[true, 'Inverted look'], [false, 'Standard look']] as const) {
+    const chip = el('button', 'chip', label);
+    chip.type = 'button';
+    chip.dataset.look = inverted ? 'inverted' : 'standard';
+    chip.addEventListener('click', () => {
+      options.setInvertLook(inverted);
+      paintController();
+    });
+    lookButtons.set(inverted, chip);
+    lookRow.append(chip);
+  }
+  const lookNote = el('p', 'menu-note small', '');
+  itemsPage.append(el('h3', 'menu-h', 'Vertical look'), lookRow, lookNote);
+
   function paintController(): void {
     const stick = options.moveStick();
     for (const [id, chip] of stickButtons) {
@@ -239,7 +322,15 @@ export function createMenu(options: MenuOptions): Menu {
       chip.setAttribute('aria-pressed', String(id === stick));
     }
     const camera = stick === 'right' ? 'left' : 'right';
-    padNote.textContent = `The ${camera} stick turns the camera. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
+    const inverted = options.invertLook();
+    for (const [id, chip] of lookButtons) {
+      chip.classList.toggle('on', id === inverted);
+      chip.setAttribute('aria-pressed', String(id === inverted));
+    }
+    lookNote.textContent = inverted
+      ? 'Inverted: push up to look down. Applies to the mouse, the R / F keys and the camera stick.'
+      : 'Standard: push up to look up. Applies to the mouse, the R / F keys and the camera stick.';
+    padNote.textContent = `The ${camera} stick turns the camera, with ${inverted ? 'inverted' : 'standard'} vertical control. A uses the arcade cabinet and Sprotel and jumps everywhere else; B runs.`;
   }
 
   // ---------- Pets
@@ -403,6 +494,9 @@ export function createMenu(options: MenuOptions): Menu {
   const relicCards = new Map<string, HTMLElement>();
   for (const socket of RELICS) {
     const info = RELIC_INFO[socket.id];
+    const unlocks = [info.unlock ?? `${socket.name} aura`];
+    unlocks.push(...PETS.filter((pet) => pet.relic === socket.id).map((pet) => pet.name));
+    if (info.fighter) unlocks.push(`Fighter: ${info.fighter}`);
     const card = el('li', 'relic-card');
     card.style.setProperty('--relic', socket.color);
     const gem = el('span', 'relic-gem');
@@ -411,8 +505,9 @@ export function createMenu(options: MenuOptions): Menu {
       el('strong', '', socket.name),
       el('span', 'relic-game', info.game),
       el('span', 'relic-how', info.how),
-      el('span', 'relic-unlock', `Unlocks: ${info.unlock ?? `${socket.name} aura`}${info.pet ? ` · ${info.pet}` : ''}${info.fighter ? ` · Fighter: ${info.fighter}` : ''}`),
+      el('span', 'relic-unlock', `Unlocks: ${unlocks.join(' · ')}`),
     );
+    if (isHeld(socket.id)) text.append(el('span', 'relic-held', HELD_NOTE));
     const state = el('span', 'relic-badge', 'Locked');
     const toggle = el('button', 'relic-toggle');
     toggle.type = 'button';
@@ -431,6 +526,87 @@ export function createMenu(options: MenuOptions): Menu {
     relicGrid.append(card);
   }
   relicsPage.append(relicGrid);
+
+  // ---------- Wallet (Tickets per game, exchanged for Verse here in the plaza)
+  const walletPage = bodies.get('wallet') as HTMLElement;
+  const walletVerse = el('strong', 'menu-verse', 'Verse 0');
+  const walletHead = el('div', 'menu-wallet');
+  const walletHeadText = el('div', 'menu-wallet-text');
+  walletHeadText.append(walletVerse, el('span', 'menu-sub', WALLET_RATE_LINE));
+  walletHead.append(pixelIcon('coin', 'menu-wallet-coin'), walletHeadText);
+  const walletStatus = el('p', 'menu-note wallet-status', '');
+  walletStatus.setAttribute('role', 'status');
+  const walletList = el('ul', 'menu-grid wallet-rows');
+  walletPage.append(
+    el('h3', 'menu-h', 'Wallet'),
+    el('p', 'menu-note', 'Tickets are earned inside a game and stay in that game\'s wallet. Exchange them here for Verse, which belongs to your whole account.'),
+    walletHead,
+    walletStatus,
+    walletList,
+  );
+  let walletState: WalletState | null = null;
+  let walletBusy = false;
+  let walletLoads = 0;
+
+  function paintWallet(): void {
+    walletVerse.textContent = `Verse ${(walletState?.verse ?? verse).toLocaleString('en-US')}`;
+    walletList.replaceChildren();
+    if (!walletState) return;
+    for (const row of walletState.rows) {
+      const offer = exchangeOffer(row.balance, row.verseCapLeft);
+      const card = el('li', `pet-card wallet-row${row.balance > 0 ? ' owned' : ''}`);
+      card.dataset.game = row.game;
+      const icon = el('span', 'pet-icon');
+      icon.append(pixelIcon('coin'));
+      const text = el('div', 'pet-text');
+      text.append(
+        el('strong', '', row.label),
+        el('span', 'pet-from', `${row.balance.toLocaleString('en-US')} Tickets · ${row.verseCapLeft} Verse left today`),
+      );
+      const closed = !walletState.exchangeEnabled;
+      const button = el('button', 'pet-deploy wallet-exchange', closed && offer.blocked === 'none' ? WALLET_CLOSED_LABEL : offerLabel(offer));
+      button.type = 'button';
+      button.disabled = closed || offer.blocked !== 'none' || walletBusy;
+      button.addEventListener('click', () => {
+        if (closed || walletBusy || offer.blocked !== 'none') return;
+        walletBusy = true;
+        walletStatus.textContent = `Exchanging ${offer.tickets} ${row.label} Tickets…`;
+        paintWallet();
+        void options.exchangeTickets(row.game, offer.tickets).then((result) => {
+          walletBusy = false;
+          if (result.ok) {
+            if (walletState) walletState = applyExchange(walletState, row.game, result.answer);
+            verse = result.answer.verse;
+            paintItems();
+            walletStatus.textContent = `Exchanged ${offer.tickets} Tickets for ${result.answer.gained ?? offer.verse} Verse.`;
+            paintWallet();
+          } else {
+            walletStatus.textContent = result.text;
+            // The server may know something this page does not (another tab, a new day).
+            refreshWallet(true);
+          }
+        });
+      });
+      card.append(icon, text, button);
+      walletList.append(card);
+    }
+  }
+
+  /** Ask the server for balances. `keepStatus` leaves the last message up (after a refusal). */
+  function refreshWallet(keepStatus = false): void {
+    const load = walletLoads += 1;
+    if (!keepStatus) walletStatus.textContent = walletState ? '' : 'Loading your wallets…';
+    void options.loadWallet().then((state) => {
+      if (load !== walletLoads) return;
+      walletState = state;
+      if (!state) walletStatus.textContent = WALLET_OFFLINE_TEXT;
+      else if (!state.exchangeEnabled) walletStatus.textContent = WALLET_CLOSED_TEXT;
+      else if (!keepStatus) walletStatus.textContent = '';
+      paintWallet();
+      // Keep the focused Play button: only repaint the Games rows when focus is elsewhere.
+      if (!gamesList.contains(document.activeElement)) paintGames();
+    });
+  }
 
   // ---------- Behaviour
   tabBar.addEventListener('click', (event) => {
@@ -500,7 +676,7 @@ export function createMenu(options: MenuOptions): Menu {
     petGrid.replaceChildren();
     const all = ownsFourLights(relics);
     const owned = (pet: PetInfo) =>
-      Boolean(serverPets?.has(pet.id)) ||
+      pet.id === DEFAULT_PET_ID || Boolean(serverPets?.has(pet.id)) ||
       (!serverPets && pet.relic ? relics.has(pet.relic) : false) ||
       (!serverPets && pet.id === 'pet_four_lights_sproto' && all);
     const deployable = (pet: PetInfo) => owned(pet) && options.deployablePets.includes(pet.id);
@@ -527,7 +703,8 @@ export function createMenu(options: MenuOptions): Menu {
         });
         card.append(deploy);
       } else {
-        card.append(el('span', 'pet-state', has ? 'Model soon' : 'Locked'));
+        card.append(el('span', 'pet-state', grantBadge(pet.id, has, 'Model soon')));
+        if (!has && isHeld(pet.id)) text.append(el('span', 'pet-from pet-held', HELD_PET_NOTE));
       }
       petGrid.append(card);
     }
@@ -539,7 +716,9 @@ export function createMenu(options: MenuOptions): Menu {
       const on = relics.has(id);
       card.classList.toggle('owned', on);
       const badge = card.querySelector('.relic-badge');
-      if (badge) badge.textContent = on ? 'Owned' : 'Locked';
+      if (badge) badge.textContent = grantBadge(id, on);
+      const heldNote = card.querySelector<HTMLElement>('.relic-held');
+      if (heldNote) heldNote.hidden = on;
       // Only an owned Relic has a gem to switch off.
       const toggle = card.querySelector<HTMLButtonElement>('.relic-toggle');
       if (toggle) {
@@ -563,6 +742,7 @@ export function createMenu(options: MenuOptions): Menu {
       button.setAttribute('aria-selected', String(on));
     }
     for (const [id, body] of bodies) body.hidden = id !== next;
+    if ((next === 'wallet' || next === 'games') && open) refreshWallet();
     // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
     if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
   }
@@ -575,11 +755,17 @@ export function createMenu(options: MenuOptions): Menu {
     paintPets();
     paintRelics();
     paintSims();
+    paintWallet();
+    paintGames();
     if (open) return;
     open = true;
+    if (tab === 'wallet' || tab === 'games') refreshWallet();
     root.hidden = false;
     options.onOpen();
-    (tabButtons.get(tab) ?? close).focus({ preventScroll: true });
+    // On the Games page, Enter relaunches the last game played (Esc, Enter: two inputs).
+    const last = tab === 'games' ? options.lastGame() : null;
+    const again = last ? playButtons.get(last) : undefined;
+    (again && !again.disabled ? again : tabButtons.get(tab) ?? close).focus({ preventScroll: true });
   }
 
   function hide(): void {
@@ -779,6 +965,7 @@ export function createMenu(options: MenuOptions): Menu {
         paintItems();
         paintPets();
         paintRelics();
+        if (!gamesList.contains(document.activeElement)) paintGames();
       }
     },
     setPets(owned) {
@@ -790,7 +977,11 @@ export function createMenu(options: MenuOptions): Menu {
     },
     setVerse(balance) {
       verse = balance;
-      if (open) paintItems();
+      if (walletState) walletState = { ...walletState, verse: balance };
+      if (open) {
+        paintItems();
+        paintWallet();
+      }
     },
     setGuest(label) {
       guest.textContent = label;

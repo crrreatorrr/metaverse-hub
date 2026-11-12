@@ -1,5 +1,5 @@
 import FOLLOWERS from '../../../server/data/follower-pets.json';
-import { createPetMotion, type PetCollision } from './core/pet-motion';
+import { createPetMotion, PET_SCALE, type PetCollision } from './core/pet-motion';
 import { createPetFollower, EQUIPPABLE_PET_IDS, type PetFollower } from './v2/pets';
 import type { RealmId } from './core/realm-id';
 // Remote plaza avatars for up to 100 players.
@@ -29,6 +29,7 @@ import { isCharacterId, isStaffId } from './config';
 import { defaultLook } from './look';
 import type { OrbitAvatar } from './m3/types';
 import { STAND_Y } from './physics';
+import { INTERP_DELAY_MS, SNAP_DISTANCE } from './net/interp';
 import { ANIMS, zoneOf, type Pose } from './net/protocol';
 import type { RemotePlayer, RemoteWorld } from './net/remoteWorld';
 
@@ -52,6 +53,9 @@ interface NearSlot {
   /** Rendered height last frame and the vertical speed it implies, for the jump clip. */
   lastY: number | null;
   vy: number;
+  lastPoseAt: number | null;
+  descending: boolean;
+  airborne: boolean;
 }
 
 export interface Remotes {
@@ -98,7 +102,7 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
   root.add(far);
 
   // Two nearby followers get animated models; the rest share one instanced draw.
-  const petGeometry = new SphereGeometry(0.24, 6, 4);
+  const petGeometry = new SphereGeometry(0.24 * PET_SCALE, 6, 4);
   const petMaterial = new MeshStandardMaterial({ color: '#a8dcff', roughness: 0.8 });
   const farPets = new InstancedMesh(petGeometry, petMaterial, FAR_CAPACITY);
   farPets.instanceMatrix.setUsage(DynamicDrawUsage);
@@ -132,7 +136,10 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     label.className = 'remote-name';
     label.hidden = true;
     opts.hud.append(label);
-    return { root: group, rig, pet: createPetFollower(root, opts.petCollision), detailedPet: near.length < 2, slot: null, version: -1, label, lastY: null, vy: 0 };
+    return {
+      root: group, rig, pet: createPetFollower(root, opts.petCollision), detailedPet: near.length < 2,
+      slot: null, version: -1, label, lastY: null, vy: 0, lastPoseAt: null, descending: false, airborne: false,
+    };
   }
 
   function lookFor(p: RemotePlayer) {
@@ -149,6 +156,9 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
     void slotObj.pet.setPet(slotObj.detailedPet && EQUIPPABLE_PET_IDS.includes(p.pet) ? p.pet : null).catch(console.warn);
     slotObj.lastY = null;
     slotObj.vy = 0;
+    slotObj.lastPoseAt = null;
+    slotObj.descending = false;
+    slotObj.airborne = false;
     slotObj.rig.setLook(lookFor(p));
     slotObj.rig.load();
     slotObj.label.textContent = p.name;
@@ -262,13 +272,15 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         const n = nearBySlot.get(slot);
         if (!petsHidden && p && EQUIPPABLE_PET_IDS.includes(p.pet)) {
           v.set(r.x, r.y, r.z);
-          if (n?.detailedPet) n.pet.update(dt, v, STAND_Y, r.anim === 2);
+          const spawnYaw = Math.PI - r.yaw;
+          if (n?.detailedPet) n.pet.update(dt, v, STAND_Y, r.anim === 2, spawnYaw);
           else {
             let motion = petMotions.get(slot);
             if (!motion) { motion = createPetMotion(opts.petCollision); petMotions.set(slot, motion); }
             motion.setFollowSpeed(PET_SPEEDS.get(p.pet) ?? 8);
-            motion.update(dt, v, STAND_Y);
-            v.copy(motion.position).y += 0.28 + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04;
+            motion.update(dt, v, STAND_Y, spawnYaw);
+            const hoverHeight = p.pet === 'pet_mecha' ? 0.78 : 0.28;
+            v.copy(motion.position).y += (hoverHeight + Math.sin(nowMs * (motion.speed > 0.6 ? 0.014 : 0.003) + slot) * 0.04) * PET_SCALE;
             q.identity();
             m.compose(v, q, s);
             farPets.setMatrixAt(petCount++, m);
@@ -277,14 +289,45 @@ export function createRemotes(scene: Scene, world: RemoteWorld, opts: RemotesOpt
         if (n) {
           nearCount += 1;
           n.root.visible = true;
+          const travel = Math.hypot(r.x - n.root.position.x, r.z - n.root.position.z);
           n.root.position.set(r.x, r.y, r.z);
           n.rig.group.rotation.y = -r.yaw;
           const anim = ANIMS[r.anim] ?? 'idle';
           // Vertical speed from the interpolated height; a snap (respawn, warp) reads as standing still.
           const rise = n.lastY === null || dt <= 0 || Math.abs(r.y - n.lastY) > 2 ? 0 : (r.y - n.lastY) / dt;
+          const poseDt = n.lastPoseAt === null ? dt : Math.max(0, (nowMs - n.lastPoseAt) / 1000);
+          const airborne = anim === 'jump';
+          // A 10 Hz stream can miss the single grounded frame between jumps.
+          const discontinuity = n.lastPoseAt === null || poseDt > 0.4 || (n.lastY !== null && Math.abs(r.y - n.lastY) > 2);
+          const rising = !discontinuity && n.lastY !== null && poseDt > 0 && (r.y - n.lastY) / poseDt > 1.2;
+          const restart = discontinuity || (airborne && n.descending && rising);
+          // The jump flag may have switched anywhere within this frame.
+          // Start near takeoff, especially when frames are far apart.
+          const startingNearGround = airborne && !n.airborne && n.lastY !== null && r.y - n.lastY < 0.1;
+          const flightDt = discontinuity ? dt : startingNearGround ? poseDt * 0.5 : poseDt;
+          // Slow the turn at coarse render intervals to preserve the inverted pose.
+          const flightStep = flightDt * Math.min(1, 0.0655 / Math.max(dt, poseDt));
+          let speed: number | null | undefined;
+          if (!discontinuity && poseDt > 0 && travel <= SNAP_DISTANCE) {
+            const heldMs = p?.interp.poseHoldMs(nowMs) ?? 0;
+            const sampleDt = poseDt - heldMs / 1000;
+            // On the frame that reaches the last pose, divide travel by the
+            // time spent interpolating. Later held frames have no new speed.
+            speed = p?.interp.slowGroundSpeed(nowMs);
+            if (speed === undefined) {
+              if (sampleDt > 0.0001 && travel > 0) speed = travel / sampleDt;
+              else speed = heldMs > 0 && heldMs <= INTERP_DELAY_MS ? null : 0;
+            }
+          }
+          if (!airborne || restart) n.descending = false;
+          else if (rise < -0.8) n.descending = true;
           n.lastY = r.y;
+          n.lastPoseAt = nowMs;
+          n.airborne = airborne;
           n.vy = MathUtils.damp(n.vy, rise, 12, dt);
-          n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run', { airborne: anim === 'jump', vy: n.vy });
+          n.rig.update(dt, anim === 'walk' || anim === 'run', anim === 'run', {
+            airborne, vy: n.vy, flight: { airborne, dt: flightStep, remote: true, restart, takeoff: rising },
+          }, speed);
           const dist = camera.position.distanceTo(n.root.position);
           head.set(r.x, r.y - STAND_Y + 2.15, r.z).project(camera);
           if (dist > LABEL_RADIUS || head.z > 1 || Math.abs(head.x) > 1.1 || Math.abs(head.y) > 1.1) {

@@ -154,6 +154,9 @@ namespace ShooterRuns {
     if (issuance.contentFingerprint !== ShooterRewards.FINGERPRINT || issuance.accountId !== who.userId || issuance.sessionId !== who.sid) {
       return zero("fingerprint_mismatch");
     }
+    var selected = ShooterVerificationLifecycle.issue(nk, who.userId, who.sid, key, runId, day, boss, seed, JSON.stringify(issuance),
+      Object.keys(body).sort().join(",") === "canonicalBoss,key" && nk.stringToBinary(payload || "").byteLength <= ISSUE_MAX);
+    if (selected !== null) return JSON.stringify(selected);
     var result = ShooterRewards.issue(nk, who.userId, who.sid, key, runId, day, boss, seed, JSON.stringify(issuance));
     if (result.error) return JSON.stringify(result);
     logger.info("shooter issue " + boss + " user " + who.userId);
@@ -176,6 +179,9 @@ namespace ShooterRuns {
     if (!isObj(body.log)) return zero("malformed");
     var row = loadRun(nk, who.userId, runId);
     if (!row) return zero("unknown_run");
+    // A v2 run cannot bypass durable ingestion through the legacy completed-log RPC.
+    var v2 = nk.sqlQuery("SELECT 1 AS present FROM game.shooter_verification_run WHERE run_id=$1 AND user_id=$2::uuid", [runId, who.userId]);
+    if (v2 && v2.length) return zero("wrong_protocol");
     if (textCol([row], "session_id") !== who.sid) return zero("rebind");
     var status = textCol([row], "status");
     var limit = status === "open" ? VERIFY_LIMIT : REPLAY_LIMIT;

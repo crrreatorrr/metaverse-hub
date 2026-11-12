@@ -1,0 +1,48 @@
+# EXAMPLE ONLY. Nothing starts without the explicit shooter-verification profile.
+# Create private 0700 UID1000 directories and a 0600 ephemeral credential file
+# before using this profile. No production principals or host are provisioned.
+services:
+  replay:
+    profiles: [shooter-verification]
+    build:
+      context: ../../..
+      dockerfile: services/shooter-verifier/ops/Dockerfile.replay
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+    pids_limit: 32
+    mem_limit: 512m
+    cpus: 2
+    volumes:
+      - ./private/socket:/run/shooter
+    tmpfs:
+      - /tmp:size=8m,uid=1000,gid=1000,mode=0700
+    stop_grace_period: 28s
+  coordinator:
+    profiles: [shooter-verification]
+    build:
+      context: ../../..
+      dockerfile: services/shooter-verifier/ops/Dockerfile.coordinator
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    ulimits:
+      core:
+        soft: 0
+        hard: 0
+    pids_limit: 24
+    mem_limit: 384m
+    cpus: 1
+    volumes:
+      - ./private/socket:/run/shooter
+      - ./private/journal:/var/lib/shooter-journal
+      - ./private/shooter-worker.json:/run/secrets/shooter-worker.json:ro
+    tmpfs:
+      - /tmp:size=1m,uid=1000,gid=1000,mode=0700
+    stop_grace_period: 41s
+    # No published HTTP health port. Inspect loopback from this container only.

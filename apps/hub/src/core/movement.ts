@@ -8,3 +8,6 @@ export const MOVEMENT = Object.freeze({
   standHeight: 0.34 * 1.25 + 1.08 * 1.25,
   initialPitch: 0.28, lookDrop: 0.15,
 });
+
+/** Ignore small capsule corrections when choosing the grounded creature gait. */
+export const CREATURE_STOP_SPEED = 0.02;

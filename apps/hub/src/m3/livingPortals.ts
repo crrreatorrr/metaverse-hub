@@ -42,6 +42,8 @@ export interface LivingPortalsOptions {
   placements: readonly PortalPlacement[];
   /** Marks counts and top-10 rows as placeholders. Scene passes this only in dev. */
   placeholder?: boolean;
+  /** Render the rings, beams and fireworks alongside the signs. */
+  effects?: boolean;
 }
 
 export interface LivingPortals {
@@ -70,6 +72,16 @@ interface PortalState {
   banner: Mesh;
   bannerPaint: ReturnType<typeof paintedCanvas>;
   labelKey: string;
+}
+
+/**
+ * The line under a gate's name. Live counts are an estimate (open game sessions redeemed in the last
+ * 30 minutes, from hub.presence), so they read "about N playing"; nobody inside says so plainly.
+ */
+export function gateCountText(count: number, placeholder: boolean): string {
+  const n = Math.max(0, Math.floor(count));
+  if (placeholder) return n === 1 ? '1 player inside' : `${n} players inside`;
+  return n === 0 ? 'Nobody inside right now' : `About ${n} playing`;
 }
 
 /**
@@ -121,11 +133,9 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
 
   const dummy = new Object3D();
   const tint = new Color();
-  const states: PortalState[] = placements.map((placement) => makePortal(placement, group));
+  const states: PortalState[] = placements.map((placement) => makePortal(placement, group, opts.effects === false));
 
-  group.add(rings);
-  group.add(beams);
-  group.add(sparks);
+  if (opts.effects !== false) group.add(rings, beams, sparks);
 
   let clock = 0;
   let disposed = false;
@@ -141,17 +151,17 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = 'rgba(10, 8, 24, 0.92)';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = state.placement.color;
+    ctx.strokeStyle = opts.effects === false ? '#bba990' : state.placement.color;
     ctx.lineWidth = 10;
     ctx.strokeRect(8, 8, w - 16, h - 16);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.fillStyle = state.placement.color;
+    ctx.fillStyle = opts.effects === false ? '#e8d9bf' : state.placement.color;
     ctx.font = '700 36px sans-serif';
     ctx.fillText(fitText(ctx, state.placement.label, w - 48), w / 2, 48);
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 28px sans-serif';
-    const inside = state.count === 1 ? '1 player inside' : `${state.count} players inside`;
+    const inside = gateCountText(state.count, opts.placeholder === true);
     ctx.fillText(inside, w / 2, 92);
     ctx.font = '600 22px sans-serif';
     ctx.fillStyle = '#d7e1ff';
@@ -178,7 +188,7 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
       ctx.fillText(`${index + 1}`, 32, y);
       ctx.fillText(fitText(ctx, row.name, w - 220), 64, y);
       ctx.textAlign = 'right';
-      ctx.fillStyle = '#39ff6a';
+      ctx.fillStyle = opts.effects === false ? '#c9d8af' : '#39ff6a';
       ctx.fillText(fitText(ctx, row.score, 140), w - 32, y);
     });
     if (opts.placeholder) {
@@ -203,7 +213,7 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
     }
     ctx.fillStyle = 'rgba(8, 6, 18, 0.94)';
     ctx.fillRect(0, 0, w, h);
-    ctx.strokeStyle = state.placement.color;
+    ctx.strokeStyle = opts.effects === false ? '#bba990' : state.placement.color;
     ctx.lineWidth = 8;
     ctx.strokeRect(6, 6, w - 12, h - 12);
     ctx.textAlign = 'center';
@@ -211,7 +221,7 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
     ctx.fillStyle = '#ffffff';
     ctx.font = '700 42px sans-serif';
     ctx.fillText(fitText(ctx, finisher.name, w - 40), w / 2, 48);
-    ctx.fillStyle = state.placement.color;
+    ctx.fillStyle = opts.effects === false ? '#e8d9bf' : state.placement.color;
     ctx.font = '700 24px sans-serif';
     ctx.fillText(fitText(ctx, finisher.line, w - 40), w / 2, 92);
     state.bannerPaint.touch();
@@ -326,8 +336,10 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
   function update(now: number, camera?: Camera): void {
     if (disposed) return;
     clock = now;
-    writeInstances(now);
-    writeSparks(now);
+    if (opts.effects !== false) {
+      writeInstances(now);
+      writeSparks(now);
+    }
     for (const state of states) {
       const age = state.finisher ? now - state.finisher.started : Number.POSITIVE_INFINITY;
       const showBanner = age >= 0 && age < FINISHER_BANNER_S;
@@ -365,7 +377,7 @@ export function addLivingPortals(scene: Object3D, opts: LivingPortalsOptions): L
   return { root: group, setPresence, pushFinisher, update, dispose };
 }
 
-function makePortal(placement: PortalPlacement, parent: Group): PortalState {
+function makePortal(placement: PortalPlacement, parent: Group, besideEntrance: boolean): PortalState {
   const labelPaint = paintedCanvas(512, 512);
   const labelMat = new MeshBasicMaterial({
     map: labelPaint.texture,
@@ -376,6 +388,10 @@ function makePortal(placement: PortalPlacement, parent: Group): PortalState {
   const label = new Mesh(new PlaneGeometry(3.1, 3.1), labelMat);
   label.name = `m3-portal-label-${placement.gameId}`;
   const inward = inwardPoint(placement, 4);
+  if (besideEntrance) {
+    inward.x += Math.cos(placement.rotationY) * 5;
+    inward.z -= Math.sin(placement.rotationY) * 5;
+  }
   label.position.set(inward.x, placement.y + 4.6, inward.z);
   label.rotation.y = placement.rotationY;
 

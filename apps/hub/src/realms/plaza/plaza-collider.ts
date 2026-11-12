@@ -3,6 +3,7 @@ import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import type { Collider } from './collider';
 import { CLUB_COLLIDERS } from './club-interior-colliders';
+import { CLUB_INTERIOR_SCALE, scaleClubBounds } from './club-interior-scale';
 import { BELT_PLINTH_BOX } from './arcade-layout';
 import { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './billboard-layout';
 
@@ -33,7 +34,7 @@ function addBox(
  * Walkable collider for Sproto Plaza. The legacy `buildCollider` stays in
  * place for the capsule sim; this one matches the 220 m plaza and the Bar.
  */
-export function buildPlazaCollider(): Collider {
+export function buildPlazaCollider(clubScale = CLUB_INTERIOR_SCALE): Collider {
   const parts: BufferGeometry[] = [];
   const ground = new CylinderGeometry(400, 400, 8, 24);
   ground.translate(0, -4, 0);
@@ -51,7 +52,8 @@ export function buildPlazaCollider(): Collider {
   // HPOS10I Club interior (club-interior.glb), mounted standalone at y = -300 like before.
   // Keep in sync with buildClubInterior(): same boxes, same mount. The neon sign box sits inside the back bar, so it is skipped here.
   const floorY = -300;
-  for (const box of [...CLUB_COLLIDERS, BELT_PLINTH_BOX]) {
+  for (const source of [...CLUB_COLLIDERS, BELT_PLINTH_BOX]) {
+    const box = scaleClubBounds(source, clubScale);
     addBox(
       parts,
       box.max[0] - box.min[0], box.max[1] - box.min[1], box.max[2] - box.min[2],

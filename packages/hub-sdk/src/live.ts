@@ -9,6 +9,7 @@ import {
   canonicalGameId,
   isBoardId,
   isRelicId,
+  type EventResult,
   type ExchangeResult,
   type GameId,
   type HubSdk,
@@ -614,8 +615,12 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       }
       if (!active) return {};
       const result = await sendOnce(active, 'session.event', key, { eventId, data });
-      const granted = result && typeof result === 'object' ? (result as { granted?: unknown }).granted : undefined;
-      return typeof granted === 'string' && isRelicId(granted) ? { granted } : {};
+      const answer = result && typeof result === 'object' ? (result as { granted?: unknown; tickets?: unknown }) : {};
+      const out: EventResult = {};
+      if (typeof answer.granted === 'string' && isRelicId(answer.granted)) out.granted = answer.granted;
+      // The server names `tickets` only when this event credited some (a story boss, 0.7.1).
+      if (typeof answer.tickets === 'number' && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0) out.tickets = answer.tickets;
+      return out;
     },
 
     async submitScore(boardId, value, meta) {
@@ -674,6 +679,23 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       encodeSave(data);
       if (!active) return { ...EMPTY_SAVE };
       return readSaveResult(await client.rpc('save.put', { data }, { token: active.token }));
+    },
+
+    async feedbackAccess() {
+      if (!active) return { ok: false, reason: 'standalone' };
+      try {
+        const result = await client.rpc<{ username?: string }>('feedback.can', {}, { token: active.token });
+        return { ok: true, username: result.username };
+      } catch (error) {
+        if (error instanceof HubSdkError && error.code !== 'rpc_failed') return { ok: false, reason: error.code };
+        return { ok: false, reason: 'offline' };
+      }
+    },
+
+    async submitFeedback(input) {
+      if (!active) throw new HubSdkError('standalone', 'Feedback needs a hub session');
+      const result = await client.rpc<{ id: string }>('feedback.submit', input, { token: active.token });
+      return { id: result.id };
     },
 
     async earnTickets(amount, reason, key) {

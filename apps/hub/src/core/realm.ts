@@ -40,6 +40,10 @@ export interface RealmContent {
   /** A controller (true) or the keyboard / mouse (false) was the last device used: overlays switch prompts. */
   setPadPrompts?(on: boolean): void;
   onSession?(session: { client: NakamaClient; token: string }): Promise<void>;
+  /** Places worth a HUD marker (game entrances, the Bar), in world space. */
+  waypoints?(): readonly { id: string; label: string; x: number; y: number; z: number }[];
+  /** The player is at a game launcher that is not a ring (the Bar cabinet): counts as reaching a gate. */
+  atLauncher?(): boolean;
 }
 export interface RealmDefinition {
   id: RealmId;

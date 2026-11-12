@@ -128,10 +128,10 @@ function pad(index: number, down: readonly number[] = [], axes: readonly number[
   assert.equal(padPrompt('Press Escape'), 'Press Escape');
 }
 
-// Stick layout: the plaza walks on the right stick by default; the left-stick layout is one menu switch away.
+// Stick layout: the plaza walks on the left stick by default; the right-stick layout is one menu switch away.
 {
-  assert.equal(DEFAULT_MOVE_STICK, 'right');
-  assert.equal(loadMoveStick(), 'right', 'no storage (node) falls back to the default');
+  assert.equal(DEFAULT_MOVE_STICK, 'left');
+  assert.equal(loadMoveStick(), 'left', 'no storage (node) falls back to the default');
   assert.deepEqual(stickAxes('right'), { move: [2, 3], look: [0, 1] });
   assert.deepEqual(stickAxes('left'), { move: [0, 1], look: [2, 3] });
   assert.deepEqual(stickClicks('right'), { move: PAD.RS, look: PAD.LS });

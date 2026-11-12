@@ -15,6 +15,7 @@ import {
   type KeyframeTrack,
   type Object3D,
 } from 'three';
+import { applyGaitProfile } from './gait-profile';
 
 /** Bones the retarget drives. The hips also carry translation. */
 const HIPS = 'Hips';
@@ -200,7 +201,7 @@ export function retargetClip(
   const baked = new AnimationClip(clip.name, clip.duration, tracks);
   const { speed_mps: _authored, ...rest } = (clip.userData ?? {}) as Record<string, unknown>;
   baked.userData = { ...rest, retargeted: true };
-  return baked;
+  return applyGaitProfile(baked, targetRoot.userData.locomotion_v1);
 }
 
 /**

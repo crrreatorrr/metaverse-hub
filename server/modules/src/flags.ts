@@ -10,17 +10,16 @@
 // Rows are changed by the owner in SQL; this module never writes game.server_flags:
 //   UPDATE game.server_flags SET state = 'allowlist', allowlist = '{<uuid>}', updated_at = now() WHERE key = 'shooter_pvp';
 //   UPDATE game.server_flags SET state = 'percent', percent = 10, updated_at = now() WHERE key = 'shooter_pvp';
-// A change is seen within FLAG_CACHE_MS. Nothing reads a flag yet (HUB-W-1-04).
+// A change is seen within FLAG_CACHE_MS.
 
 namespace Flags {
-  /** The launch flags seeded by 0042, all off. */
+  /** The launch flags seeded off by 0042. 0062_hub_exchange_open then turns hub_exchange on. */
   export var LAUNCH_FLAGS = [
     "shooter_pvp",
     "shooter_pvp_wager",
     "shooter_pvp_ranked",
     "hub_exchange",
     "verse_store",
-    "relic_unhold",
     "diagnostics_prompt",
     "maint",
   ];

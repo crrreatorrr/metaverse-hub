@@ -82,7 +82,10 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     bob.add(avatar);
     rig.add(bob);
     scene.add(rig);
-    const pets = createPetFollower(scene, position => petCollision?.(position));
+    const collision: PetCollision = position => petCollision?.(position);
+    collision.blocked = (bounds, transform) => petCollision?.blocked?.(bounds, transform) ?? false;
+    collision.beamRange = (origin, direction, range) => petCollision?.beamRange?.(origin, direction, range) ?? range;
+    const pets = createPetFollower(scene, collision);
 
     const shadowMat = new MeshBasicMaterial({
       map: radialShadow(),
@@ -147,12 +150,14 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     setHiddenRelics(ids: readonly string[]) { hidden = new Set(ids); syncGems(); },
     setRemoteOrbit(avatars: readonly OrbitAvatar[]) { remoteOrbit = avatars; syncGems(); },
     setPreviewAvatars(avatars: readonly OrbitAvatar[]) { previewOrbit = avatars; syncGems(); },
-    update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir) {
+    update(dt: number, moving: boolean, sprint: boolean, air?: AvatarAir, speed?: number) {
       elapsed += dt;
       for (const fn of animated) fn(elapsed, dt);
-      actors().avatarRig.update(dt, moving, sprint, air);
-      actors().pets.update(dt, actors().rig.position, STAND_Y, sprint);
+      const rigMoving = actors().avatarRig.update(dt, moving, sprint, air, speed);
+      const { pets, rig, avatar } = actors();
+      pets.update(dt, rig.position, STAND_Y, sprint, Math.PI + avatar.rotation.y);
       gems.update(elapsed);
+      return rigMoving;
     },
     render(measure = true) {
       scene.updateMatrixWorld(true);

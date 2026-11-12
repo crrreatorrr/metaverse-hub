@@ -1,0 +1,57 @@
+name: shooter-verification-metrics
+on:
+  pull_request:
+    paths:
+      - server/modules/src/games/shooter_verification_*.ts
+      - server/test/dup/shooter_verification_*.ts
+      - server/test/dup/suite.ts
+      - server/test/unit/dup-reporter.test.ts
+      - services/shooter-verifier/src/gateway-client.mjs
+      - .github/workflows/shooter-verification-metrics.yml
+permissions:
+  contents: read
+jobs:
+  worker-observations-and-repair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/checkout@v4
+        with:
+          repository: crrreatorrr/sproto-shooter
+          ref: 05f7a0a245af921fc65a99588564175c19658e38
+          path: .ci-shooter
+          sparse-checkout: tests/fixtures/replay-corpus
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Actual strict reporter unknown-failure and zero-pass process canaries
+        run: npx tsx server/test/unit/dup-reporter.test.ts
+      - name: Generate throwaway test-stack credentials
+        run: |
+          set -eu
+          sh server/scripts/dev-env.sh --random-server-key
+          echo 'NAKAMA_TEST_MAX_REQUEST_BYTES=23068672' >> server/.env
+          sed -n 's/^[A-Z_]*=//p' server/.env | while read -r value; do echo "::add-mask::${value}"; done
+          for name in NAKAMA_SERVER_KEY NAKAMA_HTTP_KEY; do
+            echo "${name}=$(sed -n "s/^${name}=//p" server/.env)" >> "$GITHUB_ENV"
+          done
+      - name: Boot ephemeral Nakama and PostgreSQL
+        run: docker compose -f server/docker-compose.yml up -d --build --wait --wait-timeout 180
+      - name: Actual scoped observations, immutable receipt proof, dormant repair and historical backfill
+        run: npm run test:dup
+        env:
+          DUP_ONLY: shooter-metrics
+          SHOOTER_CORPUS: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+          HUB_OBSERVATIONS_FIXTURE: pending-backfill
+      - name: Show bounded SQL error context on failure
+        if: failure()
+        run: |
+          docker compose -f server/docker-compose.yml logs --no-color --tail 60 postgres | python3 -c 'import sys; [print(line[:1000].rstrip()) for line in sys.stdin if "ERROR:" in line or "CONTEXT:" in line]'
+      - name: Stop test services
+        if: always()
+        run: docker compose -f server/docker-compose.yml down --volumes

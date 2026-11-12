@@ -1,5 +1,5 @@
 // HUB-W-1-04: game.server_flags (migration 0042_server_flags) and Flags.on.
-// Launch work merges dark behind these flags (plan R.12.2). Nothing reads them yet.
+// Launch work merges dark behind these flags (plan R.12.2). 0062 turns hub_exchange on.
 // - off: nobody. on: everybody (even with no user id).
 // - allowlist: user ids in allowlist only.
 // - percent: users whose stable bucket (FNV-1a of "<key>:<userId>", 0..99) is below
@@ -13,7 +13,8 @@ import assert from 'node:assert/strict';
 import { randomUUID } from 'node:crypto';
 import { loadModule, plain, type LoadedModule } from './harness';
 
-const LAUNCH = ['shooter_pvp', 'shooter_pvp_wager', 'shooter_pvp_ranked', 'hub_exchange', 'verse_store', 'relic_unhold', 'diagnostics_prompt', 'maint'];
+// 0042 also seeded relic_unhold. Nothing reads it: 0061_relic_unhold releases unconditionally.
+const LAUNCH = ['shooter_pvp', 'shooter_pvp_wager', 'shooter_pvp_ranked', 'hub_exchange', 'verse_store', 'diagnostics_prompt', 'maint'];
 const U1 = '11111111-1111-4111-8111-111111111111';
 const U2 = '22222222-2222-4222-8222-222222222222';
 
@@ -55,7 +56,7 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   assert.match(sql, /percent BETWEEN 0 AND 100/);
   assert.match(sql, /updated_at timestamptz NOT NULL DEFAULT now\(\)/);
   assert.match(sql, /ON CONFLICT \(key\) DO NOTHING/, 'a replay keeps flags the owner already changed');
-  for (const key of LAUNCH) assert.match(sql, new RegExp(`\\('${key}', 'off'\\)`), `${key} seeded off`);
+  for (const key of [...LAUNCH, 'relic_unhold']) assert.match(sql, new RegExp(`\\('${key}', 'off'\\)`), `${key} seeded off`);
   assert.deepEqual(plain((mod.global.Flags as FlagsNs).LAUNCH_FLAGS), LAUNCH);
 }
 
@@ -144,7 +145,8 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   assert.equal(Flags.on(mod.nk, 'relic_unhold', U1, mod.logger, { onReadError: true }), false, 'a missing row stays off');
 }
 
-// Apart from the registered default-off seeds, runtime code never writes game.server_flags.
+// Apart from the registered default-off seeds and 0062_hub_exchange_open (one migration statement,
+// applied once), runtime code never writes game.server_flags.
 {
   const mod = loadModule();
   const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
@@ -155,7 +157,10 @@ function withFlags(rows: Record<string, Row>): { mod: LoadedModule; Flags: Flags
   ], 'Duel wagers seed off without overriding an existing flag');
   const runtimeSource = mod.source
     .replace(/0042_server_flags[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')
-    .replace(/0049_sproto_duel_wager_flag[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '');
+    .replace(/0049_sproto_duel_wager_flag[\s\S]*?ON CONFLICT \(key\) DO NOTHING/, '')
+    .replace(/0062_hub_exchange_open[\s\S]*?ON CONFLICT \(key\) DO UPDATE SET state = 'on', updated_at = now\(\)/, '');
+  const opens = HubSchema.all().filter((migration) => /server_flags/.test(migration.statements.join('\n')) && !/^004[29]_/.test(migration.id));
+  assert.deepEqual(plain(opens.map((migration) => migration.id)), ['0062_hub_exchange_open'], 'only 0062 changes a flag after its seed');
   assert.ok(!/(INSERT INTO|UPDATE|DELETE FROM) game\.server_flags/.test(runtimeSource), 'no runtime writes to server_flags');
 }
 
