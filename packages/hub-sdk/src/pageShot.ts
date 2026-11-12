@@ -70,12 +70,14 @@ function holdFrames(): () => void {
  * straight away, while their frame is still there. Game frames are held for at most `holdMs`.
  */
 export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidth: number, holdMs: number): Promise<HTMLCanvasElement | null> {
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
   // A WebGL canvas without preserveDrawingBuffer is blank once this frame is shown. Copy each one
   // now with drawImage (about 1 ms; toDataURL on WebGL stalls on the GPU, for seconds in a
   // software-rendered browser) and answer the library's later read from the copy.
   const frozen: HTMLCanvasElement[] = [];
   for (const canvas of Array.from(root.querySelectorAll('canvas'))) {
-    if (skip.includes(canvas) || !canvas.width || !canvas.height) continue;
+    if (skip.includes(canvas) || !canvas.width || !canvas.height || offscreen(canvas, width, height)) continue;
     try {
       const copy = document.createElement('canvas');
       copy.width = canvas.width;
@@ -132,8 +134,11 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
     }
   }
   // The library always lays the copy out with the browser's default body margin (8px) and drops
-  // the page's own, so a page with `body { margin: 0 }` came out 8px right and down.
-  const margin = getComputedStyle(root).margin;
+  // the page's own, so a page with `body { margin: 0 }` came out 8px right and down. It also draws
+  // the document from its top, so a scrolled page came out shifted by the scroll; take the scroll
+  // off the margin (fixed elements are placed against the viewport and do not move).
+  const rootStyle = getComputedStyle(root);
+  const margin = `${parseFloat(rootStyle.marginTop) - window.scrollY}px ${rootStyle.marginRight} ${rootStyle.marginBottom} ${parseFloat(rootStyle.marginLeft) - window.scrollX}px`;
   const release = holdFrames();
   const deadline = window.setTimeout(release, holdMs);
   const done = () => {
@@ -144,8 +149,6 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
     for (const node of autos) node.removeAttribute(AUTO);
     for (const canvas of frozen) delete (canvas as { toDataURL?: unknown }).toDataURL;
   };
-  const width = Math.max(1, window.innerWidth);
-  const height = Math.max(1, window.innerHeight);
   return loadPageShot()
     .then(({ domToCanvas }) =>
       domToCanvas(root, {
@@ -153,7 +156,8 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
         height,
         scale: Math.min(1, maxWidth / width),
         backgroundColor: null,
-        // The root's own background is behind the canvases on the page, not over them.
+        // The root's own background is behind the canvases on the page, not over them (see
+        // captureBackdrop for its picture).
         style: { background: 'transparent', margin },
         timeout: Math.min(MEDIA_WAIT_MS, holdMs),
         onCloneEachNode: (cloned) => {
@@ -171,11 +175,56 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
             cloned.removeAttribute(CHOSEN);
           }
         },
-        filter: (node) => !(node instanceof Element) || (!skip.includes(node) && visible(node)),
+        filter: (node) => !(node instanceof Element) || (!skip.includes(node) && visible(node) && !hidden(node, width, height)),
       }),
     )
     .catch(() => null)
     .finally(done);
+}
+
+/**
+ * The root's background picture alone (a fixed page backdrop behind the game), to lay under the
+ * canvases: in the HTML layer it would cover them. Null when the root has no background image.
+ */
+export function captureBackdrop(root: HTMLElement, maxWidth: number, timeoutMs: number): Promise<HTMLCanvasElement | null> {
+  if (getComputedStyle(root).backgroundImage === 'none') return Promise.resolve(null);
+  const width = Math.max(1, window.innerWidth);
+  const height = Math.max(1, window.innerHeight);
+  return loadPageShot()
+    .then(({ domToCanvas }) =>
+      domToCanvas(root, {
+        width,
+        height,
+        scale: Math.min(1, maxWidth / width),
+        backgroundColor: null,
+        // On the page the body's background fills the whole viewport, whatever its margin.
+        style: { margin: '0' },
+        timeout: Math.min(MEDIA_WAIT_MS, timeoutMs),
+        filter: () => false,
+      }),
+    )
+    .catch(() => null);
+}
+
+/** Entirely outside the viewport. */
+function offscreen(node: Element, width: number, height: number): boolean {
+  const r = node.getBoundingClientRect();
+  return r.right <= 0 || r.bottom <= 0 || r.left >= width || r.top >= height;
+}
+
+/**
+ * Leave out what cannot show and is slow to copy: an image or canvas outside the viewport, an image
+ * that has not loaded (a lazy one off screen is fetched again for every screenshot), and a box
+ * outside the viewport that clips its content. A long menu page took several seconds without this
+ * and missed the window's wait.
+ */
+function hidden(node: Element, width: number, height: number): boolean {
+  if (node instanceof HTMLImageElement) return !node.complete || node.naturalWidth === 0 || offscreen(node, width, height);
+  if (node instanceof HTMLCanvasElement || node instanceof HTMLVideoElement || node instanceof SVGSVGElement) return offscreen(node, width, height);
+  if (!(node instanceof HTMLElement) || node.tagName === 'BODY' || node.tagName === 'HTML') return false;
+  if (!offscreen(node, width, height)) return false;
+  const style = getComputedStyle(node);
+  return style.overflowX !== 'visible' && style.overflowY !== 'visible';
 }
 
 /** Element.checkVisibility, or the computed display where it is missing (Safari before 17.4). */

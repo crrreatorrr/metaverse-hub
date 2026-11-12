@@ -6,7 +6,7 @@
 // else (screenshot, context snapshot) happens once, when the window opens.
 import { HubSdkError } from './errors';
 import type { HubSdk } from './types';
-import { capturePage, loadPageShot, pageBackground } from './pageShot';
+import { captureBackdrop, capturePage, loadPageShot, pageBackground } from './pageShot';
 
 export const FEEDBACK_CATEGORIES = [
   { id: 'broke', label: 'Something broke' },
@@ -282,8 +282,11 @@ function captureCanvases(list: HTMLCanvasElement[], maxWidth: number, page = fal
   out.height = Math.max(1, Math.round(height * scale));
   const g = out.getContext('2d');
   if (!g) return null;
-  g.fillStyle = page ? pageBackground() : '#000';
-  g.fillRect(0, 0, out.width, out.height);
+  // A page capture stays transparent: the page's background goes under it later.
+  if (!page) {
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, out.width, out.height);
+  }
   let drawn = 0;
   for (const { canvas, rect } of visible) {
     try {
@@ -297,15 +300,31 @@ function captureCanvases(list: HTMLCanvasElement[], maxWidth: number, page = fal
   return drawn || page ? { shot: out, drawn } : null;
 }
 
-/** Draw a whole-viewport overlay over a whole-viewport capture. */
-function drawOverlay(shot: HTMLCanvasElement, overlay: HTMLCanvasElement | null): boolean {
-  if (!overlay || overlay.width < 1 || overlay.height < 1) return false;
+/** Draw a whole-viewport layer onto a whole-viewport capture. */
+function drawLayer(g: CanvasRenderingContext2D, width: number, height: number, layer: HTMLCanvasElement | null): boolean {
+  if (!layer || layer.width < 1 || layer.height < 1) return false;
   try {
-    shot.getContext('2d')?.drawImage(overlay, 0, 0, shot.width, shot.height);
+    g.drawImage(layer, 0, 0, width, height);
     return true;
   } catch {
     return false;
   }
+}
+
+/** The page's background colour, its background picture, the canvases, then the HTML. */
+function composePage(canvases: HTMLCanvasElement, drawn: number, backdrop: HTMLCanvasElement | null, overlay: HTMLCanvasElement | null): HTMLCanvasElement | null {
+  const out = document.createElement('canvas');
+  out.width = canvases.width;
+  out.height = canvases.height;
+  const g = out.getContext('2d');
+  if (!g) return drawn ? canvases : null;
+  g.fillStyle = pageBackground();
+  g.fillRect(0, 0, out.width, out.height);
+  const under = drawLayer(g, out.width, out.height, backdrop);
+  drawLayer(g, out.width, out.height, canvases);
+  const over = drawLayer(g, out.width, out.height, overlay);
+  // Without a canvas, a backdrop or an overlay the page capture is only a flat colour: send none.
+  return drawn || under || over ? out : null;
 }
 
 const OVERLAY_WAIT_MS = 3000;
@@ -861,31 +880,27 @@ export function installFeedback(options: FeedbackOptions): FeedbackHandle {
         // Nothing to wait for.
       }
       let finished = false;
-      const finish = (overlay: HTMLCanvasElement | null) => {
+      const finish = (layers: [HTMLCanvasElement | null, HTMLCanvasElement | null]) => {
         if (finished) return;
         finished = true;
         capturing = false;
-        // Without a canvas or an overlay the page capture is only a black frame: send none.
-        const any = drawOverlay(shot, overlay) || drawn > 0;
-        openPanel(source, any ? shot : null, captured);
+        openPanel(source, composePage(shot, drawn, layers[0], layers[1]), captured);
       };
-      const timer = window.setTimeout(() => finish(null), OVERLAY_WAIT_MS);
-      const drawHtml =
-        typeof options.overlay === 'function'
-          ? options.overlay
-          : () => capturePage(document.body, [...list, ...(host ? [host] : [])], 960, OVERLAY_WAIT_MS);
-      Promise.resolve()
-        .then(() => drawHtml())
-        .then(
-          (overlay) => {
-            window.clearTimeout(timer);
-            finish(overlay ?? null);
-          },
-          () => {
-            window.clearTimeout(timer);
-            finish(null);
-          },
-        );
+      const timer = window.setTimeout(() => finish([null, null]), OVERLAY_WAIT_MS);
+      const own = typeof options.overlay === 'function' ? options.overlay : null;
+      const drawHtml = own ?? (() => capturePage(document.body, [...list, ...(host ? [host] : [])], 960, OVERLAY_WAIT_MS));
+      const drawBackdrop = own ? () => null : () => captureBackdrop(document.body, 960, OVERLAY_WAIT_MS);
+      Promise.all([
+        Promise.resolve()
+          .then(() => drawBackdrop())
+          .catch(() => null),
+        Promise.resolve()
+          .then(() => drawHtml())
+          .catch(() => null),
+      ]).then((layers) => {
+        window.clearTimeout(timer);
+        finish([layers[0] ?? null, layers[1] ?? null]);
+      });
     };
     requestAnimationFrame(run);
     // A hidden tab never gets a frame: open anyway.
