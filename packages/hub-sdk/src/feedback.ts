@@ -100,7 +100,7 @@ export interface FeedbackOptions {
    * A picture of the page's HTML (menus, HUD text), drawn over the canvases. The SDK only copies
    * canvases, so a game whose screens are HTML draws them here, for example with a DOM-to-canvas
    * library on its UI root. Return a canvas covering the whole viewport, transparent where the
-   * game shows through, or null. It may be async: the window waits for it at most 1.5 s. With an
+   * game shows through, or null. It may be async: the window waits for it at most 3 s. With an
    * overlay the screenshot always covers the whole viewport.
    */
   overlay?(): HTMLCanvasElement | null | Promise<HTMLCanvasElement | null>;
@@ -307,7 +307,7 @@ function drawOverlay(shot: HTMLCanvasElement, overlay: HTMLCanvasElement | null)
   }
 }
 
-const OVERLAY_WAIT_MS = 1500;
+const OVERLAY_WAIT_MS = 3000;
 
 function encode(canvas: HTMLCanvasElement, max: number): string {
   let source = canvas;

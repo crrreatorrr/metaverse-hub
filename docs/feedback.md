@@ -99,7 +99,7 @@ screenshot taken from the pause menu is blank.
 
 The screenshot copies only canvases. A game whose menus or HUD are HTML passes `overlay`, which
 returns a whole-viewport canvas of that HTML (transparent where the game shows through), drawn over
-the canvases. It may be async; the window waits for it at most 1.5 s. Without it, an HTML main
+the canvases. It may be async; the window waits for it at most 3 s. Without it, an HTML main
 menu is missing from the screenshot and only the background behind it shows.
 
 ## From a terminal

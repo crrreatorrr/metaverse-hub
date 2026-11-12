@@ -54,6 +54,7 @@ import { parseReturnGame } from '../travel';
 import { canEmote, emoteForKey, emoteLine, type EmoteId } from '../emotes';
 import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, withTimeout } from './launch-errors';
 import type { RealmDefinition, RealmContent } from './realm';
+import { captureHtml, pageShotHold, preloadPageShot } from './page-shot';
 
 /** loadout.set_hub reply (server/modules/src/pets.ts `ack`). */
 interface HubPetAck {
@@ -649,7 +650,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     fadeLabels();
     updateHint();
     considerPortal(dt);
-    world.render();
+    // The feedback screenshot is copying the page's HTML: skip this draw (page-shot.ts).
+    if (!pageShotHold.held) world.render();
     if (firstFrame) {
       firstFrame = false;
       DefaultLoadingManager.onProgress = () => undefined;
@@ -1526,6 +1528,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   firstSession();
 
+  preloadPageShot();
   // Press N twice: feedback about the hub itself (docs/feedback.md). The plaza is shared, so it
   // keeps running behind the window; held movement keys are released instead.
   installFeedback({
@@ -1554,6 +1557,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       return false;
     },
     canvases: () => [canvas],
+    // The HUD, login and menus are HTML: draw them over the world, or the screenshot is only the
+    // plaza behind them.
+    overlay: () => captureHtml(app, [canvas]),
     context: () => ({
       level: definition.id,
       mode: plazaState === 'online' ? 'online' : 'solo',
