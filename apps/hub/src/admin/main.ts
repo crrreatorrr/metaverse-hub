@@ -518,11 +518,11 @@ async function loadRuns(): Promise<void> {
   // leave the open note's form alone so nothing typed there is lost.
   const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
   if (lastRun && key !== lastRun) void load(true);
-  // Pull request states change on GitHub's clock (the worker syncs them): refresh at least
-  // every 30 seconds so a merge shows without pressing Refresh.
-  else if (Date.now() - lastListAt >= 29000) void load(true);
+  // Pull request states change on GitHub's clock (the worker syncs them every 30 s): refresh
+  // the list every 15 s so a merge shows within about 45 s without pressing Refresh.
+  else if (Date.now() - lastListAt >= 14000) void load(true);
   lastRun = key;
-  scheduleRuns(result.active ? 5000 : 30000);
+  scheduleRuns(result.active ? 5000 : 15000);
 }
 
 function renderRun(active: Run | null, last: Run | null, message = ''): void {

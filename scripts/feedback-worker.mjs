@@ -8,7 +8,7 @@
 // run, and only the worker that claimed a run may report on it, so two workers (or two presses
 // of Check) never work the same notes. Canceling the run in the panel stops the agent.
 //
-// It also keeps each note's pull request state current: every FEEDBACK_PR_SYNC_SECONDS (120; 0
+// It also keeps each note's pull request state current: every FEEDBACK_PR_SYNC_SECONDS (30; 0
 // turns it off) it asks GitHub (`gh pr view`, with the gh login on this machine) about every PR
 // linked from an unresolved note and reports open, draft, merged or closed to the hub.
 //
@@ -400,7 +400,7 @@ async function main() {
     pollMs: envNumber(env.FEEDBACK_POLL_SECONDS, 20, 5) * 1000,
     heartbeatMs: envNumber(env.FEEDBACK_HEARTBEAT_SECONDS, 60, 2) * 1000,
     maxMinutes: envNumber(env.FEEDBACK_MAX_MINUTES, 240, 5),
-    prSyncMs: env.FEEDBACK_PR_SYNC_SECONDS === '0' ? 0 : envNumber(env.FEEDBACK_PR_SYNC_SECONDS, 120, 30) * 1000,
+    prSyncMs: env.FEEDBACK_PR_SYNC_SECONDS === '0' ? 0 : envNumber(env.FEEDBACK_PR_SYNC_SECONDS, 30, 15) * 1000,
     agent: env.FEEDBACK_AGENT ?? 'claude',
     permissionMode: env.FEEDBACK_PERMISSION_MODE ?? 'auto',
     hubRoot,

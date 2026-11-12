@@ -99,10 +99,10 @@ export.
 
 Each note can carry the pull request with its fix (the agent sets it; the panel's form edits it).
 The list and the note show its status next to the PR's state: open, draft, merged or closed. The
-worker keeps those current: every two minutes it asks GitHub (`gh pr view`, with the `gh` login
+worker keeps those current: every 30 seconds it asks GitHub (`gh pr view`, with the `gh` login
 on that computer) about the PR of every unresolved note and reports the answers with
 `feedback.admin.prstate`. A change of state goes into the note's history. The panel refreshes the
-list every 30 seconds, so a merge shows on its own. `FEEDBACK_PR_SYNC_SECONDS` changes the
+list every 15 seconds, so a merge shows on its own within about 45 seconds. `FEEDBACK_PR_SYNC_SECONDS` changes the
 interval; `0` turns the sync off. Without a running worker the states stop updating.
 
 The worker never merges, deploys or pushes to `main`. Its log for each run is in
