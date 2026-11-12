@@ -120,11 +120,17 @@ export function capturePage(root: HTMLElement, skip: readonly Element[], maxWidt
         onCloneEachNode: (cloned) => {
           if (cloned instanceof HTMLElement && cloned.hasAttribute(UNDER)) cloned.style.setProperty('background', 'none', 'important');
         },
-        filter: (node) => !(node instanceof Element) || (!skip.includes(node) && node.checkVisibility()),
+        filter: (node) => !(node instanceof Element) || (!skip.includes(node) && visible(node)),
       }),
     )
     .catch(() => null)
     .finally(done);
+}
+
+/** Element.checkVisibility, or the computed display where it is missing (Safari before 17.4). */
+function visible(node: Element): boolean {
+  if (typeof node.checkVisibility === 'function') return node.checkVisibility();
+  return getComputedStyle(node).display !== 'none';
 }
 
 /** The colour behind everything on the page, for the parts no canvas or element covers. */
