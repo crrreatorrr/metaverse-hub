@@ -7,8 +7,8 @@ import { fixture as paymentFixture, isolate as paymentIsolate, enable as payment
 
 type Obj=Record<string,unknown>;
 type Test=(category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
-const SHA='735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
-const SOURCE='2608511e93b765aedfb8e9311266bb9e989170e8';
+const SHA='a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040';
+const SOURCE='a4252d117190a388e5a7974b40cd88c679ea6e72';
 const MANIFEST={artifact:'shooter-sim',sourceCommit:SOURCE,sha256:SHA,protocol:1,contentFingerprint:'73c6eb0f',uploadProtocol:2,replayApiVersion:2,checkpointSchema:2,economyPolicy:1};
 const context=vm.createContext({});
 const retainedBytes=readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`,import.meta.url));

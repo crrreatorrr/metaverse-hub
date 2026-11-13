@@ -418,3 +418,64 @@ HubSchema.register({
     $art$`,
   ],
 });
+
+// 0068 is already applied, so its bundle literals stay. The campaign fingerprint
+// is still 73c6eb0f. This moves the live allowlist onto the bundle rebuilt from
+// Shooter main a4252d11 (sha256 a215914d…). Level data since 2608511e changed
+// the campaign bundle bytes. #140 did not change sim sources; the pin is that
+// later main, so the baked commit moved and the bundle bytes changed only by
+// that commit. A historical replay runs 0068 against the function this already
+// rewrote, so the comment below keeps 0068's literals visible to its position()
+// guards. The comparisons use the new literals. 0067's earlier comment stays.
+// The Arena pin moved to the same commit because sim sources changed since
+// 2608511e; its fingerprint is still e749d2fd and its sha256 is 59d422cf….
+// Stored rows, the 20 Ticket amount, and wager settlement are untouched.
+// Applying this twice changes nothing.
+HubSchema.register({
+  id: "0069_shooter_campaign_level_bundle",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle 2608511e93b765aedfb8e9311266bb9e989170e8 735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', 'a4252d117190a388e5a7974b40cd88c679ea6e72');
+      src := replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040');
+      IF position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) > 0
+        OR position('a4252d117190a388e5a7974b40cd88c679ea6e72' in src) = 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) > 0
+        OR position('a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in replace(src, note, '')) > 0
+        OR position('a4252d117190a388e5a7974b40cd88c679ea6e72' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_issue_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', 'a4252d117190a388e5a7974b40cd88c679ea6e72');
+      src := replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040');
+      IF position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) > 0
+        OR position('a4252d117190a388e5a7974b40cd88c679ea6e72' in src) = 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) > 0
+        OR position('a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in replace(src, note, '')) > 0
+        OR position('a4252d117190a388e5a7974b40cd88c679ea6e72' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_work_replay_note_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});

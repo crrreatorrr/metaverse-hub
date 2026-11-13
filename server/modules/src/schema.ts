@@ -3919,6 +3919,11 @@ namespace HubSchema {
   // It moves the live verification allowlist onto that same vendored bundle; no row or wager change.
   // 0067_shooter_campaign_bundle is registered from the same file. It moves that allowlist onto the
   // shared-gameplay campaign bundle; the fingerprint stays 73c6eb0f. No row or wager change.
+  // 0068_shooter_campaign_allowlist is registered from the same file. It moves that allowlist onto
+  // the bundle the campaign client accepted at 2608511e / 735b6da5. No row or wager change.
+  // 0069_shooter_campaign_level_bundle is registered from the same file. It moves that allowlist
+  // onto the campaign bundle rebuilt from Shooter main a4252d11 / a215914d. The fingerprint stays
+  // 73c6eb0f. No row or wager change.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 
