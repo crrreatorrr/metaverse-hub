@@ -1,5 +1,6 @@
 // Actions-only fault injection. Init is the process that runs out of memory.
-// A sleeper stays in the cgroup afterwards. On the systemd cgroup driver,
+// /bin/sleep stays in the cgroup afterwards. A second Node heap does not fit
+// in the 64MB limit. On the systemd cgroup driver,
 // systemd otherwise deletes memory.events as soon as init exits, and Docker
 // records exit 137 with OOMKilled left false. memory.oom.group stays 0 so the
 // sleeper is not killed with init and the cgroup is still there to read.
@@ -11,7 +12,9 @@ const docker=(args,timeout=10000)=>execFileSync('docker',args,{encoding:'utf8',t
 const pause=ms=>new Promise(r=>setTimeout(r,ms));
 const body=[
   "const {spawn}=require('node:child_process');const fs=require('node:fs');",
-  "spawn(process.execPath,['-e','setInterval(()=>{},1000)'],{stdio:'ignore'});",
+  // A second Node heap does not fit beside init inside the 64MB limit.
+  "const sleeper=spawn('/bin/sleep',['3600'],{stdio:'ignore'});",
+  "sleeper.on('error',()=>process.exit(1));",
   "process.on('SIGUSR2',()=>{const a=[];for(;;)a.push(Buffer.alloc(8*1024*1024,1))});",
   "fs.writeFileSync('/tmp/allocator-ready','ready');setInterval(()=>{},1000);",
 ].join('');
