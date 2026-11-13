@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { guest, openGame, call, compose, psql, psqlFile, psqlAsync, num, sleep, type Guest } from './harness.ts';
 type TestFn = (category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Row = Record<string,unknown>;
-const SHA='4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
+const SHA='735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
 const ROOT=new URL('../../../services/shooter-verifier/artifacts/'+SHA+'/',import.meta.url);
 const q=(s:string)=>"'"+s.replace(/'/g,"''")+"'";
 const CONFIG=`UPDATE game.shooter_verification_gateway SET enabled=true,global_attempts_per_minute=100000,account_attempts_per_minute=10000,max_requests=100000,max_principal_requests=10000,max_receipt_bytes=1099511627776,max_principal_receipt_bytes=107374182400;
@@ -38,7 +38,7 @@ async function fixture():Promise<string> {
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${player.userId}','${login.sessionId}','internal:${run}',current_date,'sahil',7,${q(issuance)});
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','2215995f40d999f31336815296e1e7b7726f932a','73c6eb0f',now()-interval '2 minutes',now()+interval '43 minutes');`);
+    VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','2608511e93b765aedfb8e9311266bb9e989170e8','73c6eb0f',now()-interval '2 minutes',now()+interval '43 minutes');`);
   const appended=await call('shooter.run.append',{protocol:2,runId:run,sequence:0,tick0:0,n:8,frames:Buffer.alloc(96).toString('base64'),actions:[]},login.gameToken);
   assert.equal((appended.body as Row).state,'received',JSON.stringify(appended)); return run;
 }
@@ -110,7 +110,7 @@ export async function runShooterVerificationInternal(test:TestFn):Promise<void> 
     psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
       VALUES('${run}','${player.userId}','${login.sessionId}','late:${run}',current_date,'obama',7,${q(JSON.stringify(generated.issuance))});
       INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-      VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','2215995f40d999f31336815296e1e7b7726f932a','73c6eb0f',now()-interval '10 minutes',now()+interval '35 minutes');`);
+      VALUES('${run}','${player.userId}','${login.sessionId}',1,2,1,'${SHA}','2608511e93b765aedfb8e9311266bb9e989170e8','73c6eb0f',now()-interval '10 minutes',now()+interval '35 minutes');`);
     assert.equal(((await call('shooter.run.append',generated.batch,login.gameToken)).body as Row).state,'received');
     // Trusted fixture seeds a simulator-generated predecessor; no public RPC
     // accepts checkpoints; PR11 advances only an authenticated bound result.

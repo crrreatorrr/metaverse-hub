@@ -21,11 +21,11 @@ const protocolPath = join(root, 'server/modules/src/games/shooter_protocol.ts');
 const REPO = 'crrreatorrr/sproto-shooter';
 const PROTOCOL = 2;
 const SIM = 2;
-const FINGERPRINT = 'dc00f234';
-const LOADOUT = '4cdfab55';
+const FINGERPRINT = 'e749d2fd';
+const LOADOUT = '37131c3e';
 const CAMPAIGN_FINGERPRINT = '73c6eb0f';
-const CAMPAIGN_SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
-const GOLDEN = { outcome: 'draw', reason: 'double_ko', winner: null, tick: 65, stateHash: '532a562e' };
+const CAMPAIGN_SHA = '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
+const GOLDEN = { outcome: null, reason: null, winner: null, tick: 180, stateHash: 'da423456' };
 // The director v2 limits shooter_protocol.ts verifyRuntime() requires. A bundle
 // with other limits marks every match broken (limits_mismatch).
 const LIMITS = {
@@ -61,7 +61,7 @@ function loadPin(text, label) {
   const replayLimits = pin.replayLimits || {};
   for (const key of Object.keys(REPLAY_LIMITS)) if (replayLimits[key] !== REPLAY_LIMITS[key]) errors.push(`${label} replayLimits.${key}`);
   if (pin.directorState !== 3 || pin.replayVersion !== 2) errors.push(`${label} director/replay version`);
-  if (pin.combatSeed !== 'sha256-commit-reveal-128' || pin.crits !== false) errors.push(`${label} combat seed`);
+  if (pin.combatSeed !== 'sha256-commit-reveal-128' || pin.crits !== true) errors.push(`${label} combat seed`);
   if (pin.sha256 !== pin.bundleSha256) errors.push(`${label} sha256 != bundleSha256`);
   if (pin.commit !== pin.sourceCommit) errors.push(`${label} commit != sourceCommit`);
   if (pin.mintsTickets !== false || pin.stakes !== false) errors.push(`${label} economy`);

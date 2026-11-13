@@ -42,11 +42,8 @@ var SprotoShooterPvp = (() => {
     sha256Hex: () => sha256Hex
   });
 
-  // src/data/tuning.js
-  var TUNING = {
-    arenaRadius: 45,
-    spawnRadius: 43,
-    spawnPointCount: 16,
+  // src/data/gameplay.js
+  var GAMEPLAY = Object.freeze({
     eyeHeight: 1.6,
     slideEye: 0.72,
     downedEye: 0.6,
@@ -72,6 +69,19 @@ var SprotoShooterPvp = (() => {
     slideHopBoost: 1.12,
     slideSlope: 14,
     slideStamina: 0.14,
+    slideSteer: 10,
+    slideStopFrac: 0.9,
+    slideProbe: Object.freeze({
+      radius: 0.15,
+      ahead: 0.75,
+      hereFeet: 0.5,
+      hereReach: 0.8,
+      thereFeet: 1.4,
+      thereReach: 1.4,
+      drop: 0.02,
+      gain: 12
+    }),
+    dashEndScale: 0.45,
     staminaSprint: 4.5,
     staminaRegenDelay: 0.55,
     staminaRegen: 1.7,
@@ -82,28 +92,87 @@ var SprotoShooterPvp = (() => {
     grappleSpeed: 12.5,
     grappleReleaseSpeed: 8.5,
     grappleArrive: 1.35,
+    grappleOrigin: 0.9,
     dashSpeed: 24,
     dashTime: 0.15,
     dashCd: 2,
     dashInvuln: 0.12,
+    maxHp: 100,
+    maxShield: 50,
+    shieldDelay: 3,
+    shieldRegen: 25,
+    secondWindTime: 10,
+    downedSpeedMult: 0.3,
+    hitscanRange: 150,
+    pitchLimit: 1.5,
+    /** Campaign damageEnemy multiplies a crit by this, not by the gun's critMult. */
+    critHitMult: 1.5,
+    /** Splash is full damage at the impact and this fraction at the edge. */
+    splashMinFalloff: 0.3
+  });
+
+  // src/data/tuning.js
+  var TUNING = {
+    arenaRadius: 45,
+    spawnRadius: 43,
+    spawnPointCount: 16,
+    eyeHeight: GAMEPLAY.eyeHeight,
+    slideEye: GAMEPLAY.slideEye,
+    downedEye: GAMEPLAY.downedEye,
+    playerRadius: GAMEPLAY.playerRadius,
+    playerHeight: GAMEPLAY.playerHeight,
+    walkSpeed: GAMEPLAY.walkSpeed,
+    sprintSpeed: GAMEPLAY.sprintSpeed,
+    groundAccel: GAMEPLAY.groundAccel,
+    friction: GAMEPLAY.friction,
+    airAccel: GAMEPLAY.airAccel,
+    gravity: GAMEPLAY.gravity,
+    jumpVel: GAMEPLAY.jumpVel,
+    doubleJumpVel: GAMEPLAY.doubleJumpVel,
+    coyote: GAMEPLAY.coyote,
+    jumpBuffer: GAMEPLAY.jumpBuffer,
+    slideMinSpeed: GAMEPLAY.slideMinSpeed,
+    slideBoost: GAMEPLAY.slideBoost,
+    slideCruise: GAMEPLAY.slideCruise,
+    slideDrag: GAMEPLAY.slideDrag,
+    slideTime: GAMEPLAY.slideTime,
+    slideCd: GAMEPLAY.slideCd,
+    slideHopCd: GAMEPLAY.slideHopCd,
+    slideHopBoost: GAMEPLAY.slideHopBoost,
+    slideSlope: GAMEPLAY.slideSlope,
+    slideStamina: GAMEPLAY.slideStamina,
+    staminaSprint: GAMEPLAY.staminaSprint,
+    staminaRegenDelay: GAMEPLAY.staminaRegenDelay,
+    staminaRegen: GAMEPLAY.staminaRegen,
+    staminaRefill: GAMEPLAY.staminaRefill,
+    grappleRange: GAMEPLAY.grappleRange,
+    grappleCd: GAMEPLAY.grappleCd,
+    grapplePull: GAMEPLAY.grapplePull,
+    grappleSpeed: GAMEPLAY.grappleSpeed,
+    grappleReleaseSpeed: GAMEPLAY.grappleReleaseSpeed,
+    grappleArrive: GAMEPLAY.grappleArrive,
+    dashSpeed: GAMEPLAY.dashSpeed,
+    dashTime: GAMEPLAY.dashTime,
+    dashCd: GAMEPLAY.dashCd,
+    dashInvuln: GAMEPLAY.dashInvuln,
     fovBase: 90,
     fovSprint: 6,
     fovAds: 70,
     fovScope: 12,
     // god mode keeps you at or above these while it's on
     godTickets: 99999,
-    maxHp: 100,
-    maxShield: 50,
+    maxHp: GAMEPLAY.maxHp,
+    maxShield: GAMEPLAY.maxShield,
     maxMana: 100,
-    shieldDelay: 3,
-    shieldRegen: 25,
+    shieldDelay: GAMEPLAY.shieldDelay,
+    shieldRegen: GAMEPLAY.shieldRegen,
     quickShieldDelay: 1.8,
     quickShieldRegenMult: 1.5,
     manaRegen: 5,
-    secondWindTime: 10,
+    secondWindTime: GAMEPLAY.secondWindTime,
     reviveHpFrac: 0.3,
     reviveInvuln: 2,
-    downedSpeedMult: 0.3,
+    downedSpeedMult: GAMEPLAY.downedSpeedMult,
     sandboxRespawn: 3,
     startAmmo: { bullets: 240, shells: 24, sniper: 12, rockets: 4 },
     ammoCap: { bullets: 480, shells: 64, sniper: 36, rockets: 12 },
@@ -120,7 +189,7 @@ var SprotoShooterPvp = (() => {
     pickupTtl: 30,
     gunPickupTtl: 120,
     gunPickupRadius: 2.2,
-    hitscanRange: 150
+    hitscanRange: GAMEPLAY.hitscanRange
   };
   var ARENA_R = TUNING.arenaRadius;
 
@@ -824,6 +893,223 @@ var SprotoShooterPvp = (() => {
     const speed = Math.hypot(x, y, z);
     return speed > limit ? limit / speed : 1;
   }
+  function steerGrapple(vel, dx, dy, dz, dt) {
+    const dist = Math.hypot(dx, dy, dz) || 1;
+    if (dist < GAMEPLAY.grappleArrive) return "arrive";
+    const pull = GAMEPLAY.grapplePull * dt;
+    vel.x += dx / dist * pull;
+    vel.y += dy / dist * pull;
+    vel.z += dz / dist * pull;
+    const k = grappleSpeedScale(vel.x, vel.y, vel.z, GAMEPLAY.grappleSpeed);
+    vel.x *= k;
+    vel.y *= k;
+    vel.z *= k;
+    return "pull";
+  }
+  function releaseGrappleSpeed(vel) {
+    const k = grappleSpeedScale(vel.x, vel.y, vel.z, GAMEPLAY.grappleReleaseSpeed);
+    vel.x *= k;
+    vel.y *= k;
+    vel.z *= k;
+  }
+
+  // src/sim/gameplay.js
+  function stepLocomotion(body, wish, dt, world = {}) {
+    const move = body.move;
+    const vel = body.vel;
+    move.slideCd = Math.max(0, move.slideCd - dt);
+    move.dashCd = Math.max(0, move.dashCd - dt);
+    const sy = Math.sin(body.yaw);
+    const cy = Math.cos(body.yaw);
+    let wx = -sy * wish.moveZ + cy * wish.moveX;
+    let wz = -cy * wish.moveZ - sy * wish.moveX;
+    const wl = Math.hypot(wx, wz);
+    if (wl > 1) {
+      wx /= wl;
+      wz /= wl;
+    }
+    const canAct = !body.downed;
+    if (!wish.zoom) body.zoomCancelled = false;
+    const sprintHeld = canAct && !!wish.sprint && wish.moveZ > 0;
+    if (sprintHeld && wish.zoom) body.zoomCancelled = true;
+    body.zooming = !!wish.zoom && !body.zoomCancelled;
+    const wantSprint = sprintHeld && !body.staminaLock && body.stamina > 0;
+    let sprinting = wantSprint;
+    if (sprinting) {
+      body.stamina = Math.max(0, body.stamina - dt / GAMEPLAY.staminaSprint);
+      body.staminaDelay = GAMEPLAY.staminaRegenDelay;
+      if (body.stamina <= 0) {
+        body.staminaLock = true;
+        sprinting = false;
+      }
+    } else {
+      if (body.staminaDelay > 0) body.staminaDelay = Math.max(0, body.staminaDelay - dt);
+      else if (body.stamina < 1) body.stamina = Math.min(1, body.stamina + dt / GAMEPLAY.staminaRegen);
+      if (body.staminaLock && body.stamina >= GAMEPLAY.staminaRefill) body.staminaLock = false;
+    }
+    let maxSpeed = sprinting ? GAMEPLAY.sprintSpeed : GAMEPLAY.walkSpeed;
+    const scales = body.speedScales;
+    if (scales) for (let i = 0; i < scales.length; i++) maxSpeed *= scales[i];
+    if (body.downed) maxSpeed *= GAMEPLAY.downedSpeedMult;
+    if (wish.jump) body.jumpBufferT = GAMEPLAY.jumpBuffer;
+    else body.jumpBufferT = Math.max(0, body.jumpBufferT - dt);
+    if (body.onGround) {
+      body.coyoteT = GAMEPLAY.coyote;
+      body.jumpsLeft = 2;
+    } else body.coyoteT = Math.max(0, body.coyoteT - dt);
+    const emit = world.emit;
+    if (canAct && wish.dash && move.dashCd <= 0) {
+      const dl = Math.hypot(wx, wz);
+      move.dashDir = dl > 0.1 ? { x: wx / dl, z: wz / dl } : { x: -sy, z: -cy };
+      move.mode = "dash";
+      move.dashT = GAMEPLAY.dashTime;
+      move.dashCd = GAMEPLAY.dashCd;
+      body.invulnT = Math.max(body.invulnT || 0, GAMEPLAY.dashInvuln);
+      if (emit) emit("dash");
+    }
+    const hs = Math.hypot(vel.x, vel.z);
+    const wantSlide = canAct && body.onGround && move.mode !== "slide" && move.slideCd <= 0 && (wish.slide || wish.crouch && sprinting) && (hs > GAMEPLAY.slideMinSpeed || sprinting);
+    if (wantSlide) {
+      const dirx = hs > 0.4 ? vel.x / hs : -sy;
+      const dirz = hs > 0.4 ? vel.z / hs : -cy;
+      const boost = Math.max(hs, GAMEPLAY.slideBoost);
+      vel.x = dirx * boost;
+      vel.z = dirz * boost;
+      move.mode = "slide";
+      move.slideT = GAMEPLAY.slideTime;
+      body.stamina = Math.max(0, body.stamina - GAMEPLAY.slideStamina);
+      body.staminaDelay = GAMEPLAY.staminaRegenDelay;
+      if (body.stamina <= 0) body.staminaLock = true;
+      if (emit) emit("slide");
+    }
+    const hooked = !!body.grapple;
+    if (move.mode === "dash") {
+      move.dashT -= dt;
+      vel.x = move.dashDir.x * GAMEPLAY.dashSpeed;
+      vel.z = move.dashDir.z * GAMEPLAY.dashSpeed;
+      vel.y = Math.max(vel.y, 0);
+      if (move.dashT <= 0) {
+        move.mode = "walk";
+        vel.x *= GAMEPLAY.dashEndScale;
+        vel.z *= GAMEPLAY.dashEndScale;
+      }
+    } else if (move.mode === "slide" && !hooked) {
+      move.slideT -= dt;
+      if (wl > 0.2) {
+        vel.x += wx * GAMEPLAY.slideSteer * dt;
+        vel.z += wz * GAMEPLAY.slideSteer * dt;
+      }
+      let sp = Math.hypot(vel.x, vel.z) || 1e-4;
+      const probe = GAMEPLAY.slideProbe;
+      if (world.groundAt) {
+        const pos = body.pos;
+        const ux = vel.x / sp;
+        const uz = vel.z / sp;
+        const here = world.groundAt(pos.x, pos.z, probe.radius, pos.y + probe.hereFeet, probe.hereReach);
+        const there = world.groundAt(
+          pos.x + ux * probe.ahead,
+          pos.z + uz * probe.ahead,
+          probe.radius,
+          pos.y + probe.thereFeet,
+          probe.thereReach
+        );
+        if (here > -1e8 && there > -1e8 && here - there > probe.drop) {
+          const gain = Math.min(GAMEPLAY.slideSlope * dt, (here - there) * probe.gain);
+          vel.x += ux * gain;
+          vel.z += uz * gain;
+          sp = Math.hypot(vel.x, vel.z) || 1e-4;
+        }
+      }
+      const next2 = sp + (GAMEPLAY.slideCruise - sp) * Math.min(1, GAMEPLAY.slideDrag * dt);
+      const k = Math.max(0, next2) / sp;
+      vel.x *= k;
+      vel.z *= k;
+      if (move.slideT <= 0 || next2 < GAMEPLAY.walkSpeed * GAMEPLAY.slideStopFrac || !body.onGround) {
+        move.mode = body.onGround ? "walk" : "air";
+        move.slideCd = GAMEPLAY.slideCd;
+      }
+    } else if (body.onGround && !hooked) {
+      const tx = wx * maxSpeed;
+      const tz = wz * maxSpeed;
+      const dx = tx - vel.x;
+      const dz = tz - vel.z;
+      const dl = Math.hypot(dx, dz);
+      const acc = (wl > 0.01 ? GAMEPLAY.groundAccel : GAMEPLAY.friction * Math.max(hs, 2)) * dt;
+      if (dl > 0) {
+        const k = Math.min(1, acc / dl);
+        vel.x += dx * k;
+        vel.z += dz * k;
+      }
+      move.mode = sprinting ? "sprint" : "walk";
+    } else if (hooked) {
+      move.mode = "air";
+    } else {
+      const cap = Math.max(hs, GAMEPLAY.walkSpeed);
+      vel.x += wx * GAMEPLAY.airAccel * dt;
+      vel.z += wz * GAMEPLAY.airAccel * dt;
+      const nh = Math.hypot(vel.x, vel.z);
+      if (nh > cap) {
+        vel.x *= cap / nh;
+        vel.z *= cap / nh;
+      }
+      move.mode = "air";
+    }
+    if (canAct && body.jumpBufferT > 0) {
+      if (body.onGround || body.coyoteT > 0) {
+        vel.y = GAMEPLAY.jumpVel;
+        body.onGround = false;
+        body.coyoteT = 0;
+        body.jumpsLeft = 1;
+        body.jumpBufferT = 0;
+        if (move.mode === "slide") {
+          const sp = Math.hypot(vel.x, vel.z);
+          if (sp > 0.1) {
+            const boosted = sp * GAMEPLAY.slideHopBoost;
+            vel.x = vel.x / sp * boosted;
+            vel.z = vel.z / sp * boosted;
+          }
+          move.mode = "air";
+          move.slideCd = GAMEPLAY.slideHopCd;
+        }
+        if (emit) emit("jump");
+      } else if (body.jumpsLeft > 0) {
+        vel.y = GAMEPLAY.doubleJumpVel;
+        body.jumpsLeft = 0;
+        body.jumpBufferT = 0;
+        if (emit) emit("doubleJump");
+      }
+    }
+  }
+  function applyGravity(body, dt) {
+    if (body.move.mode !== "dash") body.vel.y -= GAMEPLAY.gravity * dt;
+  }
+  function beginDowned(body) {
+    body.hp = 0;
+    body.downed = true;
+    body.downedT = GAMEPLAY.secondWindTime;
+  }
+  function resolvePellet(rng, hit) {
+    const crit = !!(hit.canCrit && float(rng) < (hit.critChance ?? 0.05));
+    let damage = hit.base * (crit ? GAMEPLAY.critHitMult : 1);
+    const element = hit.element || "none";
+    const elementProc = !hit.noProc && element !== "none" && float(rng) < (hit.elementChance ?? 0);
+    const radius = hit.splashRadius || 0;
+    if (radius > 0 && hit.splashDistance <= radius) {
+      const f = 1 + (GAMEPLAY.splashMinFalloff - 1) * ((hit.splashDistance || 0) / radius);
+      damage += (hit.splashDamage || 0) * f;
+    }
+    return { damage, crit, elementProc };
+  }
+  function tickDowned(body, dt) {
+    if (!body.downed) return false;
+    body.downedT -= dt;
+    if (body.downedT <= 0) {
+      body.downed = false;
+      body.downedT = 0;
+      return true;
+    }
+    return false;
+  }
 
   // src/sim/pvp/rules.js
   var PVP_PROTOCOL_VERSION = 2;
@@ -895,10 +1181,6 @@ var SprotoShooterPvp = (() => {
     stats.reloadTime = Math.max(0.3, stats.reloadTime * quality.reloadMult);
     stats.spread *= quality.spreadMult;
     stats.adsSpread *= quality.spreadMult;
-    stats.elementChance = 0;
-    stats.critChance = 0;
-    stats.splashRadius = 0;
-    stats.splashDamage = 0;
     for (const key of Object.keys(stats)) {
       if (key === "magSize" || key === "pellets" || key === "pierce") stats[key] = Math.round(stats[key]);
       else stats[key] = round3(stats[key]);
@@ -940,7 +1222,7 @@ var SprotoShooterPvp = (() => {
       readyMs: READY_MS,
       stallMs: STALL_MS,
       perks: [],
-      crits: false,
+      crits: true,
       rewind: REWIND,
       // sha256 commit, reveal in RESULT; the RNG takes 128 bits of sha256(seed).
       combatSeed: "commit-reveal-sha256-128",
@@ -951,9 +1233,16 @@ var SprotoShooterPvp = (() => {
         sprint: TUNING.sprintSpeed,
         gravity: TUNING.gravity,
         jump: TUNING.jumpVel,
+        doubleJump: GAMEPLAY.doubleJumpVel,
+        coyote: GAMEPLAY.coyote,
+        jumpBuffer: GAMEPLAY.jumpBuffer,
         air: TUNING.airAccel,
         ground: TUNING.groundAccel,
         friction: TUNING.friction,
+        dashEnd: GAMEPLAY.dashEndScale,
+        sprintCancelsZoom: true,
+        downedTime: GAMEPLAY.secondWindTime,
+        downedSpeed: GAMEPLAY.downedSpeedMult,
         slide: {
           min: TUNING.slideMinSpeed,
           boost: TUNING.slideBoost,
@@ -963,6 +1252,8 @@ var SprotoShooterPvp = (() => {
           cd: TUNING.slideCd,
           hopCd: TUNING.slideHopCd,
           hop: TUNING.slideHopBoost,
+          slope: GAMEPLAY.slideSlope,
+          steer: GAMEPLAY.slideSteer,
           stamina: TUNING.slideStamina
         },
         stamina: {
@@ -1053,6 +1344,13 @@ var SprotoShooterPvp = (() => {
       staminaLock: false,
       slideT: 0,
       slideCd: 0,
+      coyoteT: 0,
+      jumpBufferT: 0,
+      jumpsLeft: 2,
+      downed: false,
+      downedT: 0,
+      moveMode: "walk",
+      zoomCancelled: false,
       grappleCd: 0,
       grapple: null,
       slot: 0,
@@ -1126,16 +1424,17 @@ var SprotoShooterPvp = (() => {
     const view = viewOf(wish, tick);
     return {
       yaw: num(wish.yaw, player.yaw),
-      pitch: Math.max(-1.5, Math.min(1.5, num(wish.pitch, player.pitch))),
+      pitch: Math.max(-GAMEPLAY.pitchLimit, Math.min(GAMEPLAY.pitchLimit, num(wish.pitch, player.pitch))),
       moveX: Math.max(-1, Math.min(1, num(wish.moveX, 0))),
       moveZ: Math.max(-1, Math.min(1, num(wish.moveZ, 0))),
       fire: !!wish.fire,
       zoom: !!wish.zoom,
-      sprint: !!wish.sprint && !wish.zoom,
+      sprint: !!wish.sprint,
       jump: !!wish.jump,
       dash: !!wish.dash,
       reload: !!wish.reload,
       slide: !!wish.slide,
+      crouch: !!wish.crouch,
       grapple: !!wish.grapple,
       slot,
       rewind: view.back,
@@ -1162,14 +1461,22 @@ var SprotoShooterPvp = (() => {
     };
   }
   function ensureMove(p) {
-    if (p.stamina != null) return;
-    p.stamina = 1;
-    p.staminaDelay = 0;
-    p.staminaLock = false;
-    p.slideT = 0;
-    p.slideCd = 0;
-    p.grappleCd = 0;
-    p.grapple = null;
+    if (p.stamina == null) {
+      p.stamina = 1;
+      p.staminaDelay = 0;
+      p.staminaLock = false;
+      p.slideT = 0;
+      p.slideCd = 0;
+      p.grappleCd = 0;
+      p.grapple = null;
+    }
+    if (p.coyoteT == null) p.coyoteT = 0;
+    if (p.jumpBufferT == null) p.jumpBufferT = 0;
+    if (p.jumpsLeft == null) p.jumpsLeft = 2;
+    if (p.downed == null) p.downed = false;
+    if (p.downedT == null) p.downedT = 0;
+    if (p.moveMode == null) p.moveMode = "walk";
+    if (p.zoomCancelled == null) p.zoomCancelled = false;
   }
   function eyeOf(p) {
     const h = p.slideT > 0 ? TUNING.slideEye : TUNING.eyeHeight;
@@ -1214,15 +1521,13 @@ var SprotoShooterPvp = (() => {
       }
     }
   }
-  function limitGrappleSpeed(p, limit) {
-    const k = grappleSpeedScale(p.vx, p.vy, p.vz, limit);
-    p.vx *= k;
-    p.vy *= k;
-    p.vz *= k;
-  }
   function releaseArenaGrapple(p) {
     if (!p.grapple) return;
-    limitGrappleSpeed(p, TUNING.grappleReleaseSpeed);
+    const vel = { x: p.vx, y: p.vy, z: p.vz };
+    releaseGrappleSpeed(vel);
+    p.vx = vel.x;
+    p.vy = vel.y;
+    p.vz = vel.z;
     p.grapple = null;
   }
   function tickArenaGrapple(p, wish, dt) {
@@ -1234,7 +1539,7 @@ var SprotoShooterPvp = (() => {
     if (!p.grapple) {
       if (p.grappleCd > 0) return;
       const hook2 = arenaHook(eyeOf(p), dirFromYawPitch(p.yaw, p.pitch));
-      p.grappleCd = TUNING.grappleCd;
+      p.grappleCd = GAMEPLAY.grappleCd;
       if (!hook2) {
         p.grappleMiss = true;
         return;
@@ -1252,154 +1557,90 @@ var SprotoShooterPvp = (() => {
       releaseArenaGrapple(p);
       return;
     }
-    const oy = p.y + 0.9;
-    const px = hook.x - p.x;
-    const py = hook.y - oy;
-    const pz = hook.z - p.z;
-    const pd = Math.hypot(px, py, pz) || 1;
-    if (pd < TUNING.grappleArrive) {
-      releaseArenaGrapple(p);
-      return;
-    }
-    const pull = TUNING.grapplePull * dt;
-    p.vx += px / pd * pull;
-    p.vy += py / pd * pull;
-    p.vz += pz / pd * pull;
-    limitGrappleSpeed(p, TUNING.grappleSpeed);
+    const oy = p.y + GAMEPLAY.grappleOrigin;
+    const vel = { x: p.vx, y: p.vy, z: p.vz };
+    const phase = steerGrapple(vel, hook.x - p.x, hook.y - oy, hook.z - p.z, dt);
+    p.vx = vel.x;
+    p.vy = vel.y;
+    p.vz = vel.z;
+    if (phase === "arrive") releaseArenaGrapple(p);
   }
   function movePlayer(p, wish, dt) {
     ensureMove(p);
     p.yaw = q4(wish.yaw);
-    p.pitch = q4(Math.max(-1.5, Math.min(1.5, wish.pitch)));
+    p.pitch = q4(Math.max(-GAMEPLAY.pitchLimit, Math.min(GAMEPLAY.pitchLimit, wish.pitch)));
     if (wish.slot >= 0 && wish.slot !== p.slot) {
       p.slot = wish.slot;
       p.reloadT = 0;
       p.swapT = LOADOUT[p.slot].stats.swapTime;
     }
-    const sy = Math.sin(p.yaw);
-    const cy = Math.cos(p.yaw);
-    let wx = -sy * wish.moveZ + cy * wish.moveX;
-    let wz = -cy * wish.moveZ - sy * wish.moveX;
-    const wl = Math.hypot(wx, wz);
-    if (wl > 1) {
-      wx /= wl;
-      wz /= wl;
-    }
-    const wantSprint = wish.sprint && wish.moveZ > 0 && !p.staminaLock && p.stamina > 0;
-    let sprinting = wantSprint;
-    if (sprinting) {
-      p.stamina = Math.max(0, p.stamina - dt / TUNING.staminaSprint);
-      p.staminaDelay = TUNING.staminaRegenDelay;
-      if (p.stamina <= 0) {
-        p.staminaLock = true;
-        sprinting = false;
-      }
-    } else {
-      if (p.staminaDelay > 0) p.staminaDelay = Math.max(0, p.staminaDelay - dt);
-      else if (p.stamina < 1) p.stamina = Math.min(1, p.stamina + dt / TUNING.staminaRegen);
-      if (p.staminaLock && p.stamina >= TUNING.staminaRefill) p.staminaLock = false;
-    }
-    const maxSpeed = sprinting ? TUNING.sprintSpeed : TUNING.walkSpeed;
-    p.dashCd = Math.max(0, p.dashCd - dt);
-    p.slideCd = Math.max(0, p.slideCd - dt);
     p.invuln = Math.max(0, p.invuln - dt);
-    if (wish.dash && p.dashCd <= 0) {
-      const dl = Math.hypot(wx, wz);
-      p.dashX = dl > 0.1 ? wx / dl : -sy;
-      p.dashZ = dl > 0.1 ? wz / dl : -cy;
-      p.dashT = TUNING.dashTime;
-      p.dashCd = TUNING.dashCd;
-      p.invuln = Math.max(p.invuln, TUNING.dashInvuln);
-      p.slideT = 0;
-    }
-    const hs = Math.hypot(p.vx, p.vz);
-    if (p.onGround && p.slideT <= 0 && p.slideCd <= 0 && wish.slide && (hs > TUNING.slideMinSpeed || sprinting)) {
-      const dirx = hs > 0.4 ? p.vx / hs : -sy;
-      const dirz = hs > 0.4 ? p.vz / hs : -cy;
-      const boost = Math.max(hs, TUNING.slideBoost);
-      p.vx = dirx * boost;
-      p.vz = dirz * boost;
-      p.slideT = TUNING.slideTime;
-      p.dashT = 0;
-      p.stamina = Math.max(0, p.stamina - TUNING.slideStamina);
-      p.staminaDelay = TUNING.staminaRegenDelay;
-      if (p.stamina <= 0) p.staminaLock = true;
-    }
-    const hooked = !!p.grapple;
-    if (p.dashT > 0) {
-      p.dashT -= dt;
-      p.vx = p.dashX * TUNING.dashSpeed;
-      p.vz = p.dashZ * TUNING.dashSpeed;
-      p.vy = Math.max(p.vy, 0);
-      if (p.dashT < 0) p.dashT = 0;
-    } else if (p.slideT > 0 && !hooked) {
-      p.slideT -= dt;
-      if (wl > 0.2) {
-        p.vx += wx * 10 * dt;
-        p.vz += wz * 10 * dt;
+    const body = {
+      pos: { x: p.x, y: p.y, z: p.z },
+      vel: { x: p.vx, y: p.vy, z: p.vz },
+      yaw: p.yaw,
+      pitch: p.pitch,
+      onGround: p.onGround,
+      downed: !!p.downed,
+      zooming: !!wish.zoom,
+      stamina: p.stamina,
+      staminaDelay: p.staminaDelay,
+      staminaLock: !!p.staminaLock,
+      coyoteT: p.coyoteT,
+      jumpBufferT: p.jumpBufferT,
+      jumpsLeft: p.jumpsLeft,
+      invulnT: p.invuln,
+      grapple: p.grapple,
+      zoomCancelled: !!p.zoomCancelled,
+      move: {
+        mode: p.moveMode,
+        slideCd: p.slideCd,
+        dashCd: p.dashCd,
+        dashT: p.dashT,
+        dashDir: { x: p.dashX, z: p.dashZ },
+        slideT: p.moveMode === "slide" ? p.slideT : 0
       }
-      let sp = Math.hypot(p.vx, p.vz) || 1e-4;
-      const next2 = sp + (TUNING.slideCruise - sp) * Math.min(1, TUNING.slideDrag * dt);
-      const k = Math.max(0, next2) / sp;
-      p.vx *= k;
-      p.vz *= k;
-      if (p.slideT <= 0 || next2 < TUNING.walkSpeed * 0.9 || !p.onGround) {
-        p.slideT = 0;
-        p.slideCd = TUNING.slideCd;
-      }
-    } else if (p.onGround && !hooked) {
-      const tx = wx * maxSpeed;
-      const tz = wz * maxSpeed;
-      const dx = tx - p.vx;
-      const dz = tz - p.vz;
-      const dl = Math.hypot(dx, dz);
-      const acc = (wl > 0.01 ? TUNING.groundAccel : TUNING.friction * Math.max(hs, 2)) * dt;
-      if (dl > 0) {
-        const k = Math.min(1, acc / dl);
-        p.vx += dx * k;
-        p.vz += dz * k;
-      }
-    } else if (!hooked) {
-      const cap = Math.max(hs, TUNING.walkSpeed);
-      p.vx += wx * TUNING.airAccel * dt;
-      p.vz += wz * TUNING.airAccel * dt;
-      const nh = Math.hypot(p.vx, p.vz);
-      if (nh > cap) {
-        p.vx *= cap / nh;
-        p.vz *= cap / nh;
-      }
-    }
-    if (wish.jump && p.onGround) {
-      p.vy = TUNING.jumpVel;
-      p.onGround = false;
-      if (p.slideT > 0) {
-        const sp = Math.hypot(p.vx, p.vz);
-        if (sp > 0.1) {
-          const boosted = sp * TUNING.slideHopBoost;
-          p.vx = p.vx / sp * boosted;
-          p.vz = p.vz / sp * boosted;
-        }
-        p.slideT = 0;
-        p.slideCd = TUNING.slideHopCd;
-      }
-    }
-    if (p.dashT <= 0) p.vy -= TUNING.gravity * dt;
+    };
+    stepLocomotion(body, wish, dt, {
+      groundAt: (x, z, radius2, feet, reach) => groundHeight(ARENA_SOLIDS, x, z, radius2, feet, reach)
+    });
+    applyGravity(body, dt);
+    p.vx = body.vel.x;
+    p.vy = body.vel.y;
+    p.vz = body.vel.z;
+    p.onGround = body.onGround;
+    p.stamina = body.stamina;
+    p.staminaDelay = body.staminaDelay;
+    p.staminaLock = body.staminaLock;
+    p.coyoteT = body.coyoteT;
+    p.jumpBufferT = body.jumpBufferT;
+    p.jumpsLeft = body.jumpsLeft;
+    p.invuln = body.invulnT;
+    p.dashT = body.move.dashT;
+    p.dashCd = body.move.dashCd;
+    p.dashX = body.move.dashDir.x;
+    p.dashZ = body.move.dashDir.z;
+    p.slideCd = body.move.slideCd;
+    p.moveMode = body.move.mode;
+    p.zooming = !!body.zooming;
+    p.zoomCancelled = !!body.zoomCancelled;
+    p.slideT = body.move.mode === "slide" ? Math.max(0, body.move.slideT) : 0;
     tickArenaGrapple(p, wish, dt);
     const prevY = p.y;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     p.z += p.vz * dt;
     pushArena(p);
-    const body = {
+    const groundBody = {
       pos: { x: p.x, y: p.y, z: p.z },
       prevPos: { y: prevY },
       vel: { y: p.vy },
       onGround: false
     };
-    snapToGround(body, ARENA_SOLIDS, TUNING.playerRadius, 0.4);
-    if (body.onGround) {
-      p.y = body.pos.y;
-      p.vy = body.vel.y;
+    snapToGround(groundBody, ARENA_SOLIDS, TUNING.playerRadius, 0.4);
+    if (groundBody.onGround) {
+      p.y = groundBody.pos.y;
+      p.vy = groundBody.vel.y;
       p.onGround = true;
     } else if (p.y <= 0) {
       p.y = 0;
@@ -1461,6 +1702,10 @@ var SprotoShooterPvp = (() => {
     if (typeof p.staminaDelay === "number") p.staminaDelay = q4(Math.max(0, p.staminaDelay));
     if (typeof p.slideT === "number") p.slideT = q4(Math.max(0, p.slideT));
     if (typeof p.slideCd === "number") p.slideCd = q4(Math.max(0, p.slideCd));
+    if (typeof p.coyoteT === "number") p.coyoteT = q4(Math.max(0, p.coyoteT));
+    if (typeof p.jumpBufferT === "number") p.jumpBufferT = q4(Math.max(0, p.jumpBufferT));
+    if (typeof p.jumpsLeft === "number") p.jumpsLeft = Math.max(0, Math.round(p.jumpsLeft));
+    if (typeof p.downedT === "number") p.downedT = q4(Math.max(0, p.downedT));
     if (typeof p.grappleCd === "number") p.grappleCd = q4(Math.max(0, p.grappleCd));
     if (p.grapple) {
       p.grapple.x = q4(p.grapple.x);
@@ -1504,7 +1749,8 @@ var SprotoShooterPvp = (() => {
     const hits = [];
     const gun = LOADOUT[p.slot];
     const pellets = gun.stats.pellets || 1;
-    const spread = deg(wish.zoom ? gun.stats.adsSpread : gun.stats.spread);
+    const zoom = p.zoomCancelled ? false : !!wish.zoom;
+    const spread = deg(zoom ? gun.stats.adsSpread : gun.stats.spread);
     const eye = eyeOf(p);
     for (let i = 0; i < pellets; i++) {
       const jy = (float(p.rng) - 0.5) * spread;
@@ -1516,8 +1762,18 @@ var SprotoShooterPvp = (() => {
       if (cover && cover.t < dist) continue;
       const fall = rangeFalloff(gun.range, dist);
       if (fall <= 0) continue;
-      const raw = gun.stats.damage * fall;
-      hits.push(Math.max(0, Math.round(raw * 1e3)));
+      const strike = resolvePellet(p.rng, {
+        base: gun.stats.damage * fall,
+        canCrit: true,
+        critChance: gun.stats.critChance,
+        element: gun.element,
+        elementChance: gun.stats.elementChance,
+        noProc: false,
+        splashRadius: gun.stats.splashRadius,
+        splashDamage: gun.stats.splashDamage,
+        splashDistance: 0
+      });
+      hits.push(Math.max(0, Math.round(strike.damage * 1e3)));
     }
     return hits;
   }
@@ -1541,13 +1797,14 @@ var SprotoShooterPvp = (() => {
       const absorb = Math.min(target.shield, left);
       target.shield -= absorb;
       left -= absorb;
-      target.hp -= left;
+      if (!target.downed) target.hp -= left;
       target.shieldDelay = TUNING.shieldDelay;
+      if (!target.downed && target.hp <= 0) beginDowned(target);
     }
     return total;
   }
   function regen(p, dt) {
-    if (!p.alive) return;
+    if (!p.alive || p.downed) return;
     p.shieldDelay = Math.max(0, p.shieldDelay - dt);
     if (p.shieldDelay <= 0 && p.shield < MAX_SHIELD) {
       p.shield = Math.min(MAX_SHIELD, p.shield + Math.round(TUNING.shieldRegen * dt * 1e3));
@@ -1556,12 +1813,12 @@ var SprotoShooterPvp = (() => {
   function resolve(state) {
     const a = state.players[0];
     const b = state.players[1];
-    if (a.hp <= 0) {
+    if (a.hp <= 0 && !a.downed) {
       a.hp = 0;
       a.alive = false;
       a.vx = a.vy = a.vz = 0;
     }
-    if (b.hp <= 0) {
+    if (b.hp <= 0 && !b.downed) {
       b.hp = 0;
       b.alive = false;
       b.vx = b.vy = b.vz = 0;
@@ -1628,7 +1885,12 @@ var SprotoShooterPvp = (() => {
     }
     for (const p of state.players) {
       snap(p);
-      regen(p, DT);
+      if (p.downed) {
+        if (tickDowned(p, DT)) {
+          p.alive = false;
+          p.vx = p.vy = p.vz = 0;
+        }
+      } else regen(p, DT);
       snap(p);
     }
     state.tick += 1;
@@ -2298,6 +2560,8 @@ var SprotoShooterPvp = (() => {
           hp: p.hp,
           shield: p.shield,
           alive: p.alive,
+          downed: !!p.downed,
+          downedT: p.downedT || 0,
           slot: p.slot,
           slideT: p.slideT,
           grappleCd: p.grappleCd,
@@ -2800,7 +3064,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "2215995f40d999f31336815296e1e7b7726f932a";
+  var SOURCE_COMMIT = "2608511e93b765aedfb8e9311266bb9e989170e8";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

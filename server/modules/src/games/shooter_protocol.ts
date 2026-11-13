@@ -27,12 +27,12 @@ namespace ShooterProto {
   export var KIND = "sproto_shooter_free";
   export var MODE = "free";
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "2215995f40d999f31336815296e1e7b7726f932a";
-  export var BUNDLE_SHA256 = "3fdac7e5e26dfd461757a05e84239ff3b4a1ead60cb308bfbd9422cd1993ea65";
+  export var COMMIT = "2608511e93b765aedfb8e9311266bb9e989170e8";
+  export var BUNDLE_SHA256 = "a2cc170715a1af0652339caaf9ba61d732fdab58ea17bf717e80ee2023c18e88";
   export var PROTOCOL = 2;
   export var SIM = 2;
-  export var FINGERPRINT = "dc00f234";
-  export var LOADOUT_HASH = "4cdfab55";
+  export var FINGERPRINT = "e749d2fd";
+  export var LOADOUT_HASH = "37131c3e";
   export var CAMPAIGN_FINGERPRINT = "73c6eb0f";
 
   export var OP_HELLO = 1;
@@ -82,8 +82,8 @@ namespace ShooterProto {
   export var SEATS = 2;
 
   export var GOLDEN_SEED = 7;
-  export var GOLDEN_TICK = 65;
-  export var GOLDEN_HASH = "532a562e";
+  export var GOLDEN_TICK = 180;
+  export var GOLDEN_HASH = "da423456";
 
   export var HOSTILE: { [key: string]: boolean } = {
     winner: true,

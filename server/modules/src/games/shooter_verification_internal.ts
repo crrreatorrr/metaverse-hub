@@ -4,8 +4,8 @@
 namespace ShooterVerificationInternal {
   var ID = /^[A-Za-z0-9_.:@|-]{1,80}$/;
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
-  var MANIFEST: { [key: string]: unknown } = { artifact: "shooter-sim", sourceCommit: "2215995f40d999f31336815296e1e7b7726f932a",
-    sha256: "4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905", protocol: 1, contentFingerprint: "73c6eb0f",
+  var MANIFEST: { [key: string]: unknown } = { artifact: "shooter-sim", sourceCommit: "2608511e93b765aedfb8e9311266bb9e989170e8",
+    sha256: "735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b", protocol: 1, contentFingerprint: "73c6eb0f",
     uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
   function object(v: unknown): v is { [key: string]: unknown } { return v !== null && typeof v === "object" && !Array.isArray(v); }
   function exact(v: unknown, keys: string[]): v is { [key: string]: unknown } {

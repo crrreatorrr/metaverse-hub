@@ -9,8 +9,8 @@ import { guest, openGame, call, psql, psqlAsync, num, sleep, arm, disarm, instal
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 type Obj = Record<string, unknown>;
-const SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
-const SOURCE = '2215995f40d999f31336815296e1e7b7726f932a';
+const SHA = '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
+const SOURCE = '2608511e93b765aedfb8e9311266bb9e989170e8';
 const MANIFEST = { artifact: 'shooter-sim', sourceCommit: SOURCE, sha256: SHA, protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const ctx = vm.createContext({ console });
 const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));

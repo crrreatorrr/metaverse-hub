@@ -8,8 +8,8 @@ type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promi
 type ObjectValue = Record<string, unknown>;
 type Claim = { jobId: string; runId: string; accountId: string; sessionId: string; inputSha256: string; fence: number; initialRevision: number; expectedRevision: number; tick0: number; tickEnd: number; continuationTick: number };
 type Work = { claim: Claim; manifest: ObjectValue; issuance: ObjectValue; checkpoint: ObjectValue | null; batch: ObjectValue; accepted: ObjectValue; maxWorkFrames: number };
-const SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
-const MANIFEST = { artifact: 'shooter-sim', sourceCommit: '2215995f40d999f31336815296e1e7b7726f932a', sha256: SHA, protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
+const SHA = '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
+const MANIFEST = { artifact: 'shooter-sim', sourceCommit: '2608511e93b765aedfb8e9311266bb9e989170e8', sha256: SHA, protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const context = vm.createContext({ console });
 const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
 assert.equal(createHash('sha256').update(artifactBytes).digest('hex'), SHA);
