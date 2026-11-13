@@ -38,6 +38,15 @@ export type {
 } from './types';
 export { HubEvent, relicForEvent } from './events';
 export { EMPTY_SAVE, encodeSave, readSaveResult } from './save';
+export { createProgressStore, hubVisitStarting } from './progress';
+export type {
+  ProgressCloud,
+  ProgressModel,
+  ProgressOwner,
+  ProgressStore,
+  ProgressStoreOptions,
+  ProgressSync,
+} from './progress';
 export type { HubEventId } from './events';
 export { DEVICE_ID_KEY, getOrCreateDeviceId, memoryKeyValue } from './storage';
 export type { KeyValue } from './storage';

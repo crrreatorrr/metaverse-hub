@@ -52,9 +52,9 @@ mod.nk.onSql(/epoch FROM now\(\)/, () => [{ ms: '1700000000000' }]);
   assert.equal((mod.call('save.put', arcade(A), { data: [1, 2] }) as { error?: string }).error, 'bad_save');
   assert.equal((mod.call('save.put', arcade(A), { data: 'x' }) as { error?: string }).error, 'bad_save');
   assert.equal((mod.call('save.put', arcade(A), {}) as { error?: string }).error, 'bad_save');
-  const big = { blob: 'é'.repeat(2100) }; // 4200 UTF-8 bytes
+  const big = { blob: 'é'.repeat(8200) }; // 16400 UTF-8 bytes
   assert.equal((mod.call('save.put', arcade(A), { data: big }) as { error?: string }).error, 'save_too_large');
-  const fits = { blob: 'x'.repeat(4000) };
+  const fits = { blob: 'x'.repeat(16000) };
   assert.ok(!(mod.call('save.put', arcade(A), { data: fits }) as { error?: string }).error);
 }
 

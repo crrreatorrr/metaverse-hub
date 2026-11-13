@@ -71,9 +71,9 @@ namespace HubRpc {
     };
   }
 
-  function parse(payload: string): { [key: string]: unknown } {
+  function parse(payload: string, maxLength?: number): { [key: string]: unknown } {
     if (!payload) return {};
-    if (payload.length > 8192) throw new Error("bad_json");
+    if (payload.length > (maxLength || 8192)) throw new Error("bad_json");
     var data = JSON.parse(payload) as unknown;
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       throw new Error("bad_json");
@@ -511,7 +511,7 @@ namespace HubRpc {
 
   /** Cloud saves: one owner-readable, server-written storage object per player per game. */
   export var SAVE_COLLECTION = "game_save";
-  export var SAVE_MAX_BYTES = 4096;
+  export var SAVE_MAX_BYTES = 16384;
 
   function utf8Length(value: string): number {
     var n = 0;
@@ -548,7 +548,8 @@ namespace HubRpc {
   export function savePut(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     rejectAnonymousWrite(ctx, "save.put");
     var session = requireGame(ctx);
-    var body = parse(payload);
+    // A save may be larger than other RPC bodies: room for SAVE_MAX_BYTES plus the `{"data":}` wrapper.
+    var body = parse(payload, SAVE_MAX_BYTES + 64);
     var data = body.data;
     if (!data || typeof data !== "object" || Object.prototype.toString.call(data) === "[object Array]") {
       return fail("bad_save", "A save must be a JSON object");

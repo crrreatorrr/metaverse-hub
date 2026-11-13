@@ -7,6 +7,7 @@ import {
   FOUR_LIGHTS_RELIC_IDS,
   RELIC_BY_GAME,
   RELIC_IDS,
+  SAVE_MAX_BYTES,
   VERSE_DAILY_CAP,
   createHubSdk,
   createNakamaClient,
@@ -104,7 +105,7 @@ async function arcadeAndSaves(): Promise<void> {
     assert.equal(again.granted, undefined);
     assert.ok((await h.sdk.init('sproto-arcade')).relics.includes('breakwater_coin'));
     await assert.rejects(() => h.sdk.writeSave!([1] as unknown as Record<string, unknown>), (e: unknown) => e instanceof HubSdkError && e.code === 'bad_save');
-    await assert.rejects(() => h.sdk.writeSave!({ blob: 'x'.repeat(5000) }), (e: unknown) => e instanceof HubSdkError && e.code === 'save_too_large');
+    await assert.rejects(() => h.sdk.writeSave!({ blob: 'x'.repeat(SAVE_MAX_BYTES + 1) }), (e: unknown) => e instanceof HubSdkError && e.code === 'save_too_large');
   }
   assert.equal(encodeSave({ a: 1 }), '{"a":1}');
 }
