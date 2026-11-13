@@ -27,18 +27,27 @@ function argument(name: string): string {
   return value;
 }
 
-type Verifier = { verifyRunJSON(text: string): string };
+type Binding = { accountId: string; sessionId: string; day: string; runId: string; canonicalBoss: string; seed: number };
+type Verifier = { verifyRunJSON(text: string): string; buildIssuance(binding: Binding): { ok?: unknown; issuance?: unknown } };
 function loadVerifier(source: string): Verifier {
   const context = vm.createContext({});
   vm.runInContext(source, context);
   const sim = (context as { SprotoShooterSim?: Verifier }).SprotoShooterSim;
-  if (!sim || typeof sim.verifyRunJSON !== 'function') throw new Error('machine_speed_bundle_without_verifier');
+  if (!sim || typeof sim.verifyRunJSON !== 'function' || typeof sim.buildIssuance !== 'function') throw new Error('machine_speed_bundle_without_verifier');
   return sim;
 }
 
-/** CPU milliseconds for one verification, in a fresh context so no warm state carries over. */
-function verifyOnce(source: string, input: string): number {
+type Replay = { log: unknown; binding: Binding };
+/**
+ * CPU milliseconds for one verification, in a fresh context so no warm state carries over. Each bundle
+ * builds the issuance itself from the replay's binding, outside the timed part: a level change moves
+ * the starting state hash that a fixture's stored issuance carries, while the recorded inputs stay.
+ */
+function verifyOnce(source: string, replay: Replay): number {
   const sim = loadVerifier(source);
+  const built = sim.buildIssuance(replay.binding);
+  if (built.ok !== true || !built.issuance) throw new Error('machine_speed_issuance_rejected');
+  const input = JSON.stringify({ log: replay.log, ctx: { issuance: built.issuance } });
   const before = process.cpuUsage();
   const receipt = JSON.parse(sim.verifyRunJSON(input)) as { ok?: unknown };
   const used = process.cpuUsage(before);
@@ -47,7 +56,7 @@ function verifyOnce(source: string, input: string): number {
 }
 
 /** Sum over the replays of the fastest repetition: the least disturbed reading of each. */
-function measure(sources: string[], inputs: string[]): number[] {
+function measure(sources: string[], inputs: Replay[]): number[] {
   const best = sources.map(() => inputs.map(() => Infinity));
   for (let repetition = 0; repetition < CALIBRATION_REPETITIONS; repetition++) {
     inputs.forEach((input, replay) => sources.forEach((source, bundle) => {
@@ -58,9 +67,10 @@ function measure(sources: string[], inputs: string[]): number[] {
 }
 
 const corpus = argument('--corpus'), basePath = argument('--base'), out = argument('--out');
-const inputs = CALIBRATION_REPLAYS.map(name => {
-  const fixture = JSON.parse(readFileSync(join(corpus, name), 'utf8')) as { log: unknown; issuance: unknown };
-  return JSON.stringify({ log: fixture.log, ctx: { issuance: fixture.issuance } });
+const inputs: Replay[] = CALIBRATION_REPLAYS.map(name => {
+  const fixture = JSON.parse(readFileSync(join(corpus, name), 'utf8')) as { log: unknown; issuance: Binding };
+  const { accountId, sessionId, day, runId, canonicalBoss, seed } = fixture.issuance;
+  return { log: fixture.log, binding: { accountId, sessionId, day, runId, canonicalBoss, seed } };
 });
 const calibration = readFileSync(CALIBRATION_BUNDLE);
 if (sha256(calibration) !== CALIBRATION_BUNDLE_SHA256) throw new Error('machine_speed_calibration_bundle_changed');
