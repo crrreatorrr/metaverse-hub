@@ -20,8 +20,8 @@ export type TrustedActor = Readonly<{
   login: GameLogin; runId: string; key: string; issuance: Obj; issueAck: Obj; trace: FrozenTrace;
   fixture: Readonly<{ kind: 'trusted_ci_server_fixture'; ageMs: number; issuedAt: string; uploadDeadline: string }>;
 }>;
-const SHA = '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
-const SOURCE = '05f7a0a245af921fc65a99588564175c19658e38';
+const SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
+const SOURCE = '2215995f40d999f31336815296e1e7b7726f932a';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const index = JSON.parse(readFileSync(new URL('../fixtures/shooter-integration-corpus.json', import.meta.url), 'utf8')) as CorpusIndex;
 assert.equal(index.schema, 1);

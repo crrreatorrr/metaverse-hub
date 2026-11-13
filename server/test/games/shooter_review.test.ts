@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict';
 import { loadModule, presence, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
-const FP = 'b33eada6';
+const FP = 'dc00f234';
 const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
 const C = '00000000-0000-4000-8000-00000000000c';

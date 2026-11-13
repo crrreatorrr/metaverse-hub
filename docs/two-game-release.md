@@ -26,7 +26,7 @@ C5 could not run its own Nakama restart step or the wallet-fault half, and its t
 |---|---|
 | Hub parent | `8753d1c` (hub #123). Squash `dcc8e6b` (hub #122) |
 | Shooter `main` | `f2034e7b3a22ebfb451b46ba77279b97eb945c50` (through shooter #89). Protocol 2, sim 2. Full re-vendor with `scripts/revendor-shooter-pvp.mjs` (no `--pvp-only`). The check is unchanged: the pin commit is shooter `main`. |
-| Shooter free / wager bundle | sha256 `63059c09915714e285f05a6a16f71431181c64cd997b3930126adfe03debb658`, content `b33eada6`, loadout `4cdfab55`, golden tick 65 hash `532a562e`, global `SprotoShooterPvp` |
+| Shooter free / wager bundle | sha256 `63059c09915714e285f05a6a16f71431181c64cd997b3930126adfe03debb658`, content `dc00f234`, loadout `4cdfab55`, golden tick 65 hash `532a562e`, global `SprotoShooterPvp` |
 | Shooter campaign bundle | sha256 `14cf231982c3eb3c80d925e96668330471353318f8791aca9b2e4db639061876`, protocol 1, fingerprint `cea1f88b`, global `SprotoShooterSim` |
 | Coop game `main` | `ae9dd750878c4046d43825fff1724c129c4c1fdb` |
 | Coop hub pin | commit `9a0b5d9f97460617b4b2bb8445dae6849f163d51`, protocol 1, state 1, fingerprint `f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e`, bundle `28f9236d0df78c62cf600ad08c9924f8dd260b6948d7a73baf60230936934fac` |
@@ -96,7 +96,7 @@ Wallet fault, the case C5 did not run:
 
 ### Shooter 1v1
 
-Protocol 2 / sim 2, content `b33eada6`, bundle sha above. `wagerEnabled` was false at the start.
+Protocol 2 / sim 2, content `dc00f234`, bundle sha above. `wagerEnabled` was false at the start.
 
 | Measurement | Value |
 |---|---|

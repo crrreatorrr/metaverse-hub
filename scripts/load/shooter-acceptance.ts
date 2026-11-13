@@ -31,7 +31,7 @@ import {
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const CADDY = process.env.CADDY_URL ?? 'http://127.0.0.1:8080';
 const GAME = 'sproto-shooter';
-const FP = 'b33eada6';
+const FP = 'dc00f234';
 const PROTOCOL = 2;
 const SIM = 2;
 const ROOT = process.cwd();

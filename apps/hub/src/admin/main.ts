@@ -23,16 +23,47 @@ interface Note {
   resolution: string;
   verification: string;
   fixedCommit: string;
+  /** The GitHub pull request with the fix, and its state as the worker last read it. */
+  prUrl: string;
+  prState: PrState | '';
+  prCheckedAt: string | null;
   createdAt: string;
   updatedAt: string;
   meta?: Record<string, unknown>;
 }
 
 type Status = 'open' | 'in_progress' | 'fixed' | 'resolved';
+type PrState = 'open' | 'draft' | 'merged' | 'closed';
 type Counts = Record<string, Partial<Record<Status, number>>>;
+
+/** A Check run (feedback.admin.check): one pass by the agent over every note not yet resolved. */
+interface Run {
+  id: number;
+  state: 'queued' | 'running' | 'done' | 'failed' | 'canceled';
+  requestedBy: string;
+  worker: string;
+  summary: string;
+  noteCount: number;
+  requestedAt: string;
+  startedAt: string | null;
+  heartbeatAt: string | null;
+  finishedAt: string | null;
+}
 
 const STATUS_LABEL: Record<Status, string> = { open: 'Open', in_progress: 'In progress', fixed: 'Fixed, to verify', resolved: 'Resolved' };
 const STATUS_COLOR: Record<Status, string> = { open: '#f5b942', in_progress: '#3de1ff', fixed: '#8d7dff', resolved: '#4ade80' };
+const PR_LABEL: Record<PrState, string> = { open: 'PR open', draft: 'PR draft', merged: 'PR merged', closed: 'PR closed' };
+
+/** "PR #184 · merged" for a note with a pull request, else null. */
+function prPill(note: Note): HTMLElement | null {
+  if (!note.prUrl) return null;
+  const n = /\/pull\/(\d+)$/.exec(note.prUrl)?.[1] ?? '';
+  const state = note.prState ? PR_LABEL[note.prState] : 'PR, state not checked yet';
+  const pill = el('span', `pill pr ${note.prState || 'unknown'}`, `${state.replace('PR', `PR #${n}`)}`);
+  pill.title = note.prCheckedAt ? `${note.prUrl} · checked ${when(note.prCheckedAt)}` : note.prUrl;
+  return pill;
+}
+
 const CATEGORY_LABEL: Record<string, string> = {
   broke: 'Something broke',
   unclear: 'Unclear what to do',
@@ -112,6 +143,8 @@ function clock(seconds: number | null): string {
 // ------------------------------------------------------------------ login
 
 function showLogin(message = ''): void {
+  window.clearTimeout(runTimer);
+  window.clearTimeout(workerTimer);
   app.replaceChildren();
   const form = el('form', 'login');
   const user = el('input', 'field');
@@ -173,8 +206,16 @@ async function showPanel(): Promise<void> {
     sessionStorage.removeItem(TOKEN_KEY);
     showLogin();
   });
-  who.append(exportJson, exportCsv, out);
+  checkButton = el('button', 'btn primary', 'Check');
+  checkButton.title = 'Start the agent on every note that is not resolved yet';
+  checkButton.addEventListener('click', () => void startCheck());
+  workerBox = el('div', 'worker');
+  workerBox.hidden = true;
+  who.append(workerBox, checkButton, exportJson, exportCsv, out);
   top.append(el('h1', '', 'Feedback'), who);
+  runBox = el('div', 'runbar');
+  runBox.setAttribute('role', 'status');
+  runBox.hidden = true;
 
   tabsBox = el('div', 'tabs');
   tabsBox.setAttribute('role', 'tablist');
@@ -217,12 +258,20 @@ async function showPanel(): Promise<void> {
   left.append(mapBox, listBox);
   detailBox = el('div');
   cols.append(left, detailBox);
-  wrap.append(top, tabsBox, filters, cols);
+  workerLog = el('pre', 'workerlog');
+  workerLog.hidden = true;
+  wrap.append(top, workerLog, runBox, tabsBox, filters, cols);
   app.append(wrap);
   await load();
+  await loadRuns();
+  await loadWorker();
 }
 
-async function load(): Promise<void> {
+/** Reloads the notes. `keepDetail` leaves the open note's panel alone (the run bar's refresh). */
+let lastListAt = 0;
+
+async function load(keepDetail = false): Promise<void> {
+  lastListAt = Date.now();
   const body: Record<string, unknown> = { limit: 300 };
   if (filter.game) body.game = filter.game;
   if (filter.status) body.status = filter.status;
@@ -242,6 +291,7 @@ async function load(): Promise<void> {
   renderTabs();
   renderMap();
   renderList();
+  if (keepDetail && selectedId) return;
   if (selectedId && items.some((n) => n.id === selectedId)) void select(selectedId);
   else detailBox.replaceChildren(el('div', 'empty', items.length ? 'Pick a note to see its screenshot and details.' : ''));
 }
@@ -282,6 +332,8 @@ function renderList(): void {
       row.setAttribute('aria-current', String(note.id === selectedId));
       const l1 = el('div', 'l1');
       l1.append(el('span', 'id', note.id), el('span', `pill ${note.status}`, STATUS_LABEL[note.status]));
+      const pr = prPill(note);
+      if (pr) l1.append(pr);
       for (const c of note.categories) l1.append(el('span', 'pill cat', CATEGORY_LABEL[c] ?? c));
       if (note.source === 'crash') l1.append(el('span', 'pill cat', 'After an error'));
       const l3 = el('div', 'l3');
@@ -399,6 +451,178 @@ function drawMap(canvas: HTMLCanvasElement, points: Note[]): void {
   };
 }
 
+// ------------------------------------------------------------------ check runs
+//
+// Check queues one run on the hub server. The worker on the owner's machine
+// (scripts/feedback-worker.mjs) claims it and starts the agent, which works the notes and moves
+// their statuses. The server allows one queued-or-running run, so a second Check shows the run
+// already in flight instead of starting another.
+
+let runBox: HTMLElement;
+let checkButton: HTMLButtonElement;
+let runTimer = 0;
+let lastRun = '';
+
+const RUN_LABEL: Record<Run['state'], string> = {
+  queued: 'Waiting for the worker',
+  running: 'Working',
+  done: 'Last check finished',
+  failed: 'Last check failed',
+  canceled: 'Last check canceled',
+};
+
+async function startCheck(): Promise<void> {
+  checkButton.disabled = true;
+  try {
+    const result = await adminRpc<{ run: Run | null; created: boolean }>('feedback.admin.check');
+    if (!result.run) renderRun(null, null, 'Nothing to check: every note is resolved.');
+    else renderRun(result.run, null, result.created ? '' : 'A check is already in progress.');
+  } catch {
+    renderRun(null, null, 'Could not start a check. Is the hub server up?');
+    checkButton.disabled = false;
+    return;
+  }
+  scheduleRuns(3000);
+}
+
+async function cancelRun(run: Run): Promise<void> {
+  if (!window.confirm(`Cancel check #${run.id}? Notes keep the status the agent gave them so far.`)) return;
+  try {
+    await adminRpc('feedback.admin.run', { id: run.id, state: 'canceled' });
+  } catch {
+    // Already finished: the next poll shows how it ended.
+  }
+  await loadRuns();
+}
+
+function scheduleRuns(ms: number): void {
+  window.clearTimeout(runTimer);
+  runTimer = window.setTimeout(() => void loadRuns(), ms);
+}
+
+async function loadRuns(): Promise<void> {
+  const token = adminToken;
+  if (!token) return;
+  let result: { active: Run | null; runs: Run[] };
+  try {
+    result = await adminRpc('feedback.admin.runs', { limit: 1 });
+  } catch {
+    if (adminToken === token) scheduleRuns(30000);
+    return;
+  }
+  // Signed out (or in again) while this was in flight: the panel it was for is gone.
+  if (adminToken !== token) return;
+  const latest = result.active ?? result.runs[0] ?? null;
+  renderRun(result.active, result.active ? null : latest);
+  // The agent changes note statuses while it works: refresh the list with each heartbeat, but
+  // leave the open note's form alone so nothing typed there is lost.
+  const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
+  if (lastRun && key !== lastRun) void load(true);
+  // Pull request states change on GitHub's clock (the worker syncs them every 30 s): refresh
+  // the list every 15 s so a merge shows within about 45 s without pressing Refresh.
+  else if (Date.now() - lastListAt >= 14000) void load(true);
+  lastRun = key;
+  scheduleRuns(result.active ? 5000 : 15000);
+}
+
+function renderRun(active: Run | null, last: Run | null, message = ''): void {
+  checkButton.disabled = !!active;
+  checkButton.textContent = active ? 'Checking…' : 'Check';
+  const run = active ?? last;
+  if (!run && !message) {
+    runBox.hidden = true;
+    return;
+  }
+  runBox.hidden = false;
+  runBox.className = `runbar ${run ? run.state : ''}`;
+  const parts: (Node | string)[] = [];
+  if (run) {
+    parts.push(el('b', '', `${RUN_LABEL[run.state]} · check #${run.id}`));
+    const detail: string[] = [`${run.noteCount} note${run.noteCount === 1 ? '' : 's'}`];
+    if (run.state === 'queued')
+      detail.push(
+        workerAvailable
+          ? `asked ${when(run.requestedAt)}; waiting for the worker (Start worker above if it is stopped)`
+          : `asked ${when(run.requestedAt)}; waiting for the worker. Start it on your computer: npm run feedback:worker`,
+      );
+    if (run.state === 'running') detail.push(`on ${run.worker} since ${when(run.startedAt ?? run.requestedAt)}`);
+    if (run.finishedAt && !active) detail.push(when(run.finishedAt));
+    parts.push(el('span', '', detail.join(' · ')));
+    if (run.summary) parts.push(el('span', 'sum', run.summary));
+  }
+  if (message) parts.push(el('span', 'msg', message));
+  runBox.replaceChildren(...parts);
+  if (active) {
+    const cancel = el('button', 'btn', 'Cancel');
+    cancel.addEventListener('click', () => void cancelRun(active));
+    runBox.append(cancel);
+  }
+}
+
+// ------------------------------------------------------------------ worker
+//
+// On the local dev server (`npm run dev`) the panel can see, start and stop the worker on this
+// computer (apps/hub/feedback-worker-dev.ts). Production has no such endpoint: the control stays
+// hidden and the run bar says how to start the worker by hand.
+
+interface WorkerState {
+  available: true;
+  running: boolean;
+  pid: number | null;
+  log: string;
+}
+
+let workerBox: HTMLElement;
+let workerLog: HTMLElement;
+let workerTimer = 0;
+let workerAvailable = false;
+
+async function workerCall(path: string, method: 'GET' | 'POST'): Promise<WorkerState | null> {
+  try {
+    const response = await fetch(path, { method, headers: { Accept: 'application/json', 'X-Feedback-Worker': '1' } });
+    if (!response.ok || !(response.headers.get('content-type') ?? '').includes('application/json')) return null;
+    const state = (await response.json()) as WorkerState;
+    return state.available ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadWorker(): Promise<void> {
+  window.clearTimeout(workerTimer);
+  if (!adminToken) return;
+  renderWorker(await workerCall('/__feedback/worker', 'GET'));
+  if (workerAvailable) workerTimer = window.setTimeout(() => void loadWorker(), 5000);
+}
+
+async function workerAction(action: 'start' | 'stop', button: HTMLButtonElement): Promise<void> {
+  button.disabled = true;
+  button.textContent = action === 'start' ? 'Starting…' : 'Stopping…';
+  renderWorker(await workerCall(`/__feedback/worker/${action}`, 'POST'));
+  void loadRuns();
+}
+
+function renderWorker(state: WorkerState | null): void {
+  workerAvailable = !!state;
+  workerBox.hidden = !state;
+  if (!state) {
+    workerLog.hidden = true;
+    return;
+  }
+  const dot = el('span', `wdot ${state.running ? 'on' : 'off'}`);
+  const label = el('span', '', state.running ? `Worker running (pid ${state.pid})` : 'Worker stopped');
+  const toggle = el('button', 'btn', state.running ? 'Stop worker' : 'Start worker');
+  toggle.addEventListener('click', () => void workerAction(state.running ? 'stop' : 'start', toggle));
+  const logButton = el('button', 'btn', workerLog.hidden ? 'Log' : 'Hide log');
+  logButton.addEventListener('click', () => {
+    workerLog.hidden = !workerLog.hidden;
+    renderWorker(state);
+  });
+  workerBox.replaceChildren(dot, label, toggle, logButton);
+  workerLog.textContent = state.log || 'The worker has not written anything yet. A worker started in a terminal writes there instead.';
+  if (!workerLog.hidden) workerLog.scrollTop = workerLog.scrollHeight;
+}
+
 // ------------------------------------------------------------------ detail
 
 async function select(id: string): Promise<void> {
@@ -417,6 +641,8 @@ async function select(id: string): Promise<void> {
   const panel = el('div', 'panel');
   const title = el('h2');
   title.append(el('span', '', note.id), el('span', `pill ${note.status}`, STATUS_LABEL[note.status]));
+  const titlePr = prPill(note);
+  if (titlePr) title.append(titlePr);
   for (const c of note.categories) title.append(el('span', 'pill cat', CATEGORY_LABEL[c] ?? c));
   panel.append(title, el('div', 'note', note.note || '(no note)'));
 
@@ -434,6 +660,16 @@ async function select(id: string): Promise<void> {
     if (value === null || value === undefined || value === '') return;
     kv.append(el('dt', '', label), el('dd', '', typeof value === 'string' ? value : JSON.stringify(value)));
   };
+  if (note.prUrl) {
+    const link = el('a', '', note.prUrl.replace('https://github.com/', ''));
+    link.href = note.prUrl;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    const dd = el('dd');
+    dd.append(link, ` · ${note.prState ? PR_LABEL[note.prState].replace('PR ', '') : 'not checked yet'}`);
+    if (note.prCheckedAt) dd.append(` · checked ${when(note.prCheckedAt)}`);
+    kv.append(el('dt', '', 'Pull request'), dd);
+  }
   row('Player', `${note.username} (${note.userId})`);
   row('Game', GAME_LABEL[note.game] ?? note.game);
   row('Sent', `${when(note.createdAt)} (server)`);
@@ -479,6 +715,10 @@ async function select(id: string): Promise<void> {
   const commit = el('input', 'field');
   commit.value = note.fixedCommit;
   commit.maxLength = 120;
+  const pr = el('input', 'field');
+  pr.value = note.prUrl;
+  pr.maxLength = 300;
+  pr.placeholder = 'https://github.com/<owner>/<repo>/pull/<number>';
   const comment = el('input', 'field');
   comment.maxLength = 600;
   const error = el('div', 'error');
@@ -497,7 +737,8 @@ async function select(id: string): Promise<void> {
     labelled('Status', status),
     labelled('Resolution summary (what changed)', resolution),
     labelled('How the fix was verified (needed to resolve)', verification),
-    labelled('Fixing commit or pull request', commit),
+    labelled('Fixing commit', commit),
+    labelled('Pull request (its state updates on its own)', pr),
     labelled('Comment for the history (optional)', comment),
     line,
   );
@@ -506,14 +747,15 @@ async function select(id: string): Promise<void> {
     event.preventDefault();
     save.disabled = true;
     error.textContent = '';
-    adminRpc('feedback.admin.update', {
-      id: note.id,
-      status: status.value,
-      resolution: resolution.value,
-      verification: verification.value,
-      fixedCommit: commit.value,
-      comment: comment.value,
-    })
+    // Only what was changed here: the agent may have moved this note since the form opened,
+    // and resending the old values would undo its work.
+    const body: Record<string, unknown> = { id: note.id, comment: comment.value };
+    if (status.value !== note.status) body.status = status.value;
+    if (resolution.value !== note.resolution) body.resolution = resolution.value;
+    if (verification.value !== note.verification) body.verification = verification.value;
+    if (commit.value !== note.fixedCommit) body.fixedCommit = commit.value;
+    if (pr.value.trim() !== note.prUrl) body.prUrl = pr.value.trim();
+    adminRpc('feedback.admin.update', body)
       .then(() => load())
       .catch((e: unknown) => {
         const code = e instanceof HubSdkError ? e.code : '';
@@ -522,6 +764,8 @@ async function select(id: string): Promise<void> {
             ? 'Say how the fix was verified before resolving.'
             : code === 'resolution_required'
               ? 'Add a short resolution summary before resolving.'
+              : code === 'bad_pr_url'
+                ? 'The pull request link should look like https://github.com/<owner>/<repo>/pull/<number>.'
               : 'Could not save. Try again.';
         save.disabled = false;
       });

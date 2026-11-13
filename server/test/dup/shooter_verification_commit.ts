@@ -8,8 +8,8 @@ type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promi
 type ObjectValue = Record<string, unknown>;
 type Claim = { jobId: string; runId: string; accountId: string; sessionId: string; inputSha256: string; fence: number; initialRevision: number; expectedRevision: number; tick0: number; tickEnd: number; continuationTick: number };
 type Work = { claim: Claim; manifest: ObjectValue; issuance: ObjectValue; checkpoint: ObjectValue | null; batch: ObjectValue; accepted: ObjectValue; maxWorkFrames: number };
-const SHA = '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9';
-const MANIFEST = { artifact: 'shooter-sim', sourceCommit: '05f7a0a245af921fc65a99588564175c19658e38', sha256: SHA, protocol: 1, contentFingerprint: 'cea1f88b', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
+const SHA = '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
+const MANIFEST = { artifact: 'shooter-sim', sourceCommit: '2215995f40d999f31336815296e1e7b7726f932a', sha256: SHA, protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const context = vm.createContext({ console });
 const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
 assert.equal(createHash('sha256').update(artifactBytes).digest('hex'), SHA);
@@ -40,7 +40,7 @@ async function fixture(n = 10, wire?: { frames: string; actions: number[][] }) {
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${account.userId}','${login.sessionId}','commit:${run}',current_date,'sahil',7,'${sql(JSON.stringify(issuance))}');
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${account.userId}','${login.sessionId}',1,2,1,'${SHA}','${MANIFEST.sourceCommit}','cea1f88b',now()-interval '3 minutes',now()+interval '42 minutes')`);
+    VALUES('${run}','${account.userId}','${login.sessionId}',1,2,1,'${SHA}','${MANIFEST.sourceCommit}','73c6eb0f',now()-interval '3 minutes',now()+interval '42 minutes')`);
   await append(login, run, 0, 0, n, wire);
   return { login, run };
 }

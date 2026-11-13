@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "corpusSourceCommit": "05f7a0a245af921fc65a99588564175c19658e38",
+  "corpusSourceCommit": "2215995f40d999f31336815296e1e7b7726f932a",
   "authority": "Legacy observations are not v2 first-terminal expectations; retained approved incremental replay establishes those independently.",
   "approvedManifest": {
     "artifact": "shooter-sim",
-    "sourceCommit": "05f7a0a245af921fc65a99588564175c19658e38",
-    "sha256": "797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9",
+    "sourceCommit": "2215995f40d999f31336815296e1e7b7726f932a",
+    "sha256": "4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905",
     "protocol": 1,
-    "contentFingerprint": "cea1f88b",
+    "contentFingerprint": "73c6eb0f",
     "uploadProtocol": 2,
     "replayApiVersion": 2,
     "checkpointSchema": 2,
@@ -22,7 +22,7 @@
   "cases": [
     {
       "id": "sahil-success-7",
-      "fixtureSha256": "62fc6eb6b81fe6bbca778b7d5c4e0fbaeb4385786fa5f1cd232f60b00150aee2",
+      "fixtureSha256": "fb6448cb5f34fe62d735955d1bcc5802799761588de51f2076fbabd6f3a97a23",
       "boss": "sahil",
       "seed": 7,
       "frames": 9634,
@@ -43,7 +43,7 @@
     },
     {
       "id": "sahil-success-11",
-      "fixtureSha256": "ab4eb11521c296fb9dae0636f96374b3492b86bde494ab88a0e2d4dd28e337d6",
+      "fixtureSha256": "919a946c77034d1d5842b65f33e6c2625bad6a51471cae3b695ce6408922765a",
       "boss": "sahil",
       "seed": 11,
       "frames": 6550,
@@ -63,7 +63,7 @@
     },
     {
       "id": "sahil-fail-7",
-      "fixtureSha256": "15911e935b62ade85f0b1cfea53cbea9fe7b11a19d4eb5b37b8da202502dc2ff",
+      "fixtureSha256": "563e18693dda7c0f57bba74348019995e616835010aed121ebf0d02060c207ec",
       "boss": "sahil",
       "seed": 7,
       "frames": 1001,
@@ -83,7 +83,7 @@
     },
     {
       "id": "sahil-assisted-9",
-      "fixtureSha256": "1bdfdaa2d50d832c31749bb06f772b1ef70712905f750ed8dfd200ba53c44258",
+      "fixtureSha256": "b8f504df56521320d3c77584bb712bd1ec919ddf1c8edde1a1faa52e7e74d2fa",
       "boss": "sahil",
       "seed": 9,
       "frames": 9347,
@@ -103,7 +103,7 @@
     },
     {
       "id": "obama-success-7",
-      "fixtureSha256": "290305879564ca056728554accb52d3469f1185bd2b3c68574929635767b5e77",
+      "fixtureSha256": "393bada840b31d8b5cc3f4e7294745c79838c4b7f85a8a59f6f2cca1d36e2703",
       "boss": "obama",
       "seed": 7,
       "frames": 24000,
@@ -123,7 +123,7 @@
     },
     {
       "id": "obama-success-11",
-      "fixtureSha256": "6c3554f19699ef40a8a58b623fba903329a7231371564662fe927c65b0754154",
+      "fixtureSha256": "5d281d5aea4fca036462bbd731be298b9b039232c79df6decaae4a79b18e53ef",
       "boss": "obama",
       "seed": 11,
       "frames": 5049,
@@ -143,7 +143,7 @@
     },
     {
       "id": "broccoli-success-7",
-      "fixtureSha256": "b814af78cc6b83dc653846ed71ae151c8ddc726778d2d1758f6506636921f76c",
+      "fixtureSha256": "c0725a11289cf9668f1cdb55cfc4f5d51200568601b5db2f38c25130c8de2f82",
       "boss": "broccoli",
       "seed": 7,
       "frames": 2959,
@@ -163,7 +163,7 @@
     },
     {
       "id": "broccoli-success-11",
-      "fixtureSha256": "7b2ed8a5b0aff213b9e3f830fe5380d2b35c95c813375782b57fc10d8714a9d0",
+      "fixtureSha256": "5b244a1bd2f9fbe285b9d4fcb330bdc61c603469ac5285b40dc392278d453a8a",
       "boss": "broccoli",
       "seed": 11,
       "frames": 2701,
@@ -183,7 +183,7 @@
     },
     {
       "id": "glowie-success-7",
-      "fixtureSha256": "fd05e8cc5e01bd5e4ebe28399aea5f0d17a04c27c3ce5f56a7449849dbca9a9c",
+      "fixtureSha256": "ba39538670f08b0b8984de213132a7f9bd176d0df01b49fdd78597f28070c16d",
       "boss": "glowie",
       "seed": 7,
       "frames": 1676,
@@ -203,7 +203,7 @@
     },
     {
       "id": "glowie-success-11",
-      "fixtureSha256": "6673e52e7d3f2b7a1e0c7362f13d99da6ced5c6572bfb711150e9d562b8c30e5",
+      "fixtureSha256": "def07d8b36bbd38f5baa2b4b341372f5c244ad8566df2b3f6b77258f5948b822",
       "boss": "glowie",
       "seed": 11,
       "frames": 1812,
@@ -223,7 +223,7 @@
     },
     {
       "id": "tinubu-success-7",
-      "fixtureSha256": "536ede5c0324dd78c66b6bc0f009d58ebb6e50ed8da88399082815a6002d1824",
+      "fixtureSha256": "535460aba36be15d6a8abb3454ce9184fb1cc04d62b86f565d6433231104842a",
       "boss": "tinubu",
       "seed": 7,
       "frames": 1120,
@@ -243,7 +243,7 @@
     },
     {
       "id": "tinubu-success-11",
-      "fixtureSha256": "4dec57b8b1ade8af5c532fbbdd24170a62ba4274085dc262ef6306089f4c5ba7",
+      "fixtureSha256": "17b4fb854853805af435b8da7a5dc7e52c923b1848d139b7b731f64057468d46",
       "boss": "tinubu",
       "seed": 11,
       "frames": 7425,

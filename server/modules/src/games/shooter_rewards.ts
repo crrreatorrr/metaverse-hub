@@ -13,9 +13,11 @@ namespace ShooterRewards {
   export var BOARD_ID = "shooter_story_clear_ms_v1";
   export var PAY = 20;
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "70794a1704fb977c7c6380d766d7e20f082104ed";
-  export var BUNDLE_SHA256 = "f265e71d26000d593d352f186d94cd065e217447fbfdd075b9fdc604ac7f738c";
-  export var FINGERPRINT = "cea1f88b";
+  export var COMMIT = "2215995f40d999f31336815296e1e7b7726f932a";
+  export var BUNDLE_SHA256 = "4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905";
+  // 0040 wrote 3c657fb5. 0048 swapped the live function to cea1f88b.
+  // 0065_shooter_campaign_fingerprint swaps that for this vendored fingerprint.
+  export var FINGERPRINT = "73c6eb0f";
   export var PROTOCOL = 1;
   var BOSSES = ["sahil", "obama", "broccoli", "glowie", "tinubu"];
 
@@ -418,6 +420,34 @@ HubSchema.register({
     BEGIN
       src := pg_get_functiondef('game.settle_shooter_clear(uuid,uuid,text,text,date,text,text,bigint,integer,text,text)'::regprocedure);
       src := replace(src, '3c657fb5', 'cea1f88b');
+      EXECUTE src;
+    END;
+    $fp$`,
+  ],
+});
+
+// 0040 and 0048 are already applied, so their fingerprint literals stay. This replaces
+// the live function with the vendored campaign fingerprint, so new receipts and board
+// rows carry the label of the sim that produced them, and the function refuses a caller
+// still sending cea1f88b (unsupported_version, nothing paid). A fresh database runs
+// 0040, then 0048, then this. Applying it twice changes nothing.
+//
+// Only the label changes. The amount (20), the once-per-boss-per-UTC-day rule, the
+// session and daily caps and the keys are the same statements. No stored row is
+// rewritten: a clear settled under the old label keeps its receipt, its Tickets and
+// its stored answer. A retry of that settlement still returns the stored answer,
+// because the receipt lookup comes before the version check.
+HubSchema.register({
+  id: "0065_shooter_campaign_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE src text;
+    BEGIN
+      src := pg_get_functiondef('game.settle_shooter_clear(uuid,uuid,text,text,date,text,text,bigint,integer,text,text)'::regprocedure);
+      src := replace(src, 'cea1f88b', '73c6eb0f');
+      IF position('cea1f88b' in src) > 0 OR position('73c6eb0f' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_fingerprint_not_replaced';
+      END IF;
       EXECUTE src;
     END;
     $fp$`,

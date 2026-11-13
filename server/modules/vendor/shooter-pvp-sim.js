@@ -76,9 +76,11 @@ var SprotoShooterPvp = (() => {
     staminaRegenDelay: 0.55,
     staminaRegen: 1.7,
     staminaRefill: 0.28,
-    grappleRange: 30,
+    grappleRange: 16,
     grappleCd: 6,
-    grapplePull: 90,
+    grapplePull: 54,
+    grappleSpeed: 12.5,
+    grappleReleaseSpeed: 8.5,
     grappleArrive: 1.35,
     dashSpeed: 24,
     dashTime: 0.15,
@@ -817,6 +819,12 @@ var SprotoShooterPvp = (() => {
     return !!hit;
   }
 
+  // src/sim/grappleMotion.js
+  function grappleSpeedScale(x, y, z, limit) {
+    const speed = Math.hypot(x, y, z);
+    return speed > limit ? limit / speed : 1;
+  }
+
   // src/sim/pvp/rules.js
   var PVP_PROTOCOL_VERSION = 2;
   var PVP_SIM_VERSION = 2;
@@ -967,6 +975,8 @@ var SprotoShooterPvp = (() => {
           range: TUNING.grappleRange,
           cd: TUNING.grappleCd,
           pull: TUNING.grapplePull,
+          speed: TUNING.grappleSpeed,
+          releaseSpeed: TUNING.grappleReleaseSpeed,
           arrive: TUNING.grappleArrive
         }
       },
@@ -1204,17 +1214,32 @@ var SprotoShooterPvp = (() => {
       }
     }
   }
+  function limitGrappleSpeed(p, limit) {
+    const k = grappleSpeedScale(p.vx, p.vy, p.vz, limit);
+    p.vx *= k;
+    p.vy *= k;
+    p.vz *= k;
+  }
+  function releaseArenaGrapple(p) {
+    if (!p.grapple) return;
+    limitGrappleSpeed(p, TUNING.grappleReleaseSpeed);
+    p.grapple = null;
+  }
   function tickArenaGrapple(p, wish, dt) {
     if (p.grappleCd > 0) p.grappleCd = Math.max(0, p.grappleCd - dt);
     if (!wish.grapple) {
-      p.grapple = null;
+      releaseArenaGrapple(p);
       return;
     }
     if (!p.grapple) {
       if (p.grappleCd > 0) return;
       const hook2 = arenaHook(eyeOf(p), dirFromYawPitch(p.yaw, p.pitch));
       p.grappleCd = TUNING.grappleCd;
-      if (!hook2) return;
+      if (!hook2) {
+        p.grappleMiss = true;
+        return;
+      }
+      delete p.grappleMiss;
       p.grapple = hook2;
     }
     const hook = p.grapple;
@@ -1224,7 +1249,7 @@ var SprotoShooterPvp = (() => {
     const ez = hook.z - eye.z;
     const ed = Math.hypot(ex, ey, ez) || 1;
     if (arenaOccludes(eye, { x: ex / ed, y: ey / ed, z: ez / ed }, ed - 0.35, hook.id)) {
-      p.grapple = null;
+      releaseArenaGrapple(p);
       return;
     }
     const oy = p.y + 0.9;
@@ -1233,13 +1258,14 @@ var SprotoShooterPvp = (() => {
     const pz = hook.z - p.z;
     const pd = Math.hypot(px, py, pz) || 1;
     if (pd < TUNING.grappleArrive) {
-      p.grapple = null;
+      releaseArenaGrapple(p);
       return;
     }
     const pull = TUNING.grapplePull * dt;
     p.vx += px / pd * pull;
     p.vy += py / pd * pull;
     p.vz += pz / pd * pull;
+    limitGrappleSpeed(p, TUNING.grappleSpeed);
   }
   function movePlayer(p, wish, dt) {
     ensureMove(p);
@@ -1299,7 +1325,7 @@ var SprotoShooterPvp = (() => {
       p.staminaDelay = TUNING.staminaRegenDelay;
       if (p.stamina <= 0) p.staminaLock = true;
     }
-    const hooked = !!p.grapple || !!wish.grapple;
+    const hooked = !!p.grapple;
     if (p.dashT > 0) {
       p.dashT -= dt;
       p.vx = p.dashX * TUNING.dashSpeed;
@@ -1357,8 +1383,8 @@ var SprotoShooterPvp = (() => {
         p.slideCd = TUNING.slideHopCd;
       }
     }
-    tickArenaGrapple(p, wish, dt);
     if (p.dashT <= 0) p.vy -= TUNING.gravity * dt;
+    tickArenaGrapple(p, wish, dt);
     const prevY = p.y;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
@@ -2002,7 +2028,9 @@ var SprotoShooterPvp = (() => {
     "shield",
     "alive",
     "slot",
-    "slideT"
+    "slideT",
+    "grappleCd",
+    "grappleMiss"
   ]);
   function presence(userId, sessionId) {
     return { userId: typeof userId === "string" ? userId : "", sessionId: typeof sessionId === "string" ? sessionId : "" };
@@ -2272,6 +2300,8 @@ var SprotoShooterPvp = (() => {
           alive: p.alive,
           slot: p.slot,
           slideT: p.slideT,
+          grappleCd: p.grappleCd,
+          grappleMiss: p.grappleMiss,
           grapple: p.grapple ? { x: p.grapple.x, y: p.grapple.y, z: p.grapple.z, id: p.grapple.id } : null
         })),
         you: {
@@ -2770,7 +2800,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "70794a1704fb977c7c6380d766d7e20f082104ed";
+  var SOURCE_COMMIT = "2215995f40d999f31336815296e1e7b7726f932a";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

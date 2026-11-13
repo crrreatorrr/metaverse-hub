@@ -202,6 +202,22 @@ if (!gojaReceipt.skipped) {
 }
 
 const mod = loadModule();
+{
+  const HubSchema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
+  const ShooterRewards = mod.global.ShooterRewards as { FINGERPRINT: string };
+  const all = HubSchema.all();
+  const ids = all.map((row) => row.id);
+  const frozen = all.find((row) => row.id === '0048_shooter_campaign_fingerprint')!.statements.join('\n');
+  assert.match(frozen, /replace\(src, '3c657fb5', 'cea1f88b'\)/);
+  assert.equal(frozen.includes(pin.fingerprint), false, '0048 stays on the fingerprint it was applied with');
+  const relabel = all.filter((row) => row.id === '0065_shooter_campaign_fingerprint');
+  assert.equal(relabel.length, 1);
+  const swap = relabel[0]!.statements[0]!;
+  assert.ok(swap.includes(`replace(src, 'cea1f88b', '${pin.fingerprint}')`));
+  assert.equal(ShooterRewards.FINGERPRINT, pin.fingerprint);
+  assert.equal(/UPDATE|DELETE|INSERT/.test(swap), false, 'the migration rewrites no row');
+  assert.ok(ids.indexOf('0065_shooter_campaign_fingerprint') > ids.indexOf('0064_feedback_check'));
+}
 const mark = () => mod.nk.sqlCalls.length;
 let at = mark();
 const earned = mod.call('tickets.earn', session, { key: 'k1', amount: 20, reason: 'srv_shooter_boss_clear' }) as { error?: string; balance?: number };

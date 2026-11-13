@@ -13,9 +13,9 @@ import { checkRegistrations, loadModule, presence, type Broadcast, type LoadedMo
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const PIN = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-pvp-sim.pin.json'), 'utf8')) as { commit: string; sha256: string };
-const FP = 'b33eada6';
+const FP = 'dc00f234';
 const LOADOUT = '4cdfab55';
-const CAMPAIGN = 'cea1f88b';
+const CAMPAIGN = '73c6eb0f';
 const COMMIT = PIN.commit;
 const A = '00000000-0000-4000-8000-00000000000a';
 const B = '00000000-0000-4000-8000-00000000000b';
@@ -292,7 +292,7 @@ const HOSTED_SESSION = `(function () {
   assert.equal(HubGames.matchmakingAllowed('hub', '', 'sproto-shooter'), false);
   const campaign = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-sim.pin.json'), 'utf8')) as { fingerprint: string; sha256: string };
   assert.equal(campaign.fingerprint, CAMPAIGN);
-  assert.equal(campaign.sha256, 'f265e71d26000d593d352f186d94cd065e217447fbfdd075b9fdc604ac7f738c');
+  assert.equal(campaign.sha256, '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905');
   const source = ['shooter_match.ts', 'shooter_matchmaking.ts', 'shooter_protocol.ts'].map((name) => readFileSync(join(root, 'server/modules/src/games', name), 'utf8')).join('\n');
   assert.equal(/nk\.sql|earn_tickets|walletUpdate|leaderboardRecord|sproto_arena|sproto_duel|claimWinner|claim_winner/.test(source), false);
   // Hosts must use the hosted constructor, and nothing synthesizes a HELLO from a RESYNC.
