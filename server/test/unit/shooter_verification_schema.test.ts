@@ -62,8 +62,8 @@ assert.ok(all.findIndex((migration) => migration.id === '0068_shooter_campaign_a
 const levelBundle = all.filter((migration) => migration.id === '0069_shooter_campaign_level_bundle');
 assert.equal(levelBundle.length, 1);
 const level = levelBundle[0]!.statements[0]!;
-assert.ok(level.includes("replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', 'a4252d117190a388e5a7974b40cd88c679ea6e72')"));
-assert.ok(level.includes("replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040')"));
+assert.ok(level.includes("replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', '7db4fc4f93333f3977da2159771a060f344b6ea0')"));
+assert.ok(level.includes("replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e')"));
 assert.ok(level.includes('prior-campaign-bundle 2608511e93b765aedfb8e9311266bb9e989170e8 735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b'));
 assert.ok(level.indexOf("replace(src, note, '')") < level.indexOf('shooter_campaign_level_bundle_issue_not_replaced'));
 assert.ok(level.indexOf('shooter_campaign_level_bundle_issue_not_replaced') < level.indexOf('|| note'));

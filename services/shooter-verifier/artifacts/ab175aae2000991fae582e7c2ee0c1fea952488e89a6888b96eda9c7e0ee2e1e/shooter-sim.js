@@ -3208,8 +3208,8 @@ var SprotoShooterSim = (() => {
 
   // src/data/levels/L01/index.js
   var card = (title, lines) => ({ title, lines });
-  function floor(id, length) {
-    return box({ id, at: [length / 2, -0.25, 16], size: [length, 0.5, 28], mat: "concrete" });
+  function floor(id, length, width = 28) {
+    return box({ id, at: [length / 2, -0.25, 16], size: [length, 0.5, width], mat: "concrete" });
   }
   function zone(x0, x1, z0 = 4, z1 = 28) {
     return { min: [x0, -2, z0], max: [x1, 8, z1] };
@@ -3226,8 +3226,9 @@ var SprotoShooterSim = (() => {
   var carAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [3, 1.4, 1.6], mat: "metal" });
   var binAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [2.4, 1.4, 1.4], mat: "metal" });
   var planterAt = (id, x, z) => box({ id, at: [x, 0.6, z], size: [1.6, 1.2, 1.6], mat: "stone" });
-  function sides(id, length, { h = 6, gapS = null } = {}) {
-    const z = h < 2 ? [1.7, 30.3] : [1.4, 30.6];
+  function sides(id, length, { h = 6, gapS = null, width = 28 } = {}) {
+    const edge = h < 2 ? 0.3 : 0.6;
+    const z = [16 - width / 2 - edge, 16 + width / 2 + edge];
     const w = h < 2 ? 0.5 : 0.8;
     const wall2 = (tag, x0, x1, zz) => box({ id: `${id}-side-${tag}`, at: [(x0 + x1) / 2, h / 2, zz], size: [x1 - x0, h, w], mat: "concrete" });
     const south = gapS ? [wall2("s1", 0, gapS[0], z[1]), wall2("s2", gapS[1], length, z[1])] : [wall2("s", 0, length, z[1])];
@@ -3236,9 +3237,18 @@ var SprotoShooterSim = (() => {
   function ammo(id, at2, ammoType = "bullets", amount = 60) {
     return { kind: "ammo", id, at: at2, ammoType, amount };
   }
-  function door(id, at2) {
-    return { kind: "door", id, at: at2, size: [1.2, 4, 32] };
+  function door(id, at2, span2 = 32) {
+    return { kind: "door", id, at: at2, size: [1.2, 4, span2] };
   }
+  var MALL_WIDTH = 42;
+  var GARAGE_WIDTH = 38;
+  var PLAZA_WIDTH = 48;
+  var lane = (length, width) => ({ min: [0, 16 - width / 2], max: [length, 16 + width / 2] });
+  var laneZone = (x0, x1, width) => zone(x0, x1, 16 - width / 2, 16 + width / 2);
+  var airspace = (length, width, height, start2 = 0) => ({
+    min: [start2, 0, 16 - width / 2],
+    max: [length, height, 16 + width / 2]
+  });
   var S1 = {
     id: "S1",
     name: "Drop Zone",
@@ -3425,14 +3435,15 @@ var SprotoShooterSim = (() => {
     id: "S3",
     name: "Mall of Sproto",
     origin: [350, 0, 0],
-    navBounds: { min: [0, 2], max: [90, 30] },
-    flyerVolume: { min: [0, 0, 2], max: [90, 12, 30] },
-    exit: zone(84, 90),
+    navBounds: lane(90, MALL_WIDTH),
+    flyerVolume: airspace(90, MALL_WIDTH, 12),
+    exit: laneZone(84, 90, GARAGE_WIDTH - 1),
     // North balcony. One hook during the lockdown, or the ramp. The floor at z 16 is the fight.
     grappleAnchors: [{ id: "S3-hook", at: [58, 6.2, 5], r: 1.8 }],
     geometry: [
-      floor("S3-floor", 90),
-      ...sides("S3", 90),
+      floor("S3-floor", 90, MALL_WIDTH),
+      ...sides("S3", 90, { width: MALL_WIDTH }),
+      box({ id: "S3-atrium-roof", at: [44, 15.75, 16], size: [72, 0.6, MALL_WIDTH + 2], mat: "metal" }),
       box({ id: "S3-kiosk", at: [40, 1, 8], size: [3, 2, 3], mat: "neon" }),
       box({ id: "S3-kiosk-b", at: [64, 1, 22], size: [3, 2, 3], mat: "neon" }),
       planterAt("S3-planter-a", 32, 19.5),
@@ -3450,8 +3461,8 @@ var SprotoShooterSim = (() => {
       { id: "CP5", at: [70, 0, 16], when: "S3-E6.cleared" }
     ],
     mechanisms: [
-      door("S3-L1-in", [10, 2, 16]),
-      door("S3-L1-out", [80, 2, 16]),
+      door("S3-L1-in", [10, 2, 16], MALL_WIDTH + 2),
+      door("S3-L1-out", [80, 2, 16], MALL_WIDTH + 2),
       { kind: "barrel", id: "S3-brl-1", at: [24, 0.55, 12], element: "shock" },
       { kind: "barrel", id: "S3-brl-2", at: [40, 0.55, 20], element: "shock" },
       { kind: "barrel", id: "S3-brl-3", at: [56, 0.55, 12], element: "shock" },
@@ -3470,8 +3481,8 @@ var SprotoShooterSim = (() => {
         id: "S3-E6",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(12, 78),
-        lockdown: { entry: "S3-L1-in", exit: "S3-L1-out", threshold: zone(14, 24) },
+        activate: laneZone(12, 78, MALL_WIDTH),
+        lockdown: { entry: "S3-L1-in", exit: "S3-L1-out", threshold: laneZone(14, 24, MALL_WIDTH) },
         squads: [
           squad("W1", { type: "onEnter" }, [["robotLaser", 2]], [[40, 0, 16]]),
           squad("W1b", { type: "with", after: "W1", delay: 4 }, [["robotLaser", 2]], [[22, 0, 10]], "door"),
@@ -3489,12 +3500,13 @@ var SprotoShooterSim = (() => {
     id: "S4",
     name: "Parking Spiral",
     origin: [425, 0, 0],
-    navBounds: { min: [0, 2], max: [130, 30] },
-    flyerVolume: { min: [70, 0, 2], max: [130, 20, 30] },
-    exit: zone(118, 130),
+    navBounds: lane(130, GARAGE_WIDTH),
+    flyerVolume: airspace(130, GARAGE_WIDTH, 20, 70),
+    exit: laneZone(118, 130, 27),
     geometry: [
-      floor("S4-floor", 130),
-      ...sides("S4", 130),
+      floor("S4-floor", 130, GARAGE_WIDTH),
+      ...sides("S4", 130, { width: GARAGE_WIDTH }),
+      box({ id: "S4-parking-roof", at: [30, 8.1, 16], size: [55, 0.52, GARAGE_WIDTH + 2], mat: "concrete" }),
       box({ id: "S4-ramp", at: [36, 0.4, 8], size: [16, 0.5, 4], mat: "concrete" }),
       box({ id: "S4-car", at: [24, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
       // It is a car park: parked rows on the south side of the ramp deck and two on the sealed roof.
@@ -3512,8 +3524,8 @@ var SprotoShooterSim = (() => {
     mechanisms: [
       { kind: "mover", id: "S4-lift", carry: true, from: [48, 0, 8], to: [62, 4, 8], speed: 2 },
       { kind: "switch", id: "S4-sw-lift", at: [46, 0.5, 8], needsHold: true, holdTime: 1 },
-      door("S4-L2-in", [70, 2, 16]),
-      door("S4-L2-out", [112, 2, 16]),
+      door("S4-L2-in", [70, 2, 16], GARAGE_WIDTH + 2),
+      door("S4-L2-out", [112, 2, 16], GARAGE_WIDTH + 2),
       { kind: "barrel", id: "S4-brl-1", at: [96, 0.55, 16], element: "shock" },
       { kind: "chest", id: "S4-chest", at: [104, 0.5, 12], gun: "shotgun", opens: "S4-E8.cleared" },
       { kind: "secret", id: "S4-file-3", at: [20, 0.4, 24], tickets: 5 },
@@ -3532,7 +3544,7 @@ var SprotoShooterSim = (() => {
         id: "S4-E7",
         maxAlive: 6,
         objective: { kind: "clearAll" },
-        activate: zone(6, 64),
+        activate: laneZone(6, 64, GARAGE_WIDTH),
         squads: [
           squad("A", { type: "onEnter" }, [["midget", 4]], [[18, 0, 16]], "hidden"),
           squad("B", { type: "onKills", n: 3 }, [["obama", 2]], [[28, 3, 10]], "hidden"),
@@ -3547,8 +3559,8 @@ var SprotoShooterSim = (() => {
         id: "S4-E8",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(74, 110),
-        lockdown: { entry: "S4-L2-in", exit: "S4-L2-out", threshold: zone(74, 84) },
+        activate: laneZone(74, 110, GARAGE_WIDTH),
+        lockdown: { entry: "S4-L2-in", exit: "S4-L2-out", threshold: laneZone(74, 84, GARAGE_WIDTH) },
         squads: [
           squad("W1", { type: "onEnter" }, [["midget", 3]], [[80, 0, 10]], "door"),
           squad("W1b", { type: "with", after: "W1", delay: 0 }, [["midget", 3]], [[80, 0, 22]], "door"),
@@ -3616,19 +3628,19 @@ var SprotoShooterSim = (() => {
     id: "S6",
     name: "Gate Plaza",
     origin: [665, 0, 0],
-    navBounds: { min: [0, 2], max: [110, 30] },
-    flyerVolume: { min: [0, 0, 2], max: [110, 22, 30] },
+    navBounds: lane(110, PLAZA_WIDTH),
+    flyerVolume: airspace(110, PLAZA_WIDTH, 22),
     intro: card("Gate Plaza", ["A Big Bitcoin Obama is counting the take.", "The gate does not open until he drops it."]),
     geometry: [
-      floor("S6-floor", 110),
-      ...sides("S6", 110),
+      floor("S6-floor", 110, PLAZA_WIDTH),
+      ...sides("S6", 110, { width: PLAZA_WIDTH }),
       cylinder({ id: "S6-fountain", at: [48, 0, 8], r: 2, h: 2, mat: "stone" }),
       box({ id: "S6-stand", at: [40, 1.2, 8], size: [6, 2.4, 4], mat: "stone" }),
       planterAt("S6-planter-a", 40, 22),
       planterAt("S6-planter-b", 78, 10),
       planterAt("S6-planter-c", 78, 22),
-      box({ id: "S6-gate-l", at: [96, 6, 6], size: [2, 12, 2], mat: "gold" }),
-      box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" }),
+      box({ id: "S6-gate-l", at: [96, 6, -3], size: [2, 12, 2], mat: "gold" }),
+      box({ id: "S6-gate-r", at: [96, 6, 35], size: [2, 12, 2], mat: "gold" }),
       // Walk-up perch for the flying adds. No hook: a fling here leaves the floor.
       ramp({ id: "S6-perch-ramp", at: [52, 1.6, 24], size: [3, 3.2, 14], yaw: 90, mat: "metal" }),
       box({ id: "S6-perch", at: [62, 3.2, 24], size: [6, 0.5, 3], mat: "metal" })
@@ -3639,8 +3651,8 @@ var SprotoShooterSim = (() => {
     ],
     checkpoints: [{ id: "CP8", at: [8, 0, 16] }],
     mechanisms: [
-      door("S6-L3-in", [12, 2, 16]),
-      door("S6-gate", [96, 2, 16]),
+      door("S6-L3-in", [12, 2, 16], PLAZA_WIDTH + 2),
+      door("S6-gate", [96, 2, 16], PLAZA_WIDTH + 2),
       { kind: "barrel", id: "S6-brl-f1", at: [30, 0.55, 10], element: "fire" },
       { kind: "barrel", id: "S6-brl-f2", at: [30, 0.55, 22], element: "fire" },
       { kind: "barrel", id: "S6-brl-s1", at: [70, 0.55, 10], element: "shock" },
@@ -3657,8 +3669,8 @@ var SprotoShooterSim = (() => {
         id: "S6-FIN",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(14, 92),
-        lockdown: { entry: "S6-L3-in", exit: "S6-gate", threshold: zone(16, 26) },
+        activate: laneZone(14, 92, PLAZA_WIDTH),
+        lockdown: { entry: "S6-L3-in", exit: "S6-gate", threshold: laneZone(16, 26, PLAZA_WIDTH) },
         squads: [
           squad("P1", { type: "onEnter" }, [
             ["gateGenerator", 1, "S6-gen-N"],
@@ -3680,8 +3692,8 @@ var SprotoShooterSim = (() => {
       {
         id: "S6-EXIT",
         objective: { kind: "reach" },
-        activate: zone(98, 108),
-        zone: zone(98, 108),
+        activate: laneZone(98, 108, PLAZA_WIDTH),
+        zone: laneZone(98, 108, PLAZA_WIDTH),
         squads: []
       }
     ]
@@ -16165,7 +16177,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "a4252d117190a388e5a7974b40cd88c679ea6e72";
+  var SOURCE_COMMIT = "7db4fc4f93333f3977da2159771a060f344b6ea0";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

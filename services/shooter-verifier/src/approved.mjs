@@ -2,8 +2,8 @@
 // runs: retain old bundles/manifests until their accepted work is resolved.
 export const APPROVED = Object.freeze({
   artifact: 'shooter-sim',
-  sourceCommit: 'a4252d117190a388e5a7974b40cd88c679ea6e72',
-  sha256: 'a215914d3f931ffce5c29de5a5ea498b1d0b10da66632a2939c8db5b22f88040',
+  sourceCommit: '7db4fc4f93333f3977da2159771a060f344b6ea0',
+  sha256: 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e',
   protocol: 1,
   contentFingerprint: '73c6eb0f',
   uploadProtocol: 2,
