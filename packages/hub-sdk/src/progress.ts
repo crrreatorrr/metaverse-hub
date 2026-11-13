@@ -134,8 +134,15 @@ export function createProgressStore<T>(options: ProgressStoreOptions<T>): Progre
 
   function readRaw(k: string): unknown {
     if (!storage) return null;
+    let raw: string | null;
     try {
-      const raw = storage.getItem(k);
+      raw = storage.getItem(k);
+    } catch {
+      // Blocked storage: progress lasts for this visit only.
+      persistent = false;
+      return null;
+    }
+    try {
       return raw ? (JSON.parse(raw) as unknown) : null;
     } catch {
       return null;

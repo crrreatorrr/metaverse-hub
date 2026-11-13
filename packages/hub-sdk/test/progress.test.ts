@@ -266,6 +266,24 @@ async function run(): Promise<void> {
     assert.equal(cleared(s), 'l1');
   }
 
+  // Blocked storage: reported at load, progress still lasts for the visit.
+  {
+    const blocked: KeyValue = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('quota');
+      },
+      removeItem: () => {},
+    };
+    const s = store(blocked);
+    assert.equal(s.persistent(), false);
+    s.update(clear('l1'));
+    assert.equal(cleared(s), 'l1');
+    assert.equal(s.persistent(), false);
+  }
+
   // hubVisitStarting: a portal ticket or a live session for this game.
   {
     const session = memoryKeyValue();
