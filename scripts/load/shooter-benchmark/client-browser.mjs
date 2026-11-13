@@ -13,7 +13,7 @@ import { runSinglePublicBrowser } from './public-browsers.mjs';
 import { benchmarkRpc } from './rpc.ts';
 import { boundOwnerStatus, serviceOutcome, outcomeError } from './browser-accounting.mjs';
 const exec = promisify(execFile), hash = value => createHash('sha256').update(value).digest('hex');
-const APPROVED = '40b91c30acdca9e93f27f9bb9358a6439045f645';
+const APPROVED = '29e1b124fd4f5a9513ef363dd28ab6ac706f4d9e';
 async function bounded(work, ms) {
   let timer;
   try { return await Promise.race([work, new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('single_client_operation_deadline')), ms); })]); }
