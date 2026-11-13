@@ -33,11 +33,18 @@ assert.throws(() => validateMachineSpeed({ ...fast, calibrationBundleSha256: B }
 assert.throws(() => validateMachineSpeed({ ...fast, verifierComparison: { ...compareVerifiers(A, B, 1000, 1500), slower: false } }), /invalid/);
 
 // Gate.
+const actors = (paid: number, unpaid: number, extra: { status: string; expectedToPay: boolean }[] = []) => [
+  ...Array.from({ length: paid }, () => ({ status: 'paid', expectedToPay: true })),
+  ...Array.from({ length: unpaid }, () => ({ status: 'verified_nonpayable', expectedToPay: false })),
+  ...extra,
+];
+const censored = (n: number, expectedToPay = false) => Array.from({ length: n }, () => ({ status: 'censored', expectedToPay }));
 const ok: GateFacts = {
   legacy: false, clientComplete: true, clientWorkloadComplete: true, resultStageDiagnosticsComplete: true,
   harnessStatus: 'complete', harnessFailureReasons: [], expectedActors: 20, boundActors: 20,
   failedObservations: [], plannedCoordinatorUnavailable: 0, backgroundProofComplete: true,
   fullSourceActorsVerified: 19, expectedFullSourceActors: 19, paid: 7, expectedPaid: 7, workloadFailureStatuses: [],
+  actors: actors(7, 12, [{ status: 'abandoned', expectedToPay: false }]),
 };
 for (const speed of [fast, slow, null]) assert.equal(decideGate(ok, speed).verdict, 'passed');
 
@@ -50,12 +57,18 @@ assert.equal(decideGate(sampleDeadline, null).verdict, 'failed', 'an unmeasured 
 
 // The 900 s run deadline (the 15-minute test's failure on EPYC 7763 runners): six actors censored.
 const runDeadline: GateFacts = { ...ok, expectedActors: 60, boundActors: 60, harnessStatus: 'interrupted', harnessFailureReasons: ['harness_deadline_or_shutdown'],
-  fullSourceActorsVerified: 51, expectedFullSourceActors: 57, paid: 21, expectedPaid: 21, workloadFailureStatuses: Array(6).fill('censored') };
+  fullSourceActorsVerified: 51, expectedFullSourceActors: 57, paid: 21, expectedPaid: 21, workloadFailureStatuses: Array(6).fill('censored'),
+  actors: actors(21, 30, [...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(6)]) };
 assert.equal(decideGate(runDeadline, slow).verdict, 'inconclusive_slow_machine');
 assert.deepEqual(decideGate(runDeadline, slow).timingMisses, ['run_deadline']);
 assert.equal(decideGate(runDeadline, fast).verdict, 'failed');
 assert.equal(decideGate({ ...runDeadline, harnessStatus: 'failed', boundActors: 58 }, slow).verdict, 'inconclusive_slow_machine', 'unbound actors after the deadline are its consequence');
 assert.equal(decideGate({ ...runDeadline, harnessFailureReasons: [] }, slow).verdict, 'inconclusive_slow_machine', 'an abort with no recorded reason is still the deadline');
+assert.equal(decideGate({ ...runDeadline, paid: 19, fullSourceActorsVerified: 51,
+  actors: actors(19, 30, [...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(2, true), ...censored(6)]) }, slow).verdict,
+  'inconclusive_slow_machine', 'paying actors censored by the deadline explain the paid shortfall');
+assert.equal(decideGate({ ...runDeadline, actors: actors(21, 30, [{ status: 'payment_pending', expectedToPay: true }, ...censored(8)]) }, slow).verdict,
+  'inconclusive_slow_machine', 'payment cut off by the deadline is the deadline');
 
 // Anything besides a time limit fails on every machine.
 const real: [string, GateFacts][] = [
@@ -69,11 +82,20 @@ const real: [string, GateFacts][] = [
   ['background stop', { ...runDeadline, harnessStatus: 'failed', harnessFailureReasons: ['harness_deadline_or_shutdown', 'background_stop_failed'] }],
   ['silent harness failure', { ...ok, harnessStatus: 'failed' }],
   ['operational failure', { ...ok, workloadFailureStatuses: ['operational_failure'] }],
-  ['timeout actor', { ...runDeadline, workloadFailureStatuses: ['censored', 'timeout'] }],
+  ['timeout actor', { ...runDeadline, workloadFailureStatuses: [...Array(6).fill('censored'), 'timeout'], actors: [...runDeadline.actors.slice(0, 53), { status: 'timeout', expectedToPay: false }, ...censored(6)] }],
   ['short paid', { ...ok, paid: 6 }],
   ['short verified', { ...ok, fullSourceActorsVerified: 18 }],
   ['unbound actors', { ...ok, harnessStatus: 'failed', boundActors: 19 }],
   ['client failure with a deadline', { ...sampleDeadline, clientComplete: false }],
+  // Review findings: a deadline must not hide failures that happened before it.
+  ['actor denied before the deadline', { ...ok, harnessStatus: 'interrupted', harnessFailureReasons: ['harness_deadline_or_shutdown'], paid: 6,
+    actors: actors(6, 12, [{ status: 'authorization_denied', expectedToPay: true }, { status: 'abandoned', expectedToPay: false }]) }],
+  ['payer finished unpaid before the deadline, others censored', { ...runDeadline, paid: 18, fullSourceActorsVerified: 51,
+    actors: actors(18, 30, [...Array.from({ length: 3 }, () => ({ status: 'verified_nonpayable', expectedToPay: true })), ...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(6)]) }],
+  ['paid shortfall larger than the payers cut off', { ...runDeadline, paid: 19 }],
+  ['verified shortfall larger than the actors cut off', { ...runDeadline, fullSourceActorsVerified: 40 }],
+  ['legacy actor instrumentation failure with an observer deadline', { ...ok, legacy: true, harnessStatus: 'failed', harnessFailureReasons: ['legacy_invalid_paid_receipt'],
+    failedObservations: ['instrumentation_failure:observer_sample_deadline'], workloadFailureStatuses: ['operational_failure'] }],
 ];
 for (const [name, facts] of real) {
   const decision = decideGate(facts, slow);

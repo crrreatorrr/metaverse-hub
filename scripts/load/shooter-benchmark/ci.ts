@@ -151,7 +151,10 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   const root = directory();
   await loadResultTraceManifest();
   const corpusBytes = await readFile('server/test/fixtures/shooter-integration-corpus.json');
-  const plan = makePlan(JSON.parse(corpusBytes.toString('utf8')) as Corpus, corpusBytes, 'ci-twenty-independent-v1', mode);
+  const corpus = JSON.parse(corpusBytes.toString('utf8')) as Corpus;
+  const plan = makePlan(corpus, corpusBytes, 'ci-twenty-independent-v1', mode);
+  // A case pays when its recorded outcome is a clear and the actor runs it to the end.
+  const corpusCases = new Map((corpus.cases as (Corpus['cases'][number] & { legacyObservation?: unknown })[]).map(row => [row.id, row]));
   // Separate finite CI profiles retain full hard traces. None establishes
   // intended-host capacity or authorizes a deployment/operating choice.
   plan.phases = [{ kind: 'background_baseline', waves: 0, arrivalIntervalMs: 3000 }, ...(profile === 'lifecycle' ? [{ kind: 'cold_burst' as const, waves: 1, arrivalIntervalMs: 0 }, { kind: 'warm_burst' as const, waves: 1, arrivalIntervalMs: 0 }] : profile === 'sustained' ? [{ kind: 'sustained' as const, waves: 3, arrivalIntervalMs: 30000 }] : [{ kind: mode === 'bounded_v8_same_host' && !clientProbe ? 'retry_storm' as const : 'finish_burst' as const, waves: 1, arrivalIntervalMs: 0 }]), { kind: 'drain', waves: 0, arrivalIntervalMs: 5000 }];
@@ -283,6 +286,11 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
     fullSourceActorsVerified: Number(result.summary.fullSourceActorsVerified), expectedFullSourceActors: 19 * waves,
     paid: Number(result.summary.paid), expectedPaid: 7 * waves,
     workloadFailureStatuses: result.actors.filter(a => ['operational_failure', 'timeout', 'censored', 'unsupported', 'not_started'].includes(a.status)).map(a => a.status),
+    actors: result.actors.map(a => {
+      const assignment = plan.assignments.find(row => row.actor === a.actor);
+      const outcome = (corpusCases.get(a.caseId)?.legacyObservation as { outcome?: unknown } | undefined)?.outcome;
+      return { status: a.status, expectedToPay: assignment?.behavior === 'complete' && outcome === 'clear' };
+    }),
   }, machine);
   const report = { schemaVersion: 1, benchmarkId: `ci-${process.env.GITHUB_RUN_ID}`, authority: 'ci_advisory', profile: plan.profile, mode: plan.mode,
     scope: clientProbe ? 'one_additional_actual_dom_client_during20_whole_protocol_actors_one_shared_background_not_capacity_profile' : legacy ? 'one_twenty_actor_existing_legacy_public_rpc_baseline_not_parity_or_capacity_profile' : profile === 'lifecycle' ? 'two_independent_twenty_actor_cold_warm_process_waves_not_capacity_profile' : profile === 'sustained' ? 'three_independent_twenty_actor_waves_at_declared_30s_arrivals_not_capacity_profile' : 'one_twenty_actor_real_pipeline_retry_burst_not_capacity_profile', approvalReference: null, productionCapacityConclusion: null,

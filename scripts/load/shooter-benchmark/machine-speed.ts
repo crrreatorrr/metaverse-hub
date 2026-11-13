@@ -10,8 +10,11 @@ export const CALIBRATION_BUNDLE_SHA256 = '735b6da58d5fbd61c69862596a3a45c9062c5a
 /** Fixed replays from the Shooter corpus, chosen for long, varied work (about 4.5 s on a fast Node). */
 export const CALIBRATION_REPLAYS = ['sahil-success-7.json', 'sahil-assisted-9.json', 'obama-success-11.json'] as const;
 export const CALIBRATION_REPETITIONS = 2;
-/** Calibration CPU time on the reference machine (AMD EPYC 9V45, a GitHub ubuntu-latest runner). */
-export const REFERENCE_CALIBRATION_CPU_MS = 6000;
+/**
+ * Calibration CPU time on the reference machine: AMD EPYC 9V45, a GitHub ubuntu-latest runner, measured
+ * at 5682 ms in PR #188's CI (run 43471547420). AMD EPYC 7763 measured 1.68-1.70 times that.
+ */
+export const REFERENCE_CALIBRATION_CPU_MS = 5700;
 /** A machine whose calibration takes this many times the reference or longer is slow. */
 export const SLOW_MACHINE_SCORE = 1.3;
 /** A PR whose Shooter verifier takes this many times main's on the same machine fails. */
@@ -88,12 +91,17 @@ export interface GateFacts {
   expectedPaid: number;
   /** Status of every actor counted as a workload failure. */
   workloadFailureStatuses: string[];
+  /** Every bound actor: its status, and whether its case pays when it runs to the end. */
+  actors: { status: string; expectedToPay: boolean }[];
 }
 export type Verdict = 'passed' | 'failed' | 'inconclusive_slow_machine';
 export interface GateDecision { verdict: Verdict; failures: string[]; timingMisses: string[] }
 
 const HARNESS_DEADLINE = 'harness_deadline_or_shutdown';
 const SAMPLE_DEADLINE = 'instrumentation_failure:observer_sample_deadline';
+const CUT_OFF = ['censored', 'not_started', 'payment_pending'];
+/** How a case that doesn't pay finishes in a passing run: verified without pay, or abandoned. */
+const FINISHED_UNPAID = ['verified_nonpayable', 'abandoned'];
 
 export function decideGate(facts: GateFacts, machine: MachineSpeed | null): GateDecision {
   const failures: string[] = [], timingMisses: string[] = [];
@@ -122,13 +130,26 @@ export function decideGate(facts: GateFacts, machine: MachineSpeed | null): Gate
   // are classified on their own.
   else if (facts.harnessStatus === 'failed' && !instrumentation.length && facts.boundActors === facts.expectedActors) failures.push('harness_failed');
 
-  const consequence = deadlineHit;
-  if (facts.boundActors !== facts.expectedActors && !consequence) failures.push('actors_unbound');
-  if (!facts.legacy) {
-    if (facts.fullSourceActorsVerified !== facts.expectedFullSourceActors && !consequence) failures.push('full_source_actors_short');
-    if (facts.paid !== facts.expectedPaid && !consequence) failures.push('paid_actors_short');
-    const allowed = consequence ? ['censored', 'not_started'] : [];
-    if (facts.workloadFailureStatuses.some(status => !allowed.includes(status))) failures.push('workload_failures');
+  if (!deadlineHit) {
+    if (facts.boundActors !== facts.expectedActors) failures.push('actors_unbound');
+    if (!facts.legacy) {
+      if (facts.fullSourceActorsVerified !== facts.expectedFullSourceActors) failures.push('full_source_actors_short');
+      if (facts.paid !== facts.expectedPaid) failures.push('paid_actors_short');
+      if (facts.workloadFailureStatuses.length) failures.push('workload_failures');
+    }
+  } else {
+    // The deadline excuses only the work it cut off: unbound actors and those it censored, never
+    // started or left waiting for payment. Every actor that finished must have finished the way its
+    // case does in a passing run, and no shortfall may be larger than the work cut off.
+    const cut = facts.actors.filter(actor => CUT_OFF.includes(actor.status));
+    const unbound = facts.expectedActors - facts.boundActors;
+    if (!facts.legacy) {
+      const wrong = facts.actors.filter(actor => !CUT_OFF.includes(actor.status)
+        && (actor.expectedToPay ? actor.status !== 'paid' : !FINISHED_UNPAID.includes(actor.status)));
+      if (wrong.length) failures.push('actor_failed_before_deadline');
+      if (facts.expectedFullSourceActors - facts.fullSourceActorsVerified > cut.length + unbound) failures.push('full_source_actors_short');
+      if (facts.expectedPaid - facts.paid > cut.filter(actor => actor.expectedToPay).length + unbound) failures.push('paid_actors_short');
+    }
   }
 
   if (failures.length) return { verdict: 'failed', failures, timingMisses };

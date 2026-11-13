@@ -162,7 +162,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
             const observedPaid = record.observedPaid || execution.observedPaid || execution.paid;
             Object.assign(record, execution, { everObservedEligible, durablyVerified, observedPaid });
           }
-          catch (error) { if (!signal.aborted && !(error instanceof OperationFailure)) harnessStatus = 'failed'; record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure || error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted'; }
+          catch (error) { if (!signal.aborted && !(error instanceof OperationFailure)) { harnessStatus = 'failed'; harnessFailures.push({ phase: currentPhase, operation: 'actor', rawReason: error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted' }); } record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure || error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted'; }
         })).then(() => undefined);
         phaseWork.push(work); allWork.push(work);
       }
