@@ -99,7 +99,9 @@ export interface GateDecision { verdict: Verdict; failures: string[]; timingMiss
 
 const HARNESS_DEADLINE = 'harness_deadline_or_shutdown';
 const SAMPLE_DEADLINE = 'instrumentation_failure:observer_sample_deadline';
-const CUT_OFF = ['censored', 'not_started', 'payment_pending'];
+// payment_pending is not here: the pipeline sets it when an actor's own payment window ends, before
+// the run deadline, so it is a payment failure.
+const CUT_OFF = ['censored', 'not_started'];
 /** How a case that doesn't pay finishes in a passing run: verified without pay, or abandoned. */
 const FINISHED_UNPAID = ['verified_nonpayable', 'abandoned'];
 
@@ -115,7 +117,7 @@ export function decideGate(facts: GateFacts, machine: MachineSpeed | null): Gate
   if (sutUnavailable > facts.plannedCoordinatorUnavailable) failures.push('observer_sut_unavailable');
   const instrumentation = facts.failedObservations.filter(row => row.startsWith('instrumentation_failure:'));
   if (instrumentation.some(row => row !== SAMPLE_DEADLINE)) failures.push('observer_instrumentation_failure');
-  if (instrumentation.length) timingMisses.push('observer_sample_deadline');
+  if (instrumentation.includes(SAMPLE_DEADLINE)) timingMisses.push('observer_sample_deadline');
 
   // The 900 s run limit aborts the harness and censors the actors still in flight. The runner then
   // reports 'interrupted', or 'failed' when unbound actors remain; either way every recorded reason
@@ -138,8 +140,8 @@ export function decideGate(facts: GateFacts, machine: MachineSpeed | null): Gate
       if (facts.workloadFailureStatuses.length) failures.push('workload_failures');
     }
   } else {
-    // The deadline excuses only the work it cut off: unbound actors and those it censored, never
-    // started or left waiting for payment. Every actor that finished must have finished the way its
+    // The deadline excuses only the work it cut off: unbound actors and those it censored or never
+    // started. Every actor that finished must have finished the way its
     // case does in a passing run, and no shortfall may be larger than the work cut off.
     const cut = facts.actors.filter(actor => CUT_OFF.includes(actor.status));
     const unbound = facts.expectedActors - facts.boundActors;

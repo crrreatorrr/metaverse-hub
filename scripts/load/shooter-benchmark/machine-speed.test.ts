@@ -67,8 +67,6 @@ assert.equal(decideGate({ ...runDeadline, harnessFailureReasons: [] }, slow).ver
 assert.equal(decideGate({ ...runDeadline, paid: 19, fullSourceActorsVerified: 51,
   actors: actors(19, 30, [...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(2, true), ...censored(6)]) }, slow).verdict,
   'inconclusive_slow_machine', 'paying actors censored by the deadline explain the paid shortfall');
-assert.equal(decideGate({ ...runDeadline, actors: actors(21, 30, [{ status: 'payment_pending', expectedToPay: true }, ...censored(8)]) }, slow).verdict,
-  'inconclusive_slow_machine', 'payment cut off by the deadline is the deadline');
 
 // Anything besides a time limit fails on every machine.
 const real: [string, GateFacts][] = [
@@ -93,6 +91,8 @@ const real: [string, GateFacts][] = [
   ['payer finished unpaid before the deadline, others censored', { ...runDeadline, paid: 18, fullSourceActorsVerified: 51,
     actors: actors(18, 30, [...Array.from({ length: 3 }, () => ({ status: 'verified_nonpayable', expectedToPay: true })), ...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(6)]) }],
   ['paid shortfall larger than the payers cut off', { ...runDeadline, paid: 19 }],
+  ['payment window ended before the deadline', { ...runDeadline, paid: 20,
+    actors: actors(20, 30, [{ status: 'payment_pending', expectedToPay: true }, ...Array.from({ length: 3 }, () => ({ status: 'abandoned', expectedToPay: false })), ...censored(6)]) }],
   ['verified shortfall larger than the actors cut off', { ...runDeadline, fullSourceActorsVerified: 40 }],
   ['legacy actor instrumentation failure with an observer deadline', { ...ok, legacy: true, harnessStatus: 'failed', harnessFailureReasons: ['legacy_invalid_paid_receipt'],
     failedObservations: ['instrumentation_failure:observer_sample_deadline'], workloadFailureStatuses: ['operational_failure'] }],
@@ -107,6 +107,8 @@ planned: {
   assert.equal(decideGate(outage, fast).verdict, 'passed', 'a planned coordinator outage is not a failure');
   break planned;
 }
+// Only a sample that actually timed out counts as a time-limit miss.
+assert.deepEqual(decideGate({ ...ok, harnessStatus: 'failed', failedObservations: ['instrumentation_failure:pvp_metrics_error_response'] }, slow).timingMisses, []);
 // Legacy lanes have no paid or full-source expectations.
 assert.equal(decideGate({ ...ok, legacy: true, paid: 0, fullSourceActorsVerified: 0, workloadFailureStatuses: ['operational_failure'] }, fast).verdict, 'passed');
 console.log('machine-speed policy: ok');
