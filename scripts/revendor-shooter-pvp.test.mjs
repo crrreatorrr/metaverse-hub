@@ -45,8 +45,8 @@ assert.ok(scratch && !existsSync(scratch), 'scratch directory removed after a fa
 
 // The vendored bundle: the mirrored golden, and a hosted-director match whose replay record verifies.
 const checked = checkBundle(bundle, vendoredPin.commit);
-assert.equal(checked.golden.tick, 65);
-assert.equal(checked.golden.stateHash, '532a562e');
+assert.equal(checked.golden.tick, 180);
+assert.equal(checked.golden.stateHash, 'da423456');
 assert.equal(checked.hosted.verified, true);
 assert.equal(checked.hosted.policy, 'settle');
 assert.throws(() => checkBundle(bundle, 'c'.repeat(40)), /commit/);

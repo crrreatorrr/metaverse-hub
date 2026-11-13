@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "corpusSourceCommit": "2215995f40d999f31336815296e1e7b7726f932a",
+  "corpusSourceCommit": "7137f558846da4c552f6c21ef74756eb527c657d",
   "authority": "Legacy observations are not v2 first-terminal expectations; retained approved incremental replay establishes those independently.",
   "approvedManifest": {
     "artifact": "shooter-sim",
-    "sourceCommit": "2215995f40d999f31336815296e1e7b7726f932a",
-    "sha256": "4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905",
+    "sourceCommit": "7137f558846da4c552f6c21ef74756eb527c657d",
+    "sha256": "ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b",
     "protocol": 1,
     "contentFingerprint": "73c6eb0f",
     "uploadProtocol": 2,

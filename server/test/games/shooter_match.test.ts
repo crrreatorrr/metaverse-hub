@@ -13,8 +13,8 @@ import { checkRegistrations, loadModule, presence, type Broadcast, type LoadedMo
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const PIN = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-pvp-sim.pin.json'), 'utf8')) as { commit: string; sha256: string };
-const FP = 'dc00f234';
-const LOADOUT = '4cdfab55';
+const FP = 'e749d2fd';
+const LOADOUT = '37131c3e';
 const CAMPAIGN = '73c6eb0f';
 const COMMIT = PIN.commit;
 const A = '00000000-0000-4000-8000-00000000000a';
@@ -292,7 +292,7 @@ const HOSTED_SESSION = `(function () {
   assert.equal(HubGames.matchmakingAllowed('hub', '', 'sproto-shooter'), false);
   const campaign = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-sim.pin.json'), 'utf8')) as { fingerprint: string; sha256: string };
   assert.equal(campaign.fingerprint, CAMPAIGN);
-  assert.equal(campaign.sha256, '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905');
+  assert.equal(campaign.sha256, 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b');
   const source = ['shooter_match.ts', 'shooter_matchmaking.ts', 'shooter_protocol.ts'].map((name) => readFileSync(join(root, 'server/modules/src/games', name), 'utf8')).join('\n');
   assert.equal(/nk\.sql|earn_tickets|walletUpdate|leaderboardRecord|sproto_arena|sproto_duel|claimWinner|claim_winner/.test(source), false);
   // Hosts must use the hosted constructor, and nothing synthesizes a HELLO from a RESYNC.
@@ -715,8 +715,8 @@ const HOSTED_SESSION = `(function () {
   assert.equal(ledgerCount(mod), ledger);
 }
 
-// Vendored golden: seed 7, double KO at tick 65, same hash in goja when Go is present;
-// the 90 s replay record verifies in goja too.
+// Vendored golden: seed 7, the 180-tick scripted replay, same hash in goja when Go is present;
+// the 90 s hosted replay record still verifies in goja.
 {
   const mod = load();
   const api = apiOf(mod);
@@ -734,11 +734,11 @@ const HOSTED_SESSION = `(function () {
     })));
   }
   const receipt = JSON.parse(api.replayJSON(JSON.stringify({ seed: 7, inputs }))) as Wire & { ok?: boolean };
-  assert.equal(receipt.outcome, 'draw');
-  assert.equal(receipt.reason, 'double_ko');
+  assert.equal(receipt.outcome, null);
+  assert.equal(receipt.reason, null);
   assert.equal(receipt.winner, null);
-  assert.equal(receipt.tick, 65);
-  assert.equal(receipt.stateHash, '532a562e');
+  assert.equal(receipt.tick, 180);
+  assert.equal(receipt.stateHash, 'da423456');
   assert.equal(receipt.ticketsMinted, 0);
   assert.ok(timedRecord, 'the 90 s match stored its record');
   const recordText = JSON.stringify(timedRecord);
@@ -819,9 +819,9 @@ func main() {
     };
     const goja = (input: string): Wire & { verified?: boolean } => JSON.parse(gojaRun(input)) as Wire & { verified?: boolean };
     const gojaReceipt = goja(JSON.stringify({ seed: 7, inputs }));
-    assert.equal(gojaReceipt.stateHash, '532a562e');
-    assert.equal(gojaReceipt.tick, 65);
-    assert.equal(gojaReceipt.reason, 'double_ko');
+    assert.equal(gojaReceipt.stateHash, 'da423456');
+    assert.equal(gojaReceipt.tick, 180);
+    assert.equal(gojaReceipt.reason, null);
     assert.equal(gojaReceipt.ticketsMinted, 0);
     const gojaReplay = goja(recordText);
     assert.equal(gojaReplay.verified, true);

@@ -9,7 +9,7 @@ import { call, guest, login, num, psql, sqlId, ticketBalance, type GameLogin } f
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-shooter';
-const FP = 'dc00f234';
+const FP = 'e749d2fd';
 const PROTOCOL = 2;
 const SIM = 2;
 const CATEGORY = 'shooter-free';

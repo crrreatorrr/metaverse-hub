@@ -33,4 +33,11 @@ assert.ok(swap.includes("replace(src, '05f7a0a245af921fc65a99588564175c19658e38'
 assert.ok(swap.includes("replace(src, '797029721efe6124b718d84349cd255cd52529d3105b2da1d33e97da8d734aa9', '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905')"));
 assert.equal(/UPDATE|DELETE|INSERT/.test(swap), false, 'the migration rewrites no row');
 assert.ok(all.findIndex((migration) => migration.id === '0066_shooter_campaign_artifact') > all.findIndex((migration) => migration.id === '0065_shooter_campaign_fingerprint'));
+const bundle = all.filter((migration) => migration.id === '0067_shooter_campaign_bundle');
+assert.equal(bundle.length, 1);
+const move = bundle[0]!.statements[0]!;
+assert.ok(move.includes("replace(src, '2215995f40d999f31336815296e1e7b7726f932a', '7137f558846da4c552f6c21ef74756eb527c657d')"));
+assert.ok(move.includes("replace(src, '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905', 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b')"));
+assert.equal(/UPDATE|DELETE|INSERT/.test(move), false, '0067 rewrites no row');
+assert.ok(all.findIndex((migration) => migration.id === '0067_shooter_campaign_bundle') > all.findIndex((migration) => migration.id === '0066_shooter_campaign_artifact'));
 console.log('shooter verification schema registration and dormant contract ok');
