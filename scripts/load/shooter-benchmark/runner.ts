@@ -162,7 +162,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
             const observedPaid = record.observedPaid || execution.observedPaid || execution.paid;
             Object.assign(record, execution, { everObservedEligible, durablyVerified, observedPaid });
           }
-          catch (error) { if (!signal.aborted && !(error instanceof OperationFailure)) harnessStatus = 'failed'; record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure || error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted'; }
+          catch (error) { if (!signal.aborted && !(error instanceof OperationFailure)) { harnessStatus = 'failed'; harnessFailures.push({ phase: currentPhase, operation: 'actor', rawReason: error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted' }); } record.status = signal.aborted ? 'censored' : 'operational_failure'; record.rawReason = signal.aborted ? 'harness_deadline_or_shutdown' : error instanceof OperationFailure || error instanceof InstrumentationFailure ? error.reason : 'adapter_exception_redacted'; }
         })).then(() => undefined);
         phaseWork.push(work); allWork.push(work);
       }
@@ -179,7 +179,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
     externalSignal?.removeEventListener('abort', abort);
     await Promise.allSettled(allWork);
     await observationLoop;
-    try { await bounded(adapter.stopBackground(), AbortSignal.timeout(5000)); } catch { harnessStatus = 'failed'; }
+    try { await bounded(adapter.stopBackground(), AbortSignal.timeout(5000)); } catch { harnessStatus = 'failed'; harnessFailures.push({ phase: currentPhase, operation: 'stop_background', rawReason: 'background_stop_failed' }); }
   }
   for (const actor of actors) if (actor.attempted && actor.status === 'not_started') { actor.status = 'censored'; actor.rawReason = 'harness_interrupted'; }
   const coordinationFailures = adapter.coordinationFailures?.() ?? [];

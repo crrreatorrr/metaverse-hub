@@ -322,6 +322,43 @@
     },
     "evidence": {
       "type": "object"
+    },
+    "machine": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "description": "CI machine speed from machine-speed-ci.ts, or null when it was not measured."
+    },
+    "gate": {
+      "type": "object",
+      "required": [
+        "verdict",
+        "failures",
+        "timingMisses"
+      ],
+      "properties": {
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed",
+            "inconclusive_slow_machine"
+          ]
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "timingMisses": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
     }
   },
   "allOf": [

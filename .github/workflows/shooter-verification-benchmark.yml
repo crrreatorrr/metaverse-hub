@@ -6,6 +6,7 @@ on:
       - scripts/load/shooter-benchmark/**
       - docs/shooter-verification/benchmark-method.md
       - .github/workflows/shooter-verification-benchmark.yml
+      - server/modules/vendor/shooter-sim.js
 concurrency:
   group: shooter-benchmark-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -52,6 +53,7 @@ jobs:
           node --test scripts/load/shooter-benchmark/instrument-result-stages.test.mjs
           node --test scripts/load/shooter-benchmark/result-stage-collector.test.mjs
           npx tsx scripts/load/shooter-benchmark/legacy-policy.test.ts
+          npx tsx scripts/load/shooter-benchmark/machine-speed.test.ts
       - name: Lint benchmark tooling
         run: npx eslint scripts/load/shooter-campaign-verification.ts scripts/load/shooter-benchmark
   twenty-independent-real-pipeline:
@@ -80,6 +82,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Measure this machine and compare the Shooter verifier with main
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:server/modules/vendor/shooter-sim.js > "$RUNNER_TEMP/main-shooter-sim.js"
+          npx tsx scripts/load/shooter-benchmark/machine-speed-ci.ts --corpus "$GITHUB_WORKSPACE/.ci-shooter/tests/fixtures/replay-corpus" --base "$RUNNER_TEMP/main-shooter-sim.js" --out "$RUNNER_TEMP/shooter-machine-speed.json"
       - name: Throwaway credentials for disposable stack
         run: |
           set -eu
@@ -101,6 +108,7 @@ jobs:
         run: npx tsx scripts/load/shooter-benchmark/ci.ts ${{ matrix.command }}
         env:
           SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+          SHOOTER_MACHINE_SPEED_FILE: ${{ runner.temp }}/shooter-machine-speed.json
       - name: Retain safe advisory report only
         if: always()
         uses: actions/upload-artifact@v4

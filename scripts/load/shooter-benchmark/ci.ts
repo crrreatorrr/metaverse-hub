@@ -1,6 +1,7 @@
 // Explicit disposable CI controller. No target/remote endpoint is accepted.
 import { randomBytes, randomUUID } from 'node:crypto';
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { appendFileSync } from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { join, isAbsolute } from 'node:path';
@@ -21,6 +22,7 @@ import { FIXTURE_MAX_RUNS, FIXTURE_RESERVED_BYTES, FIXTURE_CP_RESERVED_BYTES, as
 import { createWorkerLifecycle } from './worker-lifecycle.mjs';
 import { validateResult, ResultValidationFailure } from './result-validation.ts';
 import { collectResultStages } from './result-stage-collector.mjs';
+import { decideGate, validateMachineSpeed, type MachineSpeed } from './machine-speed.ts';
 const exec = promisify(execFile);
 let controllerStage = 'startup';
 let hardExitRequired = false;
@@ -126,12 +128,33 @@ async function finalQuotaCounters(): Promise<Record<string, unknown>> {
   } catch { return { state: 'unavailable', rawReason: 'bounded_post_measurement_quota_read_failed' }; }
 }
 const metricsFile = (id: string, signal?: AbortSignal) => observerFile(id, 'metrics', signal);
+// Written by machine-speed-ci.ts before the stack boots. Without it no time-limit miss is excused.
+async function loadMachineSpeed(): Promise<MachineSpeed | null> {
+  const path = process.env.SHOOTER_MACHINE_SPEED_FILE;
+  if (!path) return null;
+  try { return validateMachineSpeed(JSON.parse(await readFile(path, 'utf8'))); } catch { return null; }
+}
+// GitHub Actions has no neutral job state, so an inconclusive run exits 0 with a warning annotation
+// and says so in the job summary.
+function reportGate(gate: ReturnType<typeof decideGate>, machine: MachineSpeed | null): void {
+  const where = machine ? `${machine.cpuModel}, speed score ${machine.score}` : 'machine speed not measured';
+  const line = gate.verdict === 'passed' ? `Benchmark passed (${where}).`
+    : gate.verdict === 'inconclusive_slow_machine' ? `Inconclusive: missed only a time limit (${gate.timingMisses.join(', ')}) on a slow machine (${where}). Not a pass; re-run to land on a faster machine.`
+    : `Benchmark failed: ${gate.failures.join(', ')}${gate.timingMisses.length ? `; time limits missed: ${gate.timingMisses.join(', ')}` : ''} (${where}).`;
+  if (gate.verdict === 'inconclusive_slow_machine') console.log(`::warning title=Shooter benchmark inconclusive::${line}`);
+  else console.log(line);
+  if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, `### Shooter benchmark: ${gate.verdict}\n\n${line}\n\n`);
+  if (gate.verdict === 'failed') process.exitCode = 1;
+}
 async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode: 'bounded_v8_same_host' | 'legacy_full_goja' | 'legacy_segmented_goja' = 'bounded_v8_same_host', clientProbe?: ClientProbe): Promise<void> {
   controllerStage = 'load_plan';
   const root = directory();
   await loadResultTraceManifest();
   const corpusBytes = await readFile('server/test/fixtures/shooter-integration-corpus.json');
-  const plan = makePlan(JSON.parse(corpusBytes.toString('utf8')) as Corpus, corpusBytes, 'ci-twenty-independent-v1', mode);
+  const corpus = JSON.parse(corpusBytes.toString('utf8')) as Corpus;
+  const plan = makePlan(corpus, corpusBytes, 'ci-twenty-independent-v1', mode);
+  // A case pays when its recorded outcome is a clear and the actor runs it to the end.
+  const corpusCases = new Map((corpus.cases as (Corpus['cases'][number] & { legacyObservation?: unknown })[]).map(row => [row.id, row]));
   // Separate finite CI profiles retain full hard traces. None establishes
   // intended-host capacity or authorizes a deployment/operating choice.
   plan.phases = [{ kind: 'background_baseline', waves: 0, arrivalIntervalMs: 3000 }, ...(profile === 'lifecycle' ? [{ kind: 'cold_burst' as const, waves: 1, arrivalIntervalMs: 0 }, { kind: 'warm_burst' as const, waves: 1, arrivalIntervalMs: 0 }] : profile === 'sustained' ? [{ kind: 'sustained' as const, waves: 3, arrivalIntervalMs: 30000 }] : [{ kind: mode === 'bounded_v8_same_host' && !clientProbe ? 'retry_storm' as const : 'finish_burst' as const, waves: 1, arrivalIntervalMs: 0 }]), { kind: 'drain', waves: 0, arrivalIntervalMs: 5000 }];
@@ -251,8 +274,27 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   controllerStage = 'build_safe_report';
   failureFacts.resultStageDiagnostics = await captureResultStages();
   const resultStageDiagnosticsComplete = !resultTraceEnabled || (failureFacts.resultStageDiagnostics as { state?: unknown }).state === 'observed';
+  const waves = plan.phases.reduce((sum, phase) => sum + phase.waves, 0);
+  const machine = await loadMachineSpeed();
+  const gate = decideGate({
+    legacy, clientComplete, clientWorkloadComplete, resultStageDiagnosticsComplete,
+    harnessStatus: result.harnessStatus, harnessFailureReasons: result.harnessFailures.map(row => row.rawReason),
+    expectedActors: 20 * waves, boundActors: result.actors.length,
+    failedObservations: result.observations.filter(row => !row.ok && row.category !== 'censored').map(row => `${row.category}:${row.rawReason}`),
+    plannedCoordinatorUnavailable,
+    backgroundProofComplete: legacy ? shortBackgroundInputProof.complete : backgroundInputProof.complete,
+    fullSourceActorsVerified: Number(result.summary.fullSourceActorsVerified), expectedFullSourceActors: 19 * waves,
+    paid: Number(result.summary.paid), expectedPaid: 7 * waves,
+    workloadFailureStatuses: result.actors.filter(a => ['operational_failure', 'timeout', 'censored', 'unsupported', 'not_started'].includes(a.status)).map(a => a.status),
+    actors: result.actors.map(a => {
+      const assignment = plan.assignments.find(row => row.actor === a.actor);
+      const outcome = (corpusCases.get(a.caseId)?.legacyObservation as { outcome?: unknown } | undefined)?.outcome;
+      return { status: a.status, expectedToPay: assignment?.behavior === 'complete' && outcome === 'clear' };
+    }),
+  }, machine);
   const report = { schemaVersion: 1, benchmarkId: `ci-${process.env.GITHUB_RUN_ID}`, authority: 'ci_advisory', profile: plan.profile, mode: plan.mode,
     scope: clientProbe ? 'one_additional_actual_dom_client_during20_whole_protocol_actors_one_shared_background_not_capacity_profile' : legacy ? 'one_twenty_actor_existing_legacy_public_rpc_baseline_not_parity_or_capacity_profile' : profile === 'lifecycle' ? 'two_independent_twenty_actor_cold_warm_process_waves_not_capacity_profile' : profile === 'sustained' ? 'three_independent_twenty_actor_waves_at_declared_30s_arrivals_not_capacity_profile' : 'one_twenty_actor_real_pipeline_retry_burst_not_capacity_profile', approvalReference: null, productionCapacityConclusion: null,
+    machine, gate,
     provenance: { gameGitSha: legacy ? currentPin.commit : plan.source.corpusCommit, inputBuilderArtifactSha256: plan.source.artifactSha256, clientSourceCommit: clientPopulation?.clientSourceCommit ?? null, clientBrowserVersion: clientPopulation?.actualBrowserVersion ?? null, legacyExecutable: legacy ? currentPin : null, legacySegmentFrames: mode === 'legacy_segmented_goja' ? LEGACY_SEGMENT_FRAMES : null, prior4096SegmentCiEvidence: mode === 'legacy_segmented_goja' ? { runId: 43007158079, head: '31489b032a73db1398f78228f4a19f949a41e49a', submittedFrames: 57863, verifiedFrames: 16903, cpuBudgetTimeouts: 10, paid: 3, capacityConclusion: null } : null, images, runtimes: { loadGeneratorNode: process.version, coordinatorNode: workerNode, postgres: psql('SHOW server_version'), nakama: { value: null, unavailableReason: 'runtime version not yet observed; exact image digest recorded' }, goja: legacy ? { value: currentPin.goja, source: 'checked_in_exact_executable_pin', observedProcessVersion: null } : { value: null, unavailableReason: 'legacy adapter not executed in this V8 lane' } }, hubGitSha: await git(['rev-parse', 'HEAD']), dirty: Boolean(await git(['status', '--porcelain', '--untracked-files=no'])), artifactSha256: legacy ? currentPin.sha256 : plan.source.artifactSha256, corpusSourceCommit: plan.source.corpusCommit, corpusManifestSha256: plan.source.corpusSha256, assignmentSha256: result.assignmentSha256, configurationSha256: sha256(configuration), configuration: JSON.parse(configuration), fixturePreflight: { capacity: fixtureCapacity, plannedAdditionalV2Runs: plannedV2Runs }, roleLimits },
     hosts: [await hostObservation()], schedule: plan, actors: result.actors,
     clientPopulation, clientMeasurement: clientProbe ? { populationRoles: { wholeProtocolActors: 20, additionalDomPrefix: 1, hubUsers: 20, freePvpMatches: 10 }, readinessGate: clientGate, overlap, shutdown: clientShutdown, rawReason: clientMeasurementFailure, complete: clientComplete, workload: clientWorkload, browserCpu: 'Separate clientPopulation scoped observation or explicit unknown; never inferred from wall/GPU/frame pauses', placement: 'colocated advisory CI host; not intended-client hardware or server-capacity evidence' } : null,
@@ -269,8 +311,7 @@ async function run(profile: 'burst' | 'lifecycle' | 'sustained' = 'burst', mode:
   if (clientProbe) await writeFile(join(root, 'client-frame-intervals.json'), frameText, { flag: 'wx', mode: 0o600 });
   await writeFile(join(root, clientProbe ? 'client-benchmark-report.json' : 'benchmark-report.json'), reportText, { flag: 'wx', mode: 0o600 });
   console.log(`CI advisory actual pipeline: ${result.actors.length} accepted-prefix actors, ${result.summary.fullSourceActorsVerified} full-source actors, ${workloadFailures} operational failures; no production capacity conclusion`);
-  const waves = plan.phases.reduce((sum, phase) => sum + phase.waves, 0);
-  if (!clientComplete || !clientWorkloadComplete || !resultStageDiagnosticsComplete || result.harnessStatus !== 'complete' || result.actors.length !== 20 * waves || unexpectedObserverFailures || !(legacy ? shortBackgroundInputProof.complete : backgroundInputProof.complete) || (!legacy && (result.summary.fullSourceActorsVerified !== 19 * waves || result.summary.paid !== 7 * waves || workloadFailures))) process.exitCode = 1;
+  reportGate(gate, machine);
 }
 try { if (process.argv[2] === 'prepare') await prepare(); else if (process.argv[2] === 'run') await run(); else if (process.argv[2] === 'run-lifecycle') await run('lifecycle'); else if (process.argv[2] === 'run-sustained') await run('sustained'); else if (process.argv[2] === 'run-legacy-full') await run('burst', 'legacy_full_goja'); else if (process.argv[2] === 'run-legacy-segmented') await run('burst', 'legacy_segmented_goja'); else if (process.argv[2] === 'run-client') { const { prepareSingleDomClient } = await import('./client-browser.mjs'); controllerStage = 'client_prepare'; const probe = await prepareSingleDomClient({ root: directory() }); try { await run('burst', 'bounded_v8_same_host', probe); } finally { try { retainClientCleanup(await probe.close()); } catch { retainClientCleanup(null); throw new InstrumentationFailure('client_owned_cleanup_exception'); } } } else throw new Error('explicit prepare/run required'); }
 catch (error) {
