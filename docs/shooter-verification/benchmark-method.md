@@ -47,6 +47,18 @@ Summaries report denominators and raw reason counts. Business fail, assisted, ab
 
 Result provenance includes benchmark/schema version, git SHAs and dirty status, retained/current artifact SHA, corpus manifest/hash and case assignment hash, image digests, approved verifier version, Node/Go/Goja/Nakama/Postgres/browser versions, worker limits/config hash and exact schedule. For each host role record actual OS/kernel/CPU model/vCPU/cpuset/quota/memory/cgroup/PID limits and load-generator placement. Region is null unless verified with cited evidence; do not guess from IP. Host/container telemetry availability is explicit. Capture software browser renderer and device characteristics. Configuration is data, not an automatic recommendation.
 
+## CI machine speed and the inconclusive verdict
+
+GitHub assigns each benchmark job a different CPU, and the same fixed work takes up to about twice as long on the slowest machines (AMD EPYC 7763, Intel Xeon 8573C) as on the fastest (AMD EPYC 9V45). Those machines miss the 900 s run limit or the 5 s observer sample limit with any Shooter build.
+
+Before the stack boots, `machine-speed-ci.ts` verifies three fixed corpus replays with the pinned calibration bundle. Their CPU time against the reference machine is the speed score; at 1.3 or more the machine is slow. The limits stay as they are. At the end of a run, `decideGate` in `machine-speed.ts` sorts each failed condition into a time-limit miss (the run deadline and what it censors, or the observer sample deadline) or a real failure:
+
+- **passed**: nothing missed.
+- **inconclusive_slow_machine**: only time limits missed, on a slow machine. The job exits 0 with a warning annotation and says so in the job summary, because Actions has no neutral state. It is not a pass: re-run it to land on a faster machine.
+- **failed**: any real failure on any machine, or a time limit missed on a machine of reference speed or not measured.
+
+The same step catches a slower Shooter build on any machine. When the PR's `server/modules/vendor/shooter-sim.js` differs from main's, both verify the same replays on the same machine, interleaved, and the job fails if the PR's takes more than 1.2 times main's. The report records the score, the CPU model and the verdict under `machine` and `gate`. Before chasing a speed-test failure, compare runs on the same CPU model.
+
 ## Verification and dependencies
 
 Need stable PR18 helpers for corpus, ordinary browser bot, authenticated issuance/finish and known long UI lane. Need stable PR19 Compose/container profile, coordinator startup/readiness, bounded safe metrics and proof-repair lifecycle. PR17 retention/backup and all existing economic tests remain prerequisites, not benchmark shortcuts. PR19 payment repair must operate after terminal ACK without retaining the full result body; benchmark counts pending repairs and never invents a pay RPC.

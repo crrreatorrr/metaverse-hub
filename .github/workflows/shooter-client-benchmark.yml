@@ -10,6 +10,7 @@ on:
       - server/modules/src/games/shooter_verification*.ts
       - server/docker-compose.yml
       - .github/workflows/shooter-client-benchmark.yml
+      - server/modules/vendor/shooter-sim.js
   push:
     branches: [main]
     paths:
@@ -19,6 +20,7 @@ on:
       - server/modules/src/games/shooter_verification*.ts
       - server/docker-compose.yml
       - .github/workflows/shooter-client-benchmark.yml
+      - server/modules/vendor/shooter-sim.js
 concurrency:
   group: shooter-client-benchmark-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -68,6 +70,11 @@ jobs:
           node --test scripts/load/shooter-benchmark/result-stage-collector.test.mjs
       - name: Lint browser benchmark and observation boundaries
         run: npx eslint scripts/shooter-verification/real-browser-helper.mjs scripts/load/shooter-benchmark/public-browsers.mjs scripts/load/shooter-benchmark/browser-ci.mjs scripts/load/shooter-benchmark/client-browser.mjs scripts/load/shooter-benchmark/browser-accounting.mjs scripts/load/shooter-benchmark/browser-accounting.test.ts scripts/load/shooter-benchmark/browser-background.ts scripts/load/shooter-benchmark/browser-observer.mjs scripts/load/shooter-benchmark/browser-drain.mjs scripts/load/shooter-benchmark/browser-drain.test.mjs scripts/load/shooter-benchmark/client-validation.ts scripts/load/shooter-benchmark/client-validation.test.ts scripts/load/shooter-benchmark/cohort-preparation.ts scripts/load/shooter-benchmark/cohort-preparation.test.ts scripts/load/shooter-benchmark/runner.ts
+      - name: Measure this machine and compare the Shooter verifier with main
+        run: |
+          git fetch --no-tags --depth=1 origin main
+          git show FETCH_HEAD:server/modules/vendor/shooter-sim.js > "$RUNNER_TEMP/main-shooter-sim.js"
+          npx tsx scripts/load/shooter-benchmark/machine-speed-ci.ts --corpus "$GITHUB_WORKSPACE/.ci-shooter/tests/fixtures/replay-corpus" --base "$RUNNER_TEMP/main-shooter-sim.js" --out "$RUNNER_TEMP/shooter-machine-speed.json"
       - name: Throwaway credentials for disposable stack
         run: |
           set -eu
@@ -112,6 +119,7 @@ jobs:
         run: npx tsx scripts/load/shooter-benchmark/ci.ts run-client
         env:
           SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
+          SHOOTER_MACHINE_SPEED_FILE: ${{ runner.temp }}/shooter-machine-speed.json
           SHOOTER_BROWSER_CLIENT: ${{ github.workspace }}/.ci-browser-client
           SHOOTER_BROWSER_EXPECTED_SOURCE: 40b91c30acdca9e93f27f9bb9358a6439045f645
       - name: Retain bounded safe browser and timing reports

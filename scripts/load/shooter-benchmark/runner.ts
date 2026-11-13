@@ -179,7 +179,7 @@ export async function runPlan(plan: Plan, adapter: CampaignAdapter, externalSign
     externalSignal?.removeEventListener('abort', abort);
     await Promise.allSettled(allWork);
     await observationLoop;
-    try { await bounded(adapter.stopBackground(), AbortSignal.timeout(5000)); } catch { harnessStatus = 'failed'; }
+    try { await bounded(adapter.stopBackground(), AbortSignal.timeout(5000)); } catch { harnessStatus = 'failed'; harnessFailures.push({ phase: currentPhase, operation: 'stop_background', rawReason: 'background_stop_failed' }); }
   }
   for (const actor of actors) if (actor.attempted && actor.status === 'not_started') { actor.status = 'censored'; actor.rawReason = 'harness_interrupted'; }
   const coordinationFailures = adapter.coordinationFailures?.() ?? [];

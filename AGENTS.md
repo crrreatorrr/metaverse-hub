@@ -20,6 +20,10 @@ npm run build
 
 `npm run test:dup` also runs in CI and needs Nakama running from `server/docker-compose.yml`.
 
+The Shooter benchmark workflows are advisory, and their speed depends on which CPU GitHub assigns. Before
+chasing a speed-test failure, read the machine speed score and CPU model in the job summary or report
+(`machine`, `gate`), and compare runs on the same CPU model. See `docs/shooter-verification/benchmark-method.md`.
+
 ## Art generation
 
 Follow `docs/higgsfield-workflow-guide.md`. This repo uses both the **sprite sheet** and **rigged 3D character** workflows. If the owner says to skip approvals, follow that section of the guide.
