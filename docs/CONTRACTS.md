@@ -117,6 +117,7 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0065 | sproto-shooter | `games/shooter_rewards.ts` | `0065_shooter_campaign_fingerprint` (`game.settle_shooter_clear` labels receipts with the vendored campaign fingerprint `73c6eb0f`; no row or amount changes) |
 | 0066 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0066_shooter_campaign_artifact` (live verification allowlist matches the vendored campaign bundle `4968fa64…` / `73c6eb0f`; no row or amount changes) |
 | 0067 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0067_shooter_campaign_bundle` (live allowlist matches campaign bundle `ae9ede47…` / `73c6eb0f`; Arena fingerprint `e749d2fd`; no row or amount changes) |
+| 0068 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0068_shooter_campaign_allowlist` (live allowlist matches campaign bundle `735b6da5…` / `73c6eb0f` from `2608511e`; Arena fingerprint `e749d2fd`, sha256 `a2cc1707…`; no row or amount changes) |
 | 0068+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.

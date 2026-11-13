@@ -10,9 +10,9 @@ var SprotoShooterSim = (() => {
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key2 of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key2) && key2 !== except)
-          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
+      for (let key of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key) && key !== except)
+          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
     }
     return to;
   };
@@ -1280,6 +1280,10 @@ var SprotoShooterSim = (() => {
   var INTERMISSION_TIME = 15;
   var VICTORY_TICKETS = 150;
   var MAX_TIER = 10;
+  var FIXED_DIFFICULTY = 5;
+  var waveLayout = (index) => (index % WAVES.length + WAVES.length) % WAVES.length;
+  var waveDifficulty = (index) => Math.max(1, Math.min(MAX_TIER, Math.floor(index / WAVES.length) + 1));
+  var waveEndsRound = (index) => waveLayout(index) === WAVES.length - 1;
   var tierEnemyMult = (t) => Math.pow(1.15, t - 1);
   var ARENA_HP = { step: 1.18, knee: 7, lateStep: 1.1 };
   var tierArenaHpMult = (t) => Math.pow(ARENA_HP.step, Math.min(t, ARENA_HP.knee) - 1) * Math.pow(ARENA_HP.lateStep, Math.max(0, t - ARENA_HP.knee));
@@ -1299,8 +1303,8 @@ var SprotoShooterSim = (() => {
   function tierWave(index, tier = 1) {
     const base = WAVES[index];
     if (!base || !(tier > 1)) return base;
-    const key2 = index * 100 + tier;
-    if (tierWaveCache.has(key2)) return tierWaveCache.get(key2);
+    const key = index * 100 + tier;
+    if (tierWaveCache.has(key)) return tierWaveCache.get(key);
     const robots = tier >= 4 && index >= 1;
     let shooters = robots ? 1 : 0;
     const groups = base.groups.map((g, gi) => {
@@ -1328,10 +1332,19 @@ var SprotoShooterSim = (() => {
     if (index === 1 && tier >= 4) types = [WAVE2_BOSSES[(tier - 4) % WAVE2_BOSSES.length]];
     const late = index === WAVES.length - 1 && tier >= 7 ? ["sprotoBeast"] : [];
     const out = { ...base, maxAlive: base.maxAlive + tierExtraAlive(tier), groups, boss: { ...base.boss, types, late, lateHp: LATE_BOSS_HP } };
-    tierWaveCache.set(key2, out);
+    tierWaveCache.set(key, out);
     return out;
   }
   var tierRewardMult = (t) => 1 + 0.1 * (t - 1);
+  var waveConfigCache = /* @__PURE__ */ new Map();
+  function waveConfig(index) {
+    if (!(index >= 0)) return void 0;
+    if (waveConfigCache.has(index)) return waveConfigCache.get(index);
+    const base = tierWave(waveLayout(index), waveDifficulty(index));
+    const out = { ...base, name: base.name.replace(/^Wave \d+/, `Wave ${index + 1}`) };
+    if (waveConfigCache.size < 1e3) waveConfigCache.set(index, out);
+    return out;
+  }
 
   // src/data/guns.js
   var B = (o) => ({
@@ -2671,8 +2684,8 @@ var SprotoShooterSim = (() => {
     const table = name && def.armour ? def.armour[name] : null;
     const spec = table || def.taken;
     if (!spec) return 1;
-    const key2 = hit.sourceKind === "spell" ? "spell" : hit.isSplash || hit.sourceKind === "world" ? "explosive" : "bullet";
-    return spec[key2] == null ? 1 : spec[key2];
+    const key = hit.sourceKind === "spell" ? "spell" : hit.isSplash || hit.sourceKind === "world" ? "explosive" : "bullet";
+    return spec[key] == null ? 1 : spec[key];
   }
   function archetypeDamageMul(e, from) {
     const a = archetypeOf(e);
@@ -7346,9 +7359,9 @@ var SprotoShooterSim = (() => {
   function hazard(id, x0, x1, n0, n1, extra = {}) {
     const box3 = zone3(x0, x1, n0, n1, extra.y0 == null ? -2 : extra.y0, extra.y1 == null ? 6 : extra.y1);
     const mech = { kind: "hazardZone", id, min: box3.min, max: box3.max };
-    for (const key2 of Object.keys(extra)) {
-      if (key2 === "y0" || key2 === "y1") continue;
-      mech[key2] = extra[key2];
+    for (const key of Object.keys(extra)) {
+      if (key === "y0" || key === "y1") continue;
+      mech[key] = extra[key];
     }
     return mech;
   }
@@ -7634,9 +7647,9 @@ var SprotoShooterSim = (() => {
     zone: zone3(35, 45, 91, 101, -1, 4),
     squads: []
   };
-  function addUnits(counts, units2, key2) {
+  function addUnits(counts, units2, key) {
     for (const unit of units2) {
-      const bucket2 = counts[key2];
+      const bucket2 = counts[key];
       bucket2[unit.type] = (bucket2[unit.type] || 0) + unit.count;
       bucket2._n += unit.count;
     }
@@ -9042,13 +9055,13 @@ var SprotoShooterSim = (() => {
   // src/sim/level/runtime.js
   var cache = /* @__PURE__ */ new Map();
   function getLevelRuntime(id) {
-    const key2 = String(id);
-    if (cache.has(key2)) return cache.get(key2);
-    const data = getLevelData(key2);
+    const key = String(id);
+    if (cache.has(key)) return cache.get(key);
+    const data = getLevelData(key);
     const sectionById2 = {};
     for (const s of data.sections || []) sectionById2[s.id] = s;
     const rt = { ...data, sectionById: sectionById2 };
-    cache.set(key2, rt);
+    cache.set(key, rt);
     cache.set(data.id, rt);
     return rt;
   }
@@ -9527,15 +9540,15 @@ var SprotoShooterSim = (() => {
     else boss2.boss.invuln = !!part.immune && !(part.targets || []).length && prog.partT < (part.seconds || 0);
     boss2.boss.scriptHold = !part.immune && !last;
     (part.adds || []).forEach((add3, i) => {
-      const key2 = `${part.id}:${i}`;
-      if (prog.spawned[key2]) return;
+      const key = `${part.id}:${i}`;
+      if (prog.spawned[key]) return;
       let ready = false;
       if (add3.t != null) ready = prog.partT >= add3.t;
       if (add3.on === "firstLoom" || add3.on === "firstTarget") ready = deadTargets(state, prog) >= 1;
       if (add3.on === "secondPylon" || add3.on === "secondTarget") ready = deadTargets(state, prog) >= 2;
       if (add3.onBossHp != null && boss2.maxHp > 0) ready = boss2.hp / boss2.maxHp * 100 <= add3.onBossHp;
       if (!ready) return;
-      prog.spawned[key2] = true;
+      prog.spawned[key] = true;
       for (const unit of add3.units || []) {
         const count = unit[1] || 1;
         for (let n = 0; n < count; n++) spawnAdd(state, enc, unit, boss2, add3.at, n, count);
@@ -9852,7 +9865,7 @@ var SprotoShooterSim = (() => {
     }
     return e;
   }
-  function trySpawn(state, enc, squad6, key2) {
+  function trySpawn(state, enc, squad6, key) {
     const lv = state.level;
     const prog = encState(lv, enc.id);
     const spots = [];
@@ -9881,13 +9894,13 @@ var SprotoShooterSim = (() => {
     for (const spot of spots) {
       if (!roomFor(state, enc, spot.type)) {
         prog.queue = prog.queue || [];
-        prog.queue.push({ encId: enc.id, squad: key2, spot, part: spot.flockPart });
+        prog.queue.push({ encId: enc.id, squad: key, spot, part: spot.flockPart });
         continue;
       }
       born.push(spawnOne(state, enc, squad6, spot));
     }
-    prog.squads[key2] = { at: prog.t, count: spots.length };
-    emit(state, "squadSpawn", { encounter: enc.id, squad: key2, method: squad6.method || "placed", count: born.length });
+    prog.squads[key] = { at: prog.t, count: spots.length };
+    emit(state, "squadSpawn", { encounter: enc.id, squad: key, method: squad6.method || "placed", count: born.length });
   }
   function doorBox(m) {
     if (!m || !m.at) return null;
@@ -10023,10 +10036,10 @@ var SprotoShooterSim = (() => {
       }
       tickStrikes(state, enc, prog, dt);
       (enc.squads || []).forEach((squad6, i) => {
-        const key2 = squadKey(squad6, i);
-        if (prog.squads[key2]) return;
+        const key = squadKey(squad6, i);
+        if (prog.squads[key]) return;
         if (!triggerReady(state, enc, squad6, prog)) return;
-        trySpawn(state, enc, squad6, key2);
+        trySpawn(state, enc, squad6, key);
       });
       if (prog.queue && prog.queue.length) {
         const job = prog.queue[0];
@@ -10052,8 +10065,8 @@ var SprotoShooterSim = (() => {
     prog.partSeen = clock.n;
     (enc.squads || []).forEach((squad6, i) => {
       if (!squad6.trigger || squad6.trigger.part !== ended) return;
-      const key2 = squadKey(squad6, i);
-      if (!prog.squads[key2]) prog.squads[key2] = { at: prog.t, count: 0, skipped: true };
+      const key = squadKey(squad6, i);
+      if (!prog.squads[key]) prog.squads[key] = { at: prog.t, count: 0, skipped: true };
     });
     if (prog.queue) prog.queue = prog.queue.filter((job) => job.part !== ended);
     for (const e of state.enemies) {
@@ -11946,7 +11959,7 @@ var SprotoShooterSim = (() => {
       state.shop.offers.push({ id: nextId(state), gun, price: shopPrice(gun, state.tier), sold: false });
     }
   }
-  var shopOpen = (state) => state.mode === "sandbox" || state.wave && (state.wave.phase === "intermission" || state.wave.phase === "victory");
+  var shopOpen = (state) => state.mode === "sandbox" || state.wave && state.wave.phase === "intermission";
   function buyOffer(state, p, offerId) {
     if (!shopOpen(state)) return fail(state, p, "Shop is closed during combat");
     const o = state.shop.offers.find((x) => x.id === offerId);
@@ -12034,9 +12047,9 @@ var SprotoShooterSim = (() => {
   }
 
   // src/sim/waves.js
-  function startWaves(state, tier) {
+  function startWaves(state) {
     state.mode = "waves";
-    state.tier = tier;
+    state.tier = waveDifficulty(0);
     state.enemies.length = 0;
     state.projectiles.length = 0;
     state.hazards.length = 0;
@@ -12046,11 +12059,19 @@ var SprotoShooterSim = (() => {
     for (const p of Object.values(state.players)) {
       p.unkillableUsed = false;
     }
-    emit(state, "modeStart", { mode: "waves", tier });
+    emit(state, "modeStart", { mode: "waves", tier: state.tier });
+  }
+  function jumpToWave(state, idx) {
+    if (state.mode !== "waves" || !state.wave || !(idx >= 0)) return;
+    state.enemies.length = 0;
+    state.projectiles.length = 0;
+    state.hazards.length = 0;
+    initWave(state, Math.floor(idx));
   }
   function initWave(state, idx) {
     const w = state.wave;
-    const cfg = tierWave(idx, state.tier);
+    state.tier = waveDifficulty(idx);
+    const cfg = waveConfig(idx);
     w.index = idx;
     w.phase = "pre";
     w.t = 0;
@@ -12061,7 +12082,7 @@ var SprotoShooterSim = (() => {
     w.totalCount = cfg.groups.reduce((n, g) => n + g.spawns.reduce((m, s) => m + s.count, 0), 0);
     w.bossIds = [];
     if (w.lateIdx != null) delete w.lateIdx;
-    emit(state, "wavePre", { waveIndex: idx, name: cfg.name });
+    emit(state, "wavePre", { waveIndex: idx, name: cfg.name, difficulty: state.tier });
   }
   var alive = (state) => state.enemies.filter((e) => !e.dead && !e.boss && e.type !== "dummy").length;
   function pickPoints(state, pattern, n) {
@@ -12087,16 +12108,16 @@ var SprotoShooterSim = (() => {
   function waveDirector(state, dt) {
     const w = state.wave;
     if (state.mode !== "waves" || !w) return;
-    const cfg = tierWave(w.index, state.tier);
+    const cfg = waveConfig(w.index);
     const p = state.players[state.localPlayerId];
     w.t += dt;
     state.run.time += dt;
-    if (p.dead && w.phase !== "defeat" && w.phase !== "victory") {
+    if (p.dead && w.phase !== "defeat") {
       w.phase = "defeat";
       w.t = 0;
       const lost = Math.floor(state.run.ticketsEarned * 0.5);
       p.tickets = Math.max(0, p.tickets - lost);
-      emit(state, "defeat", { tier: state.tier, ticketsLost: lost });
+      emit(state, "defeat", { tier: state.tier, waveIndex: w.index, ticketsLost: lost });
       return;
     }
     switch (w.phase) {
@@ -12180,25 +12201,22 @@ var SprotoShooterSim = (() => {
       }
       case "cleared":
         if (w.t >= 2) {
-          if (w.index >= WAVES.length - 1) {
-            w.phase = "victory";
-            w.t = 0;
+          if (waveEndsRound(w.index)) {
             const tk = Math.round(VICTORY_TICKETS * tierRewardMult(state.tier));
             p.tickets += tk;
             state.run.ticketsEarned += tk;
             const gun = generateGun({ seed: next(state.rng), level: state.tier, forced: { type: rollGunType(state.rng), quality: "legendary" } });
             gun.id = nextId(state);
             spawnGunPickup(state, gun, { x: 0, z: 0 }, "boss");
-            rollShopOffers(state);
-            emit(state, "victory", { tier: state.tier, tickets: tk });
-          } else {
-            w.phase = "intermission";
-            w.t = 0;
-            w.intermissionT = INTERMISSION_TIME;
-            rollShopOffers(state);
-            for (const pl of Object.values(state.players)) pl.unkillableUsed = false;
-            emit(state, "intermissionStart", { waveIndex: w.index });
+            emit(state, "roundCleared", { waveIndex: w.index, tickets: tk });
+            emit(state, "ticketsGained", { amount: tk, reason: "Round clear" });
           }
+          w.phase = "intermission";
+          w.t = 0;
+          w.intermissionT = INTERMISSION_TIME;
+          rollShopOffers(state);
+          for (const pl of Object.values(state.players)) pl.unkillableUsed = false;
+          emit(state, "intermissionStart", { waveIndex: w.index });
         }
         break;
       case "intermission":
@@ -12212,7 +12230,7 @@ var SprotoShooterSim = (() => {
   }
   function clearWave(state) {
     const w = state.wave;
-    const cfg = tierWave(w.index, state.tier);
+    const cfg = waveConfig(w.index);
     const p = state.players[state.localPlayerId];
     const tk = Math.round(cfg.clearTickets * tierRewardMult(state.tier));
     p.tickets += tk;
@@ -13021,7 +13039,8 @@ var SprotoShooterSim = (() => {
         return debugOp(state, p, a.op, a.args || {});
     }
   }
-  function startMode(state, p, mode, tier = 1, opts = {}) {
+  function startMode(state, p, mode, _tier = null, opts = {}) {
+    const tier = FIXED_DIFFICULTY;
     state.enemies.length = 0;
     state.projectiles.length = 0;
     state.hazards.length = 0;
@@ -13057,7 +13076,7 @@ var SprotoShooterSim = (() => {
     state.testMode = mode === "test";
     state.bossFight = null;
     if (mode === "waves") {
-      startWaves(state, tier);
+      startWaves(state);
     } else if (mode === "campaign") {
       startCampaign(state, p, opts.level);
     } else if (mode === "boss") {
@@ -13277,7 +13296,7 @@ var SprotoShooterSim = (() => {
             pos.x *= 27 / r;
             pos.z *= 27 / r;
           }
-          createEnemy(state, args.type, { elite: !!args.elite, tier: args.tier || state.tier, pos });
+          createEnemy(state, args.type, { elite: !!args.elite, pos });
         }
         break;
       }
@@ -13288,7 +13307,7 @@ var SprotoShooterSim = (() => {
           pos.x *= 24 / r;
           pos.z *= 24 / r;
         }
-        const b = createBoss(state, args.type, { tier: args.tier || state.tier, pos });
+        const b = createBoss(state, args.type, { pos });
         emit(state, "bossSpawn", { id: b.id, bossType: args.type });
         break;
       }
@@ -13352,9 +13371,6 @@ var SprotoShooterSim = (() => {
       case "maxSkills":
         for (const sk2 of SKILL_IDS) for (let i = 0; i < 10; i++) debugOp(state, p, "levelSkill", { skill: sk2 });
         break;
-      case "setTier":
-        state.tier = Math.max(1, Math.min(10, args.tier | 0));
-        break;
       case "refillAmmo":
         for (const k of Object.keys(p.ammo)) p.ammo[k] = p.ammoCap[k];
         for (const g of p.guns) if (g) g.ammoInMag = g.stats.magSize;
@@ -13377,6 +13393,9 @@ var SprotoShooterSim = (() => {
         if (g && args.key in g.stats) g.stats[args.key] = args.value;
         break;
       }
+      case "jumpToWave":
+        jumpToWave(state, (args.wave | 0) - 1);
+        break;
       case "skipWave":
         if (state.wave) {
           for (const e of state.enemies) if (!e.dead) {
@@ -13531,9 +13550,6 @@ var SprotoShooterSim = (() => {
     }
     return false;
   }
-  function key(ix, iz) {
-    return `${ix},${iz}`;
-  }
   function zoneCostAt(zones, x, z) {
     let cost = 1;
     for (let i = 0; i < zones.length; i++) {
@@ -13547,33 +13563,36 @@ var SprotoShooterSim = (() => {
     const x0 = bounds.min[0], z0 = bounds.min[1];
     const nx = Math.max(1, Math.ceil((bounds.max[0] - x0) / cell));
     const nz = Math.max(1, Math.ceil((bounds.max[1] - z0) / cell));
-    const open = /* @__PURE__ */ new Set();
+    const open = new Uint8Array(nx * nz);
     for (let iz = 0; iz < nz; iz++) {
       for (let ix = 0; ix < nx; ix++) {
         const x = x0 + (ix + 0.5) * cell, z = z0 + (iz + 0.5) * cell;
-        if (!blocked2(solids, x, z)) open.add(key(ix, iz));
+        if (!blocked2(solids, x, z)) open[iz * nx + ix] = 1;
       }
     }
+    const inside = (c) => c.ix >= 0 && c.ix < nx && c.iz >= 0 && c.iz < nz;
     const extra = [];
     for (let i = 0; i < links.length; i++) {
       const a = cellAt(bounds, links[i].from, cell);
       const b = cellAt(bounds, links[i].to, cell);
-      if (!a || !b) continue;
-      extra.push({ a: key(a.ix, a.iz), b: key(b.ix, b.iz), to: links[i].to, kind: links[i].kind || "link" });
-      open.add(key(a.ix, a.iz));
-      open.add(key(b.ix, b.iz));
+      if (!inside(a) || !inside(b)) continue;
+      const ka = a.iz * nx + a.ix, kb = b.iz * nx + b.ix;
+      extra.push({ a: ka, b: kb, to: links[i].to, kind: links[i].kind || "link" });
+      open[ka] = 1;
+      open[kb] = 1;
     }
-    const cost = /* @__PURE__ */ new Map();
+    let cost = null;
     if (zones.length) {
+      cost = new Float64Array(nx * nz);
       for (let iz = 0; iz < nz; iz++) {
         for (let ix = 0; ix < nx; ix++) {
           const x = x0 + (ix + 0.5) * cell, z = z0 + (iz + 0.5) * cell;
           const c = zoneCostAt(zones, x, z);
-          if (c > 1) cost.set(key(ix, iz), c);
+          if (c > 1) cost[iz * nx + ix] = c;
         }
       }
     }
-    return { bounds, cell, nx, nz, open, extra, cost };
+    return { bounds, cell, nx, nz, open, extra, cost, scratch: null };
   }
   function cellAt(bounds, pos, cell = CELL) {
     const ix = Math.floor((pos.x - bounds.min[0]) / cell);
@@ -13586,25 +13605,47 @@ var SprotoShooterSim = (() => {
       z: grid.bounds.min[1] + (iz + 0.5) * grid.cell
     };
   }
+  var EMPTY = [];
+  function boxesKey(list) {
+    let s = "";
+    for (let i = 0; i < list.length; i++) {
+      const b = list[i];
+      s += `${b.kind}/${b.yaw || 0}/${b.min[0]},${b.min[1]},${b.min[2]}/${b.max[0]},${b.max[1]},${b.max[2]}/${b.cost ?? ""};`;
+    }
+    return s;
+  }
+  var GRID_CACHE = 8;
   function navGridFor(state) {
     const solids = activeSolids(state);
-    const bounds = state.level && state.level.navBounds;
+    const lv = state.level;
+    const bounds = lv && lv.navBounds;
     if (!solids || !bounds) return null;
-    const links = state.level.navLinks || [];
-    const zones = state.level.slowZones || [];
-    const cached = grids.get(solids);
-    if (cached && cached.bounds === bounds && cached.links === links && cached.zones === zones) return cached.grid;
+    const links = lv.navLinks || EMPTY;
+    const zones = lv.slowZones || EMPTY;
+    const base = lv.solids || EMPTY;
+    const sig = `${boxesKey(lv.closedDoors || EMPTY)}#${boxesKey(zones)}`;
+    let byBase = grids.get(base);
+    if (!byBase) {
+      byBase = [];
+      grids.set(base, byBase);
+    }
+    for (let i = 0; i < byBase.length; i++) {
+      const c = byBase[i];
+      if (c.bounds === bounds && c.links === links && c.sig === sig) return c.grid;
+    }
     const grid = bakeNav(solids, bounds, links, CELL, zones);
-    grids.set(solids, { bounds, links, zones, grid });
+    byBase.unshift({ bounds, links, sig, grid });
+    if (byBase.length > GRID_CACHE) byBase.pop();
     return grid;
   }
   function nearestOpen(grid, pos) {
     const c = cellAt(grid.bounds, pos, grid.cell);
-    if (grid.open.has(key(c.ix, c.iz))) return c;
+    const { nx, nz, open } = grid;
+    if (c.ix >= 0 && c.ix < nx && c.iz >= 0 && c.iz < nz && open[c.iz * nx + c.ix]) return c;
     let best = null, bd = 1e9;
-    for (let iz = 0; iz < grid.nz; iz++) {
-      for (let ix = 0; ix < grid.nx; ix++) {
-        if (!grid.open.has(key(ix, iz))) continue;
+    for (let iz = 0; iz < nz; iz++) {
+      for (let ix = 0; ix < nx; ix++) {
+        if (!open[iz * nx + ix]) continue;
         const p = center(grid, ix, iz);
         const d = (p.x - pos.x) ** 2 + (p.z - pos.z) ** 2;
         if (d < bd) {
@@ -13615,69 +13656,92 @@ var SprotoShooterSim = (() => {
     }
     return best;
   }
+  function scratchFor(grid) {
+    const n = grid.nx * grid.nz;
+    if (!grid.scratch) {
+      grid.scratch = { gen: 0, g: new Float64Array(n), gAt: new Uint32Array(n), came: new Int32Array(n), cameAt: new Uint32Array(n), seenAt: new Uint32Array(n) };
+    }
+    const s = grid.scratch;
+    if (++s.gen === 4294967295) {
+      s.gAt.fill(0);
+      s.cameAt.fill(0);
+      s.seenAt.fill(0);
+      s.gen = 1;
+    }
+    return s;
+  }
+  var NEIGH_X = [1, -1, 0, 0];
+  var NEIGH_Z = [0, 0, 1, -1];
   function findPath(grid, from, to) {
     if (!grid) return null;
     const a = nearestOpen(grid, from);
     const b = nearestOpen(grid, to);
     if (!a || !b) return null;
-    const start2 = key(a.ix, a.iz), goal = key(b.ix, b.iz);
+    const { nx, nz, open: walk, cost, extra } = grid;
+    const start2 = a.iz * nx + a.ix, goal = b.iz * nx + b.ix;
     if (start2 === goal) return [center(grid, a.ix, a.iz)];
+    const { gen, g, gAt, came, cameAt, seenAt } = scratchFor(grid);
+    const bx = b.ix, bz = b.iz;
     const open = [start2];
-    const came = /* @__PURE__ */ new Map();
-    const g = /* @__PURE__ */ new Map([[start2, 0]]);
-    const seen2 = /* @__PURE__ */ new Set();
-    const neigh = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    g[start2] = 0;
+    gAt[start2] = gen;
     while (open.length) {
-      let bi = 0, bg = g.get(open[0]) + 0;
+      let bi = 0, bg = g[open[0]] + 0;
       for (let i = 1; i < open.length; i++) {
         const k = open[i];
-        const [ix2, iz2] = k.split(",").map(Number);
-        const h = Math.abs(ix2 - b.ix) + Math.abs(iz2 - b.iz);
-        const f = g.get(k) + h;
+        const ix2 = k % nx, iz2 = (k - ix2) / nx;
+        const f = g[k] + (Math.abs(ix2 - bx) + Math.abs(iz2 - bz));
         if (f < bg) {
           bg = f;
           bi = i;
         }
       }
-      const cur = open.splice(bi, 1)[0];
+      const cur = open[bi];
+      open.splice(bi, 1);
       if (cur === goal) break;
-      if (seen2.has(cur)) continue;
-      seen2.add(cur);
-      const [ix, iz] = cur.split(",").map(Number);
-      for (let n = 0; n < neigh.length; n++) {
-        const jx = ix + neigh[n][0], jz = iz + neigh[n][1];
-        const nk = key(jx, jz);
-        if (!grid.open.has(nk)) continue;
-        const ng = g.get(cur) + (grid.cost && grid.cost.get(nk) || 1);
-        if (ng < (g.get(nk) ?? 1e9)) {
-          g.set(nk, ng);
-          came.set(nk, cur);
+      if (seenAt[cur] === gen) continue;
+      seenAt[cur] = gen;
+      const ix = cur % nx, iz = (cur - ix) / nx;
+      const gc = g[cur];
+      for (let n = 0; n < 4; n++) {
+        const jx = ix + NEIGH_X[n], jz = iz + NEIGH_Z[n];
+        if (jx < 0 || jx >= nx || jz < 0 || jz >= nz) continue;
+        const nk = jz * nx + jx;
+        if (!walk[nk]) continue;
+        const ng = gc + (cost && cost[nk] || 1);
+        if (ng < (gAt[nk] === gen ? g[nk] : 1e9)) {
+          g[nk] = ng;
+          gAt[nk] = gen;
+          came[nk] = cur;
+          cameAt[nk] = gen;
           open.push(nk);
         }
       }
-      for (let n = 0; n < grid.extra.length; n++) {
-        const link = grid.extra[n];
-        const nk = link.a === cur ? link.b : link.b === cur ? link.a : null;
-        if (!nk) continue;
-        const ng = g.get(cur) + 2;
-        if (ng < (g.get(nk) ?? 1e9)) {
-          g.set(nk, ng);
-          came.set(nk, cur);
+      for (let n = 0; n < extra.length; n++) {
+        const link = extra[n];
+        const nk = link.a === cur ? link.b : link.b === cur ? link.a : -1;
+        if (nk < 0) continue;
+        const ng = gc + 2;
+        if (ng < (gAt[nk] === gen ? g[nk] : 1e9)) {
+          g[nk] = ng;
+          gAt[nk] = gen;
+          came[nk] = cur;
+          cameAt[nk] = gen;
           open.push(nk);
         }
       }
     }
-    if (!came.has(goal) && start2 !== goal) return null;
+    if (cameAt[goal] !== gen) return null;
     const cells = [goal];
-    let walk = goal;
-    while (came.has(walk)) {
-      walk = came.get(walk);
-      cells.push(walk);
+    let at2 = goal;
+    while (cameAt[at2] === gen) {
+      at2 = came[at2];
+      cells.push(at2);
     }
     cells.reverse();
     return cells.map((k) => {
-      const [ix, iz] = k.split(",").map(Number);
-      return center(grid, ix, iz);
+      const ix = k % nx;
+      return center(grid, ix, (k - ix) / nx);
     });
   }
   function navWaypoint(state, from, to) {
@@ -15262,12 +15326,12 @@ var SprotoShooterSim = (() => {
     }
   }
   function cleanup(state) {
-    for (const key2 of ["enemies", "projectiles", "pickups", "hazards", "allies"]) {
-      const arr = state[key2];
+    for (const key of ["enemies", "projectiles", "pickups", "hazards", "allies"]) {
+      const arr = state[key];
       let w = 0;
       for (let i = 0; i < arr.length; i++) {
         const it = arr[i];
-        const keep = key2 === "enemies" ? !(it.dead && (it.deadT = (it.deadT || 0) + 1) > 1) : !it.dead;
+        const keep = key === "enemies" ? !(it.dead && (it.deadT = (it.deadT || 0) + 1) > 1) : !it.dead;
         if (keep) arr[w++] = it;
       }
       arr.length = w;
@@ -15280,8 +15344,8 @@ var SprotoShooterSim = (() => {
       p.prevPos.y = p.pos.y;
       p.prevPos.z = p.pos.z;
     }
-    for (const key2 of ["enemies", "projectiles", "pickups", "allies"]) {
-      for (const e of state[key2]) {
+    for (const key of ["enemies", "projectiles", "pickups", "allies"]) {
+      for (const e of state[key]) {
         e.prevPos.x = e.pos.x;
         e.prevPos.y = e.pos.y;
         e.prevPos.z = e.pos.z;
@@ -15825,9 +15889,9 @@ var SprotoShooterSim = (() => {
     teleport: "teleport",
     position: "teleport"
   };
-  function hostileKey(key2) {
-    if (key2 === "__proto__" || key2 === "constructor" || key2 === "prototype") return "malformed";
-    return HOSTILE[key2] || null;
+  function hostileKey(key) {
+    if (key === "__proto__" || key === "constructor" || key === "prototype") return "malformed";
+    return HOSTILE[key] || null;
   }
   function inspectValue(value, depth = 0) {
     if (depth > 12) return "malformed";
@@ -16044,7 +16108,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "7137f558846da4c552f6c21ef74756eb527c657d";
+  var SOURCE_COMMIT = "2608511e93b765aedfb8e9311266bb9e989170e8";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,
@@ -16360,13 +16424,13 @@ var SprotoShooterSim = (() => {
         result = {};
         add3(2);
         let count = 0;
-        for (const key2 of Object.getOwnPropertyNames(v)) {
-          if (forbidden.has(key2)) fail2();
-          const descriptor = Object.getOwnPropertyDescriptor(v, key2);
+        for (const key of Object.getOwnPropertyNames(v)) {
+          if (forbidden.has(key)) fail2();
+          const descriptor = Object.getOwnPropertyDescriptor(v, key);
           if (!descriptor.enumerable || !("value" in descriptor)) fail2();
           if (exporting && descriptor.value === void 0) continue;
-          add3(textSize(key2) + 1 + (count++ ? 1 : 0));
-          result[key2] = walk(descriptor.value, depth + 1);
+          add3(textSize(key) + 1 + (count++ ? 1 : 0));
+          result[key] = walk(descriptor.value, depth + 1);
         }
       }
       ancestors.delete(v);
@@ -16379,7 +16443,7 @@ var SprotoShooterSim = (() => {
     if (!value || Array.isArray(value) || typeof value !== "object") fail2();
     const actual = Object.keys(value).sort();
     const wanted = expected.slice().sort();
-    if (actual.length !== wanted.length || actual.some((key2, i) => key2 !== wanted[i])) fail2();
+    if (actual.length !== wanted.length || actual.some((key, i) => key !== wanted[i])) fail2();
   }
   function manifestOk(manifest) {
     keys(manifest, ["artifact", "sourceCommit", "sha256", "contentFingerprint", "protocol"]);
@@ -16387,7 +16451,7 @@ var SprotoShooterSim = (() => {
   }
   function bindingOk(binding) {
     keys(binding, ["accountId", "sessionId", "day", "runId"]);
-    for (const key2 of Object.keys(binding)) if (typeof binding[key2] !== "string" || !binding[key2].length || binding[key2].length > 256) fail2();
+    for (const key of Object.keys(binding)) if (typeof binding[key] !== "string" || !binding[key].length || binding[key].length > 256) fail2();
   }
   function stateOk(state) {
     if (!state || state.version !== 1 || !integer(state.tick) || !Number.isFinite(state.time) || state.time < 0 || !integer(state.nextId) || !integer(state.localPlayerId) || !integer(state.seed) || state.seed > 4294967295 || typeof state.mode !== "string" || !state.mode.length) fail2();
@@ -16510,7 +16574,7 @@ var SprotoShooterSim = (() => {
   function exact(object, names) {
     if (!object || typeof object !== "object" || Array.isArray(object)) bad("malformed");
     const keys2 = Object.keys(object).sort(), expected = names.slice().sort();
-    if (keys2.length !== expected.length || keys2.some((key2, i) => key2 !== expected[i])) bad("malformed");
+    if (keys2.length !== expected.length || keys2.some((key, i) => key !== expected[i])) bad("malformed");
   }
   var equal = (a, b) => stableStringify(a) === stableStringify(b);
   var bindingOf = (issuance) => ({ accountId: issuance.accountId, sessionId: issuance.sessionId, day: issuance.day, runId: issuance.runId });
@@ -16764,7 +16828,7 @@ var SprotoShooterSim = (() => {
   function publicReplayJSON(workerResult) {
     const p = workerResult.publicResult;
     const out = {};
-    for (const key2 of [
+    for (const key of [
       "version",
       "status",
       "reason",
@@ -16781,10 +16845,10 @@ var SprotoShooterSim = (() => {
       "verifiedFramesTextBytes",
       "actions",
       "verifiedActions"
-    ]) if (p[key2] !== void 0) out[key2] = p[key2];
+    ]) if (p[key] !== void 0) out[key] = p[key];
     if (p.terminal) {
       out.terminal = {};
-      for (const key2 of ["outcome", "reason", "eligible", "ranked", "canonicalCount", "stateHash", "simTick", "inputFrame"]) out.terminal[key2] = p.terminal[key2];
+      for (const key of ["outcome", "reason", "eligible", "ranked", "canonicalCount", "stateHash", "simTick", "inputFrame"]) out.terminal[key] = p.terminal[key];
     } else out.terminal = null;
     return JSON.stringify(out);
   }

@@ -45,7 +45,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crrreatorrr/sproto-shooter
-          ref: 7360d7e601ae7033c41a0b21c02df1ba77721a10
+          ref: 40b91c30acdca9e93f27f9bb9358a6439045f645
           path: .ci-browser-client
       - uses: actions/setup-node@v4
         with:
@@ -113,7 +113,7 @@ jobs:
         env:
           SHOOTER_CORPUS_DIR: ${{ github.workspace }}/.ci-shooter/tests/fixtures/replay-corpus
           SHOOTER_BROWSER_CLIENT: ${{ github.workspace }}/.ci-browser-client
-          SHOOTER_BROWSER_EXPECTED_SOURCE: 7360d7e601ae7033c41a0b21c02df1ba77721a10
+          SHOOTER_BROWSER_EXPECTED_SOURCE: 40b91c30acdca9e93f27f9bb9358a6439045f645
       - name: Retain bounded safe browser and timing reports
         if: always()
         uses: actions/upload-artifact@v4

@@ -14,7 +14,7 @@ import { benchmarkRpc } from './rpc.ts';
 import { boundOwnerStatus, serviceOutcome, outcomeError } from './browser-accounting.mjs';
 import { runPublicBrowserCohort } from './public-browsers.mjs';
 const exec = promisify(execFile), hash = value => createHash('sha256').update(value).digest('hex');
-const APPROVED_CLIENT = '7360d7e601ae7033c41a0b21c02df1ba77721a10';
+const APPROVED_CLIENT = '40b91c30acdca9e93f27f9bb9358a6439045f645';
 let observers = null, backgroundResult = null;
 let browser = null, browserServer = null, shutdownObservation = null, hardExitRequired = false, reportPath = null, framePath = null, setupSucceeded = 0, observedResult = null;
 const startedAt = new Date().toISOString();

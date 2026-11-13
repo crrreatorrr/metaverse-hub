@@ -360,3 +360,61 @@ HubSchema.register({
     $art$`,
   ],
 });
+
+// 0067 is already applied, so its bundle literals stay. The campaign fingerprint
+// is still 73c6eb0f. This moves the live allowlist onto the bundle the campaign
+// client accepts (commit 2608511e, sha256 735b6da5…). A historical replay runs
+// 0067 against the function this already rewrote, so the comment below keeps
+// 0067's literals visible to its position() guards. The comparisons use the new
+// literals. 0066's earlier comment stays. The Arena pin moved to the same commit
+// because sim sources changed since 7137f558; its fingerprint is still e749d2fd
+// and its sha256 is a2cc1707…. Stored rows, the 20 Ticket amount, and wager
+// settlement are untouched. Applying this twice changes nothing.
+HubSchema.register({
+  id: "0068_shooter_campaign_allowlist",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle 7137f558846da4c552f6c21ef74756eb527c657d ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '7137f558846da4c552f6c21ef74756eb527c657d', '2608511e93b765aedfb8e9311266bb9e989170e8');
+      src := replace(src, 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b', '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b');
+      IF position('7137f558846da4c552f6c21ef74756eb527c657d' in src) > 0
+        OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) = 0
+        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) > 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_allowlist_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('7137f558846da4c552f6c21ef74756eb527c657d' in replace(src, note, '')) > 0
+        OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_allowlist_issue_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '7137f558846da4c552f6c21ef74756eb527c657d', '2608511e93b765aedfb8e9311266bb9e989170e8');
+      src := replace(src, 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b', '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b');
+      IF position('7137f558846da4c552f6c21ef74756eb527c657d' in src) > 0
+        OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) = 0
+        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) > 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_allowlist_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('7137f558846da4c552f6c21ef74756eb527c657d' in replace(src, note, '')) > 0
+        OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_allowlist_work_replay_note_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});
