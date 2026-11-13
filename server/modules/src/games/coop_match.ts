@@ -522,12 +522,16 @@ namespace CoopMatch {
     account.devices = [];
   }
 
-  function parkCpu(state: State, account: AccountRec): void {
+  /**
+   * A disconnected account keeps its seats through the reconnect grace. Its Sprotos stand idle
+   * ("away", neutral input): no CPU plays them. After the grace the seats empty (releaseSeat).
+   */
+  function parkAway(state: State, account: AccountRec): void {
     var session = state.session;
     if (!session) return;
     for (var i = 0; i < session.seats.length; i++) {
       var seat = session.seats[i];
-      if (seat.human && seat.accountId === account.userId) session.state.players[i].ctrl = "cpu";
+      if (seat.human && seat.accountId === account.userId) session.state.players[i].ctrl = "away";
     }
   }
 
@@ -1378,7 +1382,7 @@ namespace CoopMatch {
         state.payDay = isObj(row.value["payDay"]) ? row.value["payDay"] as { [id: string]: string } : {};
         state.payFacts = isObj(row.value["payFacts"]) ? row.value["payFacts"] as State["payFacts"] : null;
         if (playing) {
-          for (var id in state.accounts) parkCpu(state, state.accounts[id]);
+          for (var id in state.accounts) parkAway(state, state.accounts[id]);
           if (!state.session.encounter && state.session.state.mode === "play") CoopProtocol.beginEncounter(state.session);
         }
         for (var accountId in state.accounts) CoopMm.setLive(nk, accountId, ctx.matchId || "");
@@ -1459,7 +1463,7 @@ namespace CoopMatch {
           account.leftTick = -1;
         } else if (state.phase === "playing") {
           account.leftTick = tick;
-          parkCpu(state, account);
+          parkAway(state, account);
           markAfk(state, account);
         }
       }

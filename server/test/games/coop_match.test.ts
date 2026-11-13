@@ -376,7 +376,7 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(stateOf(run.m).broken, '');
   ready(run.m, next);
   run.m.leave([next]);
-  assert.equal(hydrate(run.mod, run.m).session?.state.players[0]?.ctrl, 'cpu');
+  assert.equal(hydrate(run.mod, run.m).session?.state.players[0]?.ctrl, 'away', 'a disconnected Sproto stands idle; no CPU plays it');
   assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
   const back = presence(USERS[0]!, 'ada', 's-back');
   run.m.join([back], game(USERS[0]!, 's-back'));
@@ -669,7 +669,7 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(rebuilt.state.players.length, SEATS);
   assert.equal(rebuilt.state.players[0]?.lives, 1);
   assert.equal(rebuilt.state.players[0]?.hp, 40);
-  assert.equal(rebuilt.state.players[0]?.ctrl, 'cpu');
+  assert.equal(rebuilt.state.players[0]?.ctrl, 'away');
   const packedPlayers = (exported as { state: { players: { ctrl: string }[] } }).state.players;
   const livePlayers = rebuilt.state.players as { ctrl: string }[];
   for (let i = 0; i < packedPlayers.length; i += 1) livePlayers[i]!.ctrl = packedPlayers[i]!.ctrl;
