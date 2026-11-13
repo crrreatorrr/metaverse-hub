@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crrreatorrr/sproto-shooter
-          ref: 2215995f40d999f31336815296e1e7b7726f932a
+          ref: dce559c523d6e9ce007126317b12042608864c3e
           path: .ci-shooter
           sparse-checkout: tests/fixtures/replay-corpus
       - uses: actions/checkout@v4

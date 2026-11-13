@@ -418,3 +418,62 @@ HubSchema.register({
     $art$`,
   ],
 });
+
+// 0068 is already applied, so its bundle literals stay. The campaign fingerprint
+// is still 73c6eb0f. Shooter main dce559c5 (through shooter #145) changed the
+// level sections and campaign sim after 2608511e, so the hub pin check needs a
+// rebuilt bundle. This moves the live allowlist onto it (commit dce559c5, sha256
+// b438ef8d…). A historical replay runs 0068 against the function this already
+// rewrote, so the comment below keeps 0068's literals visible to its position()
+// guards. The comparisons use the new literals. The earlier comments stay. The
+// Arena pin moved to the same commit; its fingerprint is still e749d2fd and its
+// sha256 is e0e68375…. Stored rows, the 20 Ticket amount, and wager settlement
+// are untouched. Applying this twice changes nothing.
+HubSchema.register({
+  id: "0069_shooter_campaign_level_bundle",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle 2608511e93b765aedfb8e9311266bb9e989170e8 735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', 'dce559c523d6e9ce007126317b12042608864c3e');
+      src := replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'b438ef8da2f2575d224bb8a666efbb2007ff5aaa5950606142169b14b869707b');
+      IF position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) > 0
+        OR position('dce559c523d6e9ce007126317b12042608864c3e' in src) = 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) > 0
+        OR position('b438ef8da2f2575d224bb8a666efbb2007ff5aaa5950606142169b14b869707b' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in replace(src, note, '')) > 0
+        OR position('dce559c523d6e9ce007126317b12042608864c3e' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_issue_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '2608511e93b765aedfb8e9311266bb9e989170e8', 'dce559c523d6e9ce007126317b12042608864c3e');
+      src := replace(src, '735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b', 'b438ef8da2f2575d224bb8a666efbb2007ff5aaa5950606142169b14b869707b');
+      IF position('2608511e93b765aedfb8e9311266bb9e989170e8' in src) > 0
+        OR position('dce559c523d6e9ce007126317b12042608864c3e' in src) = 0
+        OR position('735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b' in src) > 0
+        OR position('b438ef8da2f2575d224bb8a666efbb2007ff5aaa5950606142169b14b869707b' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('2608511e93b765aedfb8e9311266bb9e989170e8' in replace(src, note, '')) > 0
+        OR position('dce559c523d6e9ce007126317b12042608864c3e' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_level_bundle_work_replay_note_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});
