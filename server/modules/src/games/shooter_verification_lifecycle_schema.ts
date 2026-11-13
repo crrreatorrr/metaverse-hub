@@ -305,35 +305,55 @@ HubSchema.register({
 
 // 0066 is already applied, so its bundle literals stay. The campaign fingerprint
 // is still 73c6eb0f. This moves the live allowlist onto the shared-gameplay
-// bundle (commit 7137f558, sha256 ae9ede47…). The Arena pin (fingerprint
-// e749d2fd, the same commit, sha256 e8091d14…) lives in the vendored PvP pin,
-// not in these functions. Stored rows, the 20 Ticket amount, and wager
-// settlement are untouched. Applying this twice changes nothing.
+// bundle (commit 7137f558, sha256 ae9ede47…). A historical replay deletes this
+// row and 0066 together, then runs 0066 against the function this already
+// rewrote. The comment put back below keeps 0066's literals visible to its
+// position() guards; the comparisons use the new literals. The Arena pin
+// (fingerprint e749d2fd, the same commit, sha256 e8091d14…) lives in the
+// vendored PvP pin, not in these functions. Stored rows, the 20 Ticket amount,
+// and wager settlement are untouched. Applying this twice changes nothing.
 HubSchema.register({
   id: "0067_shooter_campaign_bundle",
   statements: [
     `DO $art$
     DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle 2215995f40d999f31336815296e1e7b7726f932a 4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
     BEGIN
       src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
       src := replace(src, '2215995f40d999f31336815296e1e7b7726f932a', '7137f558846da4c552f6c21ef74756eb527c657d');
       src := replace(src, '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905', 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b');
       IF position('2215995f40d999f31336815296e1e7b7726f932a' in src) > 0
         OR position('7137f558846da4c552f6c21ef74756eb527c657d' in src) = 0
         OR position('4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905' in src) > 0
-        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) = 0 THEN
+        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
         RAISE EXCEPTION 'shooter_campaign_bundle_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('2215995f40d999f31336815296e1e7b7726f932a' in replace(src, note, '')) > 0
+        OR position('7137f558846da4c552f6c21ef74756eb527c657d' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_bundle_issue_replay_note_missing';
       END IF;
       EXECUTE src;
 
       src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
       src := replace(src, '2215995f40d999f31336815296e1e7b7726f932a', '7137f558846da4c552f6c21ef74756eb527c657d');
       src := replace(src, '4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905', 'ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b');
       IF position('2215995f40d999f31336815296e1e7b7726f932a' in src) > 0
         OR position('7137f558846da4c552f6c21ef74756eb527c657d' in src) = 0
         OR position('4968fa64a1be5b74afbf6a788a8438234615996e7d3d82cf657edd8251ab6905' in src) > 0
-        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) = 0 THEN
+        OR position('ae9ede47f2bdb4896820810888e62cca9eb3c9f6675052645dae0fb31518145b' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
         RAISE EXCEPTION 'shooter_campaign_bundle_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('2215995f40d999f31336815296e1e7b7726f932a' in replace(src, note, '')) > 0
+        OR position('7137f558846da4c552f6c21ef74756eb527c657d' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_bundle_work_replay_note_missing';
       END IF;
       EXECUTE src;
     END;

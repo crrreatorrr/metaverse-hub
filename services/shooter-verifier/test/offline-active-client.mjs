@@ -2,14 +2,22 @@
 import assert from 'node:assert/strict';
 import { readFileSync,existsSync } from 'node:fs';
 import { createHash } from 'node:crypto';
+import vm from 'node:vm';
 import { UnixReplayClient } from '../ops/unix-client.mjs';
+import { loadApprovedArtifact } from '../src/artifacts.mjs';
 import { APPROVED } from '../src/approved.mjs';
 const pause=ms=>new Promise(r=>setTimeout(r,ms)),client=new UnixReplayClient();
 const f=JSON.parse(readFileSync(new URL('./obama-success-7.json',import.meta.url),'utf8')),segment=f.log.segments[0];assert.equal(segment.n,24000);
-const batch={protocol:2,runId:f.issuance.runId,sequence:0,tick0:0,n:segment.n,frames:segment.frames,actions:segment.actions||[]};
+const artifact=loadApprovedArtifact();
+artifact.context.__args=JSON.stringify({accountId:f.issuance.accountId,sessionId:f.issuance.sessionId,day:f.issuance.day,runId:f.issuance.runId,canonicalBoss:f.issuance.canonicalBoss,seed:f.issuance.seed});
+const issuance=JSON.parse(new vm.Script('JSON.stringify(SprotoShooterSim.buildIssuance(JSON.parse(__args)).issuance)').runInContext(artifact.context));
+delete artifact.context.__args;
+assert.equal(issuance.contentFingerprint,APPROVED.contentFingerprint);
+assert.equal(issuance.runId,f.issuance.runId);
+const batch={protocol:2,runId:issuance.runId,sequence:0,tick0:0,n:segment.n,frames:segment.frames,actions:segment.actions||[]};
 const stable=v=>Array.isArray(v)?v.map(stable):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,stable(v[k])])):v;
 const sha=createHash('sha256').update(JSON.stringify(stable(batch))).digest('hex');
-const request={operation:'begin',manifest:APPROVED,issuance:f.issuance,checkpoint:null,batch:null,accepted:null,maxWorkFrames:4096,claim:{jobId:'active-drain-job',runId:f.issuance.runId,accountId:f.issuance.accountId,sessionId:f.issuance.sessionId,inputSha256:sha,fence:1,initialRevision:0,expectedRevision:0,tick0:0,tickEnd:segment.n,continuationTick:0}};
+const request={operation:'begin',manifest:APPROVED,issuance,checkpoint:null,batch:null,accepted:null,maxWorkFrames:4096,claim:{jobId:'active-drain-job',runId:issuance.runId,accountId:issuance.accountId,sessionId:issuance.sessionId,inputSha256:sha,fence:1,initialRevision:0,expectedRevision:0,tick0:0,tickEnd:segment.n,continuationTick:0}};
 async function run(){const result=await client.execute(JSON.stringify(request));assert.equal(result.kind,'replayed');assert.notEqual(result.publicResult.status,'invalid');request.checkpoint=result.privateCheckpoint;request.claim={...request.claim,continuationTick:result.publicResult.verifiedInputTick,expectedRevision:request.claim.expectedRevision+1};return result;}
 await run();request.operation='accept';request.batch=JSON.stringify(batch);request.accepted={runId:batch.runId,sequence:0,tick0:0,n:batch.n,sha256:sha,binding:f.log.binding,acceptedBeforeTerminal:true};await run();request.operation='step';request.batch=null;request.accepted=null;
 process.stdout.write(JSON.stringify({state:'prepared',frames:24000})+'\n');
