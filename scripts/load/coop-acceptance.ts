@@ -1,7 +1,7 @@
 // H5 Coop readiness against a local Nakama. Not a public launch.
 //   docker compose -f server/docker-compose.yml up --build -d
 //   npx tsx scripts/load/coop-acceptance.ts
-// Six seats (latency, reconnect), ten matches with the soak off (p95 gate
+// Four seats (latency, reconnect), ten matches with the soak off (p95 gate
 // unchanged at 25 ms), a process restart, and the wallet-fault case C5 did
 // not run. Prints COOP_ACCEPTANCE as one JSON line.
 import { cpus, totalmem } from 'node:os';
@@ -26,6 +26,8 @@ import {
 
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
+/** Seats per Coop match (Coop #26 cut six to four). */
+const SEATS = 4;
 const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
 // game.settle_coop_clear compares with the vendored sim's fingerprint since 0063_coop_settle_fingerprint.
 const SETTLE_FP = FP;
@@ -156,12 +158,12 @@ async function waitRestart(): Promise<void> {
 
 async function sixSeatWave(count: number, pin: Version): Promise<{ ok: boolean; worst: number; samples: Metrics[] }> {
   const people: GameLogin[] = [];
-  for (let i = 0; i < count * 6; i += 1) people.push(await login(GAME));
+  for (let i = 0; i < count * SEATS; i += 1) people.push(await login(GAME));
   const rooms: string[] = [];
   const held: HubRealtime[] = [];
   try {
     for (let match = 0; match < count; match += 1) {
-      const group = people.slice(match * 6, match * 6 + 6);
+      const group = people.slice(match * SEATS, match * SEATS + SEATS);
       const host = group[0]!;
       const created = await call('coop.room_create', {}, host.gameToken);
       const body = created.body as { matchId?: string; code?: string; error?: string };
@@ -199,7 +201,7 @@ async function sixSeatWave(count: number, pin: Version): Promise<{ ok: boolean; 
     const samples: Metrics[] = [];
     for (let i = 0; i < rooms.length; i += 1) {
       try {
-        const row = await call('coop.metrics', { matchId: rooms[i]! }, people[i * 6]!.gameToken);
+        const row = await call('coop.metrics', { matchId: rooms[i]! }, people[i * SEATS]!.gameToken);
         samples.push(row.body as unknown as Metrics);
       } catch (error) {
         samples.push({ n: 0, p50: 0, p95: 0, max: 0, over25: 0, tick: 0, phase: '', rewards: 0, hostTakeover: 0, error: error instanceof Error ? error.message : String(error) });
@@ -228,12 +230,12 @@ const stale = await call('coop.room_join', { code: '23456789ABCD', v: 0 }, probe
 check('a stale coop client is version_mismatch', stale.body.error === 'version_mismatch', JSON.stringify(stale.body));
 
 const sessions: GameLogin[] = [probe];
-for (let i = 1; i < 6; i += 1) sessions.push(await login(GAME));
+for (let i = 1; i < SEATS; i += 1) sessions.push(await login(GAME));
 const before = sessions.map((session) => ticketBalance(session.hub.userId, GAME));
 const created = await call('coop.room_create', {}, probe.gameToken);
 const matchId = String(created.body.matchId ?? '');
 const code = String(created.body.code ?? '');
-check('six-seat room opened unpaid', Boolean(matchId) && Boolean(code) && created.body.balance === undefined, JSON.stringify(created.body));
+check('four-seat room opened unpaid', Boolean(matchId) && Boolean(code) && created.body.balance === undefined, JSON.stringify(created.body));
 
 const seats: Seat[] = [];
 const helloMs: number[] = [];
@@ -253,7 +255,7 @@ for (const session of sessions) {
   helloMs.push(Date.now() - started);
   seats.push({ session, rt, match, mail });
 }
-check('six hellos were answered', helloMs.length === 6 && helloMs.every((ms) => ms < 4000), JSON.stringify(helloMs));
+check('four hellos were answered', helloMs.length === SEATS && helloMs.every((ms) => ms < 4000), JSON.stringify(helloMs));
 
 for (const seat of seats) seat.match.send(3, { t: 'ready' });
 const readyAt = Date.now();
@@ -262,9 +264,9 @@ try {
   await until('start', () => seats[0]!.mail.find((msg) => msg.opCode === 4), 8000);
   startMs = Date.now() - readyAt;
 } catch (error) {
-  check('six ready seats start', false, error instanceof Error ? error.message : String(error));
+  check('four ready seats start', false, error instanceof Error ? error.message : String(error));
 }
-if (startMs >= 0) check('six ready seats start', startMs < 8000, `${startMs} ms`);
+if (startMs >= 0) check('four ready seats start', startMs < 8000, `${startMs} ms`);
 
 const pingMs: number[] = [];
 for (let i = 0; i < seats.length; i += 1) {
@@ -276,15 +278,15 @@ for (let i = 0; i < seats.length; i += 1) {
     await until(`pong ${mark}`, () => seat.mail.find((msg) => msg.opCode === 18 && msg.json<{ c?: number }>().c === mark), 3000);
     pingMs.push(Date.now() - sent);
   } catch (error) {
-    check('six-seat ping', false, error instanceof Error ? error.message : String(error));
+    check('four-seat ping', false, error instanceof Error ? error.message : String(error));
   }
 }
-check('six-seat pings were answered', pingMs.length === 6, JSON.stringify(pingMs));
+check('four-seat pings were answered', pingMs.length === SEATS, JSON.stringify(pingMs));
 await sleep(1000);
 const snapshots = seats.map((seat) => seat.mail.filter((msg) => msg.opCode === 11).length);
-check('six-seat snapshots arrived', snapshots.every((count) => count > 0), JSON.stringify(snapshots));
+check('four-seat snapshots arrived', snapshots.every((count) => count > 0), JSON.stringify(snapshots));
 
-const dropped = seats[5]!;
+const dropped = seats[SEATS - 1]!;
 dropped.rt.disconnect();
 const again = socket(dropped.session.gameToken);
 await again.connect();
@@ -316,7 +318,7 @@ const sixMetrics = await (async () => {
     return { n: 0, p50: 0, p95: 0, max: 0, over25: 0, tick: 0, phase: '', rewards: 0, hostTakeover: 0, error: error instanceof Error ? error.message : String(error) };
   }
 })();
-check('six-seat match stayed unpaid', sixMetrics.rewards === 0 && sixMetrics.hostTakeover === 0, JSON.stringify(sixMetrics));
+check('four-seat match stayed unpaid', sixMetrics.rewards === 0 && sixMetrics.hostTakeover === 0, JSON.stringify(sixMetrics));
 
 const benchSessions: GameLogin[] = [];
 for (let i = 0; i < BENCH_MATCHES; i += 1) benchSessions.push(await login(GAME));
@@ -386,7 +388,7 @@ back.disconnect();
 check('restart rejects a client snapshot', resumeCode === 'rejected', resumeCode);
 const afterCrash = sessions.map((session) => ticketBalance(session.hub.userId, GAME));
 const afterBench = benchSessions.map((session) => ticketBalance(session.hub.userId, GAME));
-check('six-seat and bench balances did not move', before.every((value, index) => value === afterCrash[index]) && benchBefore.every((value, index) => value === afterBench[index]), `${before.join(',')} / ${afterBench.join(',')}`);
+check('four-seat and bench balances did not move', before.every((value, index) => value === afterCrash[index]) && benchBefore.every((value, index) => value === afterBench[index]), `${before.join(',')} / ${afterBench.join(',')}`);
 
 let sixFitted = 0;
 let sixWorst = 0;
@@ -405,7 +407,7 @@ for (const count of [10, 8, 6, 4, 2, 1]) {
   }
 }
 check(
-  'six-seat concurrency stays under 25 ms p95',
+  'four-seat concurrency stays under 25 ms p95',
   sixFitted >= 1 && sixSamples.every((row) => row.p95 < 25),
   JSON.stringify({ fitted: sixFitted, worst: sixWorst, samples: sixSamples.map((row) => ({ n: row.n, p95: row.p95, max: row.max, phase: row.phase, error: row.error })) }),
 );
@@ -466,7 +468,7 @@ const report = {
   staging: false,
   soak: false,
   hardware,
-  pin: { protocol: 1, fingerprint: FP, commit: '2c6de7a8e951f78e6017007dcc1493d3dbae3561' },
+  pin: { protocol: 1, fingerprint: FP, commit: '48622249b88d6c9329b70be4cc9704cc117f1786' },
   sixSeat: {
     helloMs,
     helloP95: helloSorted[Math.min(helloSorted.length - 1, Math.ceil(helloSorted.length * 0.95) - 1)] ?? null,
@@ -477,7 +479,7 @@ const report = {
     metrics: sixMetrics,
   },
   bench: { matches: BENCH_MATCHES, seatsEach: 1, ms: BENCH_MS, worstP95: worst, gateMs: 25, samples },
-  sixSeatConcurrency: { requested: 10, fitted: sixFitted, seatsEach: 6, ms: BENCH_MS, worstP95: sixWorst, gateMs: 25, samples: sixSamples },
+  sixSeatConcurrency: { requested: 10, fitted: sixFitted, seatsEach: SEATS, ms: BENCH_MS, worstP95: sixWorst, gateMs: 25, samples: sixSamples },
   crash: { restartMs, resumeCode },
   wallet,
 };

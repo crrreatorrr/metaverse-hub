@@ -133,7 +133,7 @@ The game ranges (0013–0029) predate the runner's ordering rule. A game that ne
 | Sproto Shooter | `sproto-shooter` | ring, The Range (`sproto-shooter`) | crrreatorrr/sproto-shooter | `shooter-sim.js`; `shooter-pvp-sim.js` | **yes**: campaign verifier (`shooter.run.issue` / `shooter.run.submit`) and the `sproto_shooter_free` match (authoritative free 1v1, no Tickets), `shooter.version`, `shooter.room_*`, `shooter.queue_cancel`, `shooter.resume`, `shooter.metrics` |
 | Sproto Fighter | `sproto-fighter` | Bar cabinet (`sproto-fighter`) | crrreatorrr/Sproto-Fighter | `sproto-sim.js` | **yes**: `sproto_duel` match (online 1v1 with replay verification and wagers) |
 | Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored) | no |
-| Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked six-seat play), `coop.*` RPCs |
+| Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked four-seat play), `coop.*` RPCs |
 
 Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choices are in `apps/hub/src/realms/plaza/config.ts`. `scripts/fetch-game-web.mjs` pulls the dev builds.
 

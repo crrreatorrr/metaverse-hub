@@ -138,7 +138,7 @@ function settleSql(session: GameLogin, boss: string, matchId: string, encounterI
     ${slots},
     1,
     '${FP}'::text,
-    '${slots === 6 ? 'all_human' : 'cpu_assisted'}'::text,
+    '${slots === 4 ? 'all_human' : 'cpu_assisted'}'::text,
     '${HASH}'::text
   )::text`;
 }
@@ -200,11 +200,11 @@ export async function runCoopRewards(test: TestFn): Promise<void> {
 
   await test('coop', 'x100 retries, a delayed retry, both phases, and six local seats pay once', async () => {
     const session = await openCoop();
-    const first = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 6, assistance: 'all_human', clearMs: 18000 });
+    const first = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 4, assistance: 'all_human', clearMs: 18000 });
     assert.equal(first.paid, true, JSON.stringify(first));
     assert.equal(first.tickets, PAY);
     assert.equal(first.ticketsMinted, 0);
-    assert.equal(first.slots, 6);
+    assert.equal(first.slots, 4);
     assert.equal(first.phasesAreOneClear, 1);
     assert.equal(first.canonicalCount, 1);
     assert.equal(first.score, 18000);
@@ -218,11 +218,11 @@ export async function runCoopRewards(test: TestFn): Promise<void> {
     const sealedDay = psql(`SELECT day::text FROM game.coop_receipt WHERE user_id = '${sqlId(session.hub.userId)}' AND canonical_boss = '${BOSSES[0]}'`);
     assert.equal(first.day, sealedDay);
     for (let i = 0; i < 100; i++) {
-      const again = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 6, assistance: 'all_human', clearMs: 1000, day: '2099-01-01' });
+      const again = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 4, assistance: 'all_human', clearMs: 1000, day: '2099-01-01' });
       assert.equal(canonical(again), canonical(first), `retry ${i} ${JSON.stringify(again)}`);
     }
     await sleep(2000);
-    const delayed = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 6, assistance: 'all_human' });
+    const delayed = settle(session, BOSSES[0]!, 'room-six', 'enc-six', { slots: 4, assistance: 'all_human' });
     assert.equal(canonical(delayed), canonical(first));
     const phase = settle(session, `${BOSSES[0]}-p2`, 'room-phase', 'enc-phase');
     assert.equal(phase.tickets, 0, JSON.stringify(phase));

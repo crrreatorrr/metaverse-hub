@@ -1,4 +1,4 @@
-// H3-C: Coop boss eligibility is server-owned. One account, six seats, one
+// H3-C: Coop boss eligibility is server-owned. One account, four seats, one
 // award. God Mode, AFK, late join, and CPU takeover do not pay. The golden
 // fight stays on its existing zero-reward path.
 import assert from 'node:assert/strict';
@@ -8,7 +8,8 @@ import { loadModule, presence, type LoadedModule, type MatchDriver } from '../un
 
 const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
-const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
+// Coop #26: four seats per match, so one account holds four of its devices.
+const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
 const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
 const OP = { HELLO: 1, READY: 3 };
 
@@ -40,7 +41,7 @@ function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
   const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; matchId?: string };
   const bag = mod.global.CoopMatch as { liveSession?(id: string): CoopState['session'] };
   const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
-  if (held && held.state.players && held.state.players.length === 6) {
+  if (held && held.state.players && held.state.players.length === 4) {
     st.session = held;
     st.cold = false;
     return st;
@@ -94,7 +95,7 @@ const CoopRewards = mod.global.CoopRewards as {
   clientBlocked(name: string): boolean;
 };
 const gates = { practice: false, god: false, stageSelect: false, released: false, knownBoss: true };
-const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, neutralAlive: 0, downTicks: 0 };
+const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, neutralAlive: 0, downTicks: 0 };
 
 {
   assert.equal(CoopRewards.BOSSES.length, 12);
@@ -201,7 +202,7 @@ const present = { accountId: USER, slots: 6, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(args[5], '2026-11-08');
   assert.equal(args[8], 1);
   assert.equal(args[9], 'clear');
-  assert.equal(args[10], 6);
+  assert.equal(args[10], 4);
   assert.equal(args[11], 1);
   assert.equal(args[12], FP, 'the match settles under the vendored sim label');
   assert.equal(args[13], 'all_human');

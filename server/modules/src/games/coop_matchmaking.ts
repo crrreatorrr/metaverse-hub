@@ -209,6 +209,9 @@ namespace CoopMm {
     if (!CoopMatch.open(ctx)) throw new Error("capacity_dark");
     if (props["v"] !== String(CoopProto.PROTOCOL) || props["sim"] !== CoopProto.FINGERPRINT) throw new Error("version_mismatch");
     if (liveMatch(nk, ctx.userId)) throw new Error("already_in_match");
+    // A client built for six seats still asks for up to six; a group that size has no match to join.
+    if (typeof add.maxCount !== "number" || add.maxCount > CoopProto.MAX_SEATS) add.maxCount = CoopProto.MAX_SEATS;
+    if (typeof add.minCount === "number" && add.minCount > add.maxCount) add.minCount = add.maxCount;
     claimQueue(nk, ctx.userId, ctx.sessionId);
   }
 
@@ -235,7 +238,7 @@ namespace CoopMm {
   export function onMatched(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
     if (!CoopMatch.open(_ctx)) return;
     if (Maint.on(nk)) return;
-    if (!matches || matches.length < 1 || matches.length > 6) return;
+    if (!matches || matches.length < 1 || matches.length > CoopProto.MAX_SEATS) return;
     var ids: string[] = [];
     var seen: { [id: string]: boolean } = {};
     for (var i = 0; i < matches.length; i++) {
