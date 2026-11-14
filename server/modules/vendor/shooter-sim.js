@@ -2925,142 +2925,6 @@ var SprotoShooterSim = (() => {
     };
   }
 
-  // src/data/levels/assemble.js
-  function shiftAt(at2, dx) {
-    return [at2[0] + dx, at2[1], at2[2]];
-  }
-  function makeLevel(def) {
-    let cursor = 0;
-    const sections = [];
-    for (let i = 0; i < def.sections.length; i++) {
-      const s = def.sections[i];
-      const len = s.length ?? 46;
-      const width2 = s.width ?? 22;
-      const x0 = cursor;
-      const x1 = x0 + len;
-      const geometry = [
-        box({ id: `${s.id}-floor`, at: [(x0 + x1) / 2, -0.25, width2 / 2], size: [len + 1, 0.5, width2], mat: s.floor || "stone" }),
-        box({ id: `${s.id}-wallN`, at: [(x0 + x1) / 2, 1.6, 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" }),
-        box({ id: `${s.id}-wallS`, at: [(x0 + x1) / 2, 1.6, width2 - 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" })
-      ];
-      for (const c of s.cover || []) {
-        const h = c.h || 1.2;
-        geometry.push(box({
-          id: `${s.id}-cov-${c.x}`,
-          at: [x0 + c.x, h / 2, c.z ?? width2 * 0.32],
-          size: [1.4, h, 1.4],
-          mat: "crate",
-          tag: "cover"
-        }));
-      }
-      for (const prim of s.props || []) {
-        const copy = { ...prim, at: prim.at ? shiftAt(prim.at, x0) : prim.at, origin: prim.origin ? shiftAt(prim.origin, x0) : prim.origin };
-        geometry.push(copy);
-      }
-      const encounters = (s.encounters || []).map((e) => encounterAt(e, s.id, x0, width2));
-      const mechanisms2 = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
-      if (s.secret) {
-        mechanisms2.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
-      }
-      const weapons = (s.weapons || []).map((w) => ({
-        kind: "rack",
-        id: w.id,
-        at: [x0 + w.x, 0.9, width2 * 0.62],
-        gun: w.gun,
-        why: w.why
-      }));
-      const checkpoints = (s.checkpoints || []).map((c) => ({
-        id: c.id,
-        at: [x0 + c.x, 0, width2 / 2],
-        when: prefixRef(c.when, s)
-      }));
-      const next2 = def.sections[i + 1];
-      const exit = next2 ? {
-        min: [x1 - 4, -1, 2],
-        max: [x1 - 0.4, 4, width2 - 2],
-        to: next2.id,
-        kind: s.transition || "seamless",
-        card: s.card || null
-      } : null;
-      sections.push({
-        id: s.id,
-        name: s.name,
-        start: [x0 + 3.5, 0, width2 / 2],
-        yaw: 0,
-        geometry,
-        encounters,
-        mechanisms: mechanisms2,
-        weapons,
-        checkpoints,
-        exit,
-        intro: s.intro || null
-      });
-      cursor = x1 - 2;
-    }
-    const width = def.sections[0].width ?? 22;
-    return {
-      id: def.id,
-      name: def.name,
-      stage: def.stage,
-      tier: def.tier,
-      parTime: def.parTime,
-      jetpack: def.jetpack || false,
-      gravityMult: def.gravityMult || 1,
-      lighting: def.lighting || null,
-      bounds: { min: [-10, -25, -6], max: [cursor + 12, 48, width + 6] },
-      sections,
-      modifiers: def.modifiers || []
-    };
-  }
-  function prefixRef(opens, s) {
-    if (!opens || typeof opens !== "string") return opens;
-    if (!opens.endsWith(".cleared")) return opens;
-    const id = opens.slice(0, -".cleared".length);
-    if ((s.encounters || []).some((e) => e.id === id)) return `${s.id}-${id}.cleared`;
-    return opens;
-  }
-  function encounterAt(e, sid, x0, width) {
-    const x = x0 + e.x;
-    const at2 = [];
-    const units2 = [];
-    let n = 0;
-    for (const [type, count] of e.units) {
-      units2.push({ type, count });
-      for (let k = 0; k < count; k++) at2.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
-    }
-    return {
-      id: `${sid}-${e.id}`,
-      space: e.space || "corridor",
-      zone: { min: [x - 8, -2, 1], max: [x + 16, 14, width - 1] },
-      activate: { min: [x - 4, -1, 1.2], max: [x + 3, 6, width - 1.2] },
-      objective: { kind: e.objective || "clearAll" },
-      maxAlive: e.maxAlive || 12,
-      fleeAt: e.fleeAt || 0,
-      squads: [{ delay: 0, units: units2, at: at2 }]
-    };
-  }
-  function placeMech(m, s, x0, width) {
-    const x = x0 + m.x;
-    const z = m.z ?? width * 0.28;
-    const base = { kind: m.kind, id: m.id, opens: prefixRef(m.opens, s), modifier: m.modifier, dps: m.dps, slow: m.slow, power: m.power, speed: m.speed };
-    if (m.kind === "door") return { ...base, at: [x, 1.6, z], size: [0.8, 3.2, 3.2], yaw: 0 };
-    if (m.kind === "switch") return { ...base, at: [x, 1, z], holdTime: m.holdTime ?? 0.35 };
-    if (m.kind === "barrel") return { ...base, at: [x, 0.55, z], hp: 30 };
-    if (m.kind === "jumpPad") return { ...base, at: [x, 0.2, width / 2], power: m.power || 11, r: 1.4 };
-    if (m.kind === "hazard") return { ...base, min: [x - 2, -1, z - 2], max: [x + 2, 2, z + 2], dps: m.dps ?? 8, slow: m.slow ?? 0 };
-    if (m.kind === "mover" || m.kind === "carpet" || m.kind === "elevator") {
-      return { ...base, kind: "mover", from: [x, 0.4, 3], to: [x, m.y ?? 0.4, width - 3], speed: m.speed || 2.2 };
-    }
-    if (m.kind === "zipline") return { ...base, from: [x, 3.5, width / 2], to: [x + 12, 2.2, width / 2] };
-    if (m.kind === "portal") return { ...base, at: [x, 1, 4], to: [x + (m.dx || 10), 0, width / 2] };
-    if (m.kind === "laser") return { ...base, at: [x, 1.2, 4], size: [0.4, 1.6, 3], dps: m.dps || 12 };
-    if (m.kind === "rail") return { ...base, from: [x, 0.3, width / 2], to: [x + 18, 0.3, width / 2], speed: m.speed || 10 };
-    if (m.kind === "crusher") return { ...base, at: [x, 2.6, z], size: [2.4, 1, 2.4], speed: 1.2 };
-    if (m.kind === "bridge") return { ...base, from: [x, 0, width / 2], to: [x + 6, 0, width / 2], width: 2 };
-    if (m.kind === "jetpack" || m.kind === "fuel" || m.kind === "power" || m.kind === "depot") return { ...base, at: [x, 1, width * 0.4] };
-    return { ...base, at: [x, 1, z] };
-  }
-
   // src/data/levels/register.js
   var byId2 = /* @__PURE__ */ new Map();
   function registerLevel(level) {
@@ -8813,6 +8677,143 @@ var SprotoShooterSim = (() => {
   var L05 = BUILT3;
   registerLevel(L05);
 
+  // src/data/levels/assemble.js
+  function shiftAt(at2, dx) {
+    return [at2[0] + dx, at2[1], at2[2]];
+  }
+  function makeLevel(def) {
+    const originX = def.originX ?? 0;
+    let cursor = originX;
+    const sections = [];
+    for (let i = 0; i < def.sections.length; i++) {
+      const s = def.sections[i];
+      const len = s.length ?? 46;
+      const width2 = s.width ?? 22;
+      const x0 = cursor;
+      const x1 = x0 + len;
+      const geometry = [
+        box({ id: `${s.id}-floor`, at: [(x0 + x1) / 2, -0.25, width2 / 2], size: [len + 1, 0.5, width2], mat: s.floor || "stone" }),
+        box({ id: `${s.id}-wallN`, at: [(x0 + x1) / 2, 1.6, 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" }),
+        box({ id: `${s.id}-wallS`, at: [(x0 + x1) / 2, 1.6, width2 - 0.3], size: [len + 1, 3.2, 0.6], mat: "stone" })
+      ];
+      for (const c of s.cover || []) {
+        const h = c.h || 1.2;
+        geometry.push(box({
+          id: `${s.id}-cov-${c.x}`,
+          at: [x0 + c.x, h / 2, c.z ?? width2 * 0.32],
+          size: [1.4, h, 1.4],
+          mat: "crate",
+          tag: "cover"
+        }));
+      }
+      for (const prim of s.props || []) {
+        const copy = { ...prim, at: prim.at ? shiftAt(prim.at, x0) : prim.at, origin: prim.origin ? shiftAt(prim.origin, x0) : prim.origin };
+        geometry.push(copy);
+      }
+      const encounters = (s.encounters || []).map((e) => encounterAt(e, s.id, x0, width2));
+      const mechanisms2 = (s.mechanisms || []).map((m) => placeMech(m, s, x0, width2));
+      if (s.secret) {
+        mechanisms2.push({ kind: "secret", id: `${s.id}-secret`, at: [x0 + s.secret.x, 1, width2 * 0.72], modifier: s.secret.modifier });
+      }
+      const weapons = (s.weapons || []).map((w) => ({
+        kind: "rack",
+        id: w.id,
+        at: [x0 + w.x, 0.9, width2 * 0.62],
+        gun: w.gun,
+        why: w.why
+      }));
+      const checkpoints = (s.checkpoints || []).map((c) => ({
+        id: c.id,
+        at: [x0 + c.x, 0, width2 / 2],
+        when: prefixRef(c.when, s)
+      }));
+      const next2 = def.sections[i + 1];
+      const exit = next2 ? {
+        min: [x1 - 4, -1, 2],
+        max: [x1 - 0.4, 4, width2 - 2],
+        to: next2.id,
+        kind: s.transition || "seamless",
+        card: s.card || null
+      } : null;
+      sections.push({
+        id: s.id,
+        name: s.name,
+        start: [x0 + 3.5, 0, width2 / 2],
+        yaw: 0,
+        geometry,
+        encounters,
+        mechanisms: mechanisms2,
+        weapons,
+        checkpoints,
+        exit,
+        intro: s.intro || null
+      });
+      cursor = x1 - 2;
+    }
+    const width = def.sections[0].width ?? 22;
+    return {
+      id: def.id,
+      name: def.name,
+      stage: def.stage,
+      tier: def.tier,
+      parTime: def.parTime,
+      jetpack: def.jetpack || false,
+      gravityMult: def.gravityMult || 1,
+      lighting: def.lighting || null,
+      bounds: { min: [originX - 10, -25, -6], max: [cursor + 12, 48, width + 6] },
+      sections,
+      modifiers: def.modifiers || []
+    };
+  }
+  function prefixRef(opens, s) {
+    if (!opens || typeof opens !== "string") return opens;
+    if (!opens.endsWith(".cleared")) return opens;
+    const id = opens.slice(0, -".cleared".length);
+    if ((s.encounters || []).some((e) => e.id === id)) return `${s.id}-${id}.cleared`;
+    return opens;
+  }
+  function encounterAt(e, sid, x0, width) {
+    const x = x0 + e.x;
+    const at2 = [];
+    const units2 = [];
+    let n = 0;
+    for (const [type, count] of e.units) {
+      units2.push({ type, count });
+      for (let k = 0; k < count; k++) at2.push([x + 7, 0, width / 2 - 3 + n++ % 6 * 1.25]);
+    }
+    return {
+      id: `${sid}-${e.id}`,
+      space: e.space || "corridor",
+      zone: { min: [x - 8, -2, 1], max: [x + 16, 14, width - 1] },
+      activate: { min: [x - 4, -1, 1.2], max: [x + 3, 6, width - 1.2] },
+      objective: { kind: e.objective || "clearAll" },
+      maxAlive: e.maxAlive || 12,
+      fleeAt: e.fleeAt || 0,
+      squads: [{ delay: 0, units: units2, at: at2 }]
+    };
+  }
+  function placeMech(m, s, x0, width) {
+    const x = x0 + m.x;
+    const z = m.z ?? width * 0.28;
+    const base = { kind: m.kind, id: m.id, opens: prefixRef(m.opens, s), modifier: m.modifier, dps: m.dps, slow: m.slow, power: m.power, speed: m.speed };
+    if (m.kind === "door") return { ...base, at: [x, 1.6, z], size: [0.8, 3.2, 3.2], yaw: 0 };
+    if (m.kind === "switch") return { ...base, at: [x, 1, z], holdTime: m.holdTime ?? 0.35 };
+    if (m.kind === "barrel") return { ...base, at: [x, 0.55, z], hp: 30 };
+    if (m.kind === "jumpPad") return { ...base, at: [x, 0.2, width / 2], power: m.power || 11, r: 1.4 };
+    if (m.kind === "hazard") return { ...base, min: [x - 2, -1, z - 2], max: [x + 2, 2, z + 2], dps: m.dps ?? 8, slow: m.slow ?? 0 };
+    if (m.kind === "mover" || m.kind === "carpet" || m.kind === "elevator") {
+      return { ...base, kind: "mover", from: [x, 0.4, 3], to: [x, m.y ?? 0.4, width - 3], speed: m.speed || 2.2 };
+    }
+    if (m.kind === "zipline") return { ...base, from: [x, 3.5, width / 2], to: [x + 12, 2.2, width / 2] };
+    if (m.kind === "portal") return { ...base, at: [x, 1, 4], to: [x + (m.dx || 10), 0, width / 2] };
+    if (m.kind === "laser") return { ...base, at: [x, 1.2, 4], size: [0.4, 1.6, 3], dps: m.dps || 12 };
+    if (m.kind === "rail") return { ...base, from: [x, 0.3, width / 2], to: [x + 18, 0.3, width / 2], speed: m.speed || 10 };
+    if (m.kind === "crusher") return { ...base, at: [x, 2.6, z], size: [2.4, 1, 2.4], speed: 1.2 };
+    if (m.kind === "bridge") return { ...base, from: [x, 0, width / 2], to: [x + 6, 0, width / 2], width: 2 };
+    if (m.kind === "jetpack" || m.kind === "fuel" || m.kind === "power" || m.kind === "depot") return { ...base, at: [x, 1, width * 0.4] };
+    return { ...base, at: [x, 1, z] };
+  }
+
   // src/data/levels/L06/index.js
   var skyline = makeLevel({
     id: "L06",
@@ -8899,9 +8900,8 @@ var SprotoShooterSim = (() => {
   skyline.bounds.max[2] = centerZ + halfWidth + 6;
   var L06 = skyline;
 
-  // src/data/levels/campaign.js
-  var card3 = (title, lines) => ({ title, lines });
-  var L07 = makeLevel({
+  // src/data/levels/L07/index.js
+  var underworks = makeLevel({
     id: "L07",
     name: "Hellfire Underworks",
     stage: "volcano",
@@ -8911,7 +8911,7 @@ var SprotoShooterSim = (() => {
       {
         id: "S1",
         name: "Shafts",
-        length: 48,
+        length: 60,
         floor: "rock",
         encounters: [{ id: "E1", x: 16, space: "interior", units: [["miniTinubu", 2], ["midget", 2]] }],
         weapons: [{ id: "sg-shaft", x: 28, gun: "shotgun", why: "chargers in the shafts" }],
@@ -8921,7 +8921,7 @@ var SprotoShooterSim = (() => {
       {
         id: "S2",
         name: "Cart Run",
-        length: 52,
+        length: 64,
         floor: "rock",
         encounters: [{ id: "E2", x: 18, space: "rail", units: [["midget", 4]] }],
         weapons: [{ id: "sn-cart", x: 12, gun: "sniper", why: "the cart ride" }],
@@ -8930,7 +8930,7 @@ var SprotoShooterSim = (() => {
       {
         id: "S3",
         name: "Furnace Gallery",
-        length: 48,
+        length: 64,
         floor: "rock",
         encounters: [{ id: "E3", x: 16, space: "arena", units: [["miniTinubu", 2], ["boomMidget", 2]] }],
         mechanisms: [{ kind: "hazard", id: "lava-run", x: 26, dps: 14 }, { kind: "crusher", id: "press", x: 32 }]
@@ -8938,15 +8938,56 @@ var SprotoShooterSim = (() => {
       {
         id: "S4",
         name: "Meltdown",
-        length: 48,
+        length: 64,
         floor: "rock",
-        intro: card3("MELTDOWN", ["Reactors at 300%.", "Tinubu calls this a controlled burn. Run."]),
+        intro: { title: "MELTDOWN", lines: ["Reactors at 300%.", "Tinubu calls this a controlled burn. Run."] },
         encounters: [{ id: "E4", x: 16, space: "corridor", units: [["miniTinubu", 2]] }],
         weapons: [{ id: "bz-reactor", x: 10, gun: "bazooka", why: "the reactor ring" }]
       }
     ]
   });
-  var L08 = makeLevel({
+  var widths = { S1: 34, S2: 40, S3: 46, S4: 48 };
+  for (const sec of underworks.sections) {
+    const [floor3, north, south] = sec.geometry;
+    const half = widths[sec.id] / 2;
+    const z0 = floor3.at[2] - half;
+    const z1 = floor3.at[2] + half;
+    if (sec.id !== "S1") {
+      for (const part of [floor3, north, south]) {
+        part.at[0] -= 1;
+        part.size[0] += 2;
+      }
+    }
+    floor3.size[2] = 2 * half;
+    north.at[2] = z0 + north.size[2] / 2;
+    south.at[2] = z1 - south.size[2] / 2;
+    for (const { activate, zone: zone4 } of sec.encounters) {
+      activate.min[2] = z0 + 1.2;
+      activate.max[2] = z1 - 1.2;
+      zone4.min[2] = z0 + 1;
+      zone4.max[2] = z1 - 1;
+    }
+    if (sec.exit) {
+      sec.exit.min[2] = z0 + 2;
+      sec.exit.max[2] = z1 - 2;
+    }
+    for (const [side, z] of [["N", z0 + 1.25], ["S", z1 - 1.25]]) {
+      sec.geometry.push(box({
+        id: `${sec.id}-deck-edge${side}`,
+        at: [floor3.at[0], -0.79, z],
+        size: [floor3.size[0], 0.6, 2.5],
+        mat: "metal"
+      }));
+    }
+  }
+  var halfWidth2 = Math.max(...Object.values(widths)) / 2;
+  var centerZ2 = underworks.sections[0].start[2];
+  underworks.bounds.min[2] = centerZ2 - halfWidth2 - 6;
+  underworks.bounds.max[2] = centerZ2 + halfWidth2 + 6;
+  var L07 = underworks;
+
+  // src/data/levels/L08/index.js
+  var office = makeLevel({
     id: "L08",
     name: "Government Office",
     stage: "office",
@@ -8987,14 +9028,86 @@ var SprotoShooterSim = (() => {
       {
         id: "S4",
         name: "The Roof",
-        length: 48,
-        intro: card3("Government Office", ["Glowie has a badge and a flashbang.", "Look away."]),
+        length: 68,
+        floor: "metal",
+        intro: { title: "Government Office", lines: ["Glowie has a badge and a flashbang.", "Look away."] },
         encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["glowie", 1]] }],
         weapons: [{ id: "bz-glowie", x: 10, gun: "bazooka", why: "Glowie on the roof" }]
       }
     ]
   });
-  var L09 = makeLevel({
+  var rooms = {
+    S1: { width: 36, ceiling: 9.4 },
+    S2: { width: 40, ceiling: 7.3 },
+    S3: { width: 44, ceiling: 8.4 },
+    S4: { width: 52 }
+  };
+  for (const sec of office.sections) {
+    const { width, ceiling } = rooms[sec.id];
+    const [floor3, north, south] = sec.geometry;
+    const center2 = floor3.at[2];
+    const z0 = center2 - width / 2, z1 = center2 + width / 2;
+    if (sec.id !== "S1") {
+      for (const part of [floor3, north, south]) {
+        part.at[0] -= 1.5;
+        part.size[0] += 3;
+      }
+    }
+    floor3.size[2] = width;
+    north.at[2] = z0 + 0.3;
+    south.at[2] = z1 - 0.3;
+    for (const { zone: zone4, activate } of sec.encounters) {
+      zone4.min[2] = z0 + 1;
+      zone4.max[2] = z1 - 1;
+      activate.min[2] = z0 + 1.2;
+      activate.max[2] = z1 - 1.2;
+    }
+    if (sec.exit) {
+      sec.exit.min[2] = z0 + 2;
+      sec.exit.max[2] = z1 - 2;
+    }
+    if (!ceiling) continue;
+    sec.legacyCeiling = ceiling;
+    const [span2] = floor3.size;
+    const x0 = floor3.at[0] - span2 / 2;
+    const x1 = floor3.at[0] + span2 / 2;
+    for (const wall2 of [north, south]) {
+      wall2.at[1] = ceiling / 2;
+      wall2.size[1] = ceiling;
+    }
+    sec.geometry.push(
+      box({ id: `${sec.id}-ceiling`, at: [floor3.at[0], ceiling + 0.25, center2], size: [span2, 0.5, width], mat: "metal" }),
+      box({ id: `${sec.id}-rear`, at: [x0 + 0.3, ceiling / 2, center2], size: [0.6, ceiling, width], mat: "metal" }),
+      box({ id: `${sec.id}-end`, at: [x1 - 0.3, ceiling / 2, center2], size: [0.6, ceiling, width], mat: "metal" })
+    );
+    const start2 = sec.start[0] - 3.5;
+    const island2 = (id, x, z, length, height, depth) => sec.geometry.push(box({
+      id: `${sec.id}-${id}`,
+      at: [start2 + x, height / 2, z],
+      size: [length, height, depth],
+      mat: "metal",
+      tag: "cover"
+    }));
+    if (sec.id === "S1") island2("desk", 12.5, 0.65, 6.7, 1.5, 1.75);
+    if (sec.id === "S2") {
+      for (const [i, x] of [10.3, 19.3, 31.5].entries()) {
+        island2(`podN${i}`, x, 1.8, 5.95, 1.62, 1.44);
+        island2(`podS${i}`, x + 1.4, 20.2, 5.95, 1.62, 1.44);
+      }
+    }
+    if (sec.id === "S3") {
+      for (const [i, x] of [8.4, 16.9, 29.9, 39.4].entries()) {
+        island2(`rackN${i}`, x, 0.6, 4.72, 3.02, 1.46);
+        island2(`rackS${i}`, x + 1.2, 21.4, 4.72, 3.02, 1.46);
+      }
+    }
+  }
+  office.bounds.min[2] = -21;
+  office.bounds.max[2] = 43;
+  var L08 = office;
+
+  // src/data/levels/L09/index.js
+  var ruins = makeLevel({
     id: "L09",
     name: "Moonlit Ruins",
     stage: "moonlit",
@@ -9005,7 +9118,7 @@ var SprotoShooterSim = (() => {
       {
         id: "S1",
         name: "Ruin Plains",
-        length: 56,
+        length: 72,
         floor: "rock",
         encounters: [{ id: "E1", x: 18, space: "field", units: [["glowieAgent", 2], ["obama", 2], ["midget", 2]] }],
         weapons: [
@@ -9023,17 +9136,17 @@ var SprotoShooterSim = (() => {
       {
         id: "S2",
         name: "Catacombs",
-        length: 50,
+        length: 64,
         floor: "rock",
-        intro: card3("Descent", ["The plains were the map.", "The dead keep the other one."]),
+        intro: { title: "Descent", lines: ["The plains were the map.", "The dead keep the other one."] },
         encounters: [{ id: "E2", x: 16, space: "interior", units: [["hexAcolyte", 3], ["sewerMidget", 3]] }],
         weapons: [{ id: "sg-cata", x: 28, gun: "shotgun", why: "catacomb standee" }]
       },
       {
         id: "S3",
         name: "Moon Gate",
-        length: 50,
-        intro: card3("The Moon Gate", ["Two Big Obamas. One key.", "Something older is waking up."]),
+        length: 76,
+        intro: { title: "The Moon Gate", lines: ["Two Big Obamas. One key.", "Something older is waking up."] },
         encounters: [
           { id: "E3", x: 14, space: "arena", units: [["bigObama", 2]] },
           { id: "E4", x: 28, space: "arena", objective: "boss", fleeAt: 0.7, units: [["tinubu", 1]] }
@@ -9041,18 +9154,61 @@ var SprotoShooterSim = (() => {
       }
     ]
   });
-  var L10 = makeLevel({
+  var widths2 = { S1: 46, S2: 54, S3: 66 };
+  for (const sec of ruins.sections) {
+    const [floor3, north, south] = sec.geometry;
+    const width = widths2[sec.id];
+    const center2 = floor3.at[2];
+    const z0 = center2 - width / 2, z1 = center2 + width / 2;
+    if (sec.id !== "S1") {
+      for (const part of [floor3, north, south]) {
+        part.at[0] -= 1.5;
+        part.size[0] += 3;
+      }
+    }
+    floor3.size[2] = width;
+    north.at[2] = z0 + north.size[2] / 2;
+    south.at[2] = z1 - south.size[2] / 2;
+    for (const { activate, zone: zone4 } of sec.encounters) {
+      activate.min[2] = z0 + 1.2;
+      activate.max[2] = z1 - 1.2;
+      zone4.min[2] = z0 + 1;
+      zone4.max[2] = z1 - 1;
+    }
+    if (sec.exit) {
+      sec.exit.min[2] = z0 + 2;
+      sec.exit.max[2] = z1 - 2;
+    }
+    if (sec.id === "S2") continue;
+    for (const [side, z] of [["N", z0 + 1.1], ["S", z1 - 1.1]]) {
+      sec.geometry.push(box({
+        id: `${sec.id}-terrace-edge${side}`,
+        at: [floor3.at[0], -0.92, z],
+        size: [floor3.size[0], 0.9, 2.2],
+        mat: "stone"
+      }));
+    }
+  }
+  var centerZ3 = ruins.sections[0].start[2];
+  ruins.bounds.min[2] = centerZ3 - widths2.S3 / 2 - 6;
+  ruins.bounds.max[2] = centerZ3 + widths2.S3 / 2 + 6;
+  var L09 = ruins;
+
+  // src/data/levels/L10/index.js
+  var caldera = makeLevel({
     id: "L10",
     name: "Hellfire Caldera",
     stage: "volcano",
     tier: 10,
     parTime: 30 * 60,
     jetpack: true,
+    // Give both approach decks more room while keeping the Tinubu checkpoint in place.
+    originX: -28,
     sections: [
       {
         id: "S1",
         name: "Ridge Trail",
-        length: 54,
+        length: 68,
         floor: "rock",
         encounters: [{ id: "E1", x: 18, space: "ledge", units: [["miniTinubu", 2], ["auditSniper", 2]] }],
         weapons: [
@@ -9067,7 +9223,7 @@ var SprotoShooterSim = (() => {
       {
         id: "S2",
         name: "Geyser Fields",
-        length: 52,
+        length: 66,
         floor: "rock",
         encounters: [{ id: "E2", x: 16, space: "field", units: [["boomMidget", 3], ["jetObama", 2]] }],
         mechanisms: [
@@ -9078,21 +9234,62 @@ var SprotoShooterSim = (() => {
       {
         id: "S3",
         name: "The Caldera",
-        length: 50,
-        intro: card3("Hellfire Caldera", ["Tinubu the Unshackled Demon.", "This is the audit."]),
+        length: 76,
+        floor: "rock",
+        intro: { title: "Hellfire Caldera", lines: ["Tinubu the Unshackled Demon.", "This is the audit."] },
         encounters: [{ id: "E3", x: 16, space: "arena", objective: "boss", units: [["tinubu", 1]] }]
       },
       {
         id: "S4",
         name: "Eruption",
-        length: 46,
+        length: 72,
         floor: "rock",
-        intro: card3("ERUPTION", ["The Demon is down. The volcano disagrees.", "Fly."]),
+        intro: { title: "ERUPTION", lines: ["The Demon is down. The volcano disagrees.", "Fly."] },
         encounters: [{ id: "E4", x: 16, space: "sky", units: [["flyingMidget", 3], ["bitbug", 3]] }],
         mechanisms: [{ kind: "fuel", id: "last-fuel", x: 10 }, { kind: "jumpPad", id: "vent", x: 24, power: 14 }]
       }
     ]
   });
+  var widths3 = { S1: 38, S2: 48, S3: 62, S4: 66 };
+  for (const sec of caldera.sections) {
+    const [floor3, north, south] = sec.geometry;
+    const width = widths3[sec.id];
+    const center2 = floor3.at[2];
+    const z0 = center2 - width / 2, z1 = center2 + width / 2;
+    const overlap = sec.id === "S1" ? 0 : 3;
+    for (const part of [floor3, north, south]) {
+      part.at[0] -= overlap / 2;
+      part.size[0] += overlap;
+    }
+    floor3.size[2] = width;
+    north.at[2] = z0 + 0.3;
+    south.at[2] = z1 - 0.3;
+    for (const { activate, zone: zone4 } of sec.encounters) {
+      activate.min[2] = z0 + 1.2;
+      activate.max[2] = z1 - 1.2;
+      zone4.min[2] = z0 + 1;
+      zone4.max[2] = z1 - 1;
+    }
+    if (sec.exit) {
+      sec.exit.min[2] = z0 + 2;
+      sec.exit.max[2] = z1 - 2;
+    }
+    const bridge = sec.mechanisms.find((m) => m.kind === "bridge");
+    if (bridge) bridge.width = 4;
+    for (const [side, z] of [["N", z0 + 1.2], ["S", z1 - 1.2]]) {
+      sec.geometry.push(box({
+        id: `${sec.id}-basalt-edge${side}`,
+        at: [floor3.at[0], -0.86, z],
+        size: [floor3.size[0], 0.82, 2.4],
+        mat: "rock"
+      }));
+    }
+  }
+  caldera.bounds.min[2] = 11 - widths3.S4 / 2 - 6;
+  caldera.bounds.max[2] = 11 + widths3.S4 / 2 + 6;
+  var L10 = caldera;
+
+  // src/data/levels/campaign.js
   var CAMPAIGN_LEVELS = [L01, L02, L03, L04, L05, L06, L07, L08, L09, L10];
 
   // src/data/levels/index.js
@@ -11540,7 +11737,13 @@ var SprotoShooterSim = (() => {
       const wasAir = !p.onGround;
       const solids = activeSolids(state);
       if (solids) {
-        pushHorizontal(p, solids, TUNING.playerRadius, playerHeight(p), STEP_UP);
+        const height = playerHeight(p);
+        const ceiling = state.level.legacyCeiling;
+        if (ceiling && p.pos.y + height > ceiling) {
+          p.pos.y = ceiling - height;
+          p.vel.y = Math.min(0, p.vel.y);
+        }
+        pushHorizontal(p, solids, TUNING.playerRadius, height, STEP_UP);
         const beforeY = p.pos.y;
         snapToGround(p, solids, TUNING.playerRadius, STEP_UP);
         if (wasAir && p.onGround && beforeY - p.pos.y > 0.05 && p.vel.y < -6) {
@@ -12585,6 +12788,21 @@ var SprotoShooterSim = (() => {
       if (lv.intro) emit(state, "levelCard", { title: lv.intro.title, lines: lv.intro.lines });
     } else if (lv.intro) lv.intro = null;
   }
+  function syncLegacySolids(state, sec) {
+    const lv = state.level;
+    if (sec.legacyCeiling) {
+      if (lv.legacySolidSection === sec.id) return;
+      bindV2Section(state, sec);
+      lv.legacySolidSection = sec.id;
+      lv.legacyCeiling = sec.legacyCeiling;
+    } else if (lv.legacySolidSection) {
+      delete lv.legacySolidSection;
+      delete lv.legacyCeiling;
+      delete lv.solids;
+      delete lv.closedDoors;
+      delete lv.useSolids;
+    }
+  }
   function campaignPre(state, dt) {
     const lv = state.level;
     if (!lv || lv.won || lv.lost) return;
@@ -12600,6 +12818,7 @@ var SprotoShooterSim = (() => {
     if (p.padCd > 0) p.padCd -= dt;
     const sec = sectionById(lv.id, lv.section);
     if (!sec) return;
+    if (lv.format !== "v2") syncLegacySolids(state, sec);
     tickAlarms(state, dt);
     tickWeather(state, sec, dt);
     for (const m of sec.mechanisms || []) {
@@ -16177,7 +16396,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "7db4fc4f93333f3977da2159771a060f344b6ea0";
+  var SOURCE_COMMIT = "1fd01820e5f9f62fd549db09408261b7b6674c79";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

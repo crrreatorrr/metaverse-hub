@@ -40,7 +40,7 @@ test('all three exact Actions gates are mandatory; truthy variants do not author
 });
 
 const uuid = '11111111-1111-4111-8111-111111111111';
-const manifest = { artifact: 'shooter-sim', sourceCommit: '7db4fc4f93333f3977da2159771a060f344b6ea0', sha256: 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e', protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
+const manifest = { artifact: 'shooter-sim', sourceCommit: '1fd01820e5f9f62fd549db09408261b7b6674c79', sha256: '7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e', protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const payload = JSON.stringify({ workerId: 'PRIVATE-WORKER', keyId: 'PRIVATE-KEY', token: 'a'.repeat(43), requestId: 'PRIVATE-REQUEST', body: {
   manifest, result: { kind: 'replayed', privateCheckpoint: null,
     binding: { jobId: uuid, runId: uuid, accountId: uuid, sessionId: uuid, inputSha256: 'b'.repeat(64), fence: 1, initialRevision: 0, expectedRevision: 0, tick0: 0, tickEnd: 1, continuationTick: 0 },
