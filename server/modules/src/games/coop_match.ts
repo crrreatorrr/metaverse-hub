@@ -1,4 +1,4 @@
-// Authoritative six-seat Coop match. A banked boss clear settles inside
+// Authoritative four-seat Coop match. A banked boss clear settles inside
 // CoopRewards: 20 Tickets once per account, per canonical boss, per UTC day.
 // The wire field rewards stays 0. Clients cannot treat an opcode as a mint.
 // Stage select, God Mode, demos, client snapshots, and client results are
@@ -63,7 +63,7 @@ namespace CoopMatch {
     /** Plain restart blob. Present only while the live sim is not in `session.state`. */
     simPacked: CoopExport | null;
     cold: boolean;
-    /** Server-driven seed-3 six-seat fight. Empty in normal matches. */
+    /** Server-driven seed-3 four-seat fight. Empty in normal matches. */
     golden: string;
     goldenSeq: number;
     goldenPrimed: boolean;
@@ -306,7 +306,7 @@ namespace CoopMatch {
       god: session.state.god === true ? 1 : 0,
       practice: session.mode !== "banked" ? 1 : 0,
       stageSelect: session.state.stageIdx !== encStage ? 1 : 0,
-      assistance: human >= 6 ? "all_human" : "cpu_assisted",
+      assistance: human >= CoopProto.MAX_SEATS ? "all_human" : "cpu_assisted",
       frozenReleased: frozen,
       accounts: copyPresence(facts),
     };
@@ -522,12 +522,16 @@ namespace CoopMatch {
     account.devices = [];
   }
 
-  function parkCpu(state: State, account: AccountRec): void {
+  /**
+   * A disconnected account keeps its seats through the reconnect grace. Its Sprotos stand idle
+   * ("away", neutral input): no CPU plays them. After the grace the seats empty (releaseSeat).
+   */
+  function parkAway(state: State, account: AccountRec): void {
     var session = state.session;
     if (!session) return;
     for (var i = 0; i < session.seats.length; i++) {
       var seat = session.seats[i];
-      if (seat.human && seat.accountId === account.userId) session.state.players[i].ctrl = "cpu";
+      if (seat.human && seat.accountId === account.userId) session.state.players[i].ctrl = "away";
     }
   }
 
@@ -691,7 +695,7 @@ namespace CoopMatch {
     var before = JSON.stringify(CoopProtocol.lifeFacts(session.state));
     var need = 0;
     for (var n = 0; n < devices.length; n++) if (!holdsDevice(account, devices[n])) need++;
-    if (need > 6 - countHuman(state)) {
+    if (need > CoopProto.MAX_SEATS - countHuman(state)) {
       reject(d, presence, "match_full");
       return;
     }
@@ -1203,7 +1207,7 @@ namespace CoopMatch {
     if (!account) return;
     for (var offset = 0; offset < 3; offset++) {
       var seats: { [key: string]: unknown }[] = [];
-      for (var slot = 0; slot < CoopProto.DEVICES.length; slot++) {
+      for (var slot = 0; slot < CoopProto.MAX_SEATS; slot++) {
         seats.push({
           slot: slot,
           device: CoopProto.DEVICES[slot],
@@ -1245,7 +1249,7 @@ namespace CoopMatch {
   }
 
   function liveSim(session: CoopSession | null): session is CoopSession {
-    return !!(session && session.state && session.state.players && session.state.players.length === 6);
+    return !!(session && session.state && session.state.players && session.state.players.length === CoopProto.MAX_SEATS);
   }
 
   function thaw(state: State): void {
@@ -1266,7 +1270,7 @@ namespace CoopMatch {
   function freeze(state: State): void {
     var session = state.session;
     if (!session || !session.state || state.cold) return;
-    if (!session.state.players || session.state.players.length !== 6) return;
+    if (!session.state.players || session.state.players.length !== CoopProto.MAX_SEATS) return;
     var events = session.state.events;
     if (events && events.length) events.length = 0;
     var packed: CoopExport;
@@ -1350,7 +1354,7 @@ namespace CoopMatch {
         if (String(row.value["fingerprint"] || "") !== CoopProto.FINGERPRINT || Number(row.value["protocol"]) !== CoopProto.PROTOCOL) throw new Error("version_mismatch");
         var exported = asExport(row.value["exported"]);
         var seats = row.value["seats"];
-        if (!exported || Object.prototype.toString.call(seats) !== "[object Array]" || (seats as unknown[]).length !== 6) throw new Error("checkpoint_invalid");
+        if (!exported || Object.prototype.toString.call(seats) !== "[object Array]" || (seats as unknown[]).length !== CoopProto.MAX_SEATS) throw new Error("checkpoint_invalid");
         state.session.state = Sim.importState(exported);
         // Checkpoints written before names were cleaned may still carry a raw username.
         for (var np = 0; np < state.session.state.players.length; np++) {
@@ -1378,7 +1382,7 @@ namespace CoopMatch {
         state.payDay = isObj(row.value["payDay"]) ? row.value["payDay"] as { [id: string]: string } : {};
         state.payFacts = isObj(row.value["payFacts"]) ? row.value["payFacts"] as State["payFacts"] : null;
         if (playing) {
-          for (var id in state.accounts) parkCpu(state, state.accounts[id]);
+          for (var id in state.accounts) parkAway(state, state.accounts[id]);
           if (!state.session.encounter && state.session.state.mode === "play") CoopProtocol.beginEncounter(state.session);
         }
         for (var accountId in state.accounts) CoopMm.setLive(nk, accountId, ctx.matchId || "");
@@ -1388,7 +1392,7 @@ namespace CoopMatch {
         var goldenAccount: AccountRec = { userId: GOLDEN_ACCOUNT, sessionId: "golden", generation: 1, ready: true, leftTick: -1, devices: [] };
         state.accounts[GOLDEN_ACCOUNT] = goldenAccount;
         state.names[GOLDEN_ACCOUNT] = "ada";
-        for (var g = 0; g < CoopProto.DEVICES.length; g++) {
+        for (var g = 0; g < CoopProto.MAX_SEATS; g++) {
           var device = CoopProto.DEVICES[g];
           var assigned = CoopProtocol.assignSeat(state.session, { slot: g, accountId: GOLDEN_ACCOUNT, device: device, generation: 1 });
           if (!assigned.ok) throw new Error("sim_fault");
@@ -1421,7 +1425,7 @@ namespace CoopMatch {
       var live = CoopMm.liveMatch(nk, presence.userId);
       if (live && live !== (ctx.matchId || "")) return { state: ret(state).state, accept: false, rejectMessage: "already_in_match" };
       if (!rosterAllows(state, presence.userId)) return { state: ret(state).state, accept: false, rejectMessage: "not_in_roster" };
-      if (!state.accounts[presence.userId] && countHuman(state) >= 6) return { state: ret(state).state, accept: false, rejectMessage: "match_full" };
+      if (!state.accounts[presence.userId] && countHuman(state) >= CoopProto.MAX_SEATS) return { state: ret(state).state, accept: false, rejectMessage: "match_full" };
       return { state: ret(state).state, accept: true };
     },
 
@@ -1459,7 +1463,7 @@ namespace CoopMatch {
           account.leftTick = -1;
         } else if (state.phase === "playing") {
           account.leftTick = tick;
-          parkCpu(state, account);
+          parkAway(state, account);
           markAfk(state, account);
         }
       }
@@ -1596,7 +1600,7 @@ namespace CoopMatch {
 
   function hashOf(nk: nkruntime.Nakama, state: State): string {
     var packed = state.simPacked;
-    if (!state.cold && state.session && state.session.state && state.session.state.players.length === 6) {
+    if (!state.cold && state.session && state.session.state && state.session.state.players.length === CoopProto.MAX_SEATS) {
       try {
         var events = state.session.state.events;
         if (events && events.length) events.length = 0;
@@ -1817,7 +1821,7 @@ namespace CoopMatch {
     return JSON.stringify({ matchId: created, rewards: 0, hostTakeover: 0, protocol: CoopProto.PROTOCOL, fingerprint: CoopProto.FINGERPRINT });
   }
 
-  /** Fault-inject only. Starts the seed-3 six-seat fight the offline test drives. */
+  /** Fault-inject only. Starts the seed-3 four-seat fight the offline test drives. */
   export function rpcGolden(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var denied = gate(ctx);
     if (denied) return denied;

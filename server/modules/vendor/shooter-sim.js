@@ -3208,8 +3208,8 @@ var SprotoShooterSim = (() => {
 
   // src/data/levels/L01/index.js
   var card = (title, lines) => ({ title, lines });
-  function floor(id, length) {
-    return box({ id, at: [length / 2, -0.25, 16], size: [length, 0.5, 28], mat: "concrete" });
+  function floor(id, length, width = 28) {
+    return box({ id, at: [length / 2, -0.25, 16], size: [length, 0.5, width], mat: "concrete" });
   }
   function zone(x0, x1, z0 = 4, z1 = 28) {
     return { min: [x0, -2, z0], max: [x1, 8, z1] };
@@ -3226,8 +3226,9 @@ var SprotoShooterSim = (() => {
   var carAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [3, 1.4, 1.6], mat: "metal" });
   var binAt = (id, x, z) => box({ id, at: [x, 0.7, z], size: [2.4, 1.4, 1.4], mat: "metal" });
   var planterAt = (id, x, z) => box({ id, at: [x, 0.6, z], size: [1.6, 1.2, 1.6], mat: "stone" });
-  function sides(id, length, { h = 6, gapS = null } = {}) {
-    const z = h < 2 ? [1.7, 30.3] : [1.4, 30.6];
+  function sides(id, length, { h = 6, gapS = null, width = 28 } = {}) {
+    const edge = h < 2 ? 0.3 : 0.6;
+    const z = [16 - width / 2 - edge, 16 + width / 2 + edge];
     const w = h < 2 ? 0.5 : 0.8;
     const wall2 = (tag, x0, x1, zz) => box({ id: `${id}-side-${tag}`, at: [(x0 + x1) / 2, h / 2, zz], size: [x1 - x0, h, w], mat: "concrete" });
     const south = gapS ? [wall2("s1", 0, gapS[0], z[1]), wall2("s2", gapS[1], length, z[1])] : [wall2("s", 0, length, z[1])];
@@ -3236,9 +3237,18 @@ var SprotoShooterSim = (() => {
   function ammo(id, at2, ammoType = "bullets", amount = 60) {
     return { kind: "ammo", id, at: at2, ammoType, amount };
   }
-  function door(id, at2) {
-    return { kind: "door", id, at: at2, size: [1.2, 4, 32] };
+  function door(id, at2, span2 = 32) {
+    return { kind: "door", id, at: at2, size: [1.2, 4, span2] };
   }
+  var MALL_WIDTH = 42;
+  var GARAGE_WIDTH = 38;
+  var PLAZA_WIDTH = 48;
+  var lane = (length, width) => ({ min: [0, 16 - width / 2], max: [length, 16 + width / 2] });
+  var laneZone = (x0, x1, width) => zone(x0, x1, 16 - width / 2, 16 + width / 2);
+  var airspace = (length, width, height, start2 = 0) => ({
+    min: [start2, 0, 16 - width / 2],
+    max: [length, height, 16 + width / 2]
+  });
   var S1 = {
     id: "S1",
     name: "Drop Zone",
@@ -3425,14 +3435,15 @@ var SprotoShooterSim = (() => {
     id: "S3",
     name: "Mall of Sproto",
     origin: [350, 0, 0],
-    navBounds: { min: [0, 2], max: [90, 30] },
-    flyerVolume: { min: [0, 0, 2], max: [90, 12, 30] },
-    exit: zone(84, 90),
+    navBounds: lane(90, MALL_WIDTH),
+    flyerVolume: airspace(90, MALL_WIDTH, 12),
+    exit: laneZone(84, 90, GARAGE_WIDTH - 1),
     // North balcony. One hook during the lockdown, or the ramp. The floor at z 16 is the fight.
     grappleAnchors: [{ id: "S3-hook", at: [58, 6.2, 5], r: 1.8 }],
     geometry: [
-      floor("S3-floor", 90),
-      ...sides("S3", 90),
+      floor("S3-floor", 90, MALL_WIDTH),
+      ...sides("S3", 90, { width: MALL_WIDTH }),
+      box({ id: "S3-atrium-roof", at: [44, 15.75, 16], size: [72, 0.6, MALL_WIDTH + 2], mat: "metal" }),
       box({ id: "S3-kiosk", at: [40, 1, 8], size: [3, 2, 3], mat: "neon" }),
       box({ id: "S3-kiosk-b", at: [64, 1, 22], size: [3, 2, 3], mat: "neon" }),
       planterAt("S3-planter-a", 32, 19.5),
@@ -3450,8 +3461,8 @@ var SprotoShooterSim = (() => {
       { id: "CP5", at: [70, 0, 16], when: "S3-E6.cleared" }
     ],
     mechanisms: [
-      door("S3-L1-in", [10, 2, 16]),
-      door("S3-L1-out", [80, 2, 16]),
+      door("S3-L1-in", [10, 2, 16], MALL_WIDTH + 2),
+      door("S3-L1-out", [80, 2, 16], MALL_WIDTH + 2),
       { kind: "barrel", id: "S3-brl-1", at: [24, 0.55, 12], element: "shock" },
       { kind: "barrel", id: "S3-brl-2", at: [40, 0.55, 20], element: "shock" },
       { kind: "barrel", id: "S3-brl-3", at: [56, 0.55, 12], element: "shock" },
@@ -3470,8 +3481,8 @@ var SprotoShooterSim = (() => {
         id: "S3-E6",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(12, 78),
-        lockdown: { entry: "S3-L1-in", exit: "S3-L1-out", threshold: zone(14, 24) },
+        activate: laneZone(12, 78, MALL_WIDTH),
+        lockdown: { entry: "S3-L1-in", exit: "S3-L1-out", threshold: laneZone(14, 24, MALL_WIDTH) },
         squads: [
           squad("W1", { type: "onEnter" }, [["robotLaser", 2]], [[40, 0, 16]]),
           squad("W1b", { type: "with", after: "W1", delay: 4 }, [["robotLaser", 2]], [[22, 0, 10]], "door"),
@@ -3489,12 +3500,13 @@ var SprotoShooterSim = (() => {
     id: "S4",
     name: "Parking Spiral",
     origin: [425, 0, 0],
-    navBounds: { min: [0, 2], max: [130, 30] },
-    flyerVolume: { min: [70, 0, 2], max: [130, 20, 30] },
-    exit: zone(118, 130),
+    navBounds: lane(130, GARAGE_WIDTH),
+    flyerVolume: airspace(130, GARAGE_WIDTH, 20, 70),
+    exit: laneZone(118, 130, 27),
     geometry: [
-      floor("S4-floor", 130),
-      ...sides("S4", 130),
+      floor("S4-floor", 130, GARAGE_WIDTH),
+      ...sides("S4", 130, { width: GARAGE_WIDTH }),
+      box({ id: "S4-parking-roof", at: [30, 8.1, 16], size: [55, 0.52, GARAGE_WIDTH + 2], mat: "concrete" }),
       box({ id: "S4-ramp", at: [36, 0.4, 8], size: [16, 0.5, 4], mat: "concrete" }),
       box({ id: "S4-car", at: [24, 0.7, 10], size: [3, 1.4, 1.6], mat: "metal" }),
       // It is a car park: parked rows on the south side of the ramp deck and two on the sealed roof.
@@ -3512,8 +3524,8 @@ var SprotoShooterSim = (() => {
     mechanisms: [
       { kind: "mover", id: "S4-lift", carry: true, from: [48, 0, 8], to: [62, 4, 8], speed: 2 },
       { kind: "switch", id: "S4-sw-lift", at: [46, 0.5, 8], needsHold: true, holdTime: 1 },
-      door("S4-L2-in", [70, 2, 16]),
-      door("S4-L2-out", [112, 2, 16]),
+      door("S4-L2-in", [70, 2, 16], GARAGE_WIDTH + 2),
+      door("S4-L2-out", [112, 2, 16], GARAGE_WIDTH + 2),
       { kind: "barrel", id: "S4-brl-1", at: [96, 0.55, 16], element: "shock" },
       { kind: "chest", id: "S4-chest", at: [104, 0.5, 12], gun: "shotgun", opens: "S4-E8.cleared" },
       { kind: "secret", id: "S4-file-3", at: [20, 0.4, 24], tickets: 5 },
@@ -3532,7 +3544,7 @@ var SprotoShooterSim = (() => {
         id: "S4-E7",
         maxAlive: 6,
         objective: { kind: "clearAll" },
-        activate: zone(6, 64),
+        activate: laneZone(6, 64, GARAGE_WIDTH),
         squads: [
           squad("A", { type: "onEnter" }, [["midget", 4]], [[18, 0, 16]], "hidden"),
           squad("B", { type: "onKills", n: 3 }, [["obama", 2]], [[28, 3, 10]], "hidden"),
@@ -3547,8 +3559,8 @@ var SprotoShooterSim = (() => {
         id: "S4-E8",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(74, 110),
-        lockdown: { entry: "S4-L2-in", exit: "S4-L2-out", threshold: zone(74, 84) },
+        activate: laneZone(74, 110, GARAGE_WIDTH),
+        lockdown: { entry: "S4-L2-in", exit: "S4-L2-out", threshold: laneZone(74, 84, GARAGE_WIDTH) },
         squads: [
           squad("W1", { type: "onEnter" }, [["midget", 3]], [[80, 0, 10]], "door"),
           squad("W1b", { type: "with", after: "W1", delay: 0 }, [["midget", 3]], [[80, 0, 22]], "door"),
@@ -3616,19 +3628,19 @@ var SprotoShooterSim = (() => {
     id: "S6",
     name: "Gate Plaza",
     origin: [665, 0, 0],
-    navBounds: { min: [0, 2], max: [110, 30] },
-    flyerVolume: { min: [0, 0, 2], max: [110, 22, 30] },
+    navBounds: lane(110, PLAZA_WIDTH),
+    flyerVolume: airspace(110, PLAZA_WIDTH, 22),
     intro: card("Gate Plaza", ["A Big Bitcoin Obama is counting the take.", "The gate does not open until he drops it."]),
     geometry: [
-      floor("S6-floor", 110),
-      ...sides("S6", 110),
+      floor("S6-floor", 110, PLAZA_WIDTH),
+      ...sides("S6", 110, { width: PLAZA_WIDTH }),
       cylinder({ id: "S6-fountain", at: [48, 0, 8], r: 2, h: 2, mat: "stone" }),
       box({ id: "S6-stand", at: [40, 1.2, 8], size: [6, 2.4, 4], mat: "stone" }),
       planterAt("S6-planter-a", 40, 22),
       planterAt("S6-planter-b", 78, 10),
       planterAt("S6-planter-c", 78, 22),
-      box({ id: "S6-gate-l", at: [96, 6, 6], size: [2, 12, 2], mat: "gold" }),
-      box({ id: "S6-gate-r", at: [96, 6, 26], size: [2, 12, 2], mat: "gold" }),
+      box({ id: "S6-gate-l", at: [96, 6, -3], size: [2, 12, 2], mat: "gold" }),
+      box({ id: "S6-gate-r", at: [96, 6, 35], size: [2, 12, 2], mat: "gold" }),
       // Walk-up perch for the flying adds. No hook: a fling here leaves the floor.
       ramp({ id: "S6-perch-ramp", at: [52, 1.6, 24], size: [3, 3.2, 14], yaw: 90, mat: "metal" }),
       box({ id: "S6-perch", at: [62, 3.2, 24], size: [6, 0.5, 3], mat: "metal" })
@@ -3639,8 +3651,8 @@ var SprotoShooterSim = (() => {
     ],
     checkpoints: [{ id: "CP8", at: [8, 0, 16] }],
     mechanisms: [
-      door("S6-L3-in", [12, 2, 16]),
-      door("S6-gate", [96, 2, 16]),
+      door("S6-L3-in", [12, 2, 16], PLAZA_WIDTH + 2),
+      door("S6-gate", [96, 2, 16], PLAZA_WIDTH + 2),
       { kind: "barrel", id: "S6-brl-f1", at: [30, 0.55, 10], element: "fire" },
       { kind: "barrel", id: "S6-brl-f2", at: [30, 0.55, 22], element: "fire" },
       { kind: "barrel", id: "S6-brl-s1", at: [70, 0.55, 10], element: "shock" },
@@ -3657,8 +3669,8 @@ var SprotoShooterSim = (() => {
         id: "S6-FIN",
         maxAlive: 8,
         objective: { kind: "clearAll" },
-        activate: zone(14, 92),
-        lockdown: { entry: "S6-L3-in", exit: "S6-gate", threshold: zone(16, 26) },
+        activate: laneZone(14, 92, PLAZA_WIDTH),
+        lockdown: { entry: "S6-L3-in", exit: "S6-gate", threshold: laneZone(16, 26, PLAZA_WIDTH) },
         squads: [
           squad("P1", { type: "onEnter" }, [
             ["gateGenerator", 1, "S6-gen-N"],
@@ -3680,8 +3692,8 @@ var SprotoShooterSim = (() => {
       {
         id: "S6-EXIT",
         objective: { kind: "reach" },
-        activate: zone(98, 108),
-        zone: zone(98, 108),
+        activate: laneZone(98, 108, PLAZA_WIDTH),
+        zone: laneZone(98, 108, PLAZA_WIDTH),
         squads: []
       }
     ]
@@ -4044,12 +4056,12 @@ var SprotoShooterSim = (() => {
     return points(n, x, z, along, 1.4);
   }
   var S1_ROUTE = [
-    { x0: 96, x1: 104, z0: 18, z1: 150 },
-    { x0: 96, x1: 200, z0: 19, z1: 29 }
+    { x0: 93, x1: 107, z0: 18, z1: 150 },
+    { x0: 96, x1: 202, z0: 16, z1: 32 }
   ];
   function s1() {
     const geometry = [
-      floor2("s1-ground", -20, 220, -20, 170),
+      floor2("s1-ground", -35, 233, -33, 188),
       wall("s1-berm-w", 58, 60, 100, 148, 6, "sand"),
       wall("s1-berm-e", 140, 142, 100, 148, 6, "sand"),
       wall("s1-berm-s", 60, 140, 148, 150, 6, "sand"),
@@ -4060,31 +4072,31 @@ var SprotoShooterSim = (() => {
       box2("s1-cart", [3, 1.4, 1.6], [112, 0.7, 122], "wood"),
       box2("s1-low-a", [6, 1.2, 1], [88, 0.6, 108], "stone"),
       box2("s1-low-b", [6, 1.2, 1], [112, 0.6, 108], "stone"),
-      wall("s1-souk-w", 60, 96, 98, 100, 7),
-      wall("s1-souk-e", 104, 140, 98, 100, 7),
-      box2("s1-lintel", [8, 2, 2], [100, 6, 99], "trim"),
-      wall("s1-block-a", 83, 97, 67, 93, 4),
-      wall("s1-block-b", 103, 117, 67, 93, 4),
-      wall("s1-block-w", 60, 80, 44, 98, 8),
-      wall("s1-block-e", 120, 140, 44, 98, 8),
+      wall("s1-souk-w", 60, 93, 98, 100, 7),
+      wall("s1-souk-e", 107, 140, 98, 100, 7),
+      box2("s1-lintel", [14, 2, 2], [100, 6, 99], "trim"),
+      wall("s1-block-a", 79, 93, 67, 93, 4),
+      wall("s1-block-b", 107, 121, 67, 93, 4),
+      wall("s1-block-w", 55, 75, 44, 98, 8),
+      wall("s1-block-e", 125, 145, 44, 98, 8),
       cylinder2("s1-well", 1.5, 1.2, [100, 0, 53], "stone"),
-      wall("s1-sq-n-w", 80, 96, 42, 44, 7),
-      wall("s1-sq-n-e", 104, 120, 42, 44, 7),
+      wall("s1-sq-n-w", 75, 93, 42, 44, 7),
+      wall("s1-sq-n-e", 107, 125, 42, 44, 7),
       box2("s1-shrine", [2, 2.2, 2], [100, 1.1, 14], "neon"),
       wall("s1-shrine-n", 88, 112, 12, 14, 7),
       wall("s1-shrine-s-w", 88, 96, 30, 32, 7),
       wall("s1-shrine-s-e", 104, 112, 30, 32, 7),
-      wall("s1-pass-n", 114, 149, 17, 19, 7),
-      wall("s1-pass-s", 114, 149, 29, 31, 7),
-      box2("s1-canopy", [35, 0.5, 8], [131.5, 7.25, 22], "wood"),
+      wall("s1-pass-n", 114, 150, 14, 16, 7),
+      wall("s1-pass-s", 114, 150, 32, 34, 7),
+      box2("s1-canopy", [35, 0.5, 18], [131.5, 7.25, 24], "wood"),
       disc2("s1-line", 2, [120, 0.05, 22]),
-      // Dyers' Court, 44 × 44 (x 151–195, z 2–46).
-      wall("s1-dye-w-n", 150, 152, 2, 18, 7),
-      wall("s1-dye-w-s", 150, 152, 30, 46, 7),
-      wall("s1-dye-e-n", 194, 196, 2, 18, 7),
-      wall("s1-dye-e-s", 194, 196, 30, 46, 7),
-      wall("s1-dye-n", 152, 194, 2, 4, 7),
-      wall("s1-dye-s", 152, 194, 44, 46, 7),
+      // Dyers' Court spans 44 × 64 metres, with a 16-metre gate lane.
+      wall("s1-dye-w-n", 150, 152, -8, 16, 7),
+      wall("s1-dye-w-s", 150, 152, 32, 56, 7),
+      wall("s1-dye-e-n", 194, 196, -8, 16, 7),
+      wall("s1-dye-e-s", 194, 196, 32, 56, 7),
+      wall("s1-dye-n", 152, 194, -8, -6, 7),
+      wall("s1-dye-s", 152, 194, 54, 56, 7),
       box2("s1-dye-plat", [6, 2, 10], [181, 1, 24], "wood"),
       cylinder2("s1-vat-1", 2, 1.2, [162, 0, 12], "stone"),
       cylinder2("s1-vat-2", 2, 1.2, [173, 0, 12], "stone"),
@@ -4094,7 +4106,6 @@ var SprotoShooterSim = (() => {
       cylinder2("s1-vat-6", 2, 1.2, [184, 0, 36], "stone"),
       box2("s1-rack-1", [6, 2, 0.6], [158, 1, 30], "wood"),
       box2("s1-rack-2", [6, 2, 0.6], [188, 1, 16], "wood"),
-      cone2("s1-palm", 1.2, 4, [66, 4, 104], "hedge"),
       sphere2("s1-bonk-roll", 0.8, [118.5, 6, 80], "gold")
     ];
     const e1 = units([["midget", 3], ["obama", 1], ["midget", 1], ["boomMidget", 1], ["midget", 2], ["boomMidget", 1]]);
@@ -4108,14 +4119,14 @@ var SprotoShooterSim = (() => {
       start: [100, 0, 144],
       yaw: 0,
       intro: card2(CARDS.start.title, CARDS.start.lines),
-      flyerVolume: { min: [151, 0, 2], max: [195, 7, 46] },
-      exit: zone2(190, 202, 18, 30),
+      flyerVolume: { min: [151, 0, -8], max: [195, 7, 56] },
+      exit: zone2(192, 202, 16, 32),
       grappleAnchors: [
         { id: "s1-arch", at: [100, 5.2, 96], r: 1.6 },
         { id: "s1-roll", at: [118.5, 6.3, 80], r: 1.8 },
         { id: "s1-roof", at: [100, 5.2, 74], r: 1.4 }
       ],
-      rooms: { L1: { x0: 151, x1: 195, z0: 2, z1: 46 } },
+      rooms: { L1: { x0: 151, x1: 195, z0: -8, z1: 56 } },
       geometry: cutRoute(geometry, S1_ROUTE),
       weapons: [
         { id: "rack-sg-arch", at: [104, 0, 96], gun: "shotgun", why: "E2 Shield Wall and L1 Dyers Court, 4 to 5 m alleys" }
@@ -4127,9 +4138,9 @@ var SprotoShooterSim = (() => {
       ],
       mechanisms: [
         { kind: "shrine", id: "shrine-chainzap", at: [100, 0, 14], spell: "chainZap" },
-        { kind: "switch", id: "C1", at: [100, 0, 24], opens: "dyersGate", needsHold: false, designAt: [111.5, 0, 17] },
-        door2("dyersGate", [113, 3.5, 24], [0.8, 7, 8]),
-        door2("caravanGate", [196, 3.5, 24], [0.8, 7, 10]),
+        { kind: "switch", id: "C1", at: [100, 0, 24], opens: "dyersGate", needsHold: false, touchRadius: 8, designAt: [111.5, 0, 17] },
+        door2("dyersGate", [113.6, 3.5, 24], [0.8, 7, 16]),
+        door2("caravanGate", [196, 3.5, 24], [0.8, 7, 16]),
         { kind: "barrel", id: "pot1", at: [92, 0, 110], element: "fire", hp: 30 },
         { kind: "barrel", id: "pot4", at: [134, 0, 20], element: "shock", hp: 30 },
         { kind: "barrel", id: "pot5", at: [142, 0, 28], element: "shock", hp: 30 },
@@ -4172,12 +4183,12 @@ var SprotoShooterSim = (() => {
           name: "Dyers Court",
           maxAlive: 10,
           objective: { kind: "clearAll" },
-          activate: zone2(96, 110, 18, 32),
+          activate: zone2(93, 107, 15, 33),
           lockdown: {
             entry: "dyersGate",
             exit: "caravanGate",
-            threshold: zone2(116, 124, 19, 29),
-            room: { min: [112, -1, 2], max: [198, 8, 48] },
+            threshold: zone2(116, 124, 16, 32),
+            room: { min: [112, -1, -8], max: [198, 8, 56] },
             waves: 4,
             waveSec: 25,
             stallSec: 12
@@ -4193,26 +4204,26 @@ var SprotoShooterSim = (() => {
       counts: { e1: e1.n, e2: e2.n, e3: e3.n }
     };
   }
-  var S2_ROUTE = [{ x0: 6, x1: 292, z0: 94, z1: 102 }];
+  var S2_ROUTE = [{ x0: 6, x1: 298, z0: 88, z1: 108 }];
   function s2() {
     const geometry = [
-      floor2("s2-ground", -20, 310, -20, 220),
+      floor2("s2-ground", -40, 336, -35, 235),
       wall("s2-cliff-n", 0, 290, 0, 4, 8, "rock"),
       wall("s2-cliff-s", 0, 290, 196, 200, 8, "rock"),
-      // Shelf split around the road slot z 94–102. The room itself is at y 0.
-      wall("s2-shelf-n", 198, 290, 64, 93, 6, "rock"),
-      wall("s2-shelf-s", 198, 290, 103, 132, 6, "rock"),
+      // The rock shelves flank the wider floor of the Caravanserai.
+      wall("s2-shelf-n", 198, 290, 49, 68, 6, "rock"),
+      wall("s2-shelf-s", 198, 290, 128, 147, 6, "rock"),
       disc2("s2-road", 1.2, [16, 0.05, 98], "stone"),
       disc2("s2-road-b", 1.2, [80, 0.05, 98], "stone"),
       disc2("s2-road-c", 1.2, [140, 0.05, 98], "stone"),
-      // High Caravanserai 44 × 44, floor x 204–248, z 76–120.
-      wall("s2-serai-w-n", 203, 205, 76, 94, 6),
-      wall("s2-serai-w-s", 203, 205, 102, 120, 6),
-      wall("s2-serai-e-n", 247, 249, 76, 94, 6),
-      wall("s2-serai-e-s", 247, 249, 102, 120, 6),
-      wall("s2-serai-n", 205, 247, 76, 78, 6),
-      wall("s2-serai-s", 205, 247, 118, 120, 6),
-      box2("s2-gallery", [30, 3, 5], [226, 1.5, 82], "stone"),
+      // High Caravanserai, 56 × 60 metres with two 20-metre gates.
+      wall("s2-serai-w-n", 203, 205, 68, 88, 6),
+      wall("s2-serai-w-s", 203, 205, 108, 128, 6),
+      wall("s2-serai-e-n", 259, 261, 68, 88, 6),
+      wall("s2-serai-e-s", 259, 261, 108, 128, 6),
+      wall("s2-serai-n", 205, 259, 68, 70, 6),
+      wall("s2-serai-s", 205, 259, 126, 128, 6),
+      box2("s2-gallery", [30, 3, 5], [232, 1.5, 77], "stone"),
       cylinder2("s2-well", 1.5, 1.2, [226, 0, 110], "stone"),
       cylinder2("s2-stub-1", 0.6, 1.2, [214, 0, 90], "pillar"),
       cylinder2("s2-stub-2", 0.6, 1.2, [238, 0, 90], "pillar"),
@@ -4232,13 +4243,13 @@ var SprotoShooterSim = (() => {
       start: [12, 0, 98],
       yaw: 0,
       intro: card2(CARDS.dunes.title, CARDS.dunes.lines),
-      flyerVolume: { min: [204, 0, 76], max: [248, 8, 120] },
-      exit: zone2(280, 292, 92, 104),
+      flyerVolume: { min: [204, 0, 68], max: [260, 8, 128] },
+      exit: zone2(280, 296, 87, 109),
       grappleAnchors: [
         { id: "s2-arch", at: [143, 7.5, 92], r: 2 },
         { id: "s2-shelf", at: [201, 8, 98], r: 2.2 }
       ],
-      rooms: { L2: { x0: 204, x1: 248, z0: 76, z1: 120 } },
+      rooms: { L2: { x0: 204, x1: 260, z0: 68, z1: 128 } },
       hazards: [
         { id: "Q1", kind: "slow", min: [60, -1, 86], max: [90, 3, 116], speed: 0.5, dps: 0, navCost: 4 },
         { id: "Q2", kind: "slow", min: [108, -1, 86], max: [122, 3, 112], speed: 0.5, dps: 0, navCost: 4 }
@@ -4253,19 +4264,19 @@ var SprotoShooterSim = (() => {
       ],
       geometry: cutRoute(geometry, S2_ROUTE),
       weapons: [
-        { id: "standee-sg-2", at: [254, 0, 104], gun: "shotgun", why: "second shotgun past L2" }
+        { id: "standee-sg-2", at: [264, 0, 104], gun: "shotgun", why: "second shotgun past L2" }
       ],
       checkpoints: [
         { id: "cp4", at: [200, 0, 98] },
-        { id: "cp5", at: [252, 0, 98], when: "S2-E5.cleared" }
+        { id: "cp5", at: [266, 0, 98], when: "S2-E5.cleared" }
       ],
       mechanisms: [
-        door2("seraiGateW", [204, 3, 98], [0.8, 6, 8]),
-        door2("seraiGateE", [248, 3, 98], [0.8, 6, 8]),
+        door2("seraiGateW", [204, 3, 98], [0.8, 6, 20]),
+        door2("seraiGateE", [260, 3, 98], [0.8, 6, 20]),
         { kind: "chest", id: "chest-L2", at: [242, 0, 98], gun: "shotgun", opens: "S2-E5.cleared" },
         { kind: "chest", id: "cache-secret", at: [136, 0, 172], gun: "shotgun", tier: "rare", opens: null },
         { kind: "secret", id: "af2", at: [143, 0, 92], tickets: 5, text: "Shipping manifest: 400 rugs, 0 rugs delivered" },
-        { kind: "depot", id: "depot-1", at: [262, 0, 92] },
+        { kind: "depot", id: "depot-1", at: [273, 0, 92] },
         ...placeAmmo("S2"),
         ...placeCrates("S2")
       ],
@@ -4275,7 +4286,7 @@ var SprotoShooterSim = (() => {
           name: "Boom Dunes",
           maxAlive: 10,
           objective: { kind: "clearAll" },
-          activate: zone2(16, 170, 88, 108),
+          activate: zone2(16, 170, 73, 123),
           squads: [
             squad2("4a", { type: "onEnter" }, "hidden", [["boomMidget", 3]], atFor(3, 40, 98), [[50, 0, 100]]),
             squad2("4b", { type: "onKills", n: 2 }, "hidden", [["boomMidget", 1], ["midget", 2]], atFor(3, 70, 98), [[88, 0, 62]]),
@@ -4288,12 +4299,12 @@ var SprotoShooterSim = (() => {
           name: "High Caravanserai",
           maxAlive: 10,
           objective: { kind: "clearAll" },
-          activate: zone2(200, 250, 80, 116),
+          activate: zone2(200, 260, 69, 127),
           lockdown: {
             entry: "seraiGateW",
             exit: "seraiGateE",
-            threshold: zone2(206, 214, 94, 102),
-            room: { min: [204, -1, 76], max: [248, 8, 120] },
+            threshold: zone2(206, 214, 88, 108),
+            room: { min: [204, -1, 68], max: [260, 8, 128] },
             waves: 4,
             waveSec: 25,
             stallSec: 12
@@ -4308,10 +4319,10 @@ var SprotoShooterSim = (() => {
       ]
     };
   }
-  var S3_ROUTE = [{ x0: 0, x1: 220, z0: 74, z1: 86 }];
+  var S3_ROUTE = [{ x0: 0, x1: 225, z0: 66, z1: 94 }];
   function s3() {
     const geometry = [
-      floor2("s3-ground", -40, 250, -30, 180),
+      floor2("s3-ground", -65, 280, -54, 209),
       wall("s3-mass-n", 10, 90, 0, 40, 8, "rock"),
       wall("s3-mass-s", 10, 86, 110, 160, 8, "rock"),
       box2("s3-tower", [8, 6, 8], [40, 3, 40], "stone"),
@@ -4323,7 +4334,7 @@ var SprotoShooterSim = (() => {
       cone2("s3-spire", 3, 8, [100, 0, 20], "rock"),
       // Walkable span where the canyon would be a hole. The kill plane is data
       // until void rescue copies onto the sim.
-      box2("s3-canyon-span", [70, 0.5, 20], [120, -0.25, 80], "sand", { keep: true })
+      box2("s3-canyon-span", [70, 0.5, 36], [120, -0.25, 80], "sand", { keep: true })
     ];
     return {
       id: "S3",
@@ -4332,7 +4343,7 @@ var SprotoShooterSim = (() => {
       origin: [-146.5, 0, -239],
       start: [4, 0, 80],
       yaw: 0,
-      exit: zone2(206, 220, 74, 86),
+      exit: zone2(206, 225, 67, 93),
       grappleAnchors: [
         { id: "s3-tower", at: [40, 7, 40], r: 2 },
         { id: "s3-ledge", at: [115, 4.5, 45], r: 2 },
@@ -4360,7 +4371,7 @@ var SprotoShooterSim = (() => {
           name: "Far Ledge",
           maxAlive: 7,
           objective: { kind: "clearAll" },
-          activate: zone2(8, 100, 70, 90),
+          activate: zone2(8, 100, 66, 94),
           squads: [
             squad2("6a", { type: "onEnter" }, "placed", [["obama", 2]], atFor(2, 55, 80), [[112, 3, 45]]),
             squad2("6b", { type: "onKills", n: 1 }, "door", [["obama", 1], ["hexAcolyte", 1]], atFor(2, 62, 80), [[119, 3, 45]]),
@@ -4373,7 +4384,7 @@ var SprotoShooterSim = (() => {
           name: "Narrows and Carpets",
           maxAlive: 8,
           objective: { kind: "clearAll" },
-          activate: zone2(100, 210, 70, 90),
+          activate: zone2(100, 210, 66, 94),
           squads: [
             squad2("7a", { type: "onEnter" }, "door", [["midget", 2], ["boomMidget", 2]], atFor(4, 130, 80), [[88, 0, 118]]),
             squad2("7b", { type: "onKills", n: 2 }, "air", [["flyingMidget", 2]], atFor(2, 145, 80), [[100, 3, 150]]),
@@ -4385,12 +4396,12 @@ var SprotoShooterSim = (() => {
     };
   }
   var SM_ROUTE = [
-    { x0: 2, x1: 100, z0: 54, z1: 66 },
-    { x0: 84, x1: 96, z0: 54, z1: 236 }
+    { x0: 2, x1: 102, z0: 50, z1: 70 },
+    { x0: 81, x1: 99, z0: 54, z1: 236 }
   ];
   function sm() {
     const geometry = [
-      floor2("sm-ground", -40, 160, -20, 260),
+      floor2("sm-ground", -53, 185, -42, 277),
       box2("sm-r1", [24, 0.5, 20], [14, 4.2, 16], "stone"),
       box2("sm-r2", [26, 0.5, 22], [47, 4.2, 15], "stone"),
       box2("sm-r3", [22, 0.5, 24], [47, 4.2, 44], "stone"),
@@ -4399,13 +4410,13 @@ var SprotoShooterSim = (() => {
       box2("sm-h1", [24, 0.5, 26], [112, 10.2, 87], "stone"),
       cylinder2("sm-minaret", 3, 12, [118, 10, 80], "stone"),
       cone2("sm-minaret-cap", 3.5, 5, [118, 22, 80], "gold"),
-      wall("sm-sq-w", 58, 60, 162, 212, 8),
-      wall("sm-sq-e", 120, 122, 162, 212, 8),
-      wall("sm-sq-n-w", 60, 86, 160, 162, 8),
-      wall("sm-sq-n-e", 94, 120, 160, 162, 8),
-      wall("sm-gate-w", 60, 86, 212, 216, 8),
-      wall("sm-gate-e", 94, 120, 212, 216, 8),
-      cylinder2("sm-fountain", 3, 1.2, [90, 0, 200], "stone"),
+      wall("sm-sq-w", 44, 46, 162, 212, 8),
+      wall("sm-sq-e", 134, 136, 162, 212, 8),
+      wall("sm-sq-n-w", 46, 81, 160, 162, 8),
+      wall("sm-sq-n-e", 99, 134, 160, 162, 8),
+      wall("sm-gate-w", 46, 81, 212, 216, 8),
+      wall("sm-gate-e", 99, 134, 212, 216, 8),
+      cylinder2("sm-fountain", 3, 1.2, [119, 0, 199], "stone"),
       box2("sm-guard-w", [10, 5, 14], [66, 2.5, 187], "stone"),
       box2("sm-guard-e", [10, 5, 14], [114, 2.5, 187], "stone"),
       cylinder2("sm-tank", 1.5, 2, [14, 5, 50], "metal"),
@@ -4420,7 +4431,7 @@ var SprotoShooterSim = (() => {
       origin: [59.5, 0, -219],
       start: [8, 0, 60],
       yaw: 0,
-      exit: zone2(84, 96, 222, 236),
+      exit: zone2(81, 99, 222, 236),
       grappleAnchors: [
         { id: "sm-minaret", at: [118, 18, 80], r: 2.2 },
         { id: "sm-crane", at: [80, 13, 88], r: 1.8 },
@@ -4449,8 +4460,8 @@ var SprotoShooterSim = (() => {
         { kind: "barrel", id: "pot9", at: [40, 0, 70], element: "goo", hp: 30 },
         { kind: "barrel", id: "pot15", at: [80, 0, 190], element: "fire", hp: 30 },
         { kind: "depot", id: "depot-2", at: [80, 0, 226] },
-        door2("bazaarGate", [90, 3.5, 214], [8, 7, 1.2]),
-        door2("vaultDoor", [90, 3, 234], [8, 6, 1.2]),
+        door2("bazaarGate", [90, 3.5, 214], [18, 7, 1.2]),
+        door2("vaultDoor", [90, 3, 234], [18, 6, 1.2]),
         ...placeAmmo("SM"),
         ...placeCrates("SM")
       ],
@@ -4460,7 +4471,7 @@ var SprotoShooterSim = (() => {
           name: "Rooftop Market",
           maxAlive: 10,
           objective: { kind: "clearAll" },
-          activate: zone2(10, 100, 50, 70),
+          activate: zone2(10, 100, 47, 73),
           squads: [
             squad2("8a", { type: "onEnter" }, "door", [["midget", 5]], atFor(5, 40, 60), [[47, 4, 15], [47, 4, 44]]),
             squad2("8b", { type: "time", t: 8 }, "hidden", [["boomMidget", 2]], atFor(2, 55, 60), [[44, 4, 16]]),
@@ -4474,7 +4485,7 @@ var SprotoShooterSim = (() => {
           maxAlive: 10,
           objective: { kind: "clearAll" },
           destroy: ["loom-1", "loom-2"],
-          activate: zone2(70, 110, 165, 210),
+          activate: zone2(46, 134, 162, 210),
           squads: [
             squad2("9a", { type: "onEnter" }, "drop", [["midget", 4]], atFor(4, 90, 180), [[78, 0, 212], [102, 0, 212]]),
             squad2("9b", { type: "onRemain", n: 1 }, "door", [["riotMidget", 2]], atFor(2, 90, 190), [[66, 0, 187]]),
@@ -4651,13 +4662,13 @@ var SprotoShooterSim = (() => {
   function span(a, b) {
     return { length: b - a, centre: (a + b) / 2 };
   }
-  function hedgeRing(id, { a, b, h, west, north, east, south }) {
+  function hedgeRing(id, { a, b, h, west, north, east, south, extraDepth = 0 }) {
     const thick = b - a;
     const westX = (a + b) / 2;
     const eastX = 120 - westX;
-    const southZ = -westX;
-    const northZ = -(120 - westX);
-    const alongZ = span(a, 120 - a).length;
+    const southZ = -westX + extraDepth / 2;
+    const northZ = westX - 120 - extraDepth / 2;
+    const alongZ = 120 - 2 * a + extraDepth;
     const z0 = -60 - alongZ / 2;
     const z1 = -60 + alongZ / 2;
     const alongX = 120 - 2 * b;
@@ -4826,11 +4837,11 @@ var SprotoShooterSim = (() => {
       sphere({ id: "ball", at: [0, 2.4, 0], r: 1.5, mat: "hedge" })
     ];
   }
-  function rootArch() {
+  function rootArch(halfSpan) {
     return [
-      cylinder({ id: "l", at: [-2.5, 0, 0], r: 0.6, h: 5, mat: "wood" }),
-      cylinder({ id: "r", at: [2.5, 0, 0], r: 0.6, h: 5, mat: "wood" }),
-      box({ id: "lintel", at: [0, 5.5, 0], size: [7, 1, 1.5], mat: "wood" })
+      cylinder({ id: "l", at: [-halfSpan, 0, 0], r: 0.6, h: 5, mat: "wood" }),
+      cylinder({ id: "r", at: [halfSpan, 0, 0], r: 0.6, h: 5, mat: "wood" }),
+      box({ id: "lintel", at: [0, 5.5, 0], size: [2 * halfSpan + 2, 1, 1.5], mat: "wood" })
     ];
   }
   function manaBloom() {
@@ -4863,7 +4874,7 @@ var SprotoShooterSim = (() => {
     maxAlive: 10,
     intensity: 0.4,
     objective: { kind: "clearAll" },
-    activate: { min: [20, -2, -110], max: [150, 8, -50] },
+    activate: { min: [20, -2, -156], max: [150, 8, -4] },
     squads: [
       squad3("E1-a", { type: "onEnter" }, [u("floretSprout", 2)], [[90, 0, -80], [94, 0, -80]], "placed", "onEnter x>66, behind CB3 (99,-84) and CB4 (107,-116)"),
       squad3("E1-b", { type: "time", t: 6 }, [u("midget", 4)], line([110, 0, -80], 4, 1.4, 0), "door", "onAlert or t+6, shed SD1, 0.4s apart"),
@@ -4877,7 +4888,7 @@ var SprotoShooterSim = (() => {
     maxAlive: 10,
     intensity: 0.5,
     objective: { kind: "clearAll" },
-    activate: { min: [168, -2, -90], max: [255, 8, -70] },
+    activate: { min: [168, -2, -176], max: [255, 8, 16] },
     squads: [
       squad3("E2-a", { type: "onEnter" }, [u("hexWisp", 2)], [[190, 1.2, -80], [194, 1.2, -80]], "hidden", "rise out of PK2 and PK5"),
       squad3("E2-b", { type: "onKills", n: 2 }, [u("flyingMidget", 3)], line([200, 4, -80], 3, 2, 0), "air", "over the barn roof from the south"),
@@ -4906,12 +4917,12 @@ var SprotoShooterSim = (() => {
     maxAlive: 10,
     intensity: 0.8,
     objective: { kind: "clearAll" },
-    activate: { min: [38, -2, -82], max: [82, 10, -38] },
+    activate: { min: [38, -2, -84], max: [82, 10, -36] },
     lockdown: {
       entry: "LD1-IN",
       exit: "LD1-OUT",
-      threshold: { min: [42, -1, -64], max: [46, 3, -56] },
-      room: { min: [38, 0, -82], max: [82, 9, -38] },
+      threshold: { min: [42, -1, -65], max: [46, 3, -55] },
+      room: { min: [38, 0, -84], max: [82, 9, -36] },
       waves: 4,
       fallbackSec: 25
     },
@@ -4961,12 +4972,12 @@ var SprotoShooterSim = (() => {
     maxAlive: 10,
     intensity: 0.85,
     objective: { kind: "clearAll" },
-    activate: { min: [34, -2, -67], max: [98, 9, -23] },
+    activate: { min: [34, -2, -73], max: [98, 9, -17] },
     lockdown: {
       entry: "LD2-IN",
       exit: "LD2-OUT",
-      threshold: { min: [38, -1, -48], max: [42, 3, -42] },
-      room: { min: [34, 0, -67], max: [98, 8, -23] },
+      threshold: { min: [38, -1, -56], max: [42, 3, -34] },
+      room: { min: [34, 0, -73], max: [98, 8, -17] },
       waves: 4,
       fallbackSec: 25
     },
@@ -4978,7 +4989,7 @@ var SprotoShooterSim = (() => {
       squad3("E7-w3a", { type: "onRemain", n: 2 }, [u("daycare", 1, { spawnBudget: 5 }), u("midget", 5)], [[74, 0, -45], ...line([78, 0, -45], 5, 1.2, 0)], "drop", "HH-ROOF nest B"),
       squad3("E7-w3b", { type: "with", after: "E7-w3a", delay: 0 }, [u("manaLeech", 1)], [[84, 0, -45]], "door", "HH-S"),
       squad3("E7-w3c", { type: "with", after: "E7-w3a", delay: 0 }, [u("hexWisp", 2)], [[86, 1.2, -45], [88, 1.2, -45]], "hidden", "HH-N through the glass"),
-      squad3("E7-w4", { type: "onRemain", n: 2 }, [u("barkBrute", 1), u("midget", 4)], [[66, 0, -66], ...line([70, 0, -45], 4, 1.3, 0)], "door", "HH-N brute in the north runoff, midgets on the lane")
+      squad3("E7-w4", { type: "onRemain", n: 2 }, [u("barkBrute", 1), u("midget", 4)], [[66, 0, -72], ...line([70, 0, -45], 4, 1.3, 0)], "door", "HH-N brute in the north runoff, midgets on the lane")
     ]
   };
   var E8 = {
@@ -4987,7 +4998,7 @@ var SprotoShooterSim = (() => {
     maxAlive: 10,
     intensity: 0.5,
     objective: { kind: "clearAll" },
-    activate: { min: [106, -2, -80], max: [168, 6, -20] },
+    activate: { min: [106, -2, -102], max: [168, 6, 12] },
     squads: [
       squad3("E8-a", { type: "onEnter" }, [u("gooGlob", 1)], [[134, 0, -45]], "placed", "in pool RP5"),
       squad3("E8-b", { type: "time", t: 2 }, [u("boomMidget", 3)], line([140, 0, -45], 3, 1.4, 0), "door", "onAlert, shed S4-CSH, 0.6s apart"),
@@ -5081,7 +5092,7 @@ var SprotoShooterSim = (() => {
 
   // src/data/levels/L03/S1.js
   var trees = [];
-  for (const z of [-152, -8]) {
+  for (const z of [-170, 10]) {
     for (let i = 0; i < 7; i++) {
       trees.push(...place(tree(), { at: [18 + i * 36, 0, z], id: `S1-TREE-${z}-${i}` }));
     }
@@ -5105,20 +5116,20 @@ var SprotoShooterSim = (() => {
     origin: [0, 0, 0],
     start: [18, 0, -80],
     yaw: -Math.PI / 2,
-    footprint: [260, 160],
+    footprint: [260, 196],
     routeM: 290,
-    navBounds: { min: [0, -160], max: [260, 0] },
+    navBounds: { min: [0, -178], max: [260, 18] },
     exit: { min: [259, -1, -83], max: [264, 4, -77] },
     intro: { title: "The Vegetable Grove", lines: ["The Cabal grows it here.", "Bullets are a second opinion. Bring spells."] },
     geometry: [
-      box({ id: "S1-FL", at: [130, -0.25, -80], size: [260, 0.5, 160], mat: "grass" }),
+      box({ id: "S1-FL", at: [130, -0.25, -80], size: [260, 0.5, 196], mat: "grass" }),
       // `at` is only so the level view can skip this. It reads at[1] before the kind, and terrain has no mesh yet.
-      { kind: "terrain", id: "S1-T", at: [130, 0, -80], origin: [0, 0, -160], size: [260, 160], cell: 2, seed: 301, mat: "grass", noise: { amp: 0.4, freq: 0.03, octaves: 1 } },
-      box({ id: "S1-WN", at: [130, 3, -159], size: [260, 6, 2], mat: "hedge" }),
-      box({ id: "S1-WS", at: [130, 3, -1], size: [260, 6, 2], mat: "hedge" }),
-      box({ id: "S1-WW", at: [1, 3, -80], size: [2, 6, 160], mat: "hedge" }),
-      box({ id: "S1-WE1", at: [259, 3, -38.5], size: [2, 6, 77], mat: "hedge" }),
-      box({ id: "S1-WE2", at: [259, 3, -121.5], size: [2, 6, 77], mat: "hedge" }),
+      { kind: "terrain", id: "S1-T", at: [130, 0, -80], origin: [0, 0, -178], size: [260, 196], cell: 2, seed: 301, mat: "grass", noise: { amp: 0.4, freq: 0.03, octaves: 1 } },
+      box({ id: "S1-WN", at: [130, 3, -177], size: [260, 6, 2], mat: "hedge" }),
+      box({ id: "S1-WS", at: [130, 3, 17], size: [260, 6, 2], mat: "hedge" }),
+      box({ id: "S1-WW", at: [1, 3, -80], size: [2, 6, 196], mat: "hedge" }),
+      box({ id: "S1-WE1", at: [259, 3, -29.5], size: [2, 6, 95], mat: "hedge" }),
+      box({ id: "S1-WE2", at: [259, 3, -130.5], size: [2, 6, 95], mat: "hedge" }),
       ...place(truck(), { at: [10, 0, -80], yaw: 90, id: "S1-TRK" }),
       ...place(shrine(), { at: [34, 0, -88], id: "SH-YEET" }),
       ...place(podStump(), { at: [46, 0, -74], id: "S1-ST1" }),
@@ -5128,8 +5139,8 @@ var SprotoShooterSim = (() => {
       ...place(scarecrow(), { at: [58, 0, -80], id: "S1-SC2" }),
       ...place(scarecrow(), { at: [58, 0, -86], id: "S1-SC3" }),
       box({ id: "S1-LB", at: [64, 1.5, -80], size: [2, 3, 6], mat: "wood", tag: "target" }),
-      box({ id: "S1-F1", at: [64, 1.5, -39.5], size: [2, 3, 75], mat: "wood" }),
-      box({ id: "S1-F2", at: [64, 1.5, -120.5], size: [2, 3, 75], mat: "wood" }),
+      box({ id: "S1-F1", at: [64, 1.5, -30.5], size: [2, 3, 93], mat: "wood" }),
+      box({ id: "S1-F2", at: [64, 1.5, -129.5], size: [2, 3, 93], mat: "wood" }),
       ...spheres("S1-CB", cabbageR, cabbageAt, "grass"),
       box({ id: "S1-CW1", at: [86, 1.2, -60], size: [12, 2.4, 1.5], mat: "hedge" }),
       box({ id: "S1-CW2", at: [108, 1.2, -100], size: [12, 2.4, 1.5], mat: "hedge" }),
@@ -5140,7 +5151,7 @@ var SprotoShooterSim = (() => {
       ...place(tractor(), { at: [78, 0, -92], yaw: 20, id: "S1-TR1" }),
       ...place(shed(), { at: [124, 0, -62], yaw: 180, id: "S1-SD1" }),
       ...place(shed(), { at: [144, 0, -96], yaw: 270, id: "S1-SD2" }),
-      box({ id: "S1-CNL", at: [157, -0.2, -80], size: [10, 0.5, 156], mat: "toxic" }),
+      box({ id: "S1-CNL", at: [157, -0.2, -80], size: [10, 0.5, 192], mat: "toxic" }),
       box({ id: "S1-PB1", at: [157, 0.25, -136], size: [12, 0.5, 3], mat: "wood" }),
       ...spheres("S1-PK", pumpR, pumpAt, "gold"),
       box({ id: "S1-BN1", at: [228, 4, -54.25], size: [18, 8, 0.5], mat: "wood" }),
@@ -5198,7 +5209,7 @@ var SprotoShooterSim = (() => {
       { kind: "jumpPad", id: "S1-BS-P1", at: [240.5, 5.2, -142], r: 1.2, power: 11, to: [244, 10.5, -138.5] },
       { kind: "jumpPad", id: "S1-BS-P2", at: [244, 10.7, -138.5], r: 1.2, power: 11, to: [247.5, 16, -142] },
       { kind: "jumpPad", id: "S1-BS-P3", at: [247.5, 16.2, -142], r: 1.2, power: 11, to: [244, 21.5, -145.5] },
-      { kind: "hazard", id: "S1-CNL-HZ", min: [152, -1, -158], max: [162, 2, -2], dps: 12, enemyDps: 40, element: "toxic" },
+      { kind: "hazard", id: "S1-CNL-HZ", min: [152, -1, -176], max: [162, 2, 16], dps: 12, enemyDps: 40, element: "toxic" },
       { kind: "manaBloom", id: "MB1-use", at: [52, 0.6, -92], mana: 50, regrow: 20 },
       { kind: "manaBloom", id: "MB2-use", at: [108, 0.6, -86], mana: 50, regrow: 20 },
       { kind: "manaBloom", id: "MB3-use", at: [174, 0.6, -80], mana: 50, regrow: 20 },
@@ -5231,7 +5242,7 @@ var SprotoShooterSim = (() => {
     ...hedgeRing("S2-H2", { a: 14, b: 17, h: 3.5, west: [{ at: -70, width: 4 }, { at: -60, width: 5 }], north: { at: 50, width: 4 }, east: { at: -60, width: 5 } }),
     ...hedgeRing("S2-H3", { a: 21, b: 24, h: 3.5, west: [{ at: -50, width: 4 }, { at: -60, width: 5 }], north: { at: 64, width: 4 }, east: { at: -60, width: 5 } }),
     ...hedgeRing("S2-H4", { a: 28, b: 31, h: 3.5, west: [{ at: -66, width: 4 }, { at: -60, width: 5 }], north: { at: 56, width: 4 }, east: { at: -60, width: 5 } }),
-    ...hedgeRing("S2-H5", { a: 35, b: 38, h: 9, west: { at: -60, width: 4 }, north: { at: 60, width: 4 }, east: { at: -60, width: 4 }, south: { at: 60, width: 4 } })
+    ...hedgeRing("S2-H5", { a: 35, b: 38, h: 9, extraDepth: 4, west: { at: -60, width: 10 }, east: { at: -60, width: 10 } })
   ];
   var mounds = [[4.5, -50], [4.5, -40], [4.5, -74], [12, -38], [19, -62], [26, -58], [43, -43], [77, -43], [43, -77], [77, -77]];
   var S22 = {
@@ -5252,7 +5263,7 @@ var SprotoShooterSim = (() => {
       box({ id: "S2-BLKB", at: [12, 1.75, -98], size: [4, 3.5, 1], mat: "hedge" }),
       box({ id: "S2-BLKD", at: [26, 1.75, -36], size: [4, 3.5, 1], mat: "hedge" }),
       ...mounds.flatMap(([x, z], i) => place(mound(), { at: [x, 0, z], id: `S2-BM${i + 1}` })),
-      box({ id: "S2-LID", at: [60, 9.25, -60], size: [50, 0.5, 50], mat: "glass" }),
+      box({ id: "S2-LID", at: [60, 9.25, -60], size: [50, 0.5, 54], mat: "glass" }),
       ...place(gazebo(), { at: [60, 0, -60], id: "S2-GZ" }),
       box({ id: "S2-BN1", at: [50, 0.6, -50], size: [3, 1.2, 1], mat: "stone" }),
       box({ id: "S2-BN2", at: [70, 0.6, -50], size: [3, 1.2, 1], mat: "stone" }),
@@ -5284,8 +5295,8 @@ var SprotoShooterSim = (() => {
       { id: "CP5", at: [86, 0, -60], when: "S2-E4.cleared" }
     ],
     mechanisms: [
-      door3("LD1-IN", [37.7, 4.5, -60], [0.6, 9, 4]),
-      door3("LD1-OUT", [82.3, 4.5, -60], [0.6, 9, 4]),
+      door3("LD1-IN", [37.7, 4.5, -60], [0.6, 9, 10]),
+      door3("LD1-OUT", [82.3, 4.5, -60], [0.6, 9, 10]),
       door3("S2-XD", [110, 1.75, -60], [1, 3.5, 5], { opens: "S2-CD2" }),
       door3("HD1", [12, 1.75, -98], [4, 3.5, 1]),
       door3("HD2", [26, 1.75, -36], [4, 3.5, 1]),
@@ -5340,13 +5351,13 @@ var SprotoShooterSim = (() => {
       box({ id: "S3-WW2", at: [1, 3, -91.5], size: [2, 6, 57], mat: "hedge" }),
       box({ id: "S3-WE1", at: [229, 3, -28.5], size: [2, 6, 57], mat: "hedge" }),
       box({ id: "S3-WE2", at: [229, 3, -91.5], size: [2, 6, 57], mat: "hedge" }),
-      box({ id: "S3-NB", at: [15, -4, -60], size: [30, 8, 116], mat: "grass" }),
-      box({ id: "S3-IA", at: [81, -4, -60], size: [50, 8, 76], mat: "grass" }),
-      box({ id: "S3-IB", at: [152, -4, -60], size: [40, 8, 80], mat: "grass" }),
-      box({ id: "S3-FB", at: [213, -4, -60], size: [34, 8, 116], mat: "grass" }),
-      box({ id: "S3-BR1", at: [43, -0.25, -60], size: [26, 0.5, 8], mat: "wood" }),
-      box({ id: "S3-BR2", at: [119, -0.25, -50], size: [26, 0.5, 8], mat: "wood", tag: "collapse" }),
-      box({ id: "S3-BR3", at: [184, -0.25, -60], size: [24, 0.5, 8], mat: "wood", tag: "energyBridge" }),
+      box({ id: "S3-NB", at: [15, -4, -60], size: [30, 8, 120], mat: "grass" }),
+      box({ id: "S3-IA", at: [81, -4, -60], size: [50, 8, 92], mat: "grass" }),
+      box({ id: "S3-IB", at: [152, -4, -60], size: [40, 8, 96], mat: "grass" }),
+      box({ id: "S3-FB", at: [213, -4, -60], size: [34, 8, 120], mat: "grass" }),
+      box({ id: "S3-BR1", at: [43, -0.25, -60], size: [26, 0.5, 12], mat: "wood" }),
+      box({ id: "S3-BR2", at: [119, -0.25, -50], size: [26, 0.5, 12], mat: "wood", tag: "collapse" }),
+      box({ id: "S3-BR3", at: [184, -0.25, -60], size: [24, 0.5, 12], mat: "wood", tag: "energyBridge" }),
       box({ id: "S3-NC1", at: [20, 0.6, -56], size: [2, 1.2, 2], mat: "crate" }),
       box({ id: "S3-NC2", at: [24, 0.6, -64], size: [2, 1.2, 2], mat: "crate" }),
       box({ id: "S3-NC3", at: [17, 0.6, -62], size: [2, 1.2, 2], mat: "crate" }),
@@ -5392,9 +5403,9 @@ var SprotoShooterSim = (() => {
     mechanisms: [
       { kind: "door", id: "S3-DE", at: [229, 2.5, -60], size: [1, 5, 6], opens: "S3-E6.cleared" },
       { kind: "door", id: "S3-BG", at: [101, 1.5, -50], size: [1, 3, 4], heldBy: "S3-PP0" },
-      { kind: "ropeBridge", id: "S3-BR1-mech", from: [30, 0, -60], to: [56, 0, -60], width: 4 },
-      { kind: "ropeBridge", id: "S3-BR2-mech", from: [106, 0, -50], to: [132, 0, -50], width: 3, collapseOn: "x>114", resetAfterRescue: 4 },
-      { kind: "energyBridge", id: "S3-BR3-mech", from: [172, 0, -60], to: [196, 0, -60], width: 4, plates: ["S3-PP1", "S3-PP2"], latch: true },
+      { kind: "ropeBridge", id: "S3-BR1-mech", from: [30, 0, -60], to: [56, 0, -60], width: 12 },
+      { kind: "ropeBridge", id: "S3-BR2-mech", from: [106, 0, -50], to: [132, 0, -50], width: 12, collapseOn: "x>114", resetAfterRescue: 4 },
+      { kind: "energyBridge", id: "S3-BR3-mech", from: [172, 0, -60], to: [196, 0, -60], width: 12, plates: ["S3-PP1", "S3-PP2"], latch: true },
       { kind: "pressurePlate", id: "S3-PP0", at: [90, 0.1, -50], r: 1.2, holds: "S3-BG" },
       { kind: "pressurePlate", id: "S3-PP1", at: [142, 0.1, -36], r: 1.2, group: "S3-BR3" },
       { kind: "pressurePlate", id: "S3-PP2", at: [166, 0.1, -86], r: 1.2, group: "S3-BR3", hold: 1 },
@@ -5437,34 +5448,34 @@ var SprotoShooterSim = (() => {
     origin: [608, 0, -35],
     start: [8, 0, -45],
     yaw: -Math.PI / 2,
-    footprint: [170, 90],
+    footprint: [170, 116],
     routeM: 200,
-    navBounds: { min: [0, -90], max: [170, 0] },
+    navBounds: { min: [0, -103], max: [170, 13] },
     exit: { min: [168, -1, -48], max: [174, 4, -42] },
     geometry: [
       box({ id: "S4-FL", at: [85, -0.25, -45], size: [400, 0.5, 400], mat: "dirt" }),
-      box({ id: "S4-WN", at: [85, 3, -89], size: [170, 6, 2], mat: "hedge" }),
-      box({ id: "S4-WS", at: [85, 3, -1], size: [170, 6, 2], mat: "hedge" }),
-      box({ id: "S4-WW1", at: [1, 3, -21], size: [2, 6, 42], mat: "hedge" }),
-      box({ id: "S4-WW2", at: [1, 3, -69], size: [2, 6, 42], mat: "hedge" }),
-      box({ id: "S4-WE1", at: [169, 3, -21], size: [2, 6, 42], mat: "hedge" }),
-      box({ id: "S4-WE2", at: [169, 3, -69], size: [2, 6, 42], mat: "hedge" }),
+      box({ id: "S4-WN", at: [85, 3, -102], size: [170, 6, 2], mat: "hedge" }),
+      box({ id: "S4-WS", at: [85, 3, 12], size: [170, 6, 2], mat: "hedge" }),
+      box({ id: "S4-WW1", at: [1, 3, -14.5], size: [2, 6, 55], mat: "hedge" }),
+      box({ id: "S4-WW2", at: [1, 3, -75.5], size: [2, 6, 55], mat: "hedge" }),
+      box({ id: "S4-WE1", at: [169, 3, -14.5], size: [2, 6, 55], mat: "hedge" }),
+      box({ id: "S4-WE2", at: [169, 3, -75.5], size: [2, 6, 55], mat: "hedge" }),
       ...place(shed(), { at: [12, 0, -22], yaw: 180, id: "S4-PSH" }),
       box({ id: "S4-PCR", at: [16, 0.75, -22], size: [1.5, 1.5, 1.5], mat: "crate" }),
-      box({ id: "S4-YF1", at: [33.5, 3, -11.5], size: [1, 6, 21], mat: "hedge" }),
-      box({ id: "S4-YF2", at: [33.5, 3, -78.5], size: [1, 6, 21], mat: "hedge" }),
-      box({ id: "HH-WN", at: [66, 4, -67.25], size: [64, 8, 0.5], mat: "glass" }),
-      box({ id: "HH-WS", at: [66, 4, -22.75], size: [64, 8, 0.5], mat: "glass" }),
-      box({ id: "HH-WW1", at: [33.75, 4, -29.5], size: [0.5, 8, 13], mat: "glass" }),
-      box({ id: "HH-WW2", at: [33.75, 4, -60.5], size: [0.5, 8, 13], mat: "glass" }),
-      box({ id: "HH-WE1", at: [98.25, 4, -29.5], size: [0.5, 8, 13], mat: "glass" }),
-      box({ id: "HH-WE2", at: [98.25, 4, -60.5], size: [0.5, 8, 13], mat: "glass" }),
-      box({ id: "HH-ROOF", at: [66, 8.25, -45], size: [65, 0.5, 45], mat: "glass" }),
-      box({ id: "HH-CWN", at: [66, 3, -65], size: [56, 0.5, 3], mat: "metal" }),
-      box({ id: "HH-CWS", at: [66, 3, -25], size: [56, 0.5, 3], mat: "metal" }),
-      box({ id: "HH-CWE", at: [95, 3, -45], size: [3, 0.5, 37], mat: "metal" }),
-      stairs({ id: "HH-ST1", at: [40, 1.6, -59.5], size: [3, 3.25, 7], yaw: 180, mat: "metal" }),
-      stairs({ id: "HH-ST2", at: [40, 1.6, -30.5], size: [3, 3.25, 7], yaw: 0, mat: "metal" }),
+      box({ id: "S4-YF1", at: [33.5, 3, -2], size: [1, 6, 30], mat: "hedge" }),
+      box({ id: "S4-YF2", at: [33.5, 3, -88], size: [1, 6, 30], mat: "hedge" }),
+      box({ id: "HH-WN", at: [66, 4, -73.25], size: [64, 8, 0.5], mat: "glass" }),
+      box({ id: "HH-WS", at: [66, 4, -16.75], size: [64, 8, 0.5], mat: "glass" }),
+      box({ id: "HH-WW1", at: [33.75, 4, -25.5], size: [0.5, 8, 17], mat: "glass" }),
+      box({ id: "HH-WW2", at: [33.75, 4, -64.5], size: [0.5, 8, 17], mat: "glass" }),
+      box({ id: "HH-WE1", at: [98.25, 4, -25.5], size: [0.5, 8, 17], mat: "glass" }),
+      box({ id: "HH-WE2", at: [98.25, 4, -64.5], size: [0.5, 8, 17], mat: "glass" }),
+      box({ id: "HH-ROOF", at: [66, 8.25, -45], size: [65, 0.5, 57], mat: "glass" }),
+      box({ id: "HH-CWN", at: [66, 3, -71], size: [56, 0.5, 3], mat: "metal" }),
+      box({ id: "HH-CWS", at: [66, 3, -19], size: [56, 0.5, 3], mat: "metal" }),
+      box({ id: "HH-CWE", at: [95, 3, -45], size: [3, 0.5, 49], mat: "metal" }),
+      stairs({ id: "HH-ST1", at: [40, 1.6, -65.5], size: [3, 3.25, 7], yaw: 180, mat: "metal" }),
+      stairs({ id: "HH-ST2", at: [40, 1.6, -24.5], size: [3, 3.25, 7], yaw: 0, mat: "metal" }),
       ...[46, 58, 74, 86].flatMap((x) => [-37, -53].map((z, i) => box({
         id: `HH-PL-${x}-${i}`,
         at: [x, 0.6, z],
@@ -5477,8 +5488,8 @@ var SprotoShooterSim = (() => {
       box({ id: "HH-SUMP", at: [70, -0.2, -31], size: [6, 0.5, 4], mat: "toxic" }),
       disc({ id: "HH-NB", at: [82, 0.05, -45], r: 2.5, mat: "neon" }),
       disc({ id: "HH-THR", at: [40, 0.05, -45], r: 2, mat: "neon" }),
-      box({ id: "S4-TUN1", at: [102, 2, -42.75], size: [8, 4, 0.5], mat: "glass" }),
-      box({ id: "S4-TUN2", at: [102, 2, -47.25], size: [8, 4, 0.5], mat: "glass" }),
+      box({ id: "S4-TUN1", at: [102, 2, -38.75], size: [8, 4, 0.5], mat: "glass" }),
+      box({ id: "S4-TUN2", at: [102, 2, -51.25], size: [8, 4, 0.5], mat: "glass" }),
       box({ id: "S4-CB1", at: [114, 1, -30], size: [4, 2, 4], mat: "wood" }),
       box({ id: "S4-CB2", at: [126, 1, -62], size: [4, 2, 4], mat: "wood" }),
       box({ id: "S4-CB3", at: [138, 1, -28], size: [4, 2, 4], mat: "wood" }),
@@ -5490,10 +5501,10 @@ var SprotoShooterSim = (() => {
       ...place(podStump(), { at: [112, 0, -56], id: "S4-ST1" }),
       ...place(podStump(), { at: [128, 0, -34], id: "S4-ST2" }),
       ...place(manaBloom(), { at: [37, 0, -56], id: "MB12" }),
-      ...place(manaBloom(), { at: [94, 3.5, -65], id: "MB13" }),
+      ...place(manaBloom(), { at: [94, 3.5, -71], id: "MB13" }),
       ...place(manaBloom(), { at: [74, 0, -45], id: "MB14" }),
       ...place(manaBloom(), { at: [112, 0, -60], id: "MB15" }),
-      sphere({ id: "S4-GA-CAT-mark", at: [70, 6.2, -62], r: 0.45, mat: "neon" })
+      sphere({ id: "S4-GA-CAT-mark", at: [70, 6.2, -68], r: 0.45, mat: "neon" })
     ],
     weapons: [
       { id: "W4", at: [40, 0.9, -38], gun: "bazooka", why: "E7: two nests" }
@@ -5504,20 +5515,20 @@ var SprotoShooterSim = (() => {
     ],
     mechanisms: [
       { kind: "door", id: "S4-DE", at: [169, 2.5, -45], size: [1, 5, 6], opens: "S4-E8.cleared" },
-      { kind: "door", id: "LD2-IN", at: [34, 4, -45], size: [0.6, 8, 4] },
-      { kind: "door", id: "LD2-OUT", at: [98, 4, -45], size: [0.6, 8, 4] },
-      { kind: "door", id: "HH-DN", at: [66, 1, -67], size: [2.4, 3, 0.6] },
-      { kind: "door", id: "HH-DS", at: [66, 1, -23], size: [2.4, 3, 0.6] },
+      { kind: "door", id: "LD2-IN", at: [34, 4, -45], size: [0.6, 8, 22] },
+      { kind: "door", id: "LD2-OUT", at: [98, 4, -45], size: [0.6, 8, 22] },
+      { kind: "door", id: "HH-DN", at: [66, 1, -73], size: [2.4, 3, 0.6] },
+      { kind: "door", id: "HH-DS", at: [66, 1, -17], size: [2.4, 3, 0.6] },
       { kind: "door", id: "HH-DCE", at: [98, 3.25, -58], size: [2.4, 3, 0.6] },
       { kind: "hazard", id: "HH-SUMP-HZ", min: [67, -1, -33], max: [73, 1, -29], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
-      { kind: "hazard", id: "HH-N-HZ", min: [62, -1, -70], max: [70, 3, -63], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
-      { kind: "hazard", id: "S4-BARK", min: [-8, -2, -92], max: [176, 8, 4], dps: 0, enemyDps: 0.01, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "HH-N-HZ", min: [62, -1, -76], max: [70, 3, -69], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
+      { kind: "hazard", id: "S4-BARK", min: [-8, -2, -103], max: [176, 8, 13], dps: 0, enemyDps: 0.01, stripsBark: true, element: "toxic" },
       { kind: "hazard", id: "S4-RP5-HZ", min: [129, -1, -50], max: [139, 2, -40], dps: 12, enemyDps: 40, stripsBark: true, element: "toxic" },
       { kind: "seedPod", id: "S4-POD1", at: [112, 1.1, -56], regrow: 12, damage: 150, radius: 4 },
       { kind: "seedPod", id: "S4-POD2", at: [128, 1.1, -34], regrow: 12, damage: 150, radius: 4 },
-      { kind: "power", id: "PU2", at: [66, 3.75, -65], modifier: "manaSurge" },
+      { kind: "power", id: "PU2", at: [66, 3.75, -71], modifier: "manaSurge" },
       { kind: "manaBloom", id: "MB12-use", at: [37, 0.6, -56], mana: 50, regrow: 20 },
-      { kind: "manaBloom", id: "MB13-use", at: [94, 3.8, -65], mana: 50, regrow: 20 },
+      { kind: "manaBloom", id: "MB13-use", at: [94, 3.8, -71], mana: 50, regrow: 20 },
       { kind: "manaBloom", id: "MB14-use", at: [74, 0.6, -45], mana: 50, regrow: 20 },
       { kind: "manaBloom", id: "MB15-use", at: [112, 0.6, -60], mana: 50, regrow: 20 },
       { kind: "ammo", id: "AB12", at: [24, 0.4, -41], ammoType: "bullets", amount: 60 },
@@ -5534,7 +5545,7 @@ var SprotoShooterSim = (() => {
     encounters: [ENCOUNTERS.E7, ENCOUNTERS.E8],
     // Under the glass roof, above the north catwalk. The floor lane does not need it.
     grappleAnchors: [
-      { id: "S4-GA-CAT", at: [70, 6.2, -62], r: 2 }
+      { id: "S4-GA-CAT", at: [70, 6.2, -68], r: 2 }
     ]
   };
 
@@ -5611,15 +5622,15 @@ var SprotoShooterSim = (() => {
     intro: { title: "The Compost Hex", lines: ["Sahil left a shade to guard the crop.", "It eats mana. Feed it its own orbs."] },
     geometry: [
       box({ id: "S5-FL", at: [45, -0.25, -60], size: [400, 0.5, 400], mat: "dirt" }),
-      box({ id: "S5-HW1", at: [34, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
-      box({ id: "S5-HW2", at: [56, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
-      box({ id: "S5-HW3a", at: [38, 2.5, -17], size: [8, 5, 2], mat: "wood" }),
-      box({ id: "S5-HW3b", at: [52, 2.5, -17], size: [8, 5, 2], mat: "wood" }),
-      box({ id: "S5-TW1", at: [41, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
-      box({ id: "S5-TW2", at: [49, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
-      ...place(rootArch(), { at: [45, 0, -22], id: "S5-AR1" }),
-      ...place(rootArch(), { at: [45, 0, -31], id: "S5-AR2" }),
-      ...place(rootArch(), { at: [45, 0, -40], id: "S5-AR3" }),
+      box({ id: "S5-HW1", at: [27, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
+      box({ id: "S5-HW2", at: [63, 2.5, -8], size: [2, 5, 16], mat: "wood" }),
+      box({ id: "S5-HW3a", at: [32, 2.5, -17], size: [10, 5, 2], mat: "wood" }),
+      box({ id: "S5-HW3b", at: [58, 2.5, -17], size: [10, 5, 2], mat: "wood" }),
+      box({ id: "S5-TW1", at: [37, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
+      box({ id: "S5-TW2", at: [53, 2.5, -31], size: [2, 5, 28], mat: "wood" }),
+      ...place(rootArch(7.3), { at: [45, 0, -22], id: "S5-AR1" }),
+      ...place(rootArch(7.3), { at: [45, 0, -31], id: "S5-AR2" }),
+      ...place(rootArch(7.3), { at: [45, 0, -40], id: "S5-AR3" }),
       ...arenaWalls(),
       disc({ id: "S5-LID", at: [45, 12, -80], r: 35, mat: "glass" }),
       cylinder({ id: "S5-HEAP", at: [45, -0.2, -80], r: 6, h: 0.5, mat: "dirt" }),
@@ -5728,11 +5739,11 @@ var SprotoShooterSim = (() => {
       sphere({ id: "S6-GV2", at: [52, 1.9, -24], r: 2.5, mat: "grass" }),
       sphere({ id: "S6-GV3", at: [20, 1.9, -58], r: 2.5, mat: "grass" }),
       cylinder({ id: "S6-PED", at: [36, 0, -58], r: 2, h: 0.6, mat: "metal" }),
-      box({ id: "S6-T1", at: [75, 2.75, -40], size: [30, 0.5, 44], mat: "grass" }),
-      box({ id: "S6-T2", at: [105, 5.75, -40], size: [30, 0.5, 44], mat: "grass" }),
+      box({ id: "S6-T1", at: [75, 2.75, -40], size: [30, 0.5, 56], mat: "grass" }),
+      box({ id: "S6-T2", at: [105, 5.75, -40], size: [30, 0.5, 56], mat: "grass" }),
       box({ id: "S6-LV", at: [135, 8.75, -50], size: [30, 0.5, 96], mat: "concrete" }),
-      box({ id: "S6-FN", at: [90, 6, -80], size: [60, 12, 36], mat: "hedge" }),
-      box({ id: "S6-FS", at: [90, 6, -10], size: [60, 12, 16], mat: "hedge" }),
+      box({ id: "S6-FN", at: [90, 6, -83.5], size: [60, 12, 31], mat: "hedge" }),
+      box({ id: "S6-FS", at: [90, 6, -6], size: [60, 12, 10], mat: "hedge" }),
       ramp({ id: "S6-R1", at: [55, 1.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
       ramp({ id: "S6-R2", at: [85, 4.5, -24], size: [10, 3, 5], yaw: 90, mat: "wood" }),
       ramp({ id: "S6-R3", at: [115, 7.5, -56], size: [10, 3, 5], yaw: 90, mat: "wood" }),
@@ -6052,14 +6063,14 @@ var SprotoShooterSim = (() => {
   function podIsle(id, at2) {
     return island(id, 4, 3, at2);
   }
-  function chain(id, from, to) {
+  function chain(id, from, to, width = 1.6) {
     const dx = to[0] - from[0];
     const dy = to[1] - from[1];
     const dz = to[2] - from[2];
     const len = Math.hypot(dx, dy, dz);
     const n = Math.max(1, Math.round(len / 2));
     const alongX = Math.abs(dx) >= Math.abs(dz);
-    const size = alongX ? [2.4, 0.6, 1.6] : [1.6, 0.6, 2.4];
+    const size = alongX ? [2.4, 0.6, width] : [width, 0.6, 2.4];
     const parts = [];
     for (let i = 0; i < n; i++) {
       const t = (i + 0.5) / n;
@@ -6100,15 +6111,15 @@ var SprotoShooterSim = (() => {
       disc({ id: `${id}-rim`, at: [at2[0], at2[1] + 0.52, at2[2]], r: 3, mat: "neon" })
     ];
   }
-  function tunnel(id, { length, floorAt, innerH = 4 }) {
+  function tunnel(id, { length, floorAt, innerH = 4, innerWidth = 6 }) {
     const [x, y, z] = floorAt;
     const wallH = innerH + 2;
     const wallY = y - 0.5 + wallH / 2;
     return [
-      box({ id: `${id}-floor`, at: [x, y, z], size: [length, 1, 8], mat: "metal" }),
-      box({ id: `${id}-roof`, at: [x, y + innerH + 1, z], size: [length, 1, 8], mat: "metal" }),
-      box({ id: `${id}-n`, at: [x, wallY, z - 3.5], size: [length, wallH, 1], mat: "metal" }),
-      box({ id: `${id}-s`, at: [x, wallY, z + 3.5], size: [length, wallH, 1], mat: "metal" })
+      box({ id: `${id}-floor`, at: [x, y, z], size: [length, 1, innerWidth + 2], mat: "metal" }),
+      box({ id: `${id}-roof`, at: [x, y + innerH + 1, z], size: [length, 1, innerWidth + 2], mat: "metal" }),
+      box({ id: `${id}-n`, at: [x, wallY, z - (innerWidth + 1) / 2], size: [length, wallH, 1], mat: "metal" }),
+      box({ id: `${id}-s`, at: [x, wallY, z + (innerWidth + 1) / 2], size: [length, wallH, 1], mat: "metal" })
     ];
   }
   function pylon(id, at2, mat = "metal") {
@@ -6211,7 +6222,7 @@ var SprotoShooterSim = (() => {
     maxAlive: 8,
     intensity: 0.3,
     objective: { kind: "clearAll" },
-    activate: { min: [44, -2, 42], max: [80, 6, 78] },
+    activate: { min: [44, -2, 32], max: [80, 6, 88] },
     squads: [
       squad4("A", { type: "onEnter" }, [u2("midget", 4)], [[58, 0, 56], [66, 0, 56], [58, 0, 64], [66, 0, 64]], "placed", "placed, wakes on sight, ring round (62, 0, 60)"),
       squad4("B", { type: "time", t: 1 }, [u2("obama", 2)], [[58, 0, 50], [66, 0, 50]], "door", "onAlert, hutN, delay 1s"),
@@ -6225,7 +6236,7 @@ var SprotoShooterSim = (() => {
     maxAlive: 8,
     intensity: 0.4,
     objective: { kind: "clearAll" },
-    activate: { min: [96, -4, 56], max: [230, 16, 64] },
+    activate: { min: [96, -4, 50], max: [230, 16, 70] },
     squads: [
       squad4("A", { type: "onEnter" }, [u2("flyingMidget", 2)], [[110, 2, 60], [118, 2, 60]], "air", "onEnter h2, y 7 to 10", { alt: [7, 10] }),
       squad4("B", { type: "time", t: 6 }, [u2("flyingMidget", 3)], [[140, 2, 60], [148, 2, 60], [156, 2, 60]], "air", "onEnter h3, y 11 to 15", { alt: [11, 15] }),
@@ -6240,13 +6251,13 @@ var SprotoShooterSim = (() => {
     flockUnit: 6,
     intensity: 0.75,
     objective: { kind: "clearAll" },
-    activate: { min: [40, -2, 74], max: [92, 24, 126] },
+    activate: { min: [40, -2, 62], max: [92, 24, 138] },
     lockdown: {
       id: "L1",
       entry: "s2.pitIn",
       exit: "s2.pitOut",
-      threshold: { min: [46.5, -1, 96], max: [48.5, 6, 104] },
-      room: { min: [41, 0, 75], max: [91, 24, 125] },
+      threshold: { min: [46.5, -1, 93], max: [48.5, 6, 107] },
+      room: { min: [41, 0, 63], max: [91, 24, 137] },
       waves: 4,
       fallbackSec: 25
     },
@@ -6282,7 +6293,7 @@ var SprotoShooterSim = (() => {
     flockUnit: 6,
     intensity: 0.7,
     objective: { kind: "clearAll", design: "destroy s3.gatePylon and reach the mouth" },
-    activate: { min: [50, -12, 40], max: [250, 30, 80] },
+    activate: { min: [50, -12, 33], max: [250, 30, 87] },
     squads: [
       squad4("A", { type: "onEnter" }, [u2("flakPod", 1)], [[63, 0, 60]], "placed", "FP1, static y 0"),
       squad4("B", { type: "time", t: 4 }, [u2("flakPod", 1)], [[122, 1, 60]], "placed", "onEnter x>80, FP2"),
@@ -6294,6 +6305,7 @@ var SprotoShooterSim = (() => {
   var E62 = {
     id: "S4-E6",
     name: "Dust Sweep",
+    useSectionFlyerVolume: true,
     maxAlive: 9,
     intensity: 0.45,
     objective: { kind: "clearAll" },
@@ -6313,20 +6325,20 @@ var SprotoShooterSim = (() => {
     flockUnit: 6,
     intensity: 0.9,
     objective: { kind: "clearAll" },
-    activate: { min: [146, -12, 70], max: [208, 30, 130] },
+    activate: { min: [146, -12, 58], max: [208, 30, 142] },
     lockdown: {
       id: "L2",
       entry: "s4.chIn",
       exit: "s4.chOut",
-      threshold: { min: [152, -1, 96], max: [154, 6, 104] },
-      room: { min: [147, 0, 70], max: [207, 30, 130] },
+      threshold: { min: [152, -1, 94], max: [154, 6, 106] },
+      room: { min: [147, 0, 58], max: [207, 30, 142] },
       waves: 4,
       fallbackSec: 25
     },
     squads: [
-      squad4("W1", { type: "onEnter" }, [u2("bitbug", 8)], [[177, 16, 70.5]], "air", "door drops, CH-N, y 6 to 20", { alt: [6, 20], spawn: "CH-N" }),
+      squad4("W1", { type: "onEnter" }, [u2("bitbug", 8)], [[177, 16, 58.5]], "air", "door drops, CH-N, y 6 to 20", { alt: [6, 20], spawn: "CH-N" }),
       squad4("W1b", { type: "with", after: "W1", delay: 4 }, [u2("jetObama", 1)], [[195, 29, 100]], "air", "CH-LID 4s later, matches the player", { alt: [4, 26], spawn: "CH-LID" }),
-      squad4("W2a", { type: "onRemain", n: 2 }, [u2("jetObama", 2)], [[177, 16, 129.5]], "air", "onRemain(2) or 25s, CH-S", { alt: [4, 26], spawn: "CH-S", fallbackSec: 25 }),
+      squad4("W2a", { type: "onRemain", n: 2 }, [u2("jetObama", 2)], [[177, 16, 141.5]], "air", "onRemain(2) or 25s, CH-S", { alt: [4, 26], spawn: "CH-S", fallbackSec: 25 }),
       squad4("W2b", { type: "with", after: "W2a", delay: 0 }, [u2("balloonMidget", 4)], [[195, 29, 100]], "air", "CH-LID, y 26 falling to 8", { alt: [8, 26], spawn: "CH-LID" }),
       squad4("W3a", { type: "onRemain", n: 2 }, [u2("flakPod", 1)], [[202, 0, 126]], "burrow", "CH-HATCH", { spawn: "CH-HATCH", fallbackSec: 25 }),
       squad4("W3b", { type: "with", after: "W3a", delay: 0 }, [u2("bitbug", 8)], [[177, -10, 100]], "air", "CH-WELL, y 0 to 16", { alt: [0, 16], spawn: "CH-WELL" }),
@@ -6343,7 +6355,7 @@ var SprotoShooterSim = (() => {
       alsoDestroy: ["n1", "n2", "n3"],
       design: "destroy n1, n2, n3 and clearAll"
     },
-    activate: { min: [18, -8, 38], max: [102, 20, 122] },
+    activate: { min: [18, -8, 30], max: [102, 20, 130] },
     squads: [
       squad4("A", { type: "onEnter" }, [u2("riotMidget", 2), u2("obama", 2)], [[40, 0, 76], [40, 0, 84], [46, 0, 64], [46, 0, 96]], "placed", "west plaza"),
       squad4("B", { type: "onKills", n: 4 }, [u2("hexAcolyte", 1), u2("midget", 4)], [[60, 0, 47.3], [58, 0, 47.3], [62, 0, 47.3], [56, 0, 47.3], [64, 0, 47.3]], "door", "onPartDestroyed of the first node (n1, n2 or n3), hutN"),
@@ -6436,7 +6448,7 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 0], max: [240, 120] },
     flyerVolume: { min: [0, -40, 0], max: [240, 70, 120] },
     voids: [{ id: "s1.void", min: [-20, -200, -20], max: [260, -40, 140], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [4, 0, 60] }],
-    exit: { min: [232, -2, 56], max: [242, 14, 64] },
+    exit: { min: [232, -2, 53], max: [242, 14, 67] },
     intro: {
       title: "The Blockchain Void",
       lines: ["The money leaves the Grove and goes up.", "There is no floor on this exchange. Mind the gap."]
@@ -6452,7 +6464,7 @@ var SprotoShooterSim = (() => {
       { id: "s1.hook.mem", at: [200, 16, 60], r: 3 }
     ],
     geometry: [
-      box({ id: "s1.gen", at: [15, -2, 60], size: [30, 4, 40], mat: "metal" }),
+      box({ id: "s1.gen", at: [15, -2, 60], size: [30, 4, 56], mat: "metal" }),
       box({ id: "s1.mono", at: [4, 6, 46], size: [4, 12, 4], mat: "gold" }),
       crate("s1.genCr1", [12, 0.6, 52]),
       crate("s1.genCr2", [12, 0.6, 68]),
@@ -6460,7 +6472,7 @@ var SprotoShooterSim = (() => {
       ...sign("s1.signZap", [27, 3, 54], "ZAP THE CONDUIT"),
       box({ id: "s1.c1post", at: [37, -0.5, 50], size: [3, 3, 3], mat: "metal" }),
       ...deck("eb1", [30, 0, 60], [44, 0, 60], 4, 0),
-      box({ id: "s1.blk1", at: [62, -2, 60], size: [36, 4, 40], mat: "metal" }),
+      box({ id: "s1.blk1", at: [62, -2, 60], size: [36, 4, 56], mat: "metal" }),
       ...hut("s1.hutN", [6, 3, 5], [62, 1.5, 42.5]),
       ...hut("s1.hutS", [6, 3, 5], [62, 1.5, 77.5]),
       ticker("s1.tickA", [52, 1, 52], 6),
@@ -6471,9 +6483,9 @@ var SprotoShooterSim = (() => {
       crate("s1.blkCr2", [58, 0.6, 48]),
       crate("s1.blkCr3", [58, 0.6, 72]),
       crate("s1.blkCr4", [74, 0.6, 64]),
-      box({ id: "s1.wallN", at: [79.7, 2, 48], size: [0.6, 4, 16], mat: "metal" }),
-      box({ id: "s1.wallS", at: [79.7, 2, 72], size: [0.6, 4, 16], mat: "metal" }),
-      box({ id: "s1.launch", at: [85, -2, 60], size: [10, 4, 16], mat: "metal" }),
+      box({ id: "s1.wallN", at: [79.7, 2, 43], size: [0.6, 4, 22], mat: "metal" }),
+      box({ id: "s1.wallS", at: [79.7, 2, 77], size: [0.6, 4, 22], mat: "metal" }),
+      box({ id: "s1.launch", at: [85, -2, 60], size: [10, 4, 22], mat: "metal" }),
       cylinder({ id: "s1.dais", at: [85, 0, 54], r: 2, h: 0.5, mat: "gold" }),
       ...sign("s1.signHold", [88, 3, 54], "HOLD SPACE TO FLY"),
       ...island("s1.h1", 6, 3, [108, -3, 48]),
@@ -6482,7 +6494,7 @@ var SprotoShooterSim = (() => {
       ...island("s1.h3", 6, 3, [168, 4, 74]),
       ...sign("s1.signDrop", [168, 10, 80], "C TO DROP"),
       box({ id: "s1.file1", at: [136, -6.25, 46], size: [4, 0.5, 4], mat: "metal" }),
-      box({ id: "s1.mem", at: [200, 6, 60], size: [36, 4, 44], mat: "metal" }),
+      box({ id: "s1.mem", at: [200, 6, 60], size: [36, 4, 62], mat: "metal" }),
       ...candle("s1.stubN", [6, 8, 6], [198, 12, 46], "up"),
       ...candle("s1.stubS", [6, 6, 6], [198, 11, 74], "down"),
       ...hut("s1.memHut", [5, 3, 5], [212, 9.5, 42.5]),
@@ -6490,9 +6502,9 @@ var SprotoShooterSim = (() => {
       crate("s1.memCr2", [204, 8.6, 54]),
       crate("s1.memCr3", [204, 8.6, 66]),
       ticker("s1.memWall", [210, 9, 66], 6),
-      ...chain("s1.chainX", [218, 8, 60], [224, 8, 60]),
-      ...tunnel("s1.tun", { length: 16, floorAt: [232, 7.5, 60] }),
-      deckBox("s1.slide.h1", 78, 242, 0, 60, 8),
+      ...chain("s1.chainX", [218, 8, 60], [224, 8, 60], 7),
+      ...tunnel("s1.tun", { length: 16, floorAt: [232, 7.5, 60], innerWidth: 12 }),
+      deckBox("s1.slide.h1", 78, 242, 0, 60, 16),
       disc({ id: "s1.slide-pad", at: [100, 0.08, 60], r: 1.1, mat: "neon" }),
       ...vista,
       disc({ id: "crit-CP1", at: [4, 0.08, 60], r: 1.2, mat: "neon" }),
@@ -6507,7 +6519,7 @@ var SprotoShooterSim = (() => {
       { kind: "killPlane", id: "s1.kill", y: -40 },
       { kind: "conduit", id: "c1", at: [37, 2, 50], spell: "chainZap", powers: "eb1" },
       { kind: "energyBridge", id: "eb1", from: [30, 0, 60], to: [44, 0, 60], width: 4, when: "c1" },
-      door4("gate1", [79.7, 2, 60], [0.6, 4, 8], { opens: "S1-E1.cleared" }),
+      door4("gate1", [79.7, 2, 60], [0.6, 4, 12], { opens: "S1-E1.cleared" }),
       { kind: "jetpack", id: "s1.jet", at: [88, 0.4, 60] },
       { kind: "jetpack", id: "s1.jet-n", at: [88, 0.4, 58] },
       { kind: "jetpack", id: "s1.jet-s", at: [88, 0.4, 62] },
@@ -6547,7 +6559,7 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 0], max: [270, 200] },
     flyerVolume: { min: [0, -40, 0], max: [270, 100, 200] },
     voids: [{ id: "s2.void", min: [-20, -200, -20], max: [290, -40, 220], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [6, 0, 100] }],
-    exit: { min: [250, 40, 94], max: [266, 90, 106] },
+    exit: { min: [250, 40, 92], max: [266, 90, 108] },
     grappleAnchors: [
       { id: "s2.hook.pit", at: [66, 20, 100], r: 2.4 },
       { id: "s2.hook.k8", at: [154, 24, 100], r: 2.6 },
@@ -6561,13 +6573,13 @@ var SprotoShooterSim = (() => {
       { from: { x: 132, z: 100 }, to: { x: 154, z: 100 }, kind: "slider" }
     ],
     geometry: [
-      box({ id: "s2.ent", at: [10, -2, 100], size: [20, 4, 20], mat: "metal" }),
-      deckBox("s2.slide.lip", -12, 24, 0, 100, 12),
-      ...stair("s2.slide.climb", [100, 0, 100], [262, 76, 100], 10),
+      box({ id: "s2.ent", at: [10, -2, 100], size: [20, 4, 32], mat: "metal" }),
+      deckBox("s2.slide.lip", -12, 24, 0, 100, 20),
+      ...stair("s2.slide.climb", [100, 0, 100], [262, 76, 100], 16),
       disc({ id: "s2.slide-pad", at: [108, 4, 100], r: 1.1, mat: "neon" }),
-      ...chain("s2.chainIn", [20, 0, 100], [32, 0, 100]),
-      box({ id: "s2.porchW", at: [36, -2, 100], size: [8, 4, 12], mat: "metal" }),
-      box({ id: "s2.pit", at: [60, -2, 100], size: [80, 4, 160], mat: "metal" }),
+      ...chain("s2.chainIn", [20, 0, 100], [32, 0, 100], 8),
+      box({ id: "s2.porchW", at: [36, -2, 100], size: [8, 4, 20], mat: "metal" }),
+      box({ id: "s2.pit", at: [60, -2, 100], size: [80, 4, 176], mat: "metal" }),
       disc({ id: "s2.thresh", at: [47, 0.06, 100], r: 2, mat: "neon" }),
       ...candle("s2.pk1", [8, 6, 8], [54, 3, 40], "up"),
       ...candle("s2.pk2", [8, 10, 8], [78, 5, 40], "down"),
@@ -6583,7 +6595,7 @@ var SprotoShooterSim = (() => {
       ...hut("s2.pitHut", [5, 3, 5], [88, 1.5, 78]),
       ...vent("s2.pv1", [46, 0, 80]),
       ...vent("s2.pv2", [86, 0, 120]),
-      box({ id: "s2.porchE", at: [96, -2, 100], size: [8, 4, 12], mat: "metal" }),
+      box({ id: "s2.porchE", at: [96, -2, 100], size: [8, 4, 20], mat: "metal" }),
       box({ id: "s2.book", at: [135, -13, 100], size: [60, 2, 70], mat: "glass" }),
       ...vent("s2.v1", [122, -12, 100]),
       ...vent("s2.v2", [144, -12, 112]),
@@ -6619,8 +6631,8 @@ var SprotoShooterSim = (() => {
     ],
     mechanisms: [
       { kind: "killPlane", id: "s2.kill", y: -40 },
-      door4("s2.pitIn", [40.3, 3, 100], [0.6, 6, 8]),
-      door4("s2.pitOut", [91.7, 3, 100], [0.6, 6, 8]),
+      door4("s2.pitIn", [40.3, 3, 100], [0.6, 6, 14]),
+      door4("s2.pitOut", [91.7, 3, 100], [0.6, 6, 14]),
       updraft("s2.pv1-up", [43, 0, 77], [49, 18, 83]),
       updraft("s2.pv2-up", [83, 0, 117], [89, 18, 123]),
       updraft("s2.v1-up", [119, -12, 97], [125, 14, 103]),
@@ -6650,8 +6662,8 @@ var SprotoShooterSim = (() => {
   var wallX = [95, 120, 145, 170, 195, 220, 245];
   var walls = [];
   wallX.forEach((x, i) => {
-    walls.push(...candle(`s3.wallN${i + 1}`, [10, 60, 10], [x, 10, 30], "down"));
-    walls.push(...candle(`s3.wallS${i + 1}`, [10, 60, 10], [x, 10, 90], "down"));
+    walls.push(...candle(`s3.wallN${i + 1}`, [10, 60, 10], [x, 10, 20], "down"));
+    walls.push(...candle(`s3.wallS${i + 1}`, [10, 60, 10], [x, 10, 100], "down"));
   });
   var S33 = {
     id: "S3",
@@ -6664,7 +6676,7 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 20], max: [270, 110] },
     flyerVolume: { min: [0, -40, 20], max: [270, 80, 110] },
     voids: [{ id: "s3.void", min: [-20, -200, 0], max: [290, -40, 130], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [14, 0, 60] }],
-    exit: { min: [262, -6, 54], max: [270, 6, 66] },
+    exit: { min: [262, -6, 51], max: [270, 6, 69] },
     intro: {
       title: "Liquidity",
       lines: ["Bitcoin Obama pumps the price. The Midget dumps it.", "You ride the chart."]
@@ -6688,7 +6700,7 @@ var SprotoShooterSim = (() => {
       ...sign("s3.sign", [30, 3, 56], "FLAK HITS FLYERS. WALK, SHIELD OR SNIPE."),
       ...chain("s3.chainA", [34, 0, 60], [54, 0, 60]),
       ...island("s3.isl1", 7, 3, [61, -3, 60]),
-      box({ id: "s3.slide.lane", at: [140, -0.25, 60], size: [280, 0.5, 36], mat: "metal", tag: "slide" }),
+      box({ id: "s3.slide.lane", at: [140, -0.25, 60], size: [280, 0.5, 52], mat: "metal", tag: "slide" }),
       crate("s3.isl1Cr1", [56, 0.6, 57.5]),
       crate("s3.isl1Cr2", [56, 0.6, 62.5]),
       ...walls,
@@ -6708,14 +6720,14 @@ var SprotoShooterSim = (() => {
       cylinder({ id: "s3.c3post", at: [184, -2, 70], r: 0.5, h: 2, mat: "metal" }),
       ...podIsle("s3.p4", [208, 7, 48]),
       ...island("s3.r4", 6, 3, [230, -5, 58]),
-      box({ id: "s3.mouth", at: [258, -4, 60], size: [24, 4, 28], mat: "metal" }),
+      box({ id: "s3.mouth", at: [258, -4, 60], size: [24, 4, 40], mat: "metal" }),
       ticker("s3.mouthWall", [250, -1, 60], 6),
       ...pylon("s3.pylon", [252, -2, 52]),
       ...deck("eb2", [106, 8, 68], [136, 8, 54], 4, 8),
       ...deck("eb3", [192, 8, 65], [224, 8, 59], 4, 8),
-      box({ id: "s3.tun-roof", at: [264, 2.5, 60], size: [12, 1, 8], mat: "metal" }),
-      box({ id: "s3.tun-n", at: [264, 1, 56.5], size: [12, 6, 1], mat: "metal" }),
-      box({ id: "s3.tun-s", at: [264, 1, 63.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s3.tun-roof", at: [264, 2.5, 60], size: [12, 1, 14], mat: "metal" }),
+      box({ id: "s3.tun-n", at: [264, 1, 53.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s3.tun-s", at: [264, 1, 66.5], size: [12, 6, 1], mat: "metal" }),
       ...island("s3.fileIsl", 3, 2, [158, -3, 104]),
       disc({ id: "crit-CP5", at: [14, 0.08, 60], r: 1.2, mat: "neon" })
     ],
@@ -6729,7 +6741,7 @@ var SprotoShooterSim = (() => {
       { kind: "depotCrate", id: "depot-crate-a", at: [8, 0, 60] },
       { kind: "shrine", id: "s3.shrine-use", at: [22, 0.5, 50], spell: "manaShield" },
       { kind: "manaBloom", id: "s3.bloom-use", at: [22, 0, 70], amount: 50, regrow: 20 },
-      { kind: "hazardZone", id: "s3.wind", hazard: "wind", min: [80, -8, 44], max: [250, 34, 76], force: [6, 0, 0] },
+      { kind: "hazardZone", id: "s3.wind", hazard: "wind", min: [80, -8, 38], max: [250, 34, 82], force: [6, 0, 0] },
       { kind: "mover", id: "s3.slA", mode: "pingpong", speed: 8, pause: 1, from: [90, 12, 53], to: [150, 12, 53], size: [10, 8, 1.5] },
       { kind: "mover", id: "s3.slB", mode: "pingpong", speed: 8, pause: 1, from: [150, 6, 68], to: [214, 6, 68], size: [10, 8, 1.5] },
       { kind: "conduit", id: "c2", at: [98, 4.5, 74], spell: "chainZap", powers: "eb2" },
@@ -6737,7 +6749,7 @@ var SprotoShooterSim = (() => {
       { kind: "conduit", id: "c3", at: [184, 0.5, 70], spell: "chainZap", powers: "eb3" },
       { kind: "energyBridge", id: "eb3", from: [192, -2, 65], to: [224, -2, 59], width: 4, when: "c3" },
       { kind: "target", id: "s3.gatePylon", at: [252, -2, 52], hp: 228, def: "pylon", weak: 2 },
-      door4("s3.mouthGate", [258.3, 0, 60], [0.6, 4, 6], { opens: "s3.gatePylon.destroyed" }),
+      door4("s3.mouthGate", [258.3, 0, 60], [0.6, 4, 12], { opens: "s3.gatePylon.destroyed" }),
       { kind: "fuelPad", id: "s3.pad.r1", at: [100, 2.2, 70], safe: true },
       { kind: "fuelPad", id: "s3.pad.r2", at: [142, 2.2, 52], safe: true },
       { kind: "fuelPad", id: "s3.pad.r3", at: [186, -1.8, 66], safe: true },
@@ -6764,7 +6776,7 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 40], max: [250, 160] },
     flyerVolume: { min: [0, -60, 40], max: [250, 90, 160] },
     voids: [{ id: "s4.void", min: [-20, -200, 20], max: [270, -60, 180], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [6, 0, 100] }],
-    exit: { min: [222, -2, 94], max: [230, 6, 106] },
+    exit: { min: [222, -2, 91], max: [230, 6, 109] },
     grappleAnchors: [
       { id: "s4.hook.b3", at: [68, 14, 98], r: 2.4 },
       { id: "s4.hook.b7", at: [110, 18, 72], r: 2.4 },
@@ -6775,11 +6787,11 @@ var SprotoShooterSim = (() => {
       { from: { x: 169, z: 100 }, to: { x: 185, z: 100 }, kind: "bridge" }
     ],
     geometry: [
-      box({ id: "s4.ent", at: [12, -2, 100], size: [24, 4, 24], mat: "metal" }),
-      deckBox("s4.slide.lip", -16, 8, 0, 100, 8),
-      ...stair("s4.slide.up", [20, 0, 100], [36, 10, 100], 10),
-      deckBox("s4.slide.field", 36, 140, 10, 100, 10),
-      ...stair("s4.slide.down", [140, 10, 100], [156, 0, 100], 10),
+      box({ id: "s4.ent", at: [12, -2, 100], size: [24, 4, 34], mat: "metal" }),
+      deckBox("s4.slide.lip", -16, 8, 0, 100, 20),
+      ...stair("s4.slide.up", [20, 0, 100], [36, 10, 100], 18),
+      deckBox("s4.slide.field", 36, 140, 10, 100, 18),
+      ...stair("s4.slide.down", [140, 10, 100], [156, 0, 100], 18),
       box({ id: "s4.entWall", at: [22, 0.6, 100], size: [0.6, 1.2, 8], mat: "metal" }),
       ...sign("s4.sign", [22, 3, 92], "POP THEM FROM HERE"),
       box({ id: "s4.b1", at: [44, -1, 84], size: [10, 6, 10], mat: "metal" }),
@@ -6792,15 +6804,15 @@ var SprotoShooterSim = (() => {
       box({ id: "s4.b8", at: [116, 0, 112], size: [6, 12, 6], mat: "metal" }),
       box({ id: "s4.b9", at: [132, 4, 100], size: [12, 4, 12], mat: "metal" }),
       box({ id: "s4.b9Wall", at: [128, 6.6, 100], size: [0.6, 1.2, 6], mat: "metal" }),
-      box({ id: "s4.porchW", at: [142, -2, 100], size: [8, 4, 12], mat: "metal" }),
-      box({ id: "s4.chFloorN", at: [177, -2, 80.5], size: [62, 4, 23], mat: "metal" }),
-      box({ id: "s4.chFloorS", at: [177, -2, 119.5], size: [62, 4, 23], mat: "metal" }),
+      box({ id: "s4.porchW", at: [142, -2, 100], size: [8, 4, 20], mat: "metal" }),
+      box({ id: "s4.chFloorN", at: [177, -2, 74.5], size: [62, 4, 35], mat: "metal" }),
+      box({ id: "s4.chFloorS", at: [177, -2, 125.5], size: [62, 4, 35], mat: "metal" }),
       box({ id: "s4.chFloorW", at: [157.5, -2, 100], size: [23, 4, 16], mat: "metal" }),
       box({ id: "s4.chFloorE", at: [196.5, -2, 100], size: [23, 4, 16], mat: "metal" }),
       ...lockRoom("s4.chRoom", {
-        min: [147, 0, 70],
-        max: [207, 30, 130],
-        gaps: [{ side: "w", at: 100, width: 4, height: 6 }, { side: "e", at: 100, width: 4, height: 6 }]
+        min: [147, 0, 58],
+        max: [207, 30, 142],
+        gaps: [{ side: "w", at: 100, width: 12, height: 6 }, { side: "e", at: 100, width: 12, height: 6 }]
       }),
       disc({ id: "s4.thresh", at: [153, 0.06, 100], r: 2, mat: "neon" }),
       box({ id: "s4.hb1", at: [159, 8.5, 82], size: [8, 3, 8], mat: "metal" }),
@@ -6824,11 +6836,11 @@ var SprotoShooterSim = (() => {
       disc({ id: "s4.well2", at: [177, -5.1, 100], r: 9, mat: "neon" }),
       disc({ id: "s4.well3", at: [177, -5.2, 100], r: 12, mat: "neon" }),
       ...deck("eb4", [169, 0, 100], [185, 0, 100], 4, 0),
-      box({ id: "s4.exit", at: [219, -2, 100], size: [22, 4, 20], mat: "metal" }),
+      box({ id: "s4.exit", at: [219, -2, 100], size: [22, 4, 32], mat: "metal" }),
       box({ id: "s4.duckCache", at: [177, 30.6, 100], size: [1.2, 0.8, 0.8], mat: "gold" }),
-      box({ id: "s4.tun-roof", at: [224, 4.5, 100], size: [12, 1, 8], mat: "metal" }),
-      box({ id: "s4.tun-n", at: [224, 3, 96.5], size: [12, 6, 1], mat: "metal" }),
-      box({ id: "s4.tun-s", at: [224, 3, 103.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s4.tun-roof", at: [224, 4.5, 100], size: [12, 1, 14], mat: "metal" }),
+      box({ id: "s4.tun-n", at: [224, 3, 93.5], size: [12, 6, 1], mat: "metal" }),
+      box({ id: "s4.tun-s", at: [224, 3, 106.5], size: [12, 6, 1], mat: "metal" }),
       disc({ id: "crit-CP6", at: [8, 0.08, 100], r: 1.2, mat: "neon" }),
       disc({ id: "crit-CP7", at: [142, 0.08, 100], r: 1.2, mat: "neon" }),
       disc({ id: "crit-CP8", at: [219, 0.08, 100], r: 1.2, mat: "neon" })
@@ -6844,8 +6856,8 @@ var SprotoShooterSim = (() => {
     mechanisms: [
       { kind: "killPlane", id: "s4.kill", y: -60 },
       { kind: "hazardZone", id: "s4.wind", hazard: "wind", min: [36, -10, 60], max: [126, 30, 140], force: [0, 0, 3] },
-      door4("s4.chIn", [146.3, 3, 100], [0.6, 6, 4]),
-      door4("s4.chOut", [207.7, 3, 100], [0.6, 6, 4]),
+      door4("s4.chIn", [146.3, 3, 100], [0.6, 6, 12]),
+      door4("s4.chOut", [207.7, 3, 100], [0.6, 6, 12]),
       { kind: "gravityWell", id: "s4.well", at: [177, -8, 100], r: 26, strength: 5, killR: 4 },
       { kind: "conduit", id: "c4", at: [152, 2.5, 76], spell: "chainZap", powers: "eb4" },
       { kind: "energyBridge", id: "eb4", from: [169, 0, 100], to: [185, 0, 100], width: 4, when: "c4" },
@@ -6886,7 +6898,7 @@ var SprotoShooterSim = (() => {
     navBounds: { min: [0, 20], max: [140, 140] },
     flyerVolume: { min: [0, -40, 20], max: [140, 80, 140] },
     voids: [{ id: "s5.void", min: [-20, -200, 0], max: [160, -40, 170], penalty: 0.25, invuln: 1, mode: "lastSafe", to: [4, 0, 80] }],
-    exit: { min: [130, -1, 74], max: [138, 6, 86] },
+    exit: { min: [130, -1, 73], max: [138, 6, 87] },
     grappleAnchors: [
       { id: "s5.hook.n2", at: [31, 20, 97], r: 2.2 },
       { id: "s5.hook.n1", at: [60, 16, 46], r: 2.2 },
@@ -6897,8 +6909,10 @@ var SprotoShooterSim = (() => {
       { from: { x: 102, z: 80 }, to: { x: 112, z: 80 }, kind: "bridge" }
     ],
     geometry: [
-      box({ id: "s5.ent", at: [9, -2, 80], size: [18, 4, 10], mat: "metal" }),
+      box({ id: "s5.ent", at: [11, -2, 80], size: [22, 4, 22], mat: "metal" }),
       ...island("s5.isl", 42, 6, [60, -6, 80]),
+      box({ id: "s5.wingN", at: [60, -2, 43], size: [50, 4, 24], mat: "metal" }),
+      box({ id: "s5.wingS", at: [60, -2, 117], size: [50, 4, 24], mat: "metal" }),
       cylinder({ id: "s5.tower", at: [60, 0, 100], r: 8, h: 16, mat: "metal" }),
       box({ id: "s5.roofP1", at: [60, 16.6, 73], size: [0.6, 1.2, 4], mat: "metal" }),
       box({ id: "s5.roofP2", at: [60, 16.6, 87], size: [0.6, 1.2, 4], mat: "metal" }),
@@ -6924,14 +6938,14 @@ var SprotoShooterSim = (() => {
       ...server("s5.srvE1", [84, 1, 72]),
       ...server("s5.srvE2", [84, 1, 88]),
       crate("s5.crE", [96, 0.6, 76]),
-      box({ id: "s5.vaultFloor", at: [123, -2, 80], size: [22, 4, 24], mat: "metal" }),
-      box({ id: "s5.vaultN", at: [123, 2.5, 68.5], size: [22, 5, 1], mat: "metal" }),
-      box({ id: "s5.vaultS", at: [123, 2.5, 91.5], size: [22, 5, 1], mat: "metal" }),
-      box({ id: "s5.vaultW1", at: [112.5, 2.5, 72.5], size: [1, 5, 9], mat: "metal" }),
-      box({ id: "s5.vaultW2", at: [112.5, 2.5, 87.5], size: [1, 5, 9], mat: "metal" }),
-      box({ id: "s5.vaultE1", at: [133.5, 2.5, 72.5], size: [1, 5, 9], mat: "metal" }),
-      box({ id: "s5.vaultE2", at: [133.5, 2.5, 87.5], size: [1, 5, 9], mat: "metal" }),
-      box({ id: "s5.vaultRoof", at: [123, 5.5, 80], size: [22, 1, 24], mat: "metal" }),
+      box({ id: "s5.vaultFloor", at: [123, -2, 80], size: [22, 4, 36], mat: "metal" }),
+      box({ id: "s5.vaultN", at: [123, 2.5, 62.5], size: [22, 5, 1], mat: "metal" }),
+      box({ id: "s5.vaultS", at: [123, 2.5, 97.5], size: [22, 5, 1], mat: "metal" }),
+      box({ id: "s5.vaultW1", at: [112.5, 2.5, 68.5], size: [1, 5, 13], mat: "metal" }),
+      box({ id: "s5.vaultW2", at: [112.5, 2.5, 91.5], size: [1, 5, 13], mat: "metal" }),
+      box({ id: "s5.vaultE1", at: [133.5, 2.5, 68.5], size: [1, 5, 13], mat: "metal" }),
+      box({ id: "s5.vaultE2", at: [133.5, 2.5, 91.5], size: [1, 5, 13], mat: "metal" }),
+      box({ id: "s5.vaultRoof", at: [123, 5.5, 80], size: [22, 1, 36], mat: "metal" }),
       box({ id: "s5.batLedge", at: [60, -9.25, 114], size: [4, 0.5, 4], mat: "metal" }),
       ...deck("eb5", [102, 0, 80], [112, 0, 80], 5, 0),
       disc({ id: "crit-CP9", at: [123, 0.08, 80], r: 1.2, mat: "neon" })
@@ -6946,8 +6960,8 @@ var SprotoShooterSim = (() => {
       { kind: "target", id: "n2", at: [31, 14, 97], hp: 228, def: "validatorNode", weak: 2 },
       { kind: "target", id: "n3", at: [89, 18, 97], hp: 228, def: "validatorNode", weak: 2 },
       { kind: "energyBridge", id: "eb5", from: [102, 0, 80], to: [112, 0, 80], width: 5, when: "nodes" },
-      door4("s5.vaultDoor", [112.5, 2, 80], [0.6, 4, 6], { opens: "S5-E8.cleared" }),
-      door4("s5.exitDoor", [133.5, 2, 80], [0.6, 4, 6]),
+      door4("s5.vaultDoor", [112.5, 2, 80], [0.6, 4, 10], { opens: "S5-E8.cleared" }),
+      door4("s5.exitDoor", [133.5, 2, 80], [0.6, 4, 10]),
       { kind: "depot", id: "depot-b", at: [123, 0, 74], yaw: 180, services: ["crate", "health", "bench", "shop", "checkpoint"] },
       { kind: "depotCrate", id: "depot-crate-b", at: [123, 0, 74] },
       { kind: "power", id: "s5.fuel", at: [60, 17, 100], modifier: "fuel" },
@@ -7542,7 +7556,7 @@ var SprotoShooterSim = (() => {
     name: "The Abominable Auditor",
     maxAlive: 8,
     objective: { kind: "clearAll", text: "Drop the Abominable Auditor" },
-    activate: zone3(15, 85, 24, 94, -6, 14),
+    activate: zone3(9, 91, 24, 94, -6, 14),
     arena: { x: 50, z: -59, radius: 35 },
     lockdown: {
       id: "L1",
@@ -7551,7 +7565,7 @@ var SprotoShooterSim = (() => {
       threshold: zone3(42, 58, 28, 32, -2, 8),
       delaySec: 1,
       stallSec: 12,
-      room: zone3(15, 85, 24, 94, -6, 12)
+      room: zone3(9, 91, 24, 94, -6, 12)
     },
     squads: [
       squad5("auditor", { type: "onEnter" }, [
@@ -7609,7 +7623,7 @@ var SprotoShooterSim = (() => {
       also: { kind: "hold", seconds: 90 },
       text: "Hold the drill and clear the vault"
     },
-    activate: zone3(18, 62, 40, 84, -2, 14),
+    activate: zone3(12, 68, 40, 84, -2, 14),
     hold: zone3(31, 49, 53, 71, -1, 4),
     lockdown: {
       id: "L3",
@@ -7618,7 +7632,7 @@ var SprotoShooterSim = (() => {
       threshold: zone3(34, 46, 44, 48, -2, 8),
       delaySec: 1,
       stallSec: 12,
-      room: zone3(18, 62, 40, 84, -2, 13)
+      room: zone3(12, 68, 40, 84, -2, 13)
     },
     squads: [
       squad5("W1", { type: "onEnter" }, [u3("midget", 6)], [[26, 12, 50]], "drop"),
@@ -7628,12 +7642,12 @@ var SprotoShooterSim = (() => {
       squad5("W2b", { type: "with", after: "W2", delay: 0 }, [u3("boomMidget", 2)], [[26, 12, 74]], "drop"),
       squad5("W3", { type: "time", t: 50 }, [u3("spotterDrone", 1)], [[40, 12, 62]], "air"),
       squad5("W3b", { type: "with", after: "W3", delay: 0 }, [u3("midget", 4)], [[54, 12, 74]], "drop"),
-      squad5("W3c", { type: "with", after: "W3", delay: 0 }, [u3("frostHound", 2)], [[17, 0, 62]], "door"),
+      squad5("W3c", { type: "with", after: "W3", delay: 0 }, [u3("frostHound", 2)], [[12, 0, 62]], "door"),
       squad5("W4", { type: "time", t: 75 }, [u3("midget", 4)], [[26, 12, 50]], "drop"),
       squad5("W4b", { type: "with", after: "W4", delay: 0 }, [u3("boomMidget", 2)], [[26, 12, 74]], "drop"),
       squad5("W5", { type: "time", t: 100 }, [
         u3("riotMidget", 1, { elite: true, name: "the Vault Warden" })
-      ], [[17, 0, 62]], "door")
+      ], [[12, 0, 62]], "door")
     ],
     strikes: [8, 22, 36, 50, 64, 78, 92],
     strikeEvery: 14,
@@ -7945,7 +7959,7 @@ var SprotoShooterSim = (() => {
     footprint: [300, 520],
     routeM: 516,
     flyerVolume: { min: [0, 0, -520], max: [300, 40, 0] },
-    exit: zone3(143, 157, 519, 524, -2, 8),
+    exit: zone3(139, 161, 519, 524, -2, 8),
     intro: {
       title: "FROSTSPIRE BLACK SITE",
       lines: [
@@ -7969,15 +7983,15 @@ var SprotoShooterSim = (() => {
       seed: 501,
       mat: "snow",
       noise: { amp: 1.2, freq: 0.012, octaves: 2 },
-      flat: [{ n0: 244, n1: 268 }, { x0: 143, x1: 157, n0: 460, n1: 520 }]
+      flat: [{ n0: 244, n1: 268 }, { x0: 138, x1: 162, n0: 460, n1: 520 }]
     }),
     geometry: [
       slab("S1-floor", 150, -0.25, 260, [300, 0.5, 520], "snow", { tag: "terrainStandIn" }),
       slab("S1-cliffW", 6, 7, 260, [12, 14, 520], "rock"),
       slab("S1-cliffE", 294, 7, 260, [12, 14, 520], "rock"),
       slab("S1-cliffS", 150, 7, 4, [276, 14, 8], "rock"),
-      slab("S1-cliffNW", 77.5, 7, 490, [131, 14, 60], "rock"),
-      slab("S1-cliffNE", 222.5, 7, 490, [131, 14, 60], "rock"),
+      slab("S1-cliffNW", 75, 7, 490, [126, 14, 60], "rock"),
+      slab("S1-cliffNE", 225, 7, 490, [126, 14, 60], "rock"),
       { kind: "cylinder", id: "S1-pod", at: P(150, 0, 15), r: 1.6, h: 3.2, mat: "metal" },
       slab("S1-podFin1", 147.8, 1, 14, [0.5, 2, 2.4], "metal"),
       slab("S1-podFin2", 152.2, 1, 14, [0.5, 2, 2.4], "metal"),
@@ -8016,11 +8030,11 @@ var SprotoShooterSim = (() => {
       slab("S1-tunnelLintel", 12.5, 4.5, 215, [6, 1, 1], "metal"),
       slab("S1-creekIce", 150, -0.2, 256, [276, 0.5, 12], "ice"),
       ...berms,
-      slab("S1-bridge", 150, 1.5, 256, [3, 0.6, 18], "wood"),
-      { kind: "ramp", id: "S1-bridgeRampS", at: P(150, 0.9, 244.5), size: [3, 1.8, 5], yaw: 180, mat: "wood" },
-      { kind: "ramp", id: "S1-bridgeRampN", at: P(150, 0.9, 267.5), size: [3, 1.8, 5], yaw: 0, mat: "wood" },
+      slab("S1-bridge", 152, 1.5, 256, [7, 0.6, 18], "wood"),
+      { kind: "ramp", id: "S1-bridgeRampS", at: P(152, 0.9, 244.5), size: [7, 1.8, 5], yaw: 180, mat: "wood" },
+      { kind: "ramp", id: "S1-bridgeRampN", at: P(152, 0.9, 267.5), size: [7, 1.8, 5], yaw: 0, mat: "wood" },
       slab("S1-bridgeRailW", 148.25, 2.4, 256, [0.5, 1.2, 18], "wood"),
-      slab("S1-bridgeRailE", 151.75, 2.4, 256, [0.5, 1.2, 18], "wood"),
+      slab("S1-bridgeRailE", 155.75, 2.4, 256, [0.5, 1.2, 18], "wood"),
       slab("S1-leanRoof", 165, 1.85, 265.5, [6, 0.5, 3], "wood"),
       slab("S1-leanWall", 165, 0.8, 267.25, [6, 1.6, 0.5], "wood"),
       ...room("S1-kennel", 203, 207, 284, 286, 0, 1.6, [{ side: "s", at: 205, w: 1.2, h: 1.6 }], "wood"),
@@ -8076,7 +8090,7 @@ var SprotoShooterSim = (() => {
       hazard("S1-slickE", 154, 288, 250, 262, { slow: 0.15, tag: "slick", y0: -1, y1: 1.2 }),
       door5("S1-tunnel", 12.5, 1.5, 215, [4, 3, 1]),
       door5("S1-hutDoor", 220, 1.3, 433, [1, 2.6, 2.4]),
-      door5("S1-passGate", 150, 2.5, 518.5, [14, 5, 1], { opens: "S1-E3.cleared" }),
+      door5("S1-passGate", 150, 2.5, 518.5, [24, 5, 1], { opens: "S1-E3.cleared" }),
       latch("S1-passLatch", "S1-passGate", P(6, 3, 500)),
       { kind: "mover", id: "S1-lift", carry: true, from: P(157, 0, 448), to: P(157, 22, 448), speed: 2, stops: [0, 14, 22] },
       { kind: "alarm", id: "S1-alarm1", at: P(122, 6.5, 187.5), hp: 40, cableHp: 20, cableTo: P(120, 0.75, 205), runner: 1.5, arrive: 6 },
@@ -8146,7 +8160,7 @@ var SprotoShooterSim = (() => {
     footprint: [260, 250],
     routeM: 438,
     flyerVolume: { min: [0, -8, -250], max: [260, 24, 0] },
-    exit: zone3(126, 134, 206, 214, -2, 8),
+    exit: zone3(123, 137, 206, 214, -2, 8),
     grappleAnchors: [
       hook("S2-hook-towerW", 60, 12.6, 203),
       hook("S2-hook-towerE", 200, 12.6, 203),
@@ -8166,11 +8180,12 @@ var SprotoShooterSim = (() => {
     }),
     geometry: [
       slab("S2-floor", 85, -0.25, 100, [170, 0.5, 200], "snow", { tag: "terrainStandIn" }),
+      slab("S2-passApron", 130, -0.25, 0, [26, 0.5, 10], "snow"),
       slab("S2-yard", 130, -0.25, 219, [240, 0.5, 42], "concrete"),
       slab("S2-cliffW", 5, 7, 125, [10, 14, 250], "rock"),
       slab("S2-cliffE", 255, 7, 125, [10, 14, 250], "rock"),
-      slab("S2-cliffS1", 66.5, 7, 4, [113, 14, 8], "rock"),
-      slab("S2-cliffS2", 193.5, 7, 4, [113, 14, 8], "rock"),
+      slab("S2-cliffS1", 64, 7, 4, [108, 14, 8], "rock"),
+      slab("S2-cliffS2", 196, 7, 4, [108, 14, 8], "rock"),
       slab("S2-eastSnowS", 210, -3, 25, [80, 6, 50], "snow"),
       slab("S2-eastSnowN", 210, -3, 192.5, [80, 6, 15], "snow"),
       slab("S2-lakeBed", 210, -5.5, 117.5, [80, 1, 135], "rock"),
@@ -8226,9 +8241,9 @@ var SprotoShooterSim = (() => {
       slab("S2-trE5", 102.25, 1.1, 183, [1.5, 2.2, 32], "snow"),
       slab("S2-wallW", 47.5, 4, 203, [75, 8, 6], "concrete"),
       slab("S2-wallE", 212.5, 4, 203, [75, 8, 6], "concrete"),
-      slab("S2-pierW", 120.5, 4, 203, [11, 8, 6], "concrete"),
-      slab("S2-pierE", 139.5, 4, 203, [11, 8, 6], "concrete"),
-      slab("S2-lintel", 130, 7, 203, [8, 2, 6], "concrete"),
+      slab("S2-pierW", 119, 4, 203, [8, 8, 6], "concrete"),
+      slab("S2-pierE", 141, 4, 203, [8, 8, 6], "concrete"),
+      slab("S2-lintel", 130, 7, 203, [14, 2, 6], "concrete"),
       ...parapet,
       slab("S2-parapetN", 130, 9.5, 205.75, [240, 3, 0.5], "concrete"),
       ...watchtower("S2-towerW", 60, 8, 203, 4),
@@ -8270,7 +8285,7 @@ var SprotoShooterSim = (() => {
       hazard("S2-lake", 170, 250, 50, 185, { dps: 100, kill: true, rescue: true, y0: -5, y1: -0.5, tag: "water" }),
       { kind: "target", id: "BW-gen-hp", solid: "BW-gen-body", hp: 500, at: P(130, 1.2, 186), weak: 2 },
       { kind: "target", id: "BE-gen-hp", solid: "BE-gen-body", hp: 500, at: P(130, 1.2, 192), weak: 2 },
-      door5("S2-shieldGate", 130, 3, 200.5, [8, 6, 1], { opens: "S2-E5.cleared" }),
+      door5("S2-shieldGate", 130, 3, 200.5, [14, 6, 1], { opens: "S2-E5.cleared" }),
       latch("S2-gateLatch", "S2-shieldGate", P(5, 4, 230)),
       door5("S2-kennelDoor", 75, 1, 197, [1.6, 2, 0.6]),
       door5("BW-doorS", 100, 1.3, 200, [4, 2.6, 1]),
@@ -8292,16 +8307,18 @@ var SprotoShooterSim = (() => {
 
   // src/data/levels/L05/S3.js
   var rails = [];
-  for (let i = 0; i < 6; i++) {
-    const x = 22 + i * 10;
-    const n = 30 + i * 10;
+  for (let i = 0; i < 8; i++) {
+    const x = 17 + i * 9.4;
     rails.push(slab(`S3-railS${i}`, x, 5.6, 28, [8, 1.2, 0.5], "metal"));
     rails.push(slab(`S3-railN${i}`, x, 5.6, 90, [8, 1.2, 0.5], "metal"));
-    rails.push(slab(`S3-railW${i}`, 19, 5.6, n, [0.5, 1.2, 8], "metal"));
-    rails.push(slab(`S3-railE${i}`, 81, 5.6, n, [0.5, 1.2, 8], "metal"));
+  }
+  for (let i = 0; i < 6; i++) {
+    const n = 30 + i * 10;
+    rails.push(slab(`S3-railW${i}`, 13, 5.6, n, [0.5, 1.2, 8], "metal"));
+    rails.push(slab(`S3-railE${i}`, 87, 5.6, n, [0.5, 1.2, 8], "metal"));
   }
   var dots = [];
-  for (let i = 0; i < 8; i++) dots.push({ kind: "disc", id: `S3-threshold${i}`, at: P(46.5 + i, 0.05, 30), r: 0.4, mat: "neon" });
+  for (let i = 0; i < 14; i++) dots.push({ kind: "disc", id: `S3-threshold${i}`, at: P(43.5 + i, 0.05, 30), r: 0.4, mat: "neon" });
   var S34 = {
     id: "S3",
     name: "Gatehouse and Courtyard",
@@ -8311,12 +8328,12 @@ var SprotoShooterSim = (() => {
     footprint: [100, 120],
     routeM: 105,
     flyerVolume: { min: [0, -6, -120], max: [100, 14, 0] },
-    exit: zone3(48, 52, 114, 120, -2, 8),
+    exit: zone3(46, 54, 114, 120, -2, 8),
     grappleAnchors: [
-      hook("S3-hook-gallSW", 20, 5.8, 28),
-      hook("S3-hook-gallSE", 80, 5.8, 28),
-      hook("S3-hook-gallNW", 20, 5.8, 90),
-      hook("S3-hook-gallNE", 80, 5.8, 90),
+      hook("S3-hook-gallSW", 14, 5.8, 28),
+      hook("S3-hook-gallSE", 86, 5.8, 28),
+      hook("S3-hook-gallNW", 14, 5.8, 90),
+      hook("S3-hook-gallNE", 86, 5.8, 90),
       hook("S3-hook-pillarSW", 32, 7.4, 41),
       hook("S3-hook-pillarSE", 68, 7.4, 41),
       hook("S3-hook-pillarNW", 32, 7.4, 77),
@@ -8336,32 +8353,41 @@ var SprotoShooterSim = (() => {
       slab("S3-iceFloor", 50, -0.25, 59, [26, 0.5, 26], "ice", { tag: "crackTiles" }),
       { kind: "cylinder", id: "S3-dais", at: P(50, -4, 59), r: 5, h: 4.6, mat: "ice" },
       { kind: "cylinder", id: "S3-iceMachine", at: P(50, 0.6, 59), r: 1.5, h: 4, mat: "metal" },
-      slab("S3-passW", 45.5, 3, 11, [1, 6, 22], "concrete"),
-      slab("S3-passE", 54.5, 3, 11, [1, 6, 22], "concrete"),
-      slab("S3-passRoof", 50, 6.25, 11, [10, 0.5, 22], "concrete"),
-      ...room("S3-depot", 28, 45, 2, 20, 0, 6, [{ side: "e", at: 11 }], "concrete"),
-      ...room("S3-stairRoom", 55, 72, 2, 20, 0, 6, [{ side: "w", at: 11 }, { side: "n", at: 70 }], "concrete"),
-      stairs({ id: "S3-stairUp", at: P(70, 2.5, 10), size: [3, 5, 12], yaw: 180, mat: "concrete" }),
+      ...[["W", 42.5], ["E", 57.5]].flatMap(([side, x]) => [
+        slab(`S3-pass${side}S`, x, 3, 4.9, [1, 6, 9.8], "concrete"),
+        slab(`S3-pass${side}N`, x, 3, 17.1, [1, 6, 9.8], "concrete"),
+        slab(`S3-pass${side}Lintel`, x, 4.3, 11, [1, 3.4, 2.4], "concrete")
+      ]),
+      slab("S3-passRoof", 50, 6.25, 11, [16, 0.5, 22], "concrete"),
+      ...room("S3-depot", 25, 42, 2, 20, 0, 6, [{ side: "e", at: 11 }], "concrete"),
+      ...room("S3-stairRoom", 58, 75, 2, 20, 0, 9, [
+        { side: "w", at: 11 },
+        { side: "n", at: 70, w: 4, h: 8 }
+      ], "concrete"),
+      stairs({ id: "S3-stairUp", at: P(70, 2.5, 12), size: [3, 5, 16], yaw: 180, mat: "concrete" }),
       slab("S3-landing", 70, 4.75, 23, [4, 0.5, 6], "metal"),
-      slab("S3-wallW1", 14, 6, 39.75, [2, 12, 35.5], "concrete"),
-      slab("S3-wallW2", 14, 6, 78.25, [2, 12, 35.5], "concrete"),
-      slab("S3-wallWLintel", 14, 7.5, 59, [2, 9, 3], "concrete"),
-      slab("S3-wallE1", 86, 6, 39.75, [2, 12, 35.5], "concrete"),
-      slab("S3-wallE2", 86, 6, 78.25, [2, 12, 35.5], "concrete"),
-      slab("S3-wallELintel", 86, 7.5, 59, [2, 9, 3], "concrete"),
-      slab("S3-wallS1", 30, 6, 23, [32, 12, 2], "concrete"),
-      slab("S3-wallS2", 70, 6, 23, [32, 12, 2], "concrete"),
-      slab("S3-wallSLintel", 50, 9, 23, [8, 6, 2], "concrete"),
-      slab("S3-wallN1", 31, 6, 95, [34, 12, 2], "concrete"),
-      slab("S3-wallN2", 69, 6, 95, [34, 12, 2], "concrete"),
-      slab("S3-wallNLintel", 50, 8, 95, [4, 8, 2], "concrete"),
-      slab("S3-gallS", 50, 4.75, 26, [62, 0.5, 4], "metal"),
-      slab("S3-gallN", 50, 4.75, 92, [62, 0.5, 4], "metal"),
-      slab("S3-gallW", 17, 4.75, 59, [4, 0.5, 70], "metal"),
-      slab("S3-gallE", 83, 4.75, 59, [4, 0.5, 70], "metal"),
+      slab("S3-wallW1", 8, 6, 39.75, [2, 12, 35.5], "concrete"),
+      slab("S3-wallW2", 8, 6, 78.25, [2, 12, 35.5], "concrete"),
+      slab("S3-wallWLintel", 8, 7.5, 59, [2, 9, 3], "concrete"),
+      slab("S3-wallE1", 92, 6, 39.75, [2, 12, 35.5], "concrete"),
+      slab("S3-wallE2", 92, 6, 78.25, [2, 12, 35.5], "concrete"),
+      slab("S3-wallELintel", 92, 7.5, 59, [2, 9, 3], "concrete"),
+      slab("S3-wallS1", 25.5, 6, 23, [35, 12, 2], "concrete"),
+      slab("S3-wallS2", 74.5, 2.5, 23, [35, 5, 2], "concrete"),
+      slab("S3-wallS2UpperW", 62.5, 6.6, 23, [11, 3.2, 2], "concrete"),
+      slab("S3-wallS2UpperE", 82, 6.6, 23, [20, 3.2, 2], "concrete"),
+      slab("S3-wallS2Header", 74.5, 10.1, 23, [35, 3.8, 2], "concrete"),
+      slab("S3-wallSLintel", 50, 9, 23, [14, 6, 2], "concrete"),
+      slab("S3-wallN1", 27, 6, 95, [38, 12, 2], "concrete"),
+      slab("S3-wallN2", 73, 6, 95, [38, 12, 2], "concrete"),
+      slab("S3-wallNLintel", 50, 8, 95, [8, 8, 2], "concrete"),
+      slab("S3-gallS", 50, 4.75, 26, [74, 0.5, 4], "metal"),
+      slab("S3-gallN", 50, 4.75, 92, [74, 0.5, 4], "metal"),
+      slab("S3-gallW", 11, 4.75, 59, [4, 0.5, 70], "metal"),
+      slab("S3-gallE", 89, 4.75, 59, [4, 0.5, 70], "metal"),
       ...rails,
-      stairs({ id: "S3-stairSW", at: P(20.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
-      stairs({ id: "S3-stairSE", at: P(79.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
+      stairs({ id: "S3-stairSW", at: P(14.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
+      stairs({ id: "S3-stairSE", at: P(85.5, 2.5, 34), size: [3, 5, 10], yaw: 0, mat: "metal", tag: "slide" }),
       { kind: "cylinder", id: "S3-pillar1", at: P(32, 0, 41), r: 2, h: 8, mat: "ice" },
       { kind: "cylinder", id: "S3-pillar2", at: P(68, 0, 41), r: 2, h: 8, mat: "ice" },
       { kind: "cylinder", id: "S3-pillar3", at: P(32, 0, 77), r: 2, h: 8, mat: "ice" },
@@ -8376,13 +8402,13 @@ var SprotoShooterSim = (() => {
       ...crateStack("S3-crate2", 74, 30),
       ...crateStack("S3-crate3", 26, 88),
       ...crateStack("S3-crate4", 74, 88),
-      ...generator("S3-genNW", 17, 5, 91),
-      ...generator("S3-genNE", 83, 5, 91),
+      ...generator("S3-genNW", 11, 5, 91),
+      ...generator("S3-genNE", 89, 5, 91),
       { kind: "cylinder", id: "S3-rigPad", at: P(50, 5, 26), r: 1.2, h: 1, mat: "metal" },
       slab("S3-hatch", 62, 0.75, 93, [3, 1.5, 2], "metal"),
-      slab("S3-passN1", 47.5, 3, 106, [1, 6, 20], "concrete"),
-      slab("S3-passN2", 52.5, 3, 106, [1, 6, 20], "concrete"),
-      slab("S3-passNRoof", 50, 6.25, 106, [6, 0.5, 20], "concrete"),
+      slab("S3-passN1", 45.5, 3, 106, [1, 6, 20], "concrete"),
+      slab("S3-passN2", 54.5, 3, 106, [1, 6, 20], "concrete"),
+      slab("S3-passNRoof", 50, 6.25, 106, [10, 0.5, 20], "concrete"),
       ...dots
     ],
     weapons: [],
@@ -8396,15 +8422,15 @@ var SprotoShooterSim = (() => {
       { kind: "health", id: "D1-health", at: P(33, 0, 16) },
       { kind: "bench", id: "D1-bench", at: P(41, 0, 6) },
       { kind: "shop", id: "D1-shop", at: P(41, 0, 16) },
-      door5("S3-arenaDoor", 50, 3, 22.5, [8, 6, 0.6]),
-      door5("S3-exitDoor", 50, 2, 95, [4, 4, 0.6]),
+      door5("S3-arenaDoor", 50, 3, 22.5, [14, 6, 0.6]),
+      door5("S3-exitDoor", 50, 2, 95, [8, 4, 0.6]),
       door5("S3-doorUp", 70, 5, 20, [2.4, 2.6, 0.6]),
-      door5("SP-W", 14, 1.5, 59, [2, 3, 3]),
-      door5("SP-E", 86, 1.5, 59, [2, 3, 3]),
+      door5("SP-W", 8, 1.5, 59, [2, 3, 3]),
+      door5("SP-E", 92, 1.5, 59, [2, 3, 3]),
       { kind: "emplacement", id: "S3-rig", at: P(50, 5, 26), yaw: 180, def: "miningRig", arc: 120, rate: 8, damage: 3, overheat: 4, recover: 2 },
-      { kind: "target", id: "S3-genNW-hp", solid: "S3-genNW-body", hp: 500, at: P(17, 6, 91), weak: 2 },
-      { kind: "target", id: "S3-genNE-hp", solid: "S3-genNE-body", hp: 500, at: P(83, 6, 91), weak: 2 },
-      hazard("S3-cold", 15, 85, 24, 94, { set: "F1-part2", dps: 3, shieldRegen: 0, y0: -4, y1: 3, tag: "cold" }),
+      { kind: "target", id: "S3-genNW-hp", solid: "S3-genNW-body", hp: 500, at: P(11, 6, 91), weak: 2 },
+      { kind: "target", id: "S3-genNE-hp", solid: "S3-genNE-body", hp: 500, at: P(89, 6, 91), weak: 2 },
+      hazard("S3-cold", 9, 91, 24, 94, { set: "F1-part2", dps: 3, shieldRegen: 0, y0: -4, y1: 3, tag: "cold" }),
       hazard("S3-slick", 35, 65, 44, 74, { set: "F1-part3", slow: 0.15, tag: "slick" }),
       { kind: "crackTiles", id: "S3-crack", at: P(50, 0, 59), size: [26, 0.5, 26], tile: 3.25, set: "F1-part3", fall: 1, telegraph: 0.5, return: 20 },
       { kind: "breakable", id: "S3-break1", solid: "S3-pillar1", hits: 2, stun: 2 },
@@ -8421,7 +8447,7 @@ var SprotoShooterSim = (() => {
   };
 
   // src/data/levels/L05/S4.js
-  var shelfX = [24, 29, 34, 46, 51, 56];
+  var shelfX = [20, 25, 30, 50, 55, 60];
   var shelves = [];
   for (const x of shelfX) {
     for (const n of [25, 43]) shelves.push(slab(`S4-shelf-${x}-${n}`, x, 8.5, n, [0.8, 3, 10], "wood"));
@@ -8459,35 +8485,35 @@ var SprotoShooterSim = (() => {
       slab("S4-wallW", 0.5, 10.5, 35, [1, 21, 70], "concrete"),
       slab("S4-wallE", 79.5, 10.5, 35, [1, 21, 70], "concrete"),
       slab("S4-wallN", 40, 10.5, 69.5, [80, 21, 1], "concrete"),
-      slab("S4-wallSlowL", 19, 1.3, 0.5, [38, 2.6, 1], "concrete"),
-      slab("S4-wallSlowR", 61, 1.3, 0.5, [38, 2.6, 1], "concrete"),
+      slab("S4-wallSlowL", 18, 1.3, 0.5, [36, 2.6, 1], "concrete"),
+      slab("S4-wallSlowR", 62, 1.3, 0.5, [36, 2.6, 1], "concrete"),
       slab("S4-wallSup", 40, 11.8, 0.5, [80, 18.4, 1], "concrete"),
       ...room("S4-vest", 32, 48, 1, 12, 0, 6, [
-        { side: "s", at: 40, w: 4 },
-        { side: "n", at: 40, w: 2.4 },
+        { side: "s", at: 40, w: 8 },
+        { side: "n", at: 40, w: 8 },
         { side: "w", at: 8, w: 2.4 }
       ], "concrete"),
-      slab("S4-corrW1", 37, 3, 16.5, [1, 6, 9], "concrete"),
-      slab("S4-corrW2", 37, 3, 33.2, [1, 6, 19.6], "concrete"),
-      slab("S4-corrW3", 37, 3, 50.7, [1, 6, 10.6], "concrete"),
-      slab("S4-corrWlintel1", 37, 4.3, 22.2, [1, 3.4, 2.4], "concrete"),
-      slab("S4-corrWlintel2", 37, 4.3, 44.2, [1, 3.4, 2.4], "concrete"),
-      slab("S4-corrE1", 43, 3, 20.5, [1, 6, 17], "concrete"),
-      slab("S4-corrE2", 43, 3, 40.2, [1, 6, 17.6], "concrete"),
-      slab("S4-corrE3", 43, 3, 53.7, [1, 6, 4.6], "concrete"),
-      slab("S4-corrElintel1", 43, 4.3, 30.2, [1, 3.4, 2.4], "concrete"),
-      slab("S4-corrElintel2", 43, 4.3, 50.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrW1", 34.5, 3, 16.5, [1, 6, 9], "concrete"),
+      slab("S4-corrW2", 34.5, 3, 33.2, [1, 6, 19.6], "concrete"),
+      slab("S4-corrW3", 34.5, 3, 50.7, [1, 6, 10.6], "concrete"),
+      slab("S4-corrWlintel1", 34.5, 4.3, 22.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrWlintel2", 34.5, 4.3, 44.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrE1", 45.5, 3, 20.5, [1, 6, 17], "concrete"),
+      slab("S4-corrE2", 45.5, 3, 40.2, [1, 6, 17.6], "concrete"),
+      slab("S4-corrE3", 45.5, 3, 53.7, [1, 6, 4.6], "concrete"),
+      slab("S4-corrElintel1", 45.5, 4.3, 30.2, [1, 3.4, 2.4], "concrete"),
+      slab("S4-corrElintel2", 45.5, 4.3, 50.2, [1, 3.4, 2.4], "concrete"),
       slab("S4-pallet1", 39, 0.6, 20, [1.5, 1.2, 1], "ice"),
       slab("S4-pallet2", 41.5, 0.6, 32, [1.5, 1.2, 1], "ice"),
       slab("S4-pallet3", 39, 0.6, 44, [1.5, 1.2, 1], "ice"),
       slab("S4-service", 21.5, 3, 33, [1, 6, 52], "concrete"),
       slab("S4-linkS", 28.5, 3, 5.5, [7, 6, 1], "concrete"),
       slab("S4-linkN", 28.5, 3, 10.5, [7, 6, 1], "concrete"),
-      ...room("S4-W1", 26, 36.5, 16, 28, 0, 6, [{ side: "e", at: 22 }, { side: "w", at: 22 }], "metal"),
-      ...room("S4-W2", 26, 36.5, 38, 50, 0, 6, [{ side: "e", at: 44 }, { side: "w", at: 44 }], "metal"),
-      ...room("S4-E1", 43.5, 56, 24, 36, 0, 6, [{ side: "w", at: 30 }], "metal"),
-      ...room("S4-kennel", 43.5, 56, 44, 56, 0, 6, [{ side: "w", at: 50 }], "metal"),
-      ...room("S4-lobby", 30, 50, 56, 68, 0, 6, [{ side: "s", at: 40 }, { side: "w", at: 58 }], "concrete"),
+      ...room("S4-W1", 24, 34, 16, 28, 0, 6, [{ side: "e", at: 22.2 }, { side: "w", at: 22.2 }], "metal"),
+      ...room("S4-W2", 24, 34, 38, 50, 0, 6, [{ side: "e", at: 44.2 }, { side: "w", at: 44.2 }], "metal"),
+      ...room("S4-E1", 46, 58, 24, 36, 0, 6, [{ side: "w", at: 30.2 }], "metal"),
+      ...room("S4-kennel", 46, 58, 44, 56, 0, 6, [{ side: "w", at: 50.2 }], "metal"),
+      ...room("S4-lobby", 30, 50, 56, 68, 0, 6, [{ side: "s", at: 40, w: 8 }, { side: "w", at: 58 }], "concrete"),
       slab("S4-liftA", 40, 0.25, 62, [4, 0.5, 2], "metal"),
       ...room("S4-f2lobby", 30, 50, 58, 68, 7, 6, [{ side: "s", at: 40 }], "concrete"),
       slab("S4-libNlowL", 25, 10, 56, [26, 6, 1], "concrete"),
@@ -8502,8 +8528,8 @@ var SprotoShooterSim = (() => {
       slab("S4-libE2", 68, 13.5, 45.75, [1, 13, 20.5], "concrete"),
       ...shelves,
       slab("S4-table1", 20, 7.6, 34, [3, 1.2, 1.5], "wood"),
-      slab("S4-table2", 30, 7.6, 34, [3, 1.2, 1.5], "wood"),
-      slab("S4-table3", 50, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      slab("S4-table2", 32, 7.6, 34, [3, 1.2, 1.5], "wood"),
+      slab("S4-table3", 52, 7.6, 34, [3, 1.2, 1.5], "wood"),
       slab("S4-table4", 60, 7.6, 34, [3, 1.2, 1.5], "wood"),
       { kind: "cylinder", id: "S4-desk", at: P(28, 7, 34), r: 2, h: 1.2, mat: "wood" },
       ...room("S4-cage", 13, 21, 13, 21, 7, 3, [{ side: "e", at: 17, h: 3 }], "glass"),
@@ -8530,11 +8556,11 @@ var SprotoShooterSim = (() => {
       { id: "CP9", at: P(40, 7, 34), when: "S4-E7.cleared" }
     ],
     mechanisms: [
-      hazard("S4-slickW", 37.5, 38.5, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
-      hazard("S4-slickE", 42, 42.5, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
-      hazard("S4-coldW1", 26, 36.5, 16, 28, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
-      hazard("S4-coldW2", 26, 36.5, 38, 50, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
-      hazard("S4-coldE1", 43.5, 56, 24, 36, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      hazard("S4-slickW", 35, 36, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
+      hazard("S4-slickE", 44, 45, 14, 54, { slow: 0.15, tag: "slick", y0: -1, y1: 2 }),
+      hazard("S4-coldW1", 24, 34, 16, 28, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      hazard("S4-coldW2", 24, 34, 38, 50, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
+      hazard("S4-coldE1", 46, 58, 24, 36, { shieldRegen: 0.5, tag: "cold", y0: 0, y1: 6 }),
       { kind: "mover", id: "S4-lift", carry: true, from: P(40, 0, 62), to: P(40, 7, 62), speed: 2 },
       { kind: "mover", id: "S4-freight", carry: true, from: P(40, 14, 67), to: P(40, 21, 67), speed: 7 / 15, rideSec: 15 },
       door5("LIB-in", 40, 10, 56.5, [4, 6, 0.6]),
@@ -8591,7 +8617,7 @@ var SprotoShooterSim = (() => {
       hook("S5-hook-pillarNW", 24, 10, 78),
       hook("S5-hook-pillarNE", 56, 10, 78)
     ],
-    noGrapple: [zone3(18, 62, 40, 84, 12, 30)],
+    noGrapple: [zone3(12, 68, 40, 84, 12, 30)],
     exit: null,
     intro: {
       title: "Glowie, on the speakers: 'This is a routine inquiry. Please stand still.'",
@@ -8600,31 +8626,31 @@ var SprotoShooterSim = (() => {
     geometry: [
       slab("S5-floor", 40, -0.5, 50, [80, 1, 100], "concrete"),
       ...room("S5-liftBay", 36, 44, 1, 9, 0, 5, [{ side: "n", at: 40 }], "concrete"),
-      ...room("S5-armory", 28, 52, 9, 25, 0, 5, [{ side: "s", at: 40 }, { side: "n", at: 40 }], "concrete"),
-      ...room("S5-ante", 36, 44, 25, 39, 0, 6, [{ side: "s", at: 40 }, { side: "n", at: 40, w: 6 }], "concrete"),
-      slab("S5-vaultS1", 26.5, 6, 39, [21, 12, 2], "metal"),
-      slab("S5-vaultS2", 53.5, 6, 39, [21, 12, 2], "metal"),
+      ...room("S5-armory", 22, 58, 9, 25, 0, 5, [{ side: "s", at: 40 }, { side: "n", at: 40 }], "concrete"),
+      ...room("S5-ante", 34, 46, 25, 39, 0, 6, [{ side: "s", at: 40 }, { side: "n", at: 40, w: 6 }], "concrete"),
+      slab("S5-vaultS1", 23.5, 6, 39, [27, 12, 2], "metal"),
+      slab("S5-vaultS2", 56.5, 6, 39, [27, 12, 2], "metal"),
       slab("S5-vaultSLintel", 40, 9, 39, [6, 6, 2], "metal"),
-      slab("S5-vaultN1", 27, 6, 85, [22, 12, 2], "metal"),
-      slab("S5-vaultN2", 53, 6, 85, [22, 12, 2], "metal"),
-      slab("S5-vaultNLintel", 40, 8, 85, [4, 8, 2], "metal"),
-      slab("S5-vaultW1", 17, 6, 50.25, [2, 12, 20.5], "metal"),
-      slab("S5-vaultW2", 17, 6, 73.75, [2, 12, 20.5], "metal"),
-      slab("S5-vaultWLintel", 17, 7.5, 62, [2, 9, 3], "metal"),
-      slab("S5-vaultE", 63, 6, 62, [2, 12, 44], "metal"),
-      slab("S5-roofS1", 40, 12.5, 44.25, [44, 1, 8.5], "metal"),
-      slab("S5-roofS2", 40, 12.5, 53.75, [44, 1, 4.5], "metal"),
-      band("S5-roofSA", 18, 24.5, 50),
+      slab("S5-vaultN1", 22.5, 6, 85, [25, 12, 2], "metal"),
+      slab("S5-vaultN2", 57.5, 6, 85, [25, 12, 2], "metal"),
+      slab("S5-vaultNLintel", 40, 8, 85, [10, 8, 2], "metal"),
+      slab("S5-vaultW1", 11, 6, 50.25, [2, 12, 20.5], "metal"),
+      slab("S5-vaultW2", 11, 6, 73.75, [2, 12, 20.5], "metal"),
+      slab("S5-vaultWLintel", 11, 7.5, 62, [2, 9, 3], "metal"),
+      slab("S5-vaultE", 69, 6, 62, [2, 12, 44], "metal"),
+      slab("S5-roofS1", 40, 12.5, 44.25, [56, 1, 8.5], "metal"),
+      slab("S5-roofS2", 40, 12.5, 53.75, [56, 1, 4.5], "metal"),
+      band("S5-roofSA", 12, 24.5, 50),
       band("S5-roofSM", 27.5, 52.5, 50),
-      band("S5-roofSB", 55.5, 62, 50),
-      slab("S5-roofN1", 40, 12.5, 70.25, [44, 1, 4.5], "metal"),
-      slab("S5-roofN2", 40, 12.5, 79.75, [44, 1, 8.5], "metal"),
-      band("S5-roofNC", 18, 24.5, 74),
+      band("S5-roofSB", 55.5, 68, 50),
+      slab("S5-roofN1", 40, 12.5, 70.25, [56, 1, 4.5], "metal"),
+      slab("S5-roofN2", 40, 12.5, 79.75, [56, 1, 8.5], "metal"),
+      band("S5-roofNC", 12, 24.5, 74),
       band("S5-roofNM", 27.5, 52.5, 74),
-      band("S5-roofND", 55.5, 62, 74),
-      slab("S5-roofW", 26, 12.5, 62, [16, 1, 12], "metal"),
-      slab("S5-roofE", 54, 12.5, 62, [16, 1, 12], "metal"),
-      ...room("S5-guard", 6, 17, 56, 68, 0, 4, [{ side: "e", at: 62, w: 3, h: 3 }], "concrete"),
+      band("S5-roofND", 55.5, 68, 74),
+      slab("S5-roofW", 23, 12.5, 62, [22, 1, 12], "metal"),
+      slab("S5-roofE", 57, 12.5, 62, [22, 1, 12], "metal"),
+      ...room("S5-guard", 0, 11, 56, 68, 0, 4, [{ side: "e", at: 62, w: 3, h: 3 }], "concrete"),
       { kind: "cylinder", id: "S5-safe", at: P(40, 0, 62), r: 2.5, h: 3, mat: "gold" },
       slab("S5-drill", 40, 4, 62, [1, 1, 6], "metal"),
       { kind: "disc", id: "S5-ring", at: P(40, 0.04, 62), r: 9, mat: "neon" },
@@ -8641,8 +8667,8 @@ var SprotoShooterSim = (() => {
       { kind: "disc", id: "S5-grate2", at: P(50, 0.04, 56), r: 3, mat: "ice" },
       { kind: "disc", id: "S5-grate3", at: P(30, 0.04, 68), r: 3, mat: "ice" },
       { kind: "disc", id: "S5-grate4", at: P(50, 0.04, 68), r: 3, mat: "ice" },
-      slab("S5-gantry", 40, -0.25, 90, [4, 0.5, 12], "metal"),
-      slab("S5-padFloor", 40, -0.25, 96, [10, 0.5, 10], "concrete", { tag: "padStandIn" }),
+      slab("S5-gantry", 40, -0.25, 90, [10, 0.5, 12], "metal"),
+      slab("S5-padFloor", 40, -0.25, 96, [16, 0.5, 10], "concrete", { tag: "padStandIn" }),
       { kind: "disc", id: "S5-pad", at: P(40, 0.05, 96), r: 5, mat: "neon" }
     ],
     weapons: [],
@@ -8656,8 +8682,8 @@ var SprotoShooterSim = (() => {
       { kind: "bench", id: "D2-bench", at: P(47, 0, 21) },
       { kind: "shop", id: "D2-shop", at: P(47, 0, 17) },
       door5("S5-blastDoor", 40, 3, 39.5, [6, 6, 0.6]),
-      door5("S5-exitDoor", 40, 2, 84.5, [4, 4, 0.6]),
-      door5("S5-guardDoor", 17, 1.5, 62, [0.6, 3, 3]),
+      door5("S5-exitDoor", 40, 2, 84.5, [10, 4, 0.6]),
+      door5("S5-guardDoor", 11, 1.5, 62, [0.6, 3, 3]),
       { kind: "switch", id: "S5-drillSwitch", at: P(40, 1.2, 59.5), needsHold: true, holdTime: 1.5, starts: "S5-F2" },
       {
         kind: "droneStrike",
@@ -8787,9 +8813,8 @@ var SprotoShooterSim = (() => {
   var L05 = BUILT3;
   registerLevel(L05);
 
-  // src/data/levels/campaign.js
-  var card3 = (title, lines) => ({ title, lines });
-  var L06 = makeLevel({
+  // src/data/levels/L06/index.js
+  var skyline = makeLevel({
     id: "L06",
     name: "Vape Cabal Skyline",
     stage: "city",
@@ -8828,13 +8853,54 @@ var SprotoShooterSim = (() => {
       {
         id: "S4",
         name: "Cabal Streets",
-        length: 48,
-        intro: card3("Los Angeles", ["Broccoli Head owns the night.", "The clouds are not weather."]),
+        length: 64,
+        floor: "concrete",
+        intro: { title: "Los Angeles", lines: ["Broccoli Head owns the night.", "The clouds are not weather."] },
         encounters: [{ id: "E4", x: 16, space: "arena", objective: "boss", units: [["broccoli", 1]] }],
         weapons: [{ id: "bz-broc", x: 10, gun: "bazooka", why: "Broccoli Head" }]
       }
     ]
   });
+  var deckWidths = { S1: 36, S2: 44, S3: 48, S4: 52 };
+  for (const section of skyline.sections) {
+    const [floor3, north, south] = section.geometry;
+    const width = deckWidths[section.id];
+    const edge = floor3.at[2] - width / 2;
+    const overlap = section.id === "S1" ? 0 : 2;
+    for (const part of [floor3, north, south]) {
+      part.at[0] -= overlap / 2;
+      part.size[0] += overlap;
+    }
+    floor3.size[2] = width;
+    north.at[2] = edge + north.size[2] / 2;
+    south.at[2] = edge + width - south.size[2] / 2;
+    for (const { activate, zone: zone4 } of section.encounters) {
+      activate.min[2] = edge + 1.2;
+      activate.max[2] = edge + width - 1.2;
+      zone4.min[2] = edge + 1;
+      zone4.max[2] = edge + width - 1;
+    }
+    if (section.exit) {
+      section.exit.min[2] = edge + 2;
+      section.exit.max[2] = edge + width - 2;
+    }
+    for (const [side, z] of [["N", edge + 1.4], ["S", edge + width - 1.4]]) {
+      section.geometry.push(box({
+        id: `${section.id}-deck-edge${side}`,
+        at: [floor3.at[0], -0.68, z],
+        size: [floor3.size[0], 0.8, 2.8],
+        mat: "metal"
+      }));
+    }
+  }
+  var centerZ = skyline.sections[0].start[2];
+  var halfWidth = Math.max(...Object.values(deckWidths)) / 2;
+  skyline.bounds.min[2] = centerZ - halfWidth - 6;
+  skyline.bounds.max[2] = centerZ + halfWidth + 6;
+  var L06 = skyline;
+
+  // src/data/levels/campaign.js
+  var card3 = (title, lines) => ({ title, lines });
   var L07 = makeLevel({
     id: "L07",
     name: "Hellfire Underworks",
@@ -9846,6 +9912,7 @@ var SprotoShooterSim = (() => {
     const e = bossDef ? createBoss(state, type, { pos: { x: pos[0], z: pos[2] } }) : createEnemy(state, type, { elite: !!at2.elite, pos: { x: pos[0], z: pos[2] } });
     e.pos.y = pos[1] || 0;
     e.campaignEnc = enc.id;
+    if (enc.useSectionFlyerVolume) e.useSectionFlyerVolume = true;
     e.spawnMethod = squad6.method || "placed";
     if (enc.noAmmoDrop) e.noAmmoDrop = true;
     if (at2.partId) e.partId = at2.partId;
@@ -12699,7 +12766,7 @@ var SprotoShooterSim = (() => {
   }
   function touchMechanism(state, p, lv, sec, m, dt) {
     const x = p.pos.x, y = p.pos.y, z = p.pos.z;
-    if (m.kind === "switch" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, 1.5)) tickSwitch(state, p, m, dt);
+    if (m.kind === "switch" && !lv.got[m.id] && nearPoint(m.at, x, y + 1, z, m.touchRadius ?? 1.5)) tickSwitch(state, p, m, dt);
     if (m.kind === "depot" && m.at && nearPoint(m.at, x, y + 1, z, 2.4)) {
       if (p.hp < p.maxHp) p.hp = Math.min(p.maxHp, p.hp + 30 * dt);
       for (const type of Object.keys(p.ammo)) {
@@ -14175,6 +14242,8 @@ var SprotoShooterSim = (() => {
       } else if (solids && !def.flying) {
         pushHorizontal(e, solids, e.radius * e.scale, e.height * e.scale);
         snapToGround(e, solids, e.radius * e.scale);
+      } else if (def.flying && state.mode === "campaign" && e.useSectionFlyerVolume && state.level?.flyerVolume) {
+        clampFlyer(e, state.level.flyerVolume);
       } else if (def.flying && state.mode === "campaign" && state.level && state.level.flyerLids) {
         for (let i = 0; i < state.level.flyerLids.length; i++) clampFlyer(e, state.level.flyerLids[i]);
       } else if (def.flying && state.mode === "campaign" && state.level && state.level.flyerVolume) {
@@ -16108,7 +16177,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "2608511e93b765aedfb8e9311266bb9e989170e8";
+  var SOURCE_COMMIT = "7db4fc4f93333f3977da2159771a060f344b6ea0";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

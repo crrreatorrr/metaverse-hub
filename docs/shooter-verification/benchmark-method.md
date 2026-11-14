@@ -51,7 +51,7 @@ Result provenance includes benchmark/schema version, git SHAs and dirty status, 
 
 GitHub assigns each benchmark job a different CPU, and the same fixed work takes up to about twice as long on the slowest machines (AMD EPYC 7763, Intel Xeon 8573C) as on the fastest (AMD EPYC 9V45). Those machines miss the 900 s run limit or the 5 s observer sample limit with any Shooter build.
 
-Before the stack boots, `machine-speed-ci.ts` verifies three fixed corpus replays with the pinned calibration bundle. Their CPU time against the reference machine is the speed score; at 1.3 or more the machine is slow. The limits stay as they are. At the end of a run, `decideGate` in `machine-speed.ts` sorts each failed condition into a time-limit miss (the run deadline and what it censors, or the observer sample deadline) or a real failure:
+Before the stack boots, `machine-speed-ci.ts` verifies three fixed corpus replays with the pinned calibration bundle. Each bundle builds the issuance from the replay's binding itself, so a level change that moves the starting state hash leaves the recorded inputs, and the calibration work, the same. Their CPU time against the reference machine is the speed score; at 1.3 or more the machine is slow. The limits stay as they are. At the end of a run, `decideGate` in `machine-speed.ts` sorts each failed condition into a time-limit miss (the run deadline and what it censors, or the observer sample deadline) or a real failure:
 
 - **passed**: nothing missed.
 - **inconclusive_slow_machine**: only time limits missed, on a slow machine. The job exits 0 with a warning annotation and says so in the job summary, because Actions has no neutral state. It is not a pass: re-run it to land on a faster machine.

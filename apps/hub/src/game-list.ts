@@ -27,7 +27,7 @@ export const GAME_LIST: readonly GameInfo[] = [
   { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'First-person loot shooter · Wave Mode and a campaign', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
   { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · ten giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
   { id: 'sproto-fighter', label: 'Sproto Fighter', blurb: 'Story mode and online 1v1 duels', where: 'Bar cabinet', color: '#ff3d6e', goal: 'Win Story World 1 for the Tidebreaker Belt' },
-  { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Six players across twelve stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },
+  { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Four players across twelve stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },
 ];
 
 export function gameInfo(id: GameId): GameInfo | undefined {

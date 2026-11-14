@@ -118,7 +118,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0066 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0066_shooter_campaign_artifact` (live verification allowlist matches the vendored campaign bundle `4968fa64…` / `73c6eb0f`; no row or amount changes) |
 | 0067 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0067_shooter_campaign_bundle` (live allowlist matches campaign bundle `ae9ede47…` / `73c6eb0f`; Arena fingerprint `e749d2fd`; no row or amount changes) |
 | 0068 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0068_shooter_campaign_allowlist` (live allowlist matches campaign bundle `735b6da5…` / `73c6eb0f` from `2608511e`; Arena fingerprint `e749d2fd`, sha256 `a2cc1707…`; no row or amount changes) |
-| 0068+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0069 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0069_shooter_campaign_level_bundle` (live allowlist matches campaign bundle `ab175aae…` / `73c6eb0f` from `7db4fc4f`; Arena fingerprint `e749d2fd`, sha256 `493290c9…`; no row or amount changes) |
+| 0070+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
@@ -133,7 +134,7 @@ The game ranges (0013–0029) predate the runner's ordering rule. A game that ne
 | Sproto Shooter | `sproto-shooter` | ring, The Range (`sproto-shooter`) | crrreatorrr/sproto-shooter | `shooter-sim.js`; `shooter-pvp-sim.js` | **yes**: campaign verifier (`shooter.run.issue` / `shooter.run.submit`) and the `sproto_shooter_free` match (authoritative free 1v1, no Tickets), `shooter.version`, `shooter.room_*`, `shooter.queue_cancel`, `shooter.resume`, `shooter.metrics` |
 | Sproto Fighter | `sproto-fighter` | Bar cabinet (`sproto-fighter`) | crrreatorrr/Sproto-Fighter | `sproto-sim.js` | **yes**: `sproto_duel` match (online 1v1 with replay verification and wagers) |
 | Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored) | no |
-| Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked six-seat play), `coop.*` RPCs |
+| Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked four-seat play), `coop.*` RPCs |
 
 Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choices are in `apps/hub/src/realms/plaza/config.ts`. `scripts/fetch-game-web.mjs` pulls the dev builds.
 

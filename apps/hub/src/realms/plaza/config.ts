@@ -37,7 +37,7 @@ export const ARCADE_COOP_GAME = { id: 'sproto-coop-battle', label: 'Sproto Coop 
 export const ARCADE_GAMES = [
   { ...ARCADE_STORY_GAME, blurb: 'The Long Way Home · ten giant bosses, a rooftop chase and the code shaft' },
   { ...ARCADE_GAME, blurb: 'Story mode and online 1v1 duels' },
-  { ...ARCADE_COOP_GAME, blurb: 'Six players across twelve stages' },
+  { ...ARCADE_COOP_GAME, blurb: 'Four players across twelve stages' },
 ] as const;
 
 export const PORTAL_STANDOFF = 7.5;

@@ -10,8 +10,12 @@ window.MANIFEST={"bosses":[{"key":"01-marina-bront","stage":"Tidebreak Marina","
 (function (root) {
 'use strict';
 const W = 640, H = 360, DEPTH = 120, FLOOR_TOP = 218; // belt is drawn from screen y FLOOR_TOP to FLOOR_TOP+DEPTH
-const SLOTS = 6;
-const SLOT_COLORS = ['#ff4d4d', '#3da5ff', '#4dff7a', '#ffd23d', '#d36bff', '#ff9a3d'];
+// Up to four Sprotos, one per seated human. A seat nobody has taken stays empty (ctrl 'none'):
+// its Sproto is out of the run, and no CPU Sproto fills it.
+const SLOTS = 4;
+const EMPTY = 'none';
+const seated = p => p.ctrl !== EMPTY;
+const SLOT_COLORS = ['#ff4d4d', '#3da5ff', '#4dff7a', '#ffd23d'];
 
 // Weapons: every Sproto fights armed. reach/dmg per combo hit; startup/active/recovery in ticks.
 const WEAPONS = [
@@ -45,7 +49,7 @@ const UFO_TICKS = 720, DOWN_TICKS = 600, REVIVE_TICKS = 70;
 // CPU teammates are deliberately weaker than humans so the team can lose Sprotos. With one or two
 // humans they carry more of the fight, so they hit harder and last longer.
 const CPU_DMG = 0.55, CPU_TAKEN = 1.35, CPU_DMG_FEW = 0.75, CPU_TAKEN_FEW = 1.15;
-// Difficulty scales with the number of human seats (h = 1..6), counted when a stage's first fight
+// Difficulty scales with the number of human seats (h = 1..4), counted when a stage's first fight
 // starts so a drop-in mid-stage does not change the stage in progress.
 const WAVE_SCALE = h => 0.5 + 0.1 * h, GRUNT_HP_SCALE = h => 0.58 + 0.102 * h, BOSS_HP_SCALE = h => 0.35 + 0.15 * h;
 // Difficulty: more Shadow Sprotos, tougher and more aggressive.
@@ -76,7 +80,7 @@ function rng(state) { // mulberry32 stored in state.seed
   return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-function seatedHumans(state) { let n = 0; for (const p of state.players) if (p.ctrl !== 'cpu') n++; return clamp(n, 1, SLOTS); }
+function seatedHumans(state) { let n = 0; for (const p of state.players) if (p.ctrl !== 'cpu' && seated(p)) n++; return clamp(n, 1, SLOTS); }
 const humansOf = state => state.humans || seatedHumans(state);
 function lockHumans(state) { if (!state.humans) state.humans = seatedHumans(state); }
 // Local and relay drop-in: when more humans are seated than the stage was counted for, what is left
@@ -120,10 +124,14 @@ function newPlayer(slot, cfg) {
   };
 }
 
+// An empty seat holds a placeholder Sproto that is out of the run until a human takes the seat. It
+// already carries a fresh Sproto's lives and hp, so taking the seat moves no life fact.
+function emptySeat(p) { Object.assign(p, { st: 'out', t: 0, fresh: true }); return p; }
+
 function create(slots, seed, firstStage) {
   const state = {
     t: 0, seed: seed >>> 0 || 1234567, mode: 'play', stageIdx: 0, stage: null, camX: 0, lockX: null,
-    players: slots.map((c, i) => newPlayer(i, c)), enemies: [], projs: [], items: [], fx: [], boss: null,
+    players: slots.map((c, i) => (c.ctrl === EMPTY ? emptySeat(newPlayer(i, c)) : newPlayer(i, c))), enemies: [], projs: [], items: [], fx: [], boss: null,
     banner: null, events: [], nextId: 1, clearT: 0, totalScore: 0, god: false,
   };
   startStage(state, Math.max(0, Math.min(11, firstStage | 0)));
@@ -137,11 +145,14 @@ function startStage(state, i) {
   state.mode = 'play'; state.clearT = 0; state.humans = 0;
   for (const c of state.stage.crates) state.items.push({ id: state.nextId++, kind: 'crate', x: c.x, y: c.y, z: 0, hp: 12 });
   state.players.forEach((p, k) => {
+    if (p.fresh) return; // a seat nobody has taken stays out
     Object.assign(p, { x: 60 + k * 16, y: 14 + k * 18, z: 0, vx: 0, vy: 0, vz: 0, face: 1, st: 'idle', t: 0, inv: 120, ufoT: 0, downT: 0, revive: 0 });
     // Dead Sprotos return for the next stage: CPUs as before, and a human who was put out comes
     // back on a last life. Everyone can be revived by a CPU once more.
     if (p.dead && p.ctrl !== 'cpu') p.lives = Math.max(p.lives, 1);
     p.hp = p.dead ? 60 : Math.max(p.hp, 60); p.dead = false; p.npcRevived = false;
+    // A player who left gets the same stage recovery, and stays out until they take the seat again.
+    if (!seated(p)) { p.awaySt = 'idle'; setState(p, 'out'); }
   });
   state.banner = { text: 'STAGE ' + (i + 1), sub: (root.MANIFEST ? root.MANIFEST.bosses[i % 12].stage : ''), t: 150 };
   ev(state, 'stage');
@@ -502,7 +513,7 @@ function die(state, p) {
   if (p.lives <= 0) {
     // Out until the next stage. The run only ends when no human is left in it.
     p.lives = 0; setState(p, 'dead'); p.dead = true;
-    if (!state.players.some(q => q.ctrl !== 'cpu' && !q.dead)) gameOver(state, 'No human Sproto is left');
+    if (!state.players.some(q => q.ctrl !== 'cpu' && seated(q) && !q.dead)) gameOver(state, 'No human Sproto is left');
     return;
   }
   respawn(state, p, false);
@@ -752,13 +763,17 @@ const BOSS_SCALE = 0.95;
 // Rear sweep: after this many ticks with two Sprotos behind the boss (or longer with one), it marks
 // the ground behind it for SWEEP_WARN ticks and then hits everything standing there.
 const SWEEP_AFTER = 180, SWEEP_AFTER_ONE = 300, SWEEP_WARN = 36, SWEEP_REACH = 170;
+// A boss with this much open floor on both sides (beyond half its width) is in the middle of the
+// arena: its volleys then fire both ways, so the floor behind it is never a safe place to stand.
+const MID_ROOM = 60;
+const inMiddle = (state, b) => b.x - (state.camX + 70) > b.w / 2 + MID_ROOM && state.camX + W - 70 - b.x > b.w / 2 + MID_ROOM;
 function bossInfo(i) { return root.MANIFEST ? root.MANIFEST.bosses[i % 12] : null; }
 function startBoss(state) {
   const info = bossInfo(state.stageIdx);
   const ph = info ? info.phases[0] : { body: [60, 60, 200, 250] };
   lockHumans(state);
   // (4,200 on stage 1 up to 9,040 on stage 12) x the human scale: 2,100 to 4,520 for one human,
-  // 5,250 to 11,300 for six. One human faces 40% of the six-human boss.
+  // 3,990 to 8,590 for four. One human faces about 53% of the four-human boss.
   // The charger spends much of its fight rushing out of reach, so it has less health to compensate.
   const hp = Math.round((4200 + state.stageIdx * 440) * BOSS_HP_SCALE(state.humans) * (state.stageIdx % 4 === 1 ? CHARGER_HP : 1));
   state.boss = {
@@ -855,6 +870,7 @@ function updateBoss(state) {
       const charge = arch === 'charger' ? (b.phase ? b.cycle % 2 === 1 : b.cycle % 3 === 2) : b.phase ? b.cycle % 4 === 3 : b.cycle % 5 === 4;
       if (charge) { b.st = 'charge'; b.t = 0; b.tx = b.face; b.cx = b.x; ev(state, 'charge'); }
       else { b.st = 'fire'; b.t = 0; b.row = 1 + (b.cycle % 3); b.missile = b.cycle % 3 === 2; b.tx = target.x; b.ty = target.y;
+        b.both = inMiddle(state, b); // decided now, so the floor warning shows both sides
         b.lob = arch === 'bomber' && b.row === 1;
         // Lock the lanes now; they are shown on the floor until the shots fire. Spreads leave gaps.
         const offs = b.row === 2 ? (b.phase ? [-72, -36, 0, 36, 72] : [-40, 0, 40]) : [0];
@@ -862,8 +878,16 @@ function updateBoss(state) {
         // The bomber marks where its bombs will land: one Sproto each, two bombs (three in phase 2).
         if (b.lob) {
           b.marks = [];
-          for (let k = 0; k < Math.min(ps.length, b.phase ? 3 : 2); k++) {
-            const q = ps[(b.cycle + k) % ps.length];
+          // In the middle it marks Sprotos on both sides of it in turn, front first.
+          let pool = ps;
+          if (b.both) {
+            const front = ps.filter(q => (q.x - b.x) * b.face >= 0), back = ps.filter(q => (q.x - b.x) * b.face < 0);
+            pool = [];
+            for (let k = 0; k < ps.length; k++) { const q = (k % 2 ? back : front)[Math.floor(k / 2)] || (k % 2 ? front : back)[Math.floor(k / 2)]; if (q && pool.indexOf(q) < 0) pool.push(q); }
+            for (const q of ps) if (pool.indexOf(q) < 0) pool.push(q);
+          }
+          for (let k = 0; k < Math.min(pool.length, b.phase ? 3 : 2); k++) {
+            const q = b.both ? pool[k] : pool[(b.cycle + k) % pool.length];
             b.marks.push([Math.round(q.x), Math.round(q.y)]);
             fx(state, 'mark', q.x, q.y, 0, { small: 30 + BOMB_FLIGHT });
           }
@@ -927,20 +951,23 @@ function bossShoot(state, b) {
   const ph = info ? info.phases[b.phase] : null;
   const bodyH = ph ? (ph.body[3] - ph.body[1]) * BOSS_SCALE : 120;
   const mz = bodyH * 0.45;
-  const mx = b.x + b.face * b.w * 0.55;
   const spd = b.phase ? 4.6 : 3.8;
   const dmg = 11 + state.stageIdx;
   ev(state, 'bossfire');
-  if (b.missile) {
-    // Homing missiles: one in phase 1, a pair in phase 2.
-    for (const off of b.phase ? [-24, 24] : [0]) state.projs.push({ id: state.nextId++, kind: 'boss', row: 3, x: mx, y: clamp(b.y + off, 0, DEPTH), z: mz, vx: b.face * 1.6, vy: 0, vz: 0, dmg: dmg + 8, t: 0, life: 300, enemy: true, homing: true, boom: true, phase: b.phase, bi: b.bi });
-    return;
-  }
-  // Shots fly straight along the lanes that were warned on the floor, low enough to jump over.
-  // Standing in a warned lane gets you hit; stepping out of it or jumping does not.
-  const r = b.row - 1; // projectile row 0..2 matches weapon A/B/C firing rows 1..3
-  for (const y of b.warn || [b.ty]) {
-    state.projs.push({ id: state.nextId++, kind: 'boss', row: r, x: mx, y, z: 16, vx: b.face * spd, vy: 0, vz: 0, dmg, t: 0, life: 260, enemy: true, phase: b.phase, bi: b.bi });
+  // In the middle of the arena the same volley also leaves the machine's back.
+  for (const dir of b.both ? [b.face, -b.face] : [b.face]) {
+    const mx = b.x + dir * b.w * 0.55;
+    if (b.missile) {
+      // Homing missiles: one in phase 1, a pair in phase 2.
+      for (const off of b.phase ? [-24, 24] : [0]) state.projs.push({ id: state.nextId++, kind: 'boss', row: 3, x: mx, y: clamp(b.y + off, 0, DEPTH), z: mz, vx: dir * 1.6, vy: 0, vz: 0, dmg: dmg + 8, t: 0, life: 300, enemy: true, homing: true, boom: true, phase: b.phase, bi: b.bi });
+      continue;
+    }
+    // Shots fly straight along the lanes that were warned on the floor, low enough to jump over.
+    // Standing in a warned lane gets you hit; stepping out of it or jumping does not.
+    const r = b.row - 1; // projectile row 0..2 matches weapon A/B/C firing rows 1..3
+    for (const y of b.warn || [b.ty]) {
+      state.projs.push({ id: state.nextId++, kind: 'boss', row: r, x: mx, y, z: 16, vx: dir * spd, vy: 0, vz: 0, dmg, t: 0, life: 260, enemy: true, phase: b.phase, bi: b.bi });
+    }
   }
 }
 
@@ -1000,13 +1027,17 @@ function ballBoom(state, pr) {
 // ---------------- flow ----------------
 function stageClear(state) {
   state.mode = 'clear'; state.clearT = 0;
-  state.banner = { text: 'STAGE CLEAR!', sub: 'All six Sprotos advance', t: 200 };
+  state.banner = { text: 'STAGE CLEAR!', sub: 'Every Sproto advances', t: 200 };
   ev(state, 'clear');
   for (const p of state.players) if (p.st === 'down') { p.hp = 40; setState(p, 'idle'); }
 }
 
 function updateCamera(state) {
-  const ps = activePlayers(state);
+  // A human who has pressed nothing for IDLE_AFTER ticks is not waited for (the CPUs already go
+  // on without them), so the screen follows everyone else. With four seats, two idle humans at
+  // the left edge would otherwise hold the average back and the run would never move on.
+  const all = activePlayers(state), busy = all.filter(p => p.ctrl === 'cpu' || (p.idle || 0) < IDLE_AFTER);
+  const ps = busy.length ? busy : all;
   if (!ps.length) return;
   const lead = Math.max(...ps.map(p => p.x)), avg = ps.reduce((s, p) => s + p.x, 0) / ps.length;
   let want = Math.max(state.camX, Math.min(avg - W * 0.42, lead - W * 0.6));
@@ -1040,6 +1071,7 @@ function step(state) {
   if (state.banner && --state.banner.t <= 0) state.banner = null;
   if (state.mode === 'gameover' || state.mode === 'victory') return;
   for (const p of state.players) {
+    if (!seated(p)) continue;
     if (p.ctrl === 'cpu') root.SproAI ? root.SproAI.think(state, p) : null;
     updatePlayer(state, p);
   }
@@ -1066,6 +1098,44 @@ function step(state) {
   }
 }
 
+// A human takes seat `slot`. A seat that never had a Sproto gets a fresh one, placed as a stage start
+// would place it. A Sproto whose player left comes back as it was: lives, hp and powers are kept.
+function seatIn(state, slot, cfg) {
+  const p = state.players[slot];
+  if (!p) throw new Error('seat');
+  const c = cfg || {};
+  const fresh = p.fresh === true;
+  if (fresh) {
+    Object.assign(p, newPlayer(slot, { fid: p.fid, weapon: p.weapon, ctrl: c.ctrl, owner: c.owner, name: p.name }));
+    delete p.fresh;
+    p.hp = Math.max(p.hp, 60); p.dead = false; p.npcRevived = false;
+  } else if (p.ctrl !== EMPTY) {
+    p.ctrl = c.ctrl; p.owner = c.owner || 0;
+    return p;
+  }
+  p.ctrl = c.ctrl; p.owner = c.owner || 0;
+  const back = p.awaySt;
+  delete p.awaySt;
+  Object.assign(p, { x: clamp(state.camX + 60 + slot * 16, state.camX + 40, state.camX + W - 40), y: 14 + slot * 18, z: 0, vx: 0, vy: 0, vz: 0, face: 1, ufoT: 0, revive: 0 });
+  // Only a new Sproto gets spawn protection. A returning one keeps the timer it left with, so
+  // leaving and retaking a seat never refreshes invulnerability.
+  if (fresh) p.inv = 120;
+  setState(p, back === 'down' || back === 'dead' ? back : 'idle');
+  return p;
+}
+// The human in seat `slot` leaves. Their Sproto steps out of the run with its lives, hp and powers.
+function seatOut(state, slot) {
+  const p = state.players[slot];
+  if (!p) throw new Error('seat');
+  if (!seated(p)) return p;
+  releaseGrab(state, p);
+  p.awaySt = p.st;
+  p.ctrl = EMPTY; p.owner = 0;
+  p.in = { l: 0, r: 0, u: 0, d: 0, a: 0, j: 0, s: 0, p: 0 };
+  setState(p, 'out');
+  return p;
+}
+
 // Compact, render-only view of the state (used for rendering and network snapshots).
 const r1 = v => Math.round(v * 10) / 10;
 function snapshot(state) {
@@ -1077,7 +1147,7 @@ function snapshot(state) {
     projs: state.projs.map(p => ({ id: p.id, k: p.kind, r: p.row, ph: p.phase, bi: p.bi, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), t: p.t })),
     items: state.items.map(i => ({ id: i.id, k: i.kind, x: i.x, y: i.y, pt: i.pt })),
     fx: state.fx.map(f => ({ id: f.id, k: f.kind, x: r1(f.x), y: r1(f.y), z: r1(f.z), t: f.t, tx: f.text, sm: f.small })),
-    boss: state.boss && { bi: state.boss.bi, ph: state.boss.phase, hp: state.boss.hp, mh: state.boss.maxHp, x: r1(state.boss.x), y: r1(state.boss.y), fc: state.boss.face, st: state.boss.st, t: state.boss.t, row: state.boss.row, wl: state.boss.st === 'fire' ? state.boss.warn : null, fl: state.boss.flash, mi: state.boss.missile ? 1 : 0, w: Math.round(state.boss.w), ar: state.boss.arch || 0 },
+    boss: state.boss && { bi: state.boss.bi, ph: state.boss.phase, hp: state.boss.hp, mh: state.boss.maxHp, x: r1(state.boss.x), y: r1(state.boss.y), fc: state.boss.face, st: state.boss.st, t: state.boss.t, row: state.boss.row, wl: state.boss.st === 'fire' ? state.boss.warn : null, fl: state.boss.flash, mi: state.boss.missile ? 1 : 0, bo: state.boss.st === 'fire' && state.boss.both ? 1 : 0, w: Math.round(state.boss.w), ar: state.boss.arch || 0 },
     hz: (state.hazards || []).map(h => ({ id: h.id, y: h.y, x0: Math.round(h.x0), x1: Math.round(h.x1), t: h.t, l: h.life, hf: h.half })),
   };
 }
@@ -1206,12 +1276,12 @@ function importState(data) {
   return state;
 }
 
-const Sim = { W, H, DEPTH, FLOOR_TOP, SLOTS, SLOT_COLORS, WEAPONS, ENEMY_WEAPONS, MAX_HP, BOSS_SCALE, UFO_TICKS, DOWN_TICKS, REVIVE_TICKS, PARRY_WINDOW, SPIN_TAP, PARRY_LOCK, ATTACK_BUFFER, SWEEP_WARN, SWEEP_REACH, WAVE_SCALE, GRUNT_HP_SCALE, BOSS_HP_SCALE, humansOf, rescaleHumans, IDLE_AFTER, PASSIVES, BOSS_ARCHETYPES, GUARD_HITS, GUARD_REGEN, BOMB_FLIGHT, maxHp, STATE_KIND, STATE_VERSION, MAX_STATE_BYTES, create, step, snapshot, exportState, importState, toggleGod, startStage, stageLength, alive, rng, clamp };
+const Sim = { W, H, DEPTH, FLOOR_TOP, SLOTS, EMPTY, seatIn, seatOut, SLOT_COLORS, WEAPONS, ENEMY_WEAPONS, MAX_HP, BOSS_SCALE, UFO_TICKS, DOWN_TICKS, REVIVE_TICKS, PARRY_WINDOW, SPIN_TAP, PARRY_LOCK, ATTACK_BUFFER, SWEEP_WARN, SWEEP_REACH, MID_ROOM, WAVE_SCALE, GRUNT_HP_SCALE, BOSS_HP_SCALE, humansOf, rescaleHumans, IDLE_AFTER, PASSIVES, BOSS_ARCHETYPES, GUARD_HITS, GUARD_REGEN, BOMB_FLIGHT, maxHp, STATE_KIND, STATE_VERSION, MAX_STATE_BYTES, create, step, snapshot, exportState, importState, toggleGod, startStage, stageLength, alive, rng, clamp };
 root.Sim = Sim;
 if (typeof module !== 'undefined') module.exports = Sim;
 })(typeof window !== 'undefined' ? window : globalThis);
 
-// CPU teammates: any slot not held by a human is a CPU Sproto, so every battle is six-strong.
+// CPU teammates: any slot not held by a human is a CPU Sproto, so every battle is four-strong.
 (function (root) {
 'use strict';
 function think(state, p) {
@@ -1330,7 +1400,7 @@ function think(state, p) {
 }
 function nearestFoe(state, p) {
   // A Shadow Sproto a teammate is already on counts as further away, and the current one as a
-  // little nearer, so six Sprotos spread over the wave and do not swap targets every tick.
+  // little nearer, so four Sprotos spread over the wave and do not swap targets every tick.
   const taken = {};
   for (const o of state.players) if (o !== p && o.ai.foe && o.st !== 'down' && o.st !== 'dead') taken[o.ai.foe] = (taken[o.ai.foe] || 0) + 1;
   let best = null, bd = 1e9;
@@ -1365,7 +1435,7 @@ const LIMITS = {
   substeps: 3,
   snapshotHz: 10,
   snapshotMaxHz: 15,
-  maxSeats: 6,
+  maxSeats: 4,
   maxFutureFrames: 3,
   maxPayloadBytes: 2048,
   maxInputBytes: 768,
@@ -1478,7 +1548,8 @@ function createMatch(opts) {
 function blankSlots(manifest) {
   const n = manifest && manifest.fighters ? manifest.fighters.length : 6;
   const slots = [];
-  for (let i = 0; i < LIMITS.maxSeats; i++) slots.push({ fid: i % n, weapon: i % 6, ctrl: 'cpu', name: 'CPU' + (i + 1) });
+  // Seats start empty. A human taking one brings a Sproto in; no CPU Sproto fills a seat.
+  for (let i = 0; i < LIMITS.maxSeats; i++) slots.push({ fid: i % n, weapon: i % 6, ctrl: 'none', name: 'P' + (i + 1) });
   return slots;
 }
 
@@ -1506,7 +1577,7 @@ function assignSeat(session, req) {
   seat.generation = req.generation;
   seat.device = req.device;
   seat.human = true;
-  player.ctrl = 'local';
+  simApi().seatIn(session.state, req.slot, { ctrl: 'local' });
   const after = lifeFacts(session.state);
   if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('life-reset');
   return { ok: true, seat: seat, lives: player.lives, hp: player.hp, powers: player.powers.slice() };
@@ -1522,7 +1593,7 @@ function releaseSeat(session, req) {
   seat.generation = 0;
   seat.device = '';
   seat.human = false;
-  player.ctrl = 'cpu';
+  simApi().seatOut(session.state, req.slot);
   const after = lifeFacts(session.state);
   if (JSON.stringify(before) !== JSON.stringify(after)) throw new Error('life-reset');
   return { ok: true, seat: seat, lives: player.lives, hp: player.hp, powers: player.powers.slice() };

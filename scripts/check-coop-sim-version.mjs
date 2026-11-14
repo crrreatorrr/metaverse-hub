@@ -82,7 +82,7 @@ function checkLocal() {
   else {
     if (api.PROTOCOL_VERSION !== 1 || api.LIMITS.loopHz !== 20 || api.LIMITS.substeps !== 3 || api.LIMITS.simHz !== 60) errors.push('bundle limits != 60/20/3');
     if (api.LIMITS.snapshotHz !== 10 || api.LIMITS.snapshotMaxHz !== 15 || api.LIMITS.reconnectGraceMs !== 15000) errors.push('bundle snapshot or reconnect contract');
-    if (api.LIMITS.maxSeats !== 6) errors.push('bundle seat cap');
+    if (api.LIMITS.maxSeats !== 4) errors.push('bundle seat cap');
     const content = sha256(JSON.stringify(api.contentManifest(sandbox.MANIFEST)));
     if (pin && content !== pin.fingerprint) errors.push(`content fingerprint ${content} != pin ${pin.fingerprint}`);
     const banked = api.createMatch({ mode: 'banked', seed: 1, stage: 3 });

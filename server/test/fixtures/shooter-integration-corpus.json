@@ -1,11 +1,11 @@
 {
   "schema": 1,
-  "corpusSourceCommit": "2608511e93b765aedfb8e9311266bb9e989170e8",
+  "corpusSourceCommit": "7db4fc4f93333f3977da2159771a060f344b6ea0",
   "authority": "Legacy observations are not v2 first-terminal expectations; retained approved incremental replay establishes those independently.",
   "approvedManifest": {
     "artifact": "shooter-sim",
-    "sourceCommit": "2608511e93b765aedfb8e9311266bb9e989170e8",
-    "sha256": "735b6da58d5fbd61c69862596a3a45c9062c5a15fc11575549803b8076c01e2b",
+    "sourceCommit": "7db4fc4f93333f3977da2159771a060f344b6ea0",
+    "sha256": "ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e",
     "protocol": 1,
     "contentFingerprint": "73c6eb0f",
     "uploadProtocol": 2,
@@ -22,7 +22,7 @@
   "cases": [
     {
       "id": "sahil-success-7",
-      "fixtureSha256": "fb6448cb5f34fe62d735955d1bcc5802799761588de51f2076fbabd6f3a97a23",
+      "fixtureSha256": "11aaae99072ecdfcf171f661d923c4fdbe5920c58be3fb43b12c83a9092f3538",
       "boss": "sahil",
       "seed": 7,
       "frames": 9634,
@@ -31,7 +31,7 @@
       "legacyObservation": {
         "outcome": "clear",
         "reason": "boss_clear",
-        "stateHash": "3163be0c",
+        "stateHash": "a88b4fde",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [
@@ -43,7 +43,7 @@
     },
     {
       "id": "sahil-success-11",
-      "fixtureSha256": "919a946c77034d1d5842b65f33e6c2625bad6a51471cae3b695ce6408922765a",
+      "fixtureSha256": "704dcbb4aba4ceb06391c9ca3350974a1e68baf7f6cbbb189d3916923a7c02c0",
       "boss": "sahil",
       "seed": 11,
       "frames": 6550,
@@ -52,7 +52,7 @@
       "legacyObservation": {
         "outcome": "clear",
         "reason": "boss_clear",
-        "stateHash": "19a79885",
+        "stateHash": "cc208087",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [
@@ -63,7 +63,7 @@
     },
     {
       "id": "sahil-fail-7",
-      "fixtureSha256": "563e18693dda7c0f57bba74348019995e616835010aed121ebf0d02060c207ec",
+      "fixtureSha256": "3768dcfbd4b8c1032141baaf135e7c48d57e827979fa77f0c4a63ee34ec1be48",
       "boss": "sahil",
       "seed": 7,
       "frames": 1001,
@@ -72,7 +72,7 @@
       "legacyObservation": {
         "outcome": "fail",
         "reason": "player_down",
-        "stateHash": "7f20ec2c",
+        "stateHash": "55e5c08e",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [
@@ -83,7 +83,7 @@
     },
     {
       "id": "sahil-assisted-9",
-      "fixtureSha256": "b8f504df56521320d3c77584bb712bd1ec919ddf1c8edde1a1faa52e7e74d2fa",
+      "fixtureSha256": "430eee9ccd2a501e16fe451bbf27120c2e311806f786d27a2ea0e088620ce105",
       "boss": "sahil",
       "seed": 9,
       "frames": 9347,
@@ -92,7 +92,7 @@
       "legacyObservation": {
         "outcome": "assisted",
         "reason": "assisted",
-        "stateHash": "b5fa8fba",
+        "stateHash": "5c79594c",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [
@@ -103,7 +103,7 @@
     },
     {
       "id": "obama-success-7",
-      "fixtureSha256": "393bada840b31d8b5cc3f4e7294745c79838c4b7f85a8a59f6f2cca1d36e2703",
+      "fixtureSha256": "a800ffd56703f976d43c82b6a1a72067ca40c76b3f757e024ebec7536aea53ad",
       "boss": "obama",
       "seed": 7,
       "frames": 24000,
@@ -112,7 +112,7 @@
       "legacyObservation": {
         "outcome": "incomplete",
         "reason": "boss_alive",
-        "stateHash": "b166184b",
+        "stateHash": "1fab9459",
         "recorderMatchesVerifier": false
       },
       "requiredExecution": [
@@ -123,7 +123,7 @@
     },
     {
       "id": "obama-success-11",
-      "fixtureSha256": "5d281d5aea4fca036462bbd731be298b9b039232c79df6decaae4a79b18e53ef",
+      "fixtureSha256": "36dca1ce8da844c92b862e5dde0b2b898893d09ccc0df07b3722819bbada8126",
       "boss": "obama",
       "seed": 11,
       "frames": 5049,
@@ -132,7 +132,7 @@
       "legacyObservation": {
         "outcome": "clear",
         "reason": "boss_clear",
-        "stateHash": "fdcbe235",
+        "stateHash": "47841677",
         "recorderMatchesVerifier": false
       },
       "requiredExecution": [

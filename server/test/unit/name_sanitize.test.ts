@@ -123,7 +123,7 @@ function coopPlayers(mod: LoadedModule, m: MatchDriver): { name: string }[] {
   const st = m.state as { matchId?: string; cold?: boolean; simPacked?: unknown; session: { state: { players: { name: string }[] } } };
   const bag = mod.global.CoopMatch as { liveSession?(id: string): { state: { players: { name: string }[] } } | null };
   const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
-  if (held && held.state.players && held.state.players.length === 6) return held.state.players;
+  if (held && held.state.players && held.state.players.length === 4) return held.state.players;
   if (st.cold && st.simPacked) return (mod.global.Sim as { importState(d: unknown): { players: { name: string }[] } }).importState(st.simPacked).players;
   return st.session.state.players;
 }

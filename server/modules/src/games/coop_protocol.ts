@@ -29,8 +29,8 @@
 //   15 Hz is only the contract ceiling (snapshotMaxHz), not a second rate.
 //   Room codes are 12-character locators with a 600 s TTL, not credentials.
 //   Quick queue is the matchmaker: properties.game, v = protocol, sim = fingerprint,
-//   count 1..6. One account may hold several of k1, k2, gp0..gp3. Six seats
-//   total, not six sockets. Reconnect keeps those seats for 15 s under server
+//   count 1..4 (a larger maxCount is clamped). One account may hold several of k1, k2, gp0..gp3. Four seats
+//   total, not four sockets. Reconnect keeps those seats for 15 s under server
 //   AI, then the same account's new socket resumes them. A new socket bumps
 //   the generation; the previous socket's input is rejected. Lives, hp, powers,
 //   and item ids are not reset. There is no Ticket and no score write.
@@ -40,8 +40,8 @@ namespace CoopProto {
   export var MATCH_NAME = "sproto_coop";
   export var KIND = "sproto_coop";
   export var REPO = "crrreatorrr/Sproto-Coop-Battle.";
-  export var COMMIT = "2c6de7a8e951f78e6017007dcc1493d3dbae3561";
-  export var BUNDLE_SHA256 = "10804e5e4519e17074d4944b856f724fe8e54937af871f2019b6238f15e36f2c";
+  export var COMMIT = "989839db632ab705aec4d833c013f20075b45439";
+  export var BUNDLE_SHA256 = "38543a5f45a5960d11461e7c46846b311d0adf960fc13ba700c7a561b6ac9727";
   export var PROTOCOL = 1;
   export var FINGERPRINT = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
 
@@ -63,6 +63,8 @@ namespace CoopProto {
   export var TICK_RATE = 20;
   export var SUBSTEPS = 3;
   export var RECONNECT_S = 15;
+  /** Seats per match: humans take seats and CPU Sprotos fill the rest (Coop #26 cut six to four). */
+  export var MAX_SEATS = 4;
   export var CODE_TTL_S = 600;
   export var LOBBY_S = 30;
   export var QUICK_FILL_S = 15;
@@ -91,7 +93,7 @@ namespace CoopProto {
     var limits = CoopProtocol.LIMITS;
     if (!limits || limits.simHz !== 60 || limits.loopHz !== TICK_RATE || limits.substeps !== SUBSTEPS) return "loop_mismatch";
     if (limits.snapshotHz !== 10 || limits.snapshotMaxHz !== 15) return "snapshot_mismatch";
-    if (limits.maxSeats !== 6 || limits.reconnectGraceMs !== RECONNECT_S * 1000) return "seat_mismatch";
+    if (limits.maxSeats !== MAX_SEATS || limits.reconnectGraceMs !== RECONNECT_S * 1000) return "seat_mismatch";
     if (typeof Sim === "undefined" || !Sim || Sim.STATE_VERSION !== 1) return "state_mismatch";
     var content = "";
     try {

@@ -12,6 +12,9 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
 const PROTO = 1;
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
+// Coop #26: four seats per match. One account may hold any four of the six devices.
+const SEATS = 4;
+const FOUR = DEVICES.slice(0, SEATS);
 const USERS = [0, 1, 2, 3, 4, 5].map((n) => `00000000-0000-4000-8000-00000000000${n}`);
 const OP = { HELLO: 1, WELCOME: 2, READY: 3, START: 4, INPUT: 10, SNAPSHOT: 11, SEATS: 12, REJECT: 13, RESUME: 14, END: 15, RELEASE: 16, PING: 17, PONG: 18, COMMAND: 19 };
 
@@ -104,7 +107,7 @@ function hydrate(mod: LoadedModule, m: MatchDriver): CoopState {
   const st = m.state as CoopState & { cold?: boolean; simPacked?: unknown; stateHash?: string; matchId?: string };
   const bag = mod.global.CoopMatch as { liveSession?(id: string): NonNullable<CoopState['session']> | null };
   const held = st.matchId && bag.liveSession ? bag.liveSession(st.matchId) : null;
-  if (held && held.state.players && held.state.players.length === 6) {
+  if (held && held.state.players && held.state.players.length === SEATS) {
     st.session = held;
     st.cold = false;
     return st;
@@ -245,7 +248,10 @@ function assertNoLedger(room: Room, label: string): void {
   const a = presence(USERS[0]!, 'ada', 'sa');
   const b = presence(USERS[1]!, 'bea', 'sb');
   const props = { game: 'sproto-coop-battle', v: String(PROTO), sim: FP };
-  mod.rtBefore('MatchmakerAdd', game(USERS[0]!, 'sa'), { matchmakerAdd: { minCount: 1, maxCount: 6, stringProperties: props } });
+  // The current Coop client still asks for up to six; the hub caps the group at four seats.
+  const queued = mod.rtBefore('MatchmakerAdd', game(USERS[0]!, 'sa'), { matchmakerAdd: { minCount: 1, maxCount: 6, stringProperties: props } }) as { matchmakerAdd: { minCount: number; maxCount: number } };
+  assert.equal(queued.matchmakerAdd.maxCount, SEATS);
+  assert.equal(queued.matchmakerAdd.minCount, 1);
   assert.throws(() => mod.rtBefore('MatchmakerAdd', game(USERS[0]!, 'sa'), { matchmakerAdd: { minCount: 1, maxCount: 6, stringProperties: props } }), /already_queued/);
   mod.rtBefore('MatchmakerRemove', game(USERS[0]!, 'sa'), { matchmakerRemove: { ticket: 't1' } });
   mod.rtBefore('MatchmakerRemove', game(USERS[0]!, 'sa'), { matchmakerRemove: { ticket: 't1' } });
@@ -268,19 +274,24 @@ function assertNoLedger(room: Room, label: string): void {
   assert.throws(() => mod.rtBefore('MatchmakerAdd', { userId: USERS[3]!, vars: { scope: 'hub' } }, { matchmakerAdd: { minCount: 1, maxCount: 6, stringProperties: props } }), /wrong_scope/);
 }
 
-// Six local seats on one account, then six accounts. God, stage, score, and pause do nothing.
+// Four local seats on one account, then four accounts. God, stage, score, and pause do nothing.
 {
   const six = room();
-  hello(six.m, six.p, DEVICES, { fighter: 'nope' });
+  hello(six.m, six.p, FOUR, { fighter: 'nope' });
   assert.equal(six.m.dispatcher.sent<{ reason: string }>(OP.REJECT).at(-1)?.body.reason, 'fighter');
   six.m.dispatcher.clear();
   hello(six.m, six.p, DEVICES);
+  assert.equal(six.m.dispatcher.sent<{ reason: string }>(OP.REJECT).at(-1)?.body.reason, 'match_full');
+  assert.equal(stateOf(six.m).session?.seats.filter((seat) => seat.human).length, 0);
+  six.m.dispatcher.clear();
+  hello(six.m, six.p, FOUR);
   const welcome = six.m.dispatcher.sent<{ rewards: number; hostTakeover: number; yours: string[] }>(OP.WELCOME);
   assert.equal(welcome.length, 1);
   assert.equal(welcome[0]?.body.rewards, 0);
   assert.equal(welcome[0]?.body.hostTakeover, 0);
-  assert.deepEqual(welcome[0]?.body.yours, DEVICES);
-  assert.equal(stateOf(six.m).session?.seats.filter((seat) => seat.human).length, 6);
+  assert.deepEqual(welcome[0]?.body.yours, FOUR);
+  assert.equal(stateOf(six.m).session?.seats.length, SEATS);
+  assert.equal(stateOf(six.m).session?.seats.filter((seat) => seat.human).length, SEATS);
   assert.equal(new Set(stateOf(six.m).session?.seats.map((seat) => seat.accountId)).size, 1);
   ready(six.m, six.p);
   assert.equal(six.m.dispatcher.sent<{ rewards: number; stageIndex: number; mode: string }>(OP.START)[0]?.body.stageIndex, 0);
@@ -301,14 +312,14 @@ function assertNoLedger(room: Room, label: string): void {
   const mod = loadCoop();
   const created = mod.call<{ matchId: string; code: string }>('coop.room_create', game(USERS[0]!), {});
   const m = mod.driver(created.matchId);
-  const players = USERS.map((id, index) => presence(id, `p${index}`, `s-${id}`));
+  const players = USERS.slice(0, SEATS).map((id, index) => presence(id, `p${index}`, `s-${id}`));
   for (const p of players) {
     assert.equal(m.join([p], game(p.userId, p.sessionId))[0]?.accept, true);
     hello(m, p, ['k1']);
     ready(m, p);
   }
-  assert.equal(stateOf(m).session?.seats.filter((seat) => seat.human).length, 6);
-  assert.equal(new Set(stateOf(m).session?.seats.map((seat) => seat.accountId).filter(Boolean)).size, 6);
+  assert.equal(stateOf(m).session?.seats.filter((seat) => seat.human).length, SEATS);
+  assert.equal(new Set(stateOf(m).session?.seats.map((seat) => seat.accountId).filter(Boolean)).size, SEATS);
   assert.equal(m.joinAttempt(presence('00000000-0000-4000-8000-000000000099', 'late', 's-late'), game('00000000-0000-4000-8000-000000000099', 's-late')).rejectMessage, 'match_full');
 }
 
@@ -365,7 +376,7 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(stateOf(run.m).broken, '');
   ready(run.m, next);
   run.m.leave([next]);
-  assert.equal(hydrate(run.mod, run.m).session?.state.players[0]?.ctrl, 'cpu');
+  assert.equal(hydrate(run.mod, run.m).session?.state.players[0]?.ctrl, 'away', 'a disconnected Sproto stands idle; no CPU plays it');
   assert.equal(hydrate(run.mod, run.m).session!.state.players[0]?.lives, 1);
   const back = presence(USERS[0]!, 'ada', 's-back');
   run.m.join([back], game(USERS[0]!, 's-back'));
@@ -437,7 +448,7 @@ function assertNoLedger(room: Room, label: string): void {
   assertNoLedger(run, 'resume');
 }
 
-// One account, six seats, the golden fight policy, seed 3, until the stage ends.
+// One account, four seats, the golden fight policy, seed 3, until the stage ends.
 {
   const mod = loadCoop();
   const ledger = ledgerCount(mod);
@@ -447,7 +458,7 @@ function assertNoLedger(room: Room, label: string): void {
   const m = mod.driver(matchId);
   const p = presence(USERS[0]!, 'ada', 's-stage');
   assert.equal(m.join([p], game(USERS[0]!, 's-stage'))[0]?.accept, true);
-  hello(m, p, DEVICES);
+  hello(m, p, FOUR);
   ready(m, p);
   let seq = 1;
   let mode = 'play';
@@ -455,7 +466,7 @@ function assertNoLedger(room: Room, label: string): void {
   for (let i = 0; i < 5000 && mode === 'play'; i += 1) {
     const sim = hydrate(mod, m).session!.state as unknown as StageSim;
     const base = sim.t;
-    const seatsFor = (tick: number) => DEVICES.map((device, slot) => ({ slot, device, mask: policyMask(sim, slot, tick) }));
+    const seatsFor = (tick: number) => FOUR.map((device, slot) => ({ slot, device, mask: policyMask(sim, slot, tick) }));
     m.loop([0, 1, 2].map((offset) => ({
       sender: p,
       opCode: OP.INPUT,
@@ -468,14 +479,14 @@ function assertNoLedger(room: Room, label: string): void {
   const facts = stateOf(m).lastFacts;
   const externalTick = stateOf(m).session?.state.t;
   const externalHash = (stateOf(m) as { stateHash?: string }).stateHash || '';
-  console.log(`six-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
+  console.log(`four-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
   assert.equal(finalMode, 'gameover');
-  assert.equal(externalTick, 13044);
-  assert.equal(externalHash, 'b59977c3c75c1880db5419ccb432fe93f6d4bfa82b0f177737ff54b8b490e269');
+  assert.equal(externalTick, 9699);
+  assert.equal(externalHash, 'c773e4423b71e178d89ba7a404b981bd75d945a4da28015a32e2ff3e08880ad7');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
-  assert.equal(facts?.accounts?.[0]?.slots?.length, 6);
+  assert.equal(facts?.accounts?.[0]?.slots?.length, SEATS);
   assert.equal(ledgerCount(mod), ledger);
 
   const packed = loadCoop();
@@ -494,7 +505,7 @@ function assertNoLedger(room: Room, label: string): void {
   const packedTick = stateOf(packedMatch).session?.state.t;
   const packedHash = (stateOf(packedMatch) as { stateHash?: string }).stateHash || '';
   console.log(`golden driver mode=${stateOf(packedMatch).endReason} tick=${packedTick} hash=${packedHash} ms=${Date.now() - packedStarted}`);
-  assert.equal(packedTick, 13044);
+  assert.equal(packedTick, 9699);
   assert.equal(stateOf(packedMatch).endReason, 'gameover');
   assert.equal(packedHash, externalHash);
   assert.equal(ledgerCount(packed), packedLedger);
@@ -655,10 +666,10 @@ function assertNoLedger(room: Room, label: string): void {
   assert.equal(sha256(Sim.exportState(Sim.importState(exported))), shutdown?.body.stateHash);
   const next = run.mod.driver(resumed.matchId);
   const rebuilt = hydrate(run.mod, next).session!;
-  assert.equal(rebuilt.state.players.length, 6);
+  assert.equal(rebuilt.state.players.length, SEATS);
   assert.equal(rebuilt.state.players[0]?.lives, 1);
   assert.equal(rebuilt.state.players[0]?.hp, 40);
-  assert.equal(rebuilt.state.players[0]?.ctrl, 'cpu');
+  assert.equal(rebuilt.state.players[0]?.ctrl, 'away');
   const packedPlayers = (exported as { state: { players: { ctrl: string }[] } }).state.players;
   const livePlayers = rebuilt.state.players as { ctrl: string }[];
   for (let i = 0; i < packedPlayers.length; i += 1) livePlayers[i]!.ctrl = packedPlayers[i]!.ctrl;
@@ -681,7 +692,7 @@ function assertNoLedger(room: Room, label: string): void {
   parked.doneTick = 1_000_000_000;
   again.m.loop([]);
   const restored = hydrate(again.mod, again.m).session!;
-  assert.equal(restored.state.players.length, 6);
+  assert.equal(restored.state.players.length, SEATS);
   assert.equal(exportHash(again.mod, restored.state), hash);
   assert.ok(bag(again.mod).liveSession(again.matchId));
 }
