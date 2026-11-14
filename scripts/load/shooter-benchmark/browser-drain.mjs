@@ -63,7 +63,15 @@ export async function readDrainOwnerStatus({ read, runId, signal, observations, 
   try {
     assertOpen();
     if (paymentDeadlineMonoMs !== null) {
-      timer = setTimeout(() => paymentWindow.abort(), Math.max(0, Math.ceil(paymentDeadlineMonoMs - performance.now())));
+      // A timer can fire before the fractional monotonic deadline. Recheck that
+      // one deadline and abort only after it has passed, so a later read cannot
+      // treat the same window as still open.
+      const arm = () => {
+        const remaining = paymentDeadlineMonoMs - performance.now();
+        if (remaining <= 0) { paymentWindow.abort(); return; }
+        timer = setTimeout(arm, Math.max(1, Math.ceil(remaining)));
+      };
+      arm();
       scoped = AbortSignal.any([signal, paymentWindow.signal]);
     }
     for (;;) {
