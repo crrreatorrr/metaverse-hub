@@ -36,7 +36,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: crrreatorrr/sproto-shooter
-          ref: 7db4fc4f93333f3977da2159771a060f344b6ea0
+          ref: 1fd01820e5f9f62fd549db09408261b7b6674c79
           path: source-corpus
       - uses: actions/setup-node@v4
         with:

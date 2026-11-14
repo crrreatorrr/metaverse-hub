@@ -478,3 +478,63 @@ HubSchema.register({
     $art$`,
   ],
 });
+
+// 0069 is already applied, so its bundle literals stay. The campaign fingerprint
+// is still 73c6eb0f. This moves the live allowlist onto the bundle rebuilt from
+// 1fd01820 (sha256 7ba57e42…). Levels 7-10 changed campaign level data, so the
+// bundle bytes moved. A historical replay runs 0069 against the function this
+// already rewrote, so the comment below keeps 0069's literals visible to its
+// position() guards. The comparisons use the new literals. 0068's earlier
+// comment stays. The Arena pin moved to the same commit because sim sources
+// changed since 7db4fc4f; its fingerprint is still e749d2fd and its sha256 is
+// 2b799f2c…. The campaign client at 0d604fe8 names this commit and sha. Stored
+// rows, the 20 Ticket amount, and wager settlement are untouched. Applying this
+// twice changes nothing.
+HubSchema.register({
+  id: "0070_shooter_campaign_later_levels",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle 7db4fc4f93333f3977da2159771a060f344b6ea0 ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '7db4fc4f93333f3977da2159771a060f344b6ea0', '1fd01820e5f9f62fd549db09408261b7b6674c79');
+      src := replace(src, 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e', '7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e');
+      IF position('7db4fc4f93333f3977da2159771a060f344b6ea0' in src) > 0
+        OR position('1fd01820e5f9f62fd549db09408261b7b6674c79' in src) = 0
+        OR position('ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e' in src) > 0
+        OR position('7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_later_levels_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('7db4fc4f93333f3977da2159771a060f344b6ea0' in replace(src, note, '')) > 0
+        OR position('1fd01820e5f9f62fd549db09408261b7b6674c79' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_later_levels_issue_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, '7db4fc4f93333f3977da2159771a060f344b6ea0', '1fd01820e5f9f62fd549db09408261b7b6674c79');
+      src := replace(src, 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e', '7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e');
+      IF position('7db4fc4f93333f3977da2159771a060f344b6ea0' in src) > 0
+        OR position('1fd01820e5f9f62fd549db09408261b7b6674c79' in src) = 0
+        OR position('ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e' in src) > 0
+        OR position('7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_later_levels_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('7db4fc4f93333f3977da2159771a060f344b6ea0' in replace(src, note, '')) > 0
+        OR position('1fd01820e5f9f62fd549db09408261b7b6674c79' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_later_levels_work_replay_note_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});
