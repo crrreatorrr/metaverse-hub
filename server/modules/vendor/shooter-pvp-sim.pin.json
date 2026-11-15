@@ -6,10 +6,10 @@
   "loadoutHash": "37131c3e",
   "global": "SprotoShooterPvp",
   "entry": "replayJSON",
-  "sourceCommit": "7db4fc4f93333f3977da2159771a060f344b6ea0",
+  "sourceCommit": "1fd01820e5f9f62fd549db09408261b7b6674c79",
   "bundlePath": "build/shooter-pvp-sim.js",
   "bundleBytes": 117407,
-  "bundleSha256": "493290c9870f990170b7dfe6cfb6c014e60a09e41b720432d3fd30e9c6b80007",
+  "bundleSha256": "2b799f2c1d8c58b89de563a7d546d9f6397d38588cf9abc44b0cc593caf69789",
   "limits": {
     "maxFramesPerSecond": 45,
     "maxFramesPerCursor": 9,
@@ -55,8 +55,8 @@
   "campaignContentFingerprint": "73c6eb0f",
   "kind": "sproto-shooter-pvp-pin",
   "repo": "crrreatorrr/sproto-shooter",
-  "commit": "7db4fc4f93333f3977da2159771a060f344b6ea0",
-  "sha256": "493290c9870f990170b7dfe6cfb6c014e60a09e41b720432d3fd30e9c6b80007",
+  "commit": "1fd01820e5f9f62fd549db09408261b7b6674c79",
+  "sha256": "2b799f2c1d8c58b89de563a7d546d9f6397d38588cf9abc44b0cc593caf69789",
   "golden": {
     "seed": 7,
     "outcome": null,

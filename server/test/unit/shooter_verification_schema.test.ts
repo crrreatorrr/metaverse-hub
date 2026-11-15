@@ -73,4 +73,18 @@ assert.ok(level.includes('shooter_campaign_level_bundle_issue_replay_note_missin
 assert.ok(level.includes('shooter_campaign_level_bundle_work_replay_note_missing'));
 assert.equal(/UPDATE|DELETE|INSERT/.test(level), false, '0069 rewrites no row');
 assert.ok(all.findIndex((migration) => migration.id === '0069_shooter_campaign_level_bundle') > all.findIndex((migration) => migration.id === '0068_shooter_campaign_allowlist'));
+const laterLevels = all.filter((migration) => migration.id === '0070_shooter_campaign_later_levels');
+assert.equal(laterLevels.length, 1);
+const later = laterLevels[0]!.statements[0]!;
+assert.ok(later.includes("replace(src, '7db4fc4f93333f3977da2159771a060f344b6ea0', '1fd01820e5f9f62fd549db09408261b7b6674c79')"));
+assert.ok(later.includes("replace(src, 'ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e', '7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e')"));
+assert.ok(later.includes('prior-campaign-bundle 7db4fc4f93333f3977da2159771a060f344b6ea0 ab175aae2000991fae582e7c2ee0c1fea952488e89a6888b96eda9c7e0ee2e1e'));
+assert.ok(later.indexOf("replace(src, note, '')") < later.indexOf('shooter_campaign_later_levels_issue_not_replaced'));
+assert.ok(later.indexOf('shooter_campaign_later_levels_issue_not_replaced') < later.indexOf('|| note'));
+assert.ok(later.indexOf('|| note') < later.indexOf('shooter_campaign_later_levels_work_not_replaced'));
+assert.ok(later.indexOf('shooter_campaign_later_levels_work_not_replaced') < later.lastIndexOf('|| note'));
+assert.ok(later.includes('shooter_campaign_later_levels_issue_replay_note_missing'));
+assert.ok(later.includes('shooter_campaign_later_levels_work_replay_note_missing'));
+assert.equal(/UPDATE|DELETE|INSERT/.test(later), false, '0070 rewrites no row');
+assert.ok(all.findIndex((migration) => migration.id === '0070_shooter_campaign_later_levels') > all.findIndex((migration) => migration.id === '0069_shooter_campaign_level_bundle'));
 console.log('shooter verification schema registration and dormant contract ok');

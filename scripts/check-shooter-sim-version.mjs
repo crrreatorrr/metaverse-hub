@@ -1,6 +1,7 @@
 // Fail when the vendored Shooter verifier disagrees with its pin or the
 // campaign contract. Shooter main must be the pin commit, or a descendant
 // whose sim, protocol, content, and bundle-build files are unchanged.
+// Shooter main's campaign client allowlist must name this pin's commit and sha.
 //
 //   node scripts/check-shooter-sim-version.mjs
 import { createHash } from 'node:crypto';
@@ -117,6 +118,52 @@ function checkLocal() {
   return { errors, pin, hash };
 }
 
+function clientAllowlist(source) {
+  const match = /export const SUPPORTED_MANIFEST = Object\.freeze\(\{ artifact: 'shooter-sim',\s*sourceCommit: '([0-9a-f]{40})',\s*sha256: '([0-9a-f]{64})',\s*protocol: 1, contentFingerprint: '([0-9a-f]{8})'/.exec(source);
+  if (!match) throw new Error('campaign client allowlist is missing SUPPORTED_MANIFEST');
+  return { sourceCommit: match[1], sha256: match[2], fingerprint: match[3] };
+}
+
+async function fetchClientSource(url, token) {
+  const headers = {
+    Accept: 'application/vnd.github.raw',
+    'User-Agent': 'metaverse-hub-shooter-sim-check',
+    'X-GitHub-Api-Version': '2022-11-28',
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const response = await fetch(url, { headers, signal: AbortSignal.timeout(20000) });
+  return { status: response.status, text: await response.text() };
+}
+
+async function assertClientAllowlist(main, pin) {
+  const api = `https://api.github.com/repos/${REPO}/contents/src/hub/campaignRewards/clientProtocol.js?ref=${encodeURIComponent(main)}`;
+  const raw = `https://raw.githubusercontent.com/${REPO}/${encodeURIComponent(main)}/src/hub/campaignRewards/clientProtocol.js`;
+  const token = process.env.GITHUB_TOKEN || '';
+  let last = 'no response';
+  let text = '';
+  for (const auth of token ? [token, ''] : ['']) {
+    for (const url of [api, raw]) {
+      try {
+        const result = await fetchClientSource(url, auth && url === api ? auth : '');
+        if (result.status === 200 && result.text.includes('SUPPORTED_MANIFEST')) {
+          text = result.text;
+          break;
+        }
+        last = `HTTP ${result.status}`;
+      } catch (error) {
+        last = error instanceof Error ? error.message : String(error);
+      }
+    }
+    if (text) break;
+  }
+  if (!text) throw new Error(`could not read campaign client allowlist at ${main} (${last})`);
+  const allow = clientAllowlist(text);
+  if (allow.sourceCommit !== pin.commit || allow.sha256 !== pin.sha256 || allow.fingerprint !== pin.fingerprint) {
+    throw new Error(`campaign client allowlist ${allow.sourceCommit} ${allow.sha256} ${allow.fingerprint} != vendored ${pin.commit} ${pin.sha256} ${pin.fingerprint}`);
+  }
+  return allow;
+}
+
 const local = checkLocal();
 if (local.errors.length || !local.pin) {
   for (const error of local.errors) console.error(`FAIL: ${error}`);
@@ -126,6 +173,8 @@ try {
   const main = await assertShooterMain(local.pin.commit);
   if (main.same) console.log(`Shooter main ${main.main} matches pin`);
   else console.log(`Shooter main ${main.main} is ahead of pin ${local.pin.commit} with no sim source changes (${main.files.length} other files)`);
+  const allow = await assertClientAllowlist(main.main, local.pin);
+  console.log(`campaign client allowlist at ${main.main} names ${allow.sourceCommit} ${allow.sha256}`);
 } catch (error) {
   console.error(`FAIL: ${error instanceof Error ? error.message : String(error)}`);
   process.exit(1);
