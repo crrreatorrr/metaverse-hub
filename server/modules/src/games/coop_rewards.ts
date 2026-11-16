@@ -19,7 +19,7 @@ namespace CoopRewards {
   // eligibility rows. It must equal CoopProto.FINGERPRINT (the vendored sim's contentSha256), and
   // tests/games/coop_rewards.test.ts fails when it does not. The SQL function holds it as a
   // literal, updated in a new migration every time the vendored content fingerprint changes.
-  export var FINGERPRINT = "7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8";
+  export var FINGERPRINT = "d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61";
   /** The literal 0041 wrote. Rows settled before 0063 keep it; nothing is rewritten. */
   export var FINGERPRINT_0041 = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
   export var FINGERPRINT_0063 = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
@@ -449,8 +449,8 @@ HubSchema.register({
     DECLARE src text;
     BEGIN
       src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
-      src := replace(src, quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72'), quote_literal('7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8'));
-      IF position(quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72') in src) > 0 OR position(quote_literal('7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8') in src) = 0 THEN
+      src := replace(src, quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72'), quote_literal('d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61'));
+      IF position(quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72') in src) > 0 OR position(quote_literal('d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61') in src) = 0 THEN
         RAISE EXCEPTION 'coop_combat_fingerprint_not_replaced';
       END IF;
       -- Keep 0063's idempotent replay guard readable without keeping its active label.

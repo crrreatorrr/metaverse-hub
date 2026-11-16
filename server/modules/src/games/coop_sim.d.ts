@@ -180,7 +180,9 @@ interface CoopProtocolApi {
   createMatch(opts: { mode?: string; seed?: number; matchId?: string; stage?: number }): { ok: true; session: CoopSession } | CoopFail;
   assignSeat(session: CoopSession, req: { slot: number; accountId: string; device: string; generation: number }, earnedTier?: number): CoopSeatOk | CoopFail;
   parseLoadouts(raw: unknown, devices: string[]): { ok: true; picks: { [device: string]: { fighter?: string; weapon?: string; classId?: string } } } | CoopFail;
+  parseCpuLoadouts(raw: unknown): { ok: true; picks: { [slot: string]: { fighter?: string; weapon?: string; classId?: string } } } | CoopFail;
   selectLoadout(session: CoopSession, req: { slot: number; accountId: string; generation: number; fighter?: string; weapon?: string; classId?: string }, earnedTier: number): { ok: true } | CoopFail;
+  selectCpuLoadout(session: CoopSession, req: { slot: number; accountId: string; generation: number; fighter?: string; weapon?: string; classId?: string }, earnedTier: number): { ok: true } | CoopFail;
   weaponTier(clears: number): number;
   releaseSeat(session: CoopSession, req: { slot: number; accountId: string; generation: number }): CoopSeatOk | CoopFail;
   acceptInput(session: CoopSession, msg: { [key: string]: unknown }, now: number): CoopInputOk | CoopFail;
@@ -204,6 +206,7 @@ interface CoopExport {
 
 declare var CoopProtocol: CoopProtocolApi;
 declare var Sim: {
+  alive(player: CoopPlayer): boolean;
   STATE_VERSION: number;
   STATE_KIND: string;
   step(state: CoopSimState): void;

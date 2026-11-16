@@ -558,8 +558,13 @@ namespace CoopMatch {
   function freeSlot(state: State): number {
     var session = state.session;
     if (!session) return -1;
-    for (var i = 0; i < session.seats.length; i++) if (!session.seats[i].human) return i;
-    return -1;
+    var firstFree = -1;
+    for (var i = 0; i < session.seats.length; i++) {
+      if (session.seats[i].human) continue;
+      if (firstFree < 0) firstFree = i;
+      if (state.phase !== "playing" || Sim.alive(session.state.players[i])) return i;
+    }
+    return firstFree;
   }
 
   function releaseAccount(state: State, account: AccountRec): void {
@@ -703,13 +708,19 @@ namespace CoopMatch {
       reject(d, presence, "device");
       return;
     }
-    if (state.phase === "playing" && (msg["fighter"] !== undefined || msg["weapon"] !== undefined || msg["loadouts"] !== undefined)) {
+    if (state.phase === "playing" && (msg["fighter"] !== undefined || msg["weapon"] !== undefined ||
+        msg["loadouts"] !== undefined || msg["cpuLoadouts"] !== undefined)) {
       reject(d, presence, "rejected");
       return;
     }
     var loadouts = CoopProtocol.parseLoadouts(msg["loadouts"], devices);
     if (!loadouts.ok) {
       reject(d, presence, loadouts.reason);
+      return;
+    }
+    var cpuLoadouts = CoopProtocol.parseCpuLoadouts(msg["cpuLoadouts"]);
+    if (!cpuLoadouts.ok) {
+      reject(d, presence, cpuLoadouts.reason);
       return;
     }
     if (msg["fighter"] !== undefined) {
@@ -790,6 +801,15 @@ namespace CoopMatch {
         var selected = CoopProtocol.selectLoadout(session, { slot: j, accountId: presence.userId,
           generation: account.generation, fighter: pick.fighter, classId: pick.classId, weapon: pick.weapon }, earnedTier);
         if (!selected.ok) reject(d, presence, selected.reason);
+      }
+      var cpuPicks = cpuLoadouts.picks;
+      for (var slotKey of Object.keys(cpuPicks)) {
+        var cpuPick = cpuPicks[slotKey];
+        var cpuSelected = CoopProtocol.selectCpuLoadout(session, {
+          slot: Number(slotKey), accountId: presence.userId, generation: account.generation,
+          fighter: cpuPick.fighter, classId: cpuPick.classId, weapon: cpuPick.weapon,
+        }, earnedTier);
+        if (!cpuSelected.ok) reject(d, presence, cpuSelected.reason);
       }
     }
     state.present[presence.userId] = presence;
@@ -968,6 +988,16 @@ namespace CoopMatch {
         if (member && member.devices.length && state.present[state.roster[i]]) joined++;
       }
       if (joined < state.roster.length && tick - state.createdTick < CoopProto.QUICK_FILL_S * CoopProto.TICK_RATE) return;
+    }
+    // The lobby lead may have changed since a CPU's weapon was picked.
+    var lead = state.session.seats.find(seat => seat.human);
+    if (lead && lead.accountId) {
+      var tier = state.weaponTiers[lead.accountId] || 1;
+      for (var cpu of state.session.seats) {
+        if (!cpu.human) CoopProtocol.selectCpuLoadout(state.session, {
+          slot: cpu.slot, accountId: lead.accountId, generation: lead.generation,
+        }, tier);
+      }
     }
     var begun = CoopProtocol.beginEncounter(state.session);
     if (!begun.ok) {

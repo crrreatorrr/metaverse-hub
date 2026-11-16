@@ -10,7 +10,7 @@ const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = '7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8';
+const FP = 'd1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61';
 const OP = { HELLO: 1, READY: 3 };
 
 function game(userId = USER) {

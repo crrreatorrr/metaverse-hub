@@ -8,8 +8,8 @@ const OP = { HELLO: 1, READY: 3, SEATS: 12, REJECT: 13, RELEASE: 16 };
 const progressKey = (userId: string) => `coop_verified_progress/weapons/${userId}`;
 const game = (p: Presence) => ({ ...p, vars: { scope: 'game', game: 'sproto-coop-battle', sid: SID } });
 
-interface Pick { classId: string; weapon: string }
-interface Seat { accountId: string; device: string; slot: number; generation: number; classId: string; weapon: number; weaponTier: number; hp: number }
+interface Pick { classId: string; weapon: string; fighter?: string }
+interface Seat { accountId: string; device: string; slot: number; generation: number; classId: string; weapon: number; weaponTier: number; hp: number; human: number; ctrl: string; fighter: number }
 
 const mod = loadModule({ env: { COOP_AUTHORITATIVE: '1' } });
 const ada = presence(A, 'ada');
@@ -24,13 +24,20 @@ assert.equal(match.join([bea], game(bea))[0]?.accept, true);
 // Ada earned tier three on the server. Bea has no stored banked progress.
 mod.nk.storage.set(progressKey(A), { value: { tier: 3, clears: 3 }, version: 'earned-3', permissionRead: 0, permissionWrite: 0 });
 const sim = mod.global.Sim as { WEAPONS: { id: string }[] };
-function hello(sender: Presence, devices: string[], loadouts?: Record<string, Pick>): void {
-  assert.equal(match.loop([{ sender, opCode: OP.HELLO, data: { t: 'hello', protocol, fingerprint, devices, loadouts } }]), true);
+function hello(sender: Presence, devices: string[], loadouts?: Record<string, Pick>, cpuLoadouts?: Record<number, Pick>, roomMatch = match): void {
+  assert.equal(roomMatch.loop([{ sender, opCode: OP.HELLO, data: { t: 'hello', protocol, fingerprint, devices, loadouts, cpuLoadouts } }]), true);
 }
 function seat(accountId: string, device: string): Seat {
   const latest = match.dispatcher.sent<{ seats: Seat[] }>(OP.SEATS).at(-1);
   const entry = latest?.body.seats.find(s => s.accountId === accountId && s.device === device);
   assert.ok(entry, `${accountId} has ${device}`);
+  return entry;
+}
+function cpu(slot: number, roomMatch = match): Seat {
+  const entry = roomMatch.dispatcher.sent<{ seats: Seat[] }>(OP.SEATS).at(-1)?.body.seats[slot];
+  assert.ok(entry);
+  assert.equal(entry.human, 0);
+  assert.equal(entry.ctrl, 'cpu');
   return entry;
 }
 function equipped(accountId: string, device: string, classId: string, weapon: string, tier: number): void {
@@ -64,15 +71,34 @@ rejected('weapon_locked');
 equipped(B, 'gp0', 'ranged', 'shortbow', 1);
 equipped(A, 'k2', 'healer', 'mercy-scepter', 3);
 
+assert.equal(cpu(3).classId, 'ranged');
+const cpuMage = { fighter: 'sproto3106', classId: 'mage', weapon: 'frost-staff' };
+hello(ada, ['k1', 'k2'], undefined, { 3: cpuMage });
+assert.equal(cpu(3).fighter, 0);
+assert.equal(cpu(3).classId, 'mage');
+assert.equal(sim.WEAPONS[cpu(3).weapon]?.id, 'frost-staff');
+hello(ada, ['k1', 'k2'], undefined, { 3: { classId: 'mage', weapon: 'nova-scepter' } });
+rejected('weapon_locked');
+hello(ada, ['k1', 'k2'], undefined, { 2: cpuMage });
+rejected('occupied');
+hello(bea, ['gp0'], undefined, { 3: { classId: 'fighter', weapon: 'katana' } });
+rejected('owner');
+assert.equal(sim.WEAPONS[cpu(3).weapon]?.id, 'frost-staff');
+
 match.loop([ada, bea].map(sender => ({ sender, opCode: OP.READY, data: { t: 'ready' } })));
 assert.equal((match.state as { phase: string }).phase, 'playing');
 hello(bea, ['gp0'], { gp0: { classId: 'mage', weapon: 'apprentice-wand' } });
 rejected('rejected');
-const live = (mod.global.CoopMatch as { liveSession(id: string): { state: { boss: unknown; mode: string; players: { classId: string; weapon: number }[] } } | null }).liveSession(room.matchId);
+hello(ada, ['k1', 'k2'], undefined, { 3: { classId: 'fighter', weapon: 'katana' } });
+rejected('rejected');
+type MatchPlayer = { classId: string; weapon: number; hp: number; lives: number; st: string; dead: boolean };
+const authority = mod.global.CoopMatch as { liveSession(id: string): { state: { boss: unknown; mode: string; players: MatchPlayer[] } } | null };
+const live = authority.liveSession(room.matchId);
 assert.ok(live);
 const ranged = live.state.players[seat(B, 'gp0').slot];
 assert.equal(ranged?.classId, 'ranged');
 assert.equal(sim.WEAPONS[ranged!.weapon]?.id, 'shortbow');
+assert.equal(sim.WEAPONS[live.state.players[3]!.weapon]?.id, 'frost-staff', 'a CPU keeps its chosen weapon after start');
 
 // Begin from the end of the boss death animation. The server callback still
 // advances the real sim and processes the resulting stage clear normally.
@@ -93,5 +119,34 @@ hello(bea, ['gp0', 'gp1']);
 equipped(B, 'gp1', 'healer', 'mending-rod', 2);
 assert.equal(seat(B, 'gp1').slot, dropped.slot);
 assert.equal(seat(B, 'gp1').hp, dropped.hp, 'the live seat changes weapon without refilling health');
+
+const firstSeat = seat(A, 'k1').slot;
+match.loop([{ sender: ada, opCode: OP.RELEASE, data: { t: 'release', device: 'k1' } }]);
+Object.assign(live.state.players[firstSeat]!, { hp: 0, lives: 0, st: 'dead', dead: true });
+live.state.players[3]!.hp = 29;
+hello(bea, ['gp0', 'gp1', 'gp2']);
+equipped(B, 'gp2', 'mage', 'apprentice-wand', 2);
+assert.equal(seat(B, 'gp2').slot, 3, 'a live drop-in takes a standing CPU before a defeated one');
+assert.equal(seat(B, 'gp2').hp, 29);
+
+// A departing lobby leader cannot leave weapons above the next leader's verified tier.
+const cam = presence('dddddddd-dddd-4ddd-8ddd-dddddddddddd', 'cam');
+const dez = presence('eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee', 'dez');
+const nextRoom = mod.call<{ matchId: string }>('coop.room_create', game(cam), {});
+assert.ok(nextRoom.matchId);
+const nextMatch = mod.driver(nextRoom.matchId);
+assert.equal(nextMatch.join([cam], game(cam))[0]?.accept, true);
+assert.equal(nextMatch.join([dez], game(dez))[0]?.accept, true);
+mod.nk.storage.set(progressKey(cam.userId), { value: { tier: 3, clears: 3 }, version: 'earned-3', permissionRead: 0, permissionWrite: 0 });
+hello(cam, ['k1'], undefined, { 3: cpuMage }, nextMatch);
+hello(dez, ['gp0'], undefined, undefined, nextMatch);
+assert.equal(sim.WEAPONS[cpu(3, nextMatch).weapon]?.id, 'frost-staff');
+nextMatch.loop([{ sender: cam, opCode: OP.RELEASE, data: { t: 'release', device: 'k1' } }]);
+nextMatch.loop([{ sender: dez, opCode: OP.READY, data: { t: 'ready' } }]);
+assert.equal((nextMatch.state as { phase: string }).phase, 'playing');
+const nextLive = authority.liveSession(nextRoom.matchId);
+assert.ok(nextLive);
+assert.equal(nextLive.state.players[3]?.classId, 'mage');
+assert.equal(sim.WEAPONS[nextLive.state.players[3]!.weapon]?.id, 'apprentice-wand');
 
 console.log('coop banked loadouts and weapon progression ok');
