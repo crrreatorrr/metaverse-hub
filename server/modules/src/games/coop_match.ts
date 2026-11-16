@@ -76,6 +76,8 @@ namespace CoopMatch {
     afkMark: { [id: string]: number };
     /** Encounter ids whose terminal decision already reached SQL. */
     paid: { [id: string]: number };
+    weaponTiers: { [id: string]: number };
+    pendingWeaponClears: { [id: string]: number };
     /** Accounting day sealed at the first settle attempt. Retries do not recompute it. */
     payDay: { [id: string]: string };
     /** Set when a stage clear ends the encounter. Null on game over. Snapshotted so a retry cannot move the day, the score, or eligibility. */
@@ -210,6 +212,8 @@ namespace CoopMatch {
       released: {},
       afkMark: {},
       paid: {},
+      weaponTiers: {},
+      pendingWeaponClears: {},
       payDay: {},
       payFacts: null,
     };
@@ -223,7 +227,44 @@ namespace CoopMatch {
     if (!state.released) state.released = {};
     if (!state.afkMark) state.afkMark = {};
     if (!state.paid) state.paid = {};
+    if (!state.weaponTiers) state.weaponTiers = {};
+    if (!state.pendingWeaponClears) state.pendingWeaponClears = {};
     if (!state.payDay) state.payDay = {};
+  }
+
+  // Banked loadouts are earned by this server; a practice save can be client edited.
+  var LOADOUT_COLLECTION = "coop_verified_progress";
+  function weaponProgress(nk: nkruntime.Nakama, userId: string) {
+    var rows = nk.storageRead([{ collection: LOADOUT_COLLECTION, key: "weapons", userId: userId }]);
+    var row = rows[0];
+    var clears = row && row.value ? Number(row.value["clears"]) & 4095 : 0;
+    return { clears: clears, tier: CoopProtocol.weaponTier(clears), version: row ? row.version : "*" };
+  }
+  function recordWeaponClears(nk: nkruntime.Nakama, userId: string, earned: number): number {
+    for (var attempt = 0; attempt < 3; attempt++) {
+      var row = weaponProgress(nk, userId);
+      var clears = row.clears | earned;
+      if (row.clears === clears) return row.tier;
+      var tier = CoopProtocol.weaponTier(clears);
+      try {
+        nk.storageWrite([{ collection: LOADOUT_COLLECTION, key: "weapons", userId: userId,
+          value: { tier: tier, clears: clears }, version: row.version, permissionRead: 0, permissionWrite: 0 }]);
+        return tier;
+      } catch (e) {
+        if (attempt === 2) throw e;
+      }
+    }
+    throw new Error("weapon progress retry exhausted");
+  }
+  function flushWeaponTiers(nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State): void {
+    for (var id in state.pendingWeaponClears) {
+      try {
+        state.weaponTiers[id] = recordWeaponClears(nk, id, state.pendingWeaponClears[id]);
+        delete state.pendingWeaponClears[id];
+      } catch (e) {
+        logger.warn("coop weapon progress write failed " + String(e));
+      }
+    }
   }
 
   function rememberSid(state: State, userId: string, ctx: nkruntime.Context): void {
@@ -310,6 +351,15 @@ namespace CoopMatch {
       frozenReleased: frozen,
       accounts: copyPresence(facts),
     };
+    if (!state.golden && session.mode === "banked" && !session.state.god && session.state.stageIdx === encStage) {
+      var clearedStage = 1 << encStage;
+      for (var j = 0; j < state.payFacts.accounts.length; j++) {
+        var row = state.payFacts.accounts[j];
+        if (!UUID.test(row.accountId) || frozen[row.accountId] === 1 || row.slots < 1 || row.out === 1) continue;
+        state.pendingWeaponClears[row.accountId] = (state.pendingWeaponClears[row.accountId] || 0) | clearedStage;
+      }
+      state.forceCheckpoint = true;
+    }
   }
 
   function applyPay(ctx: nkruntime.Context, nk: nkruntime.Nakama, logger: nkruntime.Logger, state: State): void {
@@ -461,6 +511,8 @@ namespace CoopMatch {
         hp: player.hp,
         fighter: player.fid,
         weapon: player.weapon,
+        classId: player.classId || "fighter",
+        weaponTier: state.weaponTiers[seat.accountId || ""] || 1,
         name: player.name,
       });
     }
@@ -632,7 +684,7 @@ namespace CoopMatch {
     };
   }
 
-  function onHello(d: nkruntime.MatchDispatcher, logger: nkruntime.Logger, state: State, presence: nkruntime.Presence, msg: { [key: string]: unknown }): void {
+  function onHello(d: nkruntime.MatchDispatcher, logger: nkruntime.Logger, nk: nkruntime.Nakama, state: State, presence: nkruntime.Presence, msg: { [key: string]: unknown }): void {
     var session = state.session;
     if (!session || state.phase === "done") {
       reject(d, presence, "match_ended");
@@ -651,22 +703,23 @@ namespace CoopMatch {
       reject(d, presence, "device");
       return;
     }
-    if (state.phase === "playing" && (msg["fighter"] !== undefined || msg["weapon"] !== undefined)) {
+    if (state.phase === "playing" && (msg["fighter"] !== undefined || msg["weapon"] !== undefined || msg["loadouts"] !== undefined)) {
       reject(d, presence, "rejected");
       return;
     }
-    var fighterIdx = -1;
-    var weaponIdx = -1;
+    var loadouts = CoopProtocol.parseLoadouts(msg["loadouts"], devices);
+    if (!loadouts.ok) {
+      reject(d, presence, loadouts.reason);
+      return;
+    }
     if (msg["fighter"] !== undefined) {
-      fighterIdx = CoopProto.fighterIndex(String(msg["fighter"]));
-      if (fighterIdx < 0) {
+      if (CoopProto.fighterIndex(String(msg["fighter"])) < 0) {
         reject(d, presence, "fighter");
         return;
       }
     }
     if (msg["weapon"] !== undefined) {
-      weaponIdx = CoopProto.weaponIndex(String(msg["weapon"]));
-      if (weaponIdx < 0) {
+      if (CoopProto.weaponIndex(String(msg["weapon"])) < 0) {
         reject(d, presence, "weapon");
         return;
       }
@@ -699,6 +752,14 @@ namespace CoopMatch {
       reject(d, presence, "match_full");
       return;
     }
+    if ((need > 0 || state.phase === "lobby") && !state.weaponTiers[presence.userId]) {
+      try {
+        state.weaponTiers[presence.userId] = weaponProgress(nk, presence.userId).tier;
+      } catch (progressErr) {
+        logger.warn("coop weapon progress read failed " + String(progressErr));
+      }
+    }
+    var earnedTier = state.weaponTiers[presence.userId] || 1;
     for (var i = 0; i < devices.length; i++) {
       if (holdsDevice(account, devices[i])) continue;
       var slot = freeSlot(state);
@@ -706,18 +767,31 @@ namespace CoopMatch {
         reject(d, presence, "match_full");
         return;
       }
-      var assigned = CoopProtocol.assignSeat(session, { slot: slot, accountId: presence.userId, device: devices[i], generation: account.generation });
+      var assigned = CoopProtocol.assignSeat(session, { slot: slot, accountId: presence.userId, device: devices[i], generation: account.generation }, earnedTier);
       if (!assigned.ok) {
         reject(d, presence, assigned.reason);
         return;
       }
       account.devices.push(devices[i]);
       var player = session.state.players[slot];
-      if (fighterIdx >= 0) player.fid = fighterIdx;
-      if (weaponIdx >= 0) player.weapon = weaponIdx;
       player.name = HubMatch.cleanName(state.names[presence.userId], 16) || HubMatch.cleanName(presence.username, 16) || "P" + String(slot + 1);
+      if (!loadouts.picks[devices[i]] && (msg["fighter"] !== undefined || msg["weapon"] !== undefined)) {
+        loadouts.picks[devices[i]] = { fighter: msg["fighter"] as string | undefined, weapon: msg["weapon"] as string | undefined };
+      }
     }
     if (JSON.stringify(CoopProtocol.lifeFacts(session.state)) !== before) state.broken = "life-reset";
+    if (state.phase === "lobby") {
+      var picks = loadouts.picks;
+      for (var j = 0; j < session.seats.length; j++) {
+        var owned = session.seats[j];
+        if (owned.accountId !== presence.userId) continue;
+        var pick = picks[owned.device];
+        if (!pick) continue;
+        var selected = CoopProtocol.selectLoadout(session, { slot: j, accountId: presence.userId,
+          generation: account.generation, fighter: pick.fighter, classId: pick.classId, weapon: pick.weapon }, earnedTier);
+        if (!selected.ok) reject(d, presence, selected.reason);
+      }
+    }
     state.present[presence.userId] = presence;
     state.accounts[presence.userId] = account;
     var kind = reclaimed || account.generation > 1 ? "resume" : "welcome";
@@ -861,7 +935,7 @@ namespace CoopMatch {
         reject(d, presence, "schema");
         continue;
       }
-      if (op === CoopProto.OP_HELLO) onHello(d, logger, state, presence, msg);
+      if (op === CoopProto.OP_HELLO) onHello(d, logger, nk, state, presence, msg);
       else if (op === CoopProto.OP_READY) onReady(d, state, presence);
       else if (op === CoopProto.OP_RELEASE) onRelease(d, state, presence, msg);
       else if (op === CoopProto.OP_INPUT) onInput(d, state, presence, msg, raw.length);
@@ -1013,6 +1087,8 @@ namespace CoopMatch {
       released: state.released,
       afkMark: state.afkMark,
       paid: state.paid,
+      weaponTiers: state.weaponTiers,
+      pendingWeaponClears: state.pendingWeaponClears,
       payDay: state.payDay,
       payFacts: state.payFacts,
       stateHash: state.stateHash,
@@ -1379,6 +1455,8 @@ namespace CoopMatch {
         state.released = isObj(row.value["released"]) ? row.value["released"] as { [id: string]: number } : {};
         state.afkMark = isObj(row.value["afkMark"]) ? row.value["afkMark"] as { [id: string]: number } : {};
         state.paid = isObj(row.value["paid"]) ? row.value["paid"] as { [id: string]: number } : {};
+        state.weaponTiers = isObj(row.value["weaponTiers"]) ? row.value["weaponTiers"] as { [id: string]: number } : {};
+        state.pendingWeaponClears = isObj(row.value["pendingWeaponClears"]) ? row.value["pendingWeaponClears"] as { [id: string]: number } : {};
         state.payDay = isObj(row.value["payDay"]) ? row.value["payDay"] as { [id: string]: string } : {};
         state.payFacts = isObj(row.value["payFacts"]) ? row.value["payFacts"] as State["payFacts"] : null;
         if (playing) {
@@ -1475,6 +1553,7 @@ namespace CoopMatch {
       var started = Date.now();
       thaw(state);
       maps(state);
+      if (tick % CoopProto.TICK_RATE === 0) flushWeaponTiers(nk, logger, state);
       var matchId = ctx.matchId || "";
       if (state.broken && state.phase !== "done") finish(nk, logger, d, state, tick, "sim_fault", matchId);
       if (state.phase === "ending") finish(nk, logger, d, state, tick, state.endReason || "room_expired", matchId);
@@ -1535,6 +1614,7 @@ namespace CoopMatch {
         }
         clampGrace(state);
         settle(state, beforeStage, beforeMode);
+        if (beforeMode === "play" && state.session.state.mode === "clear") flushWeaponTiers(nk, logger, state);
         try {
           applyPay(ctx, nk, logger, state);
         } catch (payErr) {

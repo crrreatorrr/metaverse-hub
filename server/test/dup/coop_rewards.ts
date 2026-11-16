@@ -44,7 +44,7 @@ const BOSSES = [
 ];
 const HASH = 'ab'.repeat(32);
 // The label game.settle_coop_clear accepts since 0063_coop_settle_fingerprint (the vendored sim's contentSha256).
-const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP = '7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8';
 const FP_0041 = 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e';
 
 interface Receipt {

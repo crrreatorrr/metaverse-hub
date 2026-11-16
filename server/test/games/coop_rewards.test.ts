@@ -10,7 +10,7 @@ const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP = '7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8';
 const OP = { HELLO: 1, READY: 3 };
 
 function game(userId = USER) {
@@ -85,6 +85,7 @@ const mod = loadCoop();
 const CoopRewards = mod.global.CoopRewards as {
   FINGERPRINT: string;
   FINGERPRINT_0041: string;
+  FINGERPRINT_0063: string;
   PAY: number;
   SWEEP: number;
   BOSSES: string[];
@@ -147,9 +148,7 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   const shooter = all.find((row) => row.id === '0040_shooter_boss_receipt')!.statements.join('\n');
   assert.match(shooter, /srv_shooter_boss_clear/);
 
-  // The settlement label is the vendored sim's content fingerprint. 0041 keeps the literal it was
-  // applied with and 0063 swaps it in the live function. When a re-vendor changes contentSha256,
-  // these fail until CoopRewards.FINGERPRINT moves and a new migration like 0063 is added.
+  // The current fingerprint is separated from both already-applied migrations.
   const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
   const pin = JSON.parse(readFileSync(fileURLToPath(new URL('../../modules/vendor/coop-sim.pin.json', import.meta.url)), 'utf8')) as { contentSha256: string };
   assert.equal(CoopProto.FINGERPRINT, pin.contentSha256);
@@ -161,10 +160,17 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(relabel.length, 1);
   assert.equal(relabel[0]!.statements.length, 1);
   const swap = relabel[0]!.statements[0]!;
-  assert.ok(swap.includes(`replace(src, '${CoopRewards.FINGERPRINT_0041}', '${CoopRewards.FINGERPRINT}')`));
+  assert.ok(swap.includes(`replace(src, '${CoopRewards.FINGERPRINT_0041}', '${CoopRewards.FINGERPRINT_0063}')`));
   assert.ok(swap.includes("pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure)"));
   assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(swap), false, 'the migration rewrites no row and no amount');
   assert.ok(ids.indexOf('0063_coop_settle_fingerprint') > ids.indexOf('0062_hub_exchange_open'));
+  const combat = all.filter(row => row.id === '0071_coop_combat_fingerprint');
+  assert.equal(combat.length, 1);
+  assert.equal(combat[0]!.statements.length, 1);
+  const combatSwap = combat[0]!.statements[0]!;
+  assert.ok(combatSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0063}'), quote_literal('${CoopRewards.FINGERPRINT}'))`));
+  assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(combatSwap), false, 'the migration rewrites no row and no amount');
+  assert.ok(ids.indexOf('0071_coop_combat_fingerprint') > ids.indexOf('0070_shooter_campaign_later_levels'));
 }
 
 {

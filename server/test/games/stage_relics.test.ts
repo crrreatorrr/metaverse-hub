@@ -10,7 +10,7 @@ const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const SID2 = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP = '7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8';
 const OP = { HELLO: 1, READY: 3 };
 const RELICS = ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown', 'tidebreaker_belt', 'breakwater_coin', 'marina_anchor', 'dragon_scale'];
 

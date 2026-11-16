@@ -17,6 +17,7 @@ interface CoopPlayer {
   ctrl: string;
   fid: number;
   weapon: number;
+  classId: string;
   name: string;
   lives: number;
   hp: number;
@@ -177,7 +178,10 @@ interface CoopProtocolApi {
   LIMITS: CoopLimits;
   contentManifest(manifest: CoopManifest): CoopContent;
   createMatch(opts: { mode?: string; seed?: number; matchId?: string; stage?: number }): { ok: true; session: CoopSession } | CoopFail;
-  assignSeat(session: CoopSession, req: { slot: number; accountId: string; device: string; generation: number }): CoopSeatOk | CoopFail;
+  assignSeat(session: CoopSession, req: { slot: number; accountId: string; device: string; generation: number }, earnedTier?: number): CoopSeatOk | CoopFail;
+  parseLoadouts(raw: unknown, devices: string[]): { ok: true; picks: { [device: string]: { fighter?: string; weapon?: string; classId?: string } } } | CoopFail;
+  selectLoadout(session: CoopSession, req: { slot: number; accountId: string; generation: number; fighter?: string; weapon?: string; classId?: string }, earnedTier: number): { ok: true } | CoopFail;
+  weaponTier(clears: number): number;
   releaseSeat(session: CoopSession, req: { slot: number; accountId: string; generation: number }): CoopSeatOk | CoopFail;
   acceptInput(session: CoopSession, msg: { [key: string]: unknown }, now: number): CoopInputOk | CoopFail;
   command(session: CoopSession, msg: { [key: string]: unknown }, now: number): { ok: boolean; reason?: string; [key: string]: unknown };

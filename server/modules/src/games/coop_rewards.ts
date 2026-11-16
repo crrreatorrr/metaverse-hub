@@ -18,11 +18,11 @@ namespace CoopRewards {
   // The fingerprint game.settle_coop_clear compares with and writes into receipts, board rows and
   // eligibility rows. It must equal CoopProto.FINGERPRINT (the vendored sim's contentSha256), and
   // tests/games/coop_rewards.test.ts fails when it does not. The SQL function holds it as a
-  // literal: 0041 wrote f8705ec4... and 0063_coop_settle_fingerprint replaced it with this value.
-  // A re-vendor that changes contentSha256 needs this constant and a new migration like 0063.
-  export var FINGERPRINT = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
+  // literal, updated in a new migration every time the vendored content fingerprint changes.
+  export var FINGERPRINT = "7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8";
   /** The literal 0041 wrote. Rows settled before 0063 keep it; nothing is rewritten. */
   export var FINGERPRINT_0041 = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
+  export var FINGERPRINT_0063 = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
   export var AFK_ALIVE = 300;
   export var SESSION_CAP = 200;
   export var DAILY_CAP = 1000;
@@ -433,6 +433,29 @@ HubSchema.register({
       src := replace(src, 'f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e', 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72');
       IF position('f8705ec4' in src) > 0 OR position('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72' in src) = 0 THEN
         RAISE EXCEPTION 'coop_settle_fingerprint_not_replaced';
+      END IF;
+      EXECUTE src;
+    END;
+    $fp$`,
+  ],
+});
+
+// Re-label new settlements for the shared combat bundle. Applied migrations and stored
+// receipts remain byte-for-byte intact; only the live function changes.
+HubSchema.register({
+  id: "0071_coop_combat_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE src text;
+    BEGIN
+      src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+      src := replace(src, quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72'), quote_literal('7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8'));
+      IF position(quote_literal('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72') in src) > 0 OR position(quote_literal('7994f9b549ff1665a0d12a59e5d9b0954ff488fc10bd345365a25894f23df6f8') in src) = 0 THEN
+        RAISE EXCEPTION 'coop_combat_fingerprint_not_replaced';
+      END IF;
+      -- Keep 0063's idempotent replay guard readable without keeping its active label.
+      IF position('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72' in src) = 0 THEN
+        src := replace(src, 'DECLARE', 'DECLARE' || chr(10) || '  -- Historic Coop fingerprint 0063: fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72');
       END IF;
       EXECUTE src;
     END;

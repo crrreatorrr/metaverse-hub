@@ -14,7 +14,7 @@ const pinPath = join(root, 'server/modules/vendor/coop-sim.pin.json');
 const protoPath = join(root, 'server/modules/src/games/coop_protocol.ts');
 const matchPath = join(root, 'server/modules/src/games/coop_match.ts');
 const REPO = 'crrreatorrr/Sproto-Coop-Battle.';
-const FILES = ['public/js/manifest.js', 'public/js/sim.js', 'public/js/ai.js', 'public/js/net-protocol.js'];
+const FILES = ['public/js/manifest.js', 'public/js/combat.js', 'public/js/sim.js', 'public/js/ai.js', 'public/js/net-protocol.js'];
 
 function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex');
