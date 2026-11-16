@@ -9,10 +9,13 @@ function guard(fn: nkruntime.RpcFunction, ctx: nkruntime.Context, logger: nkrunt
   }
 }
 
-// Client storage APIs must never create or delete authoritative pet documents.
+// Client storage APIs must never create, update or delete authoritative progress or pet documents.
 function beforePetStorage(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, data: { [key: string]: unknown }): { [key: string]: unknown } {
   var entries = (data.objects || data.objectIds || []) as { collection?: string; key?: string }[];
   for (var i = 0; i < entries.length; i++) {
+    if (entries[i].collection === "coop_verified_progress") {
+      throw { message: "coop_progress_server_only", code: 7 };
+    }
     if (entries[i].collection === "pets" || (entries[i].collection === "loadout" && entries[i].key === "hub")) {
       throw { message: "pet_storage_rpc_only", code: 7 };
     }

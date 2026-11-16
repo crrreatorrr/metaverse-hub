@@ -10,7 +10,8 @@
 //   RPCs coop.version, coop.room_create, coop.room_join, coop.queue_cancel,
 //        coop.resume, coop.metrics
 //   opcodes:
-//     1  HELLO     c->s {t, protocol, fingerprint, devices[], fighter?, weapon?}
+//     1  HELLO     c->s {t, protocol, fingerprint, devices[], loadouts?, cpuLoadouts?}
+//                  Human loadouts use device keys. CPU loadouts use slot keys and require the current lobby host.
 //     2  WELCOME   s->c first seat grant
 //     3  READY     c->s {t:"ready"}
 //     4  START     s->c banked run began at stage 0
@@ -40,10 +41,10 @@ namespace CoopProto {
   export var MATCH_NAME = "sproto_coop";
   export var KIND = "sproto_coop";
   export var REPO = "crrreatorrr/Sproto-Coop-Battle.";
-  export var COMMIT = "989839db632ab705aec4d833c013f20075b45439";
-  export var BUNDLE_SHA256 = "38543a5f45a5960d11461e7c46846b311d0adf960fc13ba700c7a561b6ac9727";
+  export var COMMIT = "f69b2d54a4da7acf1aeea0e6baa0204785e30216";
+  export var BUNDLE_SHA256 = "667a1772ccc62c3834333f9dabf650e2fa48bc14998f87332b7ecacb030965c7";
   export var PROTOCOL = 1;
-  export var FINGERPRINT = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
+  export var FINGERPRINT = "d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61";
 
   export var OP_HELLO = 1;
   export var OP_WELCOME = 2;

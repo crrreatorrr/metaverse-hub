@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { checkRegistrations, loadModule, presence, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP = 'd1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61';
 const PROTO = 1;
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
 // Coop #26: four seats per match. One account may hold any four of the six devices.
@@ -481,8 +481,8 @@ function assertNoLedger(room: Room, label: string): void {
   const externalHash = (stateOf(m) as { stateHash?: string }).stateHash || '';
   console.log(`four-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
   assert.equal(finalMode, 'gameover');
-  assert.equal(externalTick, 9699);
-  assert.equal(externalHash, 'c773e4423b71e178d89ba7a404b981bd75d945a4da28015a32e2ff3e08880ad7');
+  assert.equal(externalTick, 10593);
+  assert.equal(externalHash, 'fa48652be7341b0a1543f5fe41ff75eaadb8a490f7042c13dbfd1f081df9156f');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
@@ -505,7 +505,7 @@ function assertNoLedger(room: Room, label: string): void {
   const packedTick = stateOf(packedMatch).session?.state.t;
   const packedHash = (stateOf(packedMatch) as { stateHash?: string }).stateHash || '';
   console.log(`golden driver mode=${stateOf(packedMatch).endReason} tick=${packedTick} hash=${packedHash} ms=${Date.now() - packedStarted}`);
-  assert.equal(packedTick, 9699);
+  assert.equal(packedTick, 10593);
   assert.equal(stateOf(packedMatch).endReason, 'gameover');
   assert.equal(packedHash, externalHash);
   assert.equal(ledgerCount(packed), packedLedger);

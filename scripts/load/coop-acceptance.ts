@@ -28,7 +28,7 @@ const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
 /** Seats per Coop match (Coop #26 cut six to four). */
 const SEATS = 4;
-const FP = 'fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72';
+const FP = 'd1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61';
 // game.settle_coop_clear compares with the vendored sim's fingerprint since 0063_coop_settle_fingerprint.
 const SETTLE_FP = FP;
 const HASH = 'ab'.repeat(32);
@@ -468,7 +468,7 @@ const report = {
   staging: false,
   soak: false,
   hardware,
-  pin: { protocol: 1, fingerprint: FP, commit: '989839db632ab705aec4d833c013f20075b45439' },
+  pin: { protocol: 1, fingerprint: FP, commit: 'f69b2d54a4da7acf1aeea0e6baa0204785e30216' },
   sixSeat: {
     helloMs,
     helloP95: helloSorted[Math.min(helloSorted.length - 1, Math.ceil(helloSorted.length * 0.95) - 1)] ?? null,
