@@ -10,7 +10,7 @@ const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = 'd1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61';
+const FP = '1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248';
 const OP = { HELLO: 1, READY: 3 };
 
 function game(userId = USER) {
@@ -86,6 +86,7 @@ const CoopRewards = mod.global.CoopRewards as {
   FINGERPRINT: string;
   FINGERPRINT_0041: string;
   FINGERPRINT_0063: string;
+  FINGERPRINT_0071: string;
   PAY: number;
   SWEEP: number;
   BOSSES: string[];
@@ -148,7 +149,7 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   const shooter = all.find((row) => row.id === '0040_shooter_boss_receipt')!.statements.join('\n');
   assert.match(shooter, /srv_shooter_boss_clear/);
 
-  // The current fingerprint is separated from both already-applied migrations.
+  // The current fingerprint is separate from already-applied migrations.
   const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
   const pin = JSON.parse(readFileSync(fileURLToPath(new URL('../../modules/vendor/coop-sim.pin.json', import.meta.url)), 'utf8')) as { contentSha256: string };
   assert.equal(CoopProto.FINGERPRINT, pin.contentSha256);
@@ -168,9 +169,16 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(combat.length, 1);
   assert.equal(combat[0]!.statements.length, 1);
   const combatSwap = combat[0]!.statements[0]!;
-  assert.ok(combatSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0063}'), quote_literal('${CoopRewards.FINGERPRINT}'))`));
+  assert.ok(combatSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0063}'), quote_literal('${CoopRewards.FINGERPRINT_0071}'))`));
   assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(combatSwap), false, 'the migration rewrites no row and no amount');
   assert.ok(ids.indexOf('0071_coop_combat_fingerprint') > ids.indexOf('0070_shooter_campaign_later_levels'));
+  const mecha = all.filter(row => row.id === '0072_coop_mecha_fingerprint');
+  assert.equal(mecha.length, 1);
+  assert.equal(mecha[0]!.statements.length, 1);
+  const mechaSwap = mecha[0]!.statements[0]!;
+  assert.ok(mechaSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0071}'), quote_literal('${CoopRewards.FINGERPRINT}'))`));
+  assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(mechaSwap), false, 'the migration rewrites no row and no amount');
+  assert.ok(ids.indexOf('0072_coop_mecha_fingerprint') > ids.indexOf('0071_coop_combat_fingerprint'));
 }
 
 {

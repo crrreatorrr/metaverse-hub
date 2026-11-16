@@ -13,7 +13,7 @@ import { call, login, waitReady, type GameLogin } from '../../server/test/dup/ha
 const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
 const GOLDEN_TICK = 10593;
-const GOLDEN_HASH = 'fa48652be7341b0a1543f5fe41ff75eaadb8a490f7042c13dbfd1f081df9156f';
+const GOLDEN_HASH = 'fdff232f3aa412fa8aea5cccc83ded463fe8135756ff6bbb2ddfa9e5285e0707';
 const BENCH_MATCHES = 10;
 const BENCH_MS = 8000;
 
