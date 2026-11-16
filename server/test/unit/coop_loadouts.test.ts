@@ -5,7 +5,8 @@ const A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const B = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const OP = { HELLO: 1, READY: 3, SEATS: 12, REJECT: 13, RELEASE: 16 };
-const progressKey = (userId: string) => `coop_verified_progress/weapons/${userId}`;
+const progressOwner = '00000000-0000-0000-0000-000000000000';
+const progressKey = (userId: string) => `coop_verified_progress/${userId}/${progressOwner}`;
 const game = (p: Presence) => ({ ...p, vars: { scope: 'game', game: 'sproto-coop-battle', sid: SID } });
 
 interface Pick { classId: string; weapon: string; fighter?: string }
@@ -14,6 +15,36 @@ interface Seat { accountId: string; device: string; slot: number; generation: nu
 const mod = loadModule({ env: { COOP_AUTHORITATIVE: '1' } });
 const ada = presence(A, 'ada');
 const bea = presence(B, 'bea');
+
+// Guard the namespace before any legitimate row or profile exists. Storage permissions
+// alone cannot prevent a client from creating its own first authoritative record.
+function rejectProgressStorage(): void {
+  for (const [hook, field] of [['registerBeforeWriteStorageObjects', 'objects'], ['registerBeforeDeleteStorageObjects', 'objectIds']]) {
+    for (const key of ['weapons', A, 'other']) {
+      const forged = { collection: 'coop_verified_progress', key, userId: A,
+        value: JSON.stringify({ clears: 4095, tier: 13 }), permissionRead: 0, permissionWrite: 0 };
+      assert.throws(() => mod.before(hook!, game(ada), { [field!]: [forged] }),
+        (error: unknown) => (error as { message?: string; code?: number }).message === 'coop_progress_server_only'
+          && (error as { code?: number }).code === 7);
+      // One forbidden entry rejects the entire mixed request, regardless of position.
+      const save = { collection: 'save', key: 'game' };
+      for (const entries of [[save, forged], [forged, save]]) {
+        assert.throws(() => mod.before(hook!, game(ada), { [field!]: entries }));
+      }
+    }
+    const allowed = { [field!]: [{ collection: 'save', key: 'game' }] };
+    assert.deepEqual(mod.before(hook!, game(ada), allowed), allowed);
+  }
+}
+assert.equal(mod.nk.storage.has(progressKey(A)), false);
+rejectProgressStorage();
+assert.equal(mod.nk.storage.has(progressKey(A)), false, 'rejected first writes create no progress');
+
+// A pre-existing client-owned record must never become authoritative, even
+// when its permissions imitate a server write. Leave it untouched.
+const forgedKey = `coop_verified_progress/weapons/${B}`;
+mod.nk.storage.set(forgedKey, { value: { tier: 13, clears: 4095 }, version: 'forged', permissionRead: 0, permissionWrite: 0 });
+mod.nk.storage.set(`coop_verified_progress/${B}/${B}`, { value: { tier: 13, clears: 4095 }, version: 'forged-new-key', permissionRead: 0, permissionWrite: 0 });
 const { protocol, fingerprint } = mod.call<{ protocol: number; fingerprint: string }>('coop.version', game(ada), {});
 const room = mod.call<{ matchId: string; error?: string }>('coop.room_create', game(ada), {});
 assert.ok(room.matchId, room.error);
@@ -107,8 +138,11 @@ match.loop();
 assert.equal(live.state.mode, 'clear');
 const earned = mod.nk.storage.get(progressKey(B));
 assert.equal(earned?.value.tier, 2, 'verified stage one clear earns one tier');
+assert.equal(mod.nk.storage.get(forgedKey)?.version, 'forged', 'untrusted legacy records are not imported or deleted');
 assert.equal(earned.permissionRead, 0);
 assert.equal(earned.permissionWrite, 0);
+rejectProgressStorage();
+assert.equal(mod.nk.storage.get(progressKey(B))?.version, earned.version, 'client attempts leave earned progress unchanged');
 assert.equal(mod.nk.storage.get(progressKey(A))?.version, 'earned-3', 'a lower clear preserves a higher tier');
 match.loop();
 assert.equal(mod.nk.storage.get(progressKey(B))?.version, earned.version, 'replaying the clear window does not write again');

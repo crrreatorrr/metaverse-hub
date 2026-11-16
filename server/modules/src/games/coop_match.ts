@@ -234,8 +234,11 @@ namespace CoopMatch {
 
   // Banked loadouts are earned by this server; a practice save can be client edited.
   var LOADOUT_COLLECTION = "coop_verified_progress";
+  // System-owned records cannot be pre-created by a client. Never import the
+  // former account-owned weapons rows: their provenance cannot be established.
+  var LOADOUT_OWNER = "00000000-0000-0000-0000-000000000000";
   function weaponProgress(nk: nkruntime.Nakama, userId: string) {
-    var rows = nk.storageRead([{ collection: LOADOUT_COLLECTION, key: "weapons", userId: userId }]);
+    var rows = nk.storageRead([{ collection: LOADOUT_COLLECTION, key: userId, userId: LOADOUT_OWNER }]);
     var row = rows[0];
     var clears = row && row.value ? Number(row.value["clears"]) & 4095 : 0;
     return { clears: clears, tier: CoopProtocol.weaponTier(clears), version: row ? row.version : "*" };
@@ -247,7 +250,7 @@ namespace CoopMatch {
       if (row.clears === clears) return row.tier;
       var tier = CoopProtocol.weaponTier(clears);
       try {
-        nk.storageWrite([{ collection: LOADOUT_COLLECTION, key: "weapons", userId: userId,
+        nk.storageWrite([{ collection: LOADOUT_COLLECTION, key: userId, userId: LOADOUT_OWNER,
           value: { tier: tier, clears: clears }, version: row.version, permissionRead: 0, permissionWrite: 0 }]);
         return tier;
       } catch (e) {
