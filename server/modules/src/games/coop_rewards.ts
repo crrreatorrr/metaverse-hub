@@ -19,11 +19,12 @@ namespace CoopRewards {
   // eligibility rows. It must equal CoopProto.FINGERPRINT (the vendored sim's contentSha256), and
   // tests/games/coop_rewards.test.ts fails when it does not. The SQL function holds it as a
   // literal, updated in a new migration every time the vendored content fingerprint changes.
-  export var FINGERPRINT = "1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248";
+  export var FINGERPRINT = "9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67";
   /** The literal 0041 wrote. Rows settled before 0063 keep it; nothing is rewritten. */
   export var FINGERPRINT_0041 = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
   export var FINGERPRINT_0063 = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
   export var FINGERPRINT_0071 = "d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61";
+  export var FINGERPRINT_0072 = "1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248";
   export var AFK_ALIVE = 300;
   export var SESSION_CAP = 200;
   export var DAILY_CAP = 1000;
@@ -485,6 +486,34 @@ HubSchema.register({
       src := replace(src, 'DECLARE' || chr(10), 'DECLARE' || chr(10) || replay_guard);
       IF position(replay_guard in src) = 0 THEN
         RAISE EXCEPTION 'coop_mecha_fingerprint_replay_guard_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $fp$`,
+  ],
+});
+
+// Use the eight-second transformation's fingerprint for new settlements.
+HubSchema.register({
+  id: "0073_coop_transform_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE
+      src text;
+      previous_label constant text := quote_literal('1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248');
+      current_label constant text := quote_literal('9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67');
+      replay_guard constant text := '  -- Historic Coop fingerprint 0072: ' || previous_label || chr(10);
+    BEGIN
+      src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+      src := replace(src, replay_guard, '');
+      src := replace(src, previous_label, current_label);
+      IF position(previous_label in src) > 0 OR position(current_label in src) = 0 THEN
+        RAISE EXCEPTION 'coop_transform_fingerprint_not_replaced';
+      END IF;
+      -- 0072 checks for its fingerprint on replay.
+      src := replace(src, 'DECLARE' || chr(10), 'DECLARE' || chr(10) || replay_guard);
+      IF position(replay_guard in src) = 0 THEN
+        RAISE EXCEPTION 'coop_transform_fingerprint_replay_guard_missing';
       END IF;
       EXECUTE src;
     END;

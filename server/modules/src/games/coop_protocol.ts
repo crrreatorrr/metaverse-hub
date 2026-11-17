@@ -41,10 +41,10 @@ namespace CoopProto {
   export var MATCH_NAME = "sproto_coop";
   export var KIND = "sproto_coop";
   export var REPO = "crrreatorrr/Sproto-Coop-Battle.";
-  export var COMMIT = "69ca5aa713f5ae288f265e84f057be0b98819cb7";
-  export var BUNDLE_SHA256 = "833918e82f01d0e45ae0475486a42679c403ad006063bbead56e65b78f4d29c3";
+  export var COMMIT = "3dad4f3867db2e4171ca6a93c55a0ffcdf41cbc6";
+  export var BUNDLE_SHA256 = "b77aebc87bf9cbd2fc5b3cc6240e54a4e9ba25824fb4a74d4a6cf0ea0c4f8ac1";
   export var PROTOCOL = 1;
-  export var FINGERPRINT = "1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248";
+  export var FINGERPRINT = "9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67";
 
   export var OP_HELLO = 1;
   export var OP_WELCOME = 2;

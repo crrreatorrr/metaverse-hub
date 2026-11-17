@@ -10,10 +10,17 @@ const pg = freshPg('coop_settle');
 const { mod } = pg;
 
 const GAME = 'sproto-coop-battle';
-const CoopRewards = mod.global.CoopRewards as { FINGERPRINT: string; FINGERPRINT_0041: string; FINGERPRINT_0071: string; BOSSES: string[] };
+const CoopRewards = mod.global.CoopRewards as {
+  FINGERPRINT: string;
+  FINGERPRINT_0041: string;
+  FINGERPRINT_0071: string;
+  FINGERPRINT_0072: string;
+  BOSSES: string[];
+};
 const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
 const NEW = CoopRewards.FINGERPRINT;
 const OLD = CoopRewards.FINGERPRINT_0041;
+const MECHA = CoopRewards.FINGERPRINT_0072;
 const pin = JSON.parse(readFileSync(fileURLToPath(new URL('../../modules/vendor/coop-sim.pin.json', import.meta.url)), 'utf8')) as { contentSha256: string };
 assert.equal(NEW, CoopProto.FINGERPRINT);
 assert.equal(NEW, pin.contentSha256);
@@ -63,6 +70,7 @@ const booted = pg.reload();
 assert.deepEqual(booted.logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0063_coop_settle_fingerprint'"), 1);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0072_coop_mecha_fingerprint'"), 1);
+assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0073_coop_transform_fingerprint'"), 1);
 assert.equal(functionBody().includes(OLD), false);
 assert.equal(functionBody().split(NEW).length - 1, 5);
 
@@ -105,6 +113,8 @@ assert.deepEqual([stale.paid, stale.tickets, stale.reason], [false, 0, 'bad_vers
 assert.deepEqual(settle(fresh, freshSid, B1, 'room-stale', 'enc-stale', NEW), stale);
 const previous = settle(fresh, freshSid, B1, 'room-previous', 'enc-previous', CoopRewards.FINGERPRINT_0071);
 assert.deepEqual([previous.paid, previous.tickets, previous.reason], [false, 0, 'bad_version']);
+const mecha = settle(fresh, freshSid, B1, 'room-mecha', 'enc-mecha', MECHA);
+assert.deepEqual([mecha.paid, mecha.tickets, mecha.reason], [false, 0, 'bad_version']);
 assert.equal(tickets(pg, fresh, GAME), 0);
 assert.equal(count(pg, 'SELECT 1 FROM game.coop_receipt WHERE user_id = $1::uuid', [fresh]), 0);
 
@@ -114,11 +124,28 @@ const viaModule = (mod.global.CoopRewards as unknown as { settle(...args: unknow
 assert.deepEqual([viaModule.paid, viaModule.tickets, viaModule.fingerprint], [true, 20, NEW]);
 assert.equal(tickets(pg, fresh, GAME), 20);
 
-// Replaying 0063, 0071 and 0072 leaves the function unchanged.
+// Replaying the fingerprint migrations leaves the function unchanged.
 pg.run("DELETE FROM game.schema_migrations WHERE id >= '0063_coop_settle_fingerprint'");
 const bodyBefore = functionBody();
 assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(functionBody(), bodyBefore);
+
+// Upgrade a database already on 0072, including a receipt paid under its label.
+pg.run(`DO $previous$ DECLARE src text; BEGIN
+  src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+  src := replace(src, '  -- Historic Coop fingerprint 0072: ' || quote_literal('${MECHA}') || chr(10), '');
+  EXECUTE replace(src, quote_literal('${NEW}'), quote_literal('${MECHA}'));
+END $previous$`);
+const mechaUser = addUser(pg, 'coop_mecha_veteran');
+const mechaSession = openGameSession(pg, mechaUser, GAME);
+const mechaReceipt = settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', MECHA);
+assert.deepEqual([mechaReceipt.paid, mechaReceipt.tickets, mechaReceipt.fingerprint], [true, 20, MECHA]);
+pg.run("DELETE FROM game.schema_migrations WHERE id = '0073_coop_transform_fingerprint'");
+assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
+assert.equal(functionBody(), bodyBefore);
+assert.deepEqual(settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', NEW), mechaReceipt);
+assert.equal(stored(mechaUser, B1)?.fingerprint, MECHA);
+assert.equal(tickets(pg, mechaUser, GAME), 20);
 
 pg.audit();
 console.log('pg coop settle fingerprint ok');
