@@ -19,10 +19,11 @@ namespace CoopRewards {
   // eligibility rows. It must equal CoopProto.FINGERPRINT (the vendored sim's contentSha256), and
   // tests/games/coop_rewards.test.ts fails when it does not. The SQL function holds it as a
   // literal, updated in a new migration every time the vendored content fingerprint changes.
-  export var FINGERPRINT = "d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61";
+  export var FINGERPRINT = "1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248";
   /** The literal 0041 wrote. Rows settled before 0063 keep it; nothing is rewritten. */
   export var FINGERPRINT_0041 = "f8705ec4b68e5643e7ce7e3f0014308e9546ddf43d55a506f4805e4091b07f1e";
   export var FINGERPRINT_0063 = "fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72";
+  export var FINGERPRINT_0071 = "d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61";
   export var AFK_ALIVE = 300;
   export var SESSION_CAP = 200;
   export var DAILY_CAP = 1000;
@@ -456,6 +457,34 @@ HubSchema.register({
       -- Keep 0063's idempotent replay guard readable without keeping its active label.
       IF position('fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72' in src) = 0 THEN
         src := replace(src, 'DECLARE', 'DECLARE' || chr(10) || '  -- Historic Coop fingerprint 0063: fb9f2679528b6810dfd3a42ce41bb6f2ed3ac8e75eb3741e2ad30ccd9a4b9a72');
+      END IF;
+      EXECUTE src;
+    END;
+    $fp$`,
+  ],
+});
+
+// Re-pin the live settlement function to the boss combat content. Existing receipts
+// and payment rules remain intact.
+HubSchema.register({
+  id: "0072_coop_mecha_fingerprint",
+  statements: [
+    `DO $fp$
+    DECLARE
+      src text;
+      replay_guard constant text := '  -- Historic Coop fingerprint 0071: ' || quote_literal('d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61') || chr(10);
+    BEGIN
+      src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+      -- Remove the comment first so this rerun only examines active fingerprint literals.
+      src := replace(src, replay_guard, '');
+      src := replace(src, quote_literal('d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61'), quote_literal('1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248'));
+      IF position(quote_literal('d1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61') in src) > 0 OR position(quote_literal('1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248') in src) = 0 THEN
+        RAISE EXCEPTION 'coop_mecha_fingerprint_not_replaced';
+      END IF;
+      -- 0071's replay guard expects its quoted label, even after this re-pin.
+      src := replace(src, 'DECLARE' || chr(10), 'DECLARE' || chr(10) || replay_guard);
+      IF position(replay_guard in src) = 0 THEN
+        RAISE EXCEPTION 'coop_mecha_fingerprint_replay_guard_missing';
       END IF;
       EXECUTE src;
     END;

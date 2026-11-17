@@ -1,4 +1,4 @@
-// 0063_coop_settle_fingerprint on a real Postgres: game.settle_coop_clear labels receipts with the
+// Coop settlement migrations on real Postgres: game.settle_coop_clear labels receipts with the
 // vendored Coop sim's content fingerprint. Clears settled under the 0041 label keep their Tickets,
 // receipt and stored answer through the migration, and the rules that bound the payout do not move.
 import assert from 'node:assert/strict';
@@ -10,7 +10,7 @@ const pg = freshPg('coop_settle');
 const { mod } = pg;
 
 const GAME = 'sproto-coop-battle';
-const CoopRewards = mod.global.CoopRewards as { FINGERPRINT: string; FINGERPRINT_0041: string; BOSSES: string[] };
+const CoopRewards = mod.global.CoopRewards as { FINGERPRINT: string; FINGERPRINT_0041: string; FINGERPRINT_0071: string; BOSSES: string[] };
 const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
 const NEW = CoopRewards.FINGERPRINT;
 const OLD = CoopRewards.FINGERPRINT_0041;
@@ -36,7 +36,7 @@ const boardLabel = (user: string, boss: string) => pg.run("SELECT meta->>'finger
 
 const [B1, B2, B3] = CoopRewards.BOSSES as [string, string, string];
 
-// A fresh database (0041 then 0063) has one function and only the new label in it.
+// A fresh database has one function with the new active label.
 assert.equal(count(pg, "SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = 'game' AND p.proname = 'settle_coop_clear'"), 1);
 assert.equal(functionBody().includes(OLD), false);
 assert.equal(functionBody().split(NEW).length - 1, 5, 'the check and the four labels');
@@ -57,11 +57,12 @@ const receiptBefore = stored(veteran, B1);
 const ledgerBefore = pg.run('SELECT event_id, delta, balance_after, reason, kind FROM game.tickets_ledger WHERE user_id = $1::uuid ORDER BY created_at, event_id', [veteran]);
 const eligibilityBefore = pg.run('SELECT match_id, encounter_id, eligible, reason, fingerprint, response::text AS response FROM game.coop_eligibility WHERE user_id = $1::uuid ORDER BY match_id', [veteran]);
 
-// Deploy: the runner applies 0063 (its row is not recorded yet in the pre-deploy state).
+// Deploy: the runner applies the fingerprint migrations in order.
 pg.run("DELETE FROM game.schema_migrations WHERE id >= '0063_coop_settle_fingerprint'");
 const booted = pg.reload();
 assert.deepEqual(booted.logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0063_coop_settle_fingerprint'"), 1);
+assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0072_coop_mecha_fingerprint'"), 1);
 assert.equal(functionBody().includes(OLD), false);
 assert.equal(functionBody().split(NEW).length - 1, 5);
 
@@ -102,6 +103,8 @@ const freshSid = openGameSession(pg, fresh, GAME);
 const stale = settle(fresh, freshSid, B1, 'room-stale', 'enc-stale', OLD);
 assert.deepEqual([stale.paid, stale.tickets, stale.reason], [false, 0, 'bad_version']);
 assert.deepEqual(settle(fresh, freshSid, B1, 'room-stale', 'enc-stale', NEW), stale);
+const previous = settle(fresh, freshSid, B1, 'room-previous', 'enc-previous', CoopRewards.FINGERPRINT_0071);
+assert.deepEqual([previous.paid, previous.tickets, previous.reason], [false, 0, 'bad_version']);
 assert.equal(tickets(pg, fresh, GAME), 0);
 assert.equal(count(pg, 'SELECT 1 FROM game.coop_receipt WHERE user_id = $1::uuid', [fresh]), 0);
 
@@ -111,7 +114,7 @@ const viaModule = (mod.global.CoopRewards as unknown as { settle(...args: unknow
 assert.deepEqual([viaModule.paid, viaModule.tickets, viaModule.fingerprint], [true, 20, NEW]);
 assert.equal(tickets(pg, fresh, GAME), 20);
 
-// Applying 0063 again changes nothing.
+// Replaying 0063, 0071 and 0072 leaves the function unchanged.
 pg.run("DELETE FROM game.schema_migrations WHERE id >= '0063_coop_settle_fingerprint'");
 const bodyBefore = functionBody();
 assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);

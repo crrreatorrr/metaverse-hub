@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { checkRegistrations, loadModule, presence, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const FP = 'd1ca2efc4121b62c885b6f3fbf3c193c3ac76360056b9551b7301fc4085d8c61';
+const FP = '1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248';
 const PROTO = 1;
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
 // Coop #26: four seats per match. One account may hold any four of the six devices.
@@ -482,7 +482,7 @@ function assertNoLedger(room: Room, label: string): void {
   console.log(`four-seat stage mode=${finalMode} tick=${externalTick} hash=${externalHash} ms=${Date.now() - started}`);
   assert.equal(finalMode, 'gameover');
   assert.equal(externalTick, 10593);
-  assert.equal(externalHash, 'fa48652be7341b0a1543f5fe41ff75eaadb8a490f7042c13dbfd1f081df9156f');
+  assert.equal(externalHash, 'fdff232f3aa412fa8aea5cccc83ded463fe8135756ff6bbb2ddfa9e5285e0707');
   assert.equal(facts?.tickets ?? 0, 0);
   assert.equal(facts?.scoreSubmitted ?? 0, 0);
   assert.equal(facts?.accounts?.length, 1);
