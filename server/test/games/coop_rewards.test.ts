@@ -10,7 +10,7 @@ const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = '1bdabcabe4c41ea317d60484cb69ee0e25052bfd9384451247fac60bfb9c5248';
+const FP = '9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67';
 const OP = { HELLO: 1, READY: 3 };
 
 function game(userId = USER) {
@@ -87,6 +87,7 @@ const CoopRewards = mod.global.CoopRewards as {
   FINGERPRINT_0041: string;
   FINGERPRINT_0063: string;
   FINGERPRINT_0071: string;
+  FINGERPRINT_0072: string;
   PAY: number;
   SWEEP: number;
   BOSSES: string[];
@@ -176,9 +177,18 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(mecha.length, 1);
   assert.equal(mecha[0]!.statements.length, 1);
   const mechaSwap = mecha[0]!.statements[0]!;
-  assert.ok(mechaSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0071}'), quote_literal('${CoopRewards.FINGERPRINT}'))`));
+  assert.ok(mechaSwap.includes(`replace(src, quote_literal('${CoopRewards.FINGERPRINT_0071}'), quote_literal('${CoopRewards.FINGERPRINT_0072}'))`));
   assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(mechaSwap), false, 'the migration rewrites no row and no amount');
   assert.ok(ids.indexOf('0072_coop_mecha_fingerprint') > ids.indexOf('0071_coop_combat_fingerprint'));
+  const transform = all.filter(row => row.id === '0073_coop_transform_fingerprint');
+  assert.equal(transform.length, 1);
+  assert.equal(transform[0]!.statements.length, 1);
+  const transformSwap = transform[0]!.statements[0]!;
+  assert.ok(transformSwap.includes(`previous_label constant text := quote_literal('${CoopRewards.FINGERPRINT_0072}')`));
+  assert.ok(transformSwap.includes(`current_label constant text := quote_literal('${CoopRewards.FINGERPRINT}')`));
+  assert.ok(transformSwap.includes('replace(src, previous_label, current_label)'));
+  assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(transformSwap), false, 'the migration rewrites no row and no amount');
+  assert.ok(ids.indexOf('0073_coop_transform_fingerprint') > ids.indexOf('0072_coop_mecha_fingerprint'));
 }
 
 {

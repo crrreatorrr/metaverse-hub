@@ -29,6 +29,7 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0070 | `0070_shooter_campaign_later_levels`: moves that allowlist from `7db4fc4f` / `ab175aae…` onto the campaign bundle rebuilt from `1fd01820` / `7ba57e42…` (Levels 7-10 changed campaign level data; fingerprint stays `73c6eb0f`). A comment keeps `0069`'s literals so it still replays. Arena moves to the same commit because sim sources changed; fingerprint stays `e749d2fd`, sha256 `2b799f2c…`. The campaign client at `0d604fe8` names this commit and sha. Stored rows, the 20 Ticket amount, and wager settlement stay. Branch `cursor/revendor-shooter-coop-98f0` |
 | 0071 | `0071_coop_combat_fingerprint`: re-pins `game.settle_coop_clear` from `fb9f2679…` to `d1ca2efc…` for the shared combat bundle. No stored row or payout changes. Branch `codex/coop-combat-authority` |
 | 0072 | `0072_coop_mecha_fingerprint`: re-pins `game.settle_coop_clear` from `d1ca2efc…` to `1bdabcab…` for the boss transformation and Phase 2 moves. No stored row or payout changes. Branch `codex/coop-mecha-sim-pin` |
+| 0073 | `0073_coop_transform_fingerprint`: re-pins `game.settle_coop_clear` from `1bdabcab…` to `9c1841f6…` for eight-second boss transformations. Stored settlements and payout rules stay intact. Branch `codex/coop-boss-polish-pin` |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied
