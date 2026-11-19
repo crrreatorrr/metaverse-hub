@@ -1553,6 +1553,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       keys.clear();
       return false;
     },
+    // The WebGL buffer is not preserved (engine.ts): draw a frame now so the capture, which reads
+    // the canvas in this same task, is not blank.
+    beforeCapture: () => world.render(),
     canvases: () => [canvas],
     context: () => ({
       level: definition.id,
