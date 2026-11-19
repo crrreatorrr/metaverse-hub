@@ -1,4 +1,4 @@
-import { AdditiveBlending, Box3, LOD, Mesh, MeshStandardMaterial, Vector3, type Object3D } from 'three';
+import { AdditiveBlending, Box3, LOD, Mesh, MeshStandardMaterial, Vector3, type Object3D, type Texture } from 'three';
 import { WORLD_ROOT, animated, glow, loadGLTF } from '../../v2/core';
 
 /**
@@ -15,14 +15,14 @@ const ADDITIVE = new Set(['sign_glow', 'sign_wallglow']);
 const FLICKER = new Set(['sign_tubes', 'sign_tubes_body', 'sign_art', 'sign_glow', 'sign_wallglow']);
 
 export async function loadNeonSign(scale = 1, lod1Distance = 14): Promise<LOD> {
-  const [near, far] = await Promise.all([
-    loadGLTF(`${WORLD_ROOT}v2/web/I9-neon-sign.glb`),
-    loadGLTF(`${WORLD_ROOT}v2/web/I9-neon-sign-lod1.glb`),
-  ]);
+  // LOD1 first so the sign never holds up the Bar; LOD0 replaces it up close when it arrives.
+  const nearTask = loadGLTF(`${WORLD_ROOT}v2/web/I9-neon-sign.glb`);
+  nearTask.catch(() => undefined);
+  const far = await loadGLTF(`${WORLD_ROOT}v2/web/I9-neon-sign-lod1.glb`);
   const lod = new LOD();
   lod.name = 'club-neon-sign';
   const lit: { mat: MeshStandardMaterial; base: number }[] = [];
-  for (const [gltf, distance] of [[near, 0], [far, lod1Distance]] as const) {
+  const makeLevel = (gltf: { scene: Object3D }): Object3D => {
     const root = gltf.scene.clone(true);
     root.scale.setScalar(scale);
     root.traverse((obj: Object3D) => {
@@ -44,9 +44,26 @@ export async function loadNeonSign(scale = 1, lod1Distance = 14): Promise<LOD> {
       }
       if (BLOOM.has(name)) glow(mesh);
     });
-    lod.addLevel(root, distance);
-  }
-  const collider = near.scene.getObjectByName('sign_collider');
+    return root;
+  };
+  const farLevel = makeLevel(far);
+  lod.addLevel(farLevel, 0);
+  void nearTask.then((near) => {
+    const farEntry = lod.levels.find((entry) => entry.object === farLevel);
+    if (farEntry) farEntry.distance = lod1Distance;
+    const nearLevel = makeLevel(near);
+    // A mount that set an envMap on the sign (the Bar) leaves it in userData.envMap for this level.
+    const env = lod.userData.envMap as Texture | undefined;
+    if (env) {
+      nearLevel.traverse((obj) => {
+        const m = (obj as Mesh).material as MeshStandardMaterial | undefined;
+        if (m?.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; }
+      });
+    }
+    lod.addLevel(nearLevel, 0);
+  }).catch((error: unknown) => console.warn('[club] neon sign LOD0 failed; keeping LOD1', error));
+  // LOD1 has the same collider mesh as LOD0.
+  const collider = far.scene.getObjectByName('sign_collider');
   const box = collider ? new Box3().setFromObject(collider) : new Box3(new Vector3(-0.73, -0.75, 0), new Vector3(0.73, 0.75, 0.06));
   lod.userData.collider = new Box3(box.min.clone().multiplyScalar(scale), box.max.clone().multiplyScalar(scale));
 

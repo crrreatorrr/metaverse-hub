@@ -80,7 +80,7 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
     ['sproto-arcade', 'sproto-fighter', 'sproto-coop-battle'],
   );
   assert.equal(ARCADE_GAMES[0]?.label, ARCADE_STORY_GAME.label);
-  assert.equal(ARCADE_GAMES[0]?.blurb, 'The Long Way Home · ten giant bosses, a rooftop chase and the code shaft');
+  assert.equal(ARCADE_GAMES[0]?.blurb, 'The Long Way Home · twelve giant bosses, a rooftop chase and the code shaft');
   assert.equal(ARCADE_GAMES[1]?.label, ARCADE_GAME.label);
   assert.equal(ARCADE_GAMES[1]?.blurb, 'Story mode and online 1v1 duels');
   assert.equal(ARCADE_GAMES[2]?.label, 'Sproto Coop Battle');

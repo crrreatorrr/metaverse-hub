@@ -58,6 +58,8 @@ const HINTS: Record<Field, string> = {
 
 const LEAVE_MS = 650;
 const READY_BEAT_MS = 350;
+/** Back from a game (`#from=<game>`): the player has seen the gate already, so no beat. */
+const returning = (): boolean => /(?:^#|[#&])from=/.test(window.location.hash);
 
 function el<T extends HTMLElement>(id: string, type: new () => T): T {
   const node = document.getElementById(id);
@@ -373,7 +375,7 @@ function createGate(): Gate {
       worldReady = true;
       shown = 1;
       paintProgress();
-      if (entered) window.setTimeout(leave, READY_BEAT_MS);
+      if (entered) window.setTimeout(leave, returning() ? 0 : READY_BEAT_MS);
     },
     failed(message) {
       worldError = message || 'The plaza failed to load.';

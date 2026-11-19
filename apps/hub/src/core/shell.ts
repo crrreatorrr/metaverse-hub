@@ -1096,7 +1096,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     });
   }
 
-  const ENTER_FADE_MS = 700;
+  // The wipe fades in over 380 ms (style.css #wipe); leave once it covers the plaza, not later.
+  const ENTER_FADE_MS = 400;
   const PORTAL_ERROR_MS = 5000;
 
   async function travel(portal: { id: GameId; label: string; color: string }, page: string, matureConfirmed = false): Promise<void> {

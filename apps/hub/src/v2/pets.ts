@@ -116,7 +116,11 @@ export interface PetFollower {
   emote(name: 'emote_happy' | 'emote_dance' | 'spawn_poof'): void;
 }
 
-export function createPetFollower(parent: Object3D, collide?: PetCollision): PetFollower {
+/**
+ * `nearOnly`: load only the LOD0 model. For the local player's pet, which follows the camera and
+ * never gets far enough to switch to LOD1, so the LOD1 file would be a wasted download.
+ */
+export function createPetFollower(parent: Object3D, collide?: PetCollision, opts: { nearOnly?: boolean } = {}): PetFollower {
   const group = new LOD();
   group.name = 'hub-pet';
   group.scale.setScalar(PET_SCALE);
@@ -256,12 +260,16 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
       const entry = PETS_DATA.pets[id] as PetEntry;
       const pulses = (entry.pulses ?? []) as Pulse[];
       const file = (path: string) => `${PET_DIR}${path.replace(/^glb\//, '')}`;
-      const [near, far] = await Promise.all([loadGLTF(file(definition?.model ?? entry.file)), loadGLTF(file(entry.lod1))]);
+      const [near, far] = await Promise.all([
+        loadGLTF(file(definition?.model ?? entry.file)),
+        opts.nearOnly ? Promise.resolve(null) : loadGLTF(file(entry.lod1)),
+      ]);
       if (mine !== token) return;
       clear();
       motion.setFollowSpeed(definition?.followSpeed ?? 8);
       idleAnimation = definition?.idleAnimation ?? 'idle';
-      levels = [makeLevel(near.scene, near.animations, id, pulses), makeLevel(far.scene, far.animations, id, pulses)];
+      levels = [makeLevel(near.scene, near.animations, id, pulses)];
+      if (far) levels.push(makeLevel(far.scene, far.animations, id, pulses));
       tricks = IDLE_TRICKS.filter(name => levels.every(level => level.actions.has(name)));
       const height = id === 'pet_sproto_pup' ? PETS_DATA.contract.height_m.sproto_pup : PETS_DATA.contract.height_m.sproto;
       for (const level of levels) {
@@ -270,7 +278,7 @@ export function createPetFollower(parent: Object3D, collide?: PetCollision): Pet
         else if (CLEARANCE_BOXES[id] && id !== 'pet_mecha') level.root.position.y += GROUND_CLEARANCE;
       }
       group.addLevel(levels[0].root, 0);
-      group.addLevel(levels[1].root, LOD1_DISTANCE);
+      if (levels[1]) group.addLevel(levels[1].root, LOD1_DISTANCE);
       for (const level of levels) {
         level.mixer.addEventListener('finished', onFinished as never);
         if ((entry.rig === 'mixamo' && id !== 'pet_mecha') || id === 'pet_speed_sproto') {
