@@ -44,13 +44,20 @@
 		root * /srv/play/{args[0]}/current
 		@html path_regexp html_{args[2]} "(^/$|\.html$|/asset-manifest\.json$)"
 		# Matchers see the path before handle_path strips the game prefix.
-		# Godot exports (index.<hash>.wasm|pck|js) and Vite chunks
-		# (assets/<name>-<8 char hash>.<ext>) never change under one name.
-		# An 8-letter lowercase word after the last dash is a file name, not a
-		# Vite hash (boss-defeated.mp3), so it keeps the short default.
+		# Godot exports (index.<hash>.wasm|pck|js) and Vite's code chunks
+		# (assets/<name>-<8 char hash>.js|css|wasm) never change under one name.
+		# Only code: Vite emits it, while a game's public/ can put a hand-named
+		# media file such as boss-intro_01.mp3 under assets/ too, and an 8-char
+		# tail cannot tell the two apart. An 8-letter lowercase word is never
+		# taken for a hash.
 		@hashed {
-			path_regexp hashed_{args[2]} "^(/{args[0]})?/(index\.[A-Za-z0-9_-]+\.(wasm|pck|js)|assets/(.+/)?[^/]+-[A-Za-z0-9_-]{8}\.(js|mjs|css|wasm|png|webp|jpg|jpeg|avif|glb|ktx2|mp3|ogg|m4a|woff2|svg))$"
+			path_regexp hashed_{args[2]} "^(/{args[0]})?/(index\.[A-Za-z0-9_-]+\.(wasm|pck|js)|assets/(.+/)?[^/]+-[A-Za-z0-9_-]{8}\.(js|mjs|css|wasm))$"
 			not path_regexp hashed_word_{args[2]} "-[a-z-]{8}\.[a-z0-9]+$"
+		}
+		# Hash-looking media: an hour, then the browser revalidates in the background.
+		@hashed_media {
+			path_regexp hashed_media_{args[2]} "^(/{args[0]})?/assets/(.+/)?[^/]+-[A-Za-z0-9_-]{8}\.(png|webp|jpg|jpeg|avif|glb|ktx2|mp3|ogg|m4a|woff2|svg)$"
+			not path_regexp hashed_media_word_{args[2]} "-[a-z-]{8}\.[a-z0-9]+$"
 		}
 		# Coop-Battle busts caches with ?v=<24 hex> on files it changes.
 		@busted {
@@ -62,6 +69,10 @@
 		header @hashed {
 			defer
 			Cache-Control "public, max-age=31536000, immutable"
+		}
+		header @hashed_media {
+			defer
+			Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
 		}
 		header @busted {
 			defer
@@ -215,19 +226,11 @@ play.{$DOMAIN} {
 	import game sproto-coop-battle {$GAME_COOP_SPROTO_COOP_BATTLE:0} sproto_coop_battle
 
 	# Character rigs and stage packs shared by sproto-duel and sproto-shooter, deployed once under
-	# /srv/play/shared-assets/sproto/current. Stable names, so an hour plus background revalidation
-	# (like the hub's /world/); content-hashed names under it are immutable.
+	# /srv/play/shared-assets/sproto/current. Names are hand-picked, so nothing is immutable: an hour,
+	# then background revalidation (like the hub's /world/).
 	handle_path /shared-assets/sproto/* {
 		root * /srv/play/shared-assets/sproto/current
-		@shared_hashed {
-			path_regexp shared_hashed "-[A-Za-z0-9_-]{8}\.[a-z0-9]+$"
-			not path_regexp shared_word "-[a-z-]{8}\.[a-z0-9]+$"
-		}
 		header Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
-		header @shared_hashed {
-			defer
-			Cache-Control "public, max-age=31536000, immutable"
-		}
 		header {
 			X-Content-Type-Options nosniff
 			Access-Control-Allow-Origin *
