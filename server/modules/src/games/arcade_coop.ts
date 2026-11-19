@@ -7,7 +7,7 @@
 // Rewards are settled here once per match: a clear both present seats report, on the match's
 // level, with hashes agreeing through the last checked tick and no god mode, pays each present
 // account that passes the AFK check (its non-zero input frames are at least half the ticks it
-// relayed) 20 Tickets as `arcade_clear` (levels 1-14) and, on level 1, the Breakwater Coin through
+// received) 20 Tickets as `arcade_clear` (levels 1-14) and, on level 1, the Breakwater Coin through
 // `arcade.boss_defeated` {boss:"bront"}. Both go through the single-player calls (game.earn_tickets
 // via HubEconomy.earn, game.apply_event via HubRpc.grantEvent) with the seat's own game session,
 // so caps, the session lease and idempotency are the same; keys are scoped to this match.
@@ -72,6 +72,8 @@ namespace ArcadeCoop {
     awayTick: number;
     /** Sim ticks this seat's inputs cover (the next expected `from`). */
     covered: number;
+    /** Distinct ticks actually received (a reconnect gap is not counted). */
+    received: number;
     /** Non-zero frames among those ticks. */
     nonZero: number;
     result: { status: string; level: number; tick: number; god: boolean } | null;
@@ -244,7 +246,7 @@ namespace ArcadeCoop {
   // ----- reward settlement -----
 
   function afkOk(seat: Seat): boolean {
-    return seat.covered > 0 && seat.nonZero >= 0.5 * seat.covered;
+    return seat.received > 0 && seat.nonZero >= 0.5 * seat.received;
   }
 
   /** Pays one seat. Errors (a cap, a closed session) pay nothing and are logged, never thrown. */
@@ -384,6 +386,7 @@ namespace ArcadeCoop {
           ready: false,
           awayTick: tick,
           covered: 0,
+          received: 0,
           nonZero: 0,
           result: null,
           dropped: false,
@@ -492,6 +495,7 @@ namespace ArcadeCoop {
       var t = start + k;
       if (t < seat.covered) continue;
       seat.covered = t + 1;
+      seat.received++;
       if (clean[k] !== 0) seat.nonZero++;
     }
     var last = start + clean.length - 1;
@@ -536,8 +540,8 @@ namespace ArcadeCoop {
     if (!body || !isInt(body.tick) || body.state === undefined) return;
     var other = state.seats[1];
     if (!other || !other.present || !other.presence) return;
-    // A snapshot resets the comparison: hashes from before it no longer apply.
-    state.lastCheckOk = true;
+    // The snapshot does not clear a failed check: only a later matching hash does, so a run whose
+    // last comparison disagreed is not paid until the sims are shown to agree again.
     send(dispatcher, OP.SNAPSHOT, { tick: body.tick, state: body.state }, [other.presence]);
   }
 
