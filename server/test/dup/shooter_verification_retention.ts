@@ -12,8 +12,8 @@ import { isolate as baseIsolate, fixture as paymentFixture, receipt, retry as pa
 type Test=(category:string,name:string,fn:()=>Promise<void>)=>Promise<void>;
 type Obj=Record<string,unknown>;
 const ROOT=fileURLToPath(new URL('../../../',import.meta.url));
-const SHA='7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e';
-const SOURCE='1fd01820e5f9f62fd549db09408261b7b6674c79';
+const SHA='bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807';
+const SOURCE='ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d';
 const MANIFEST={artifact:'shooter-sim',sourceCommit:SOURCE,sha256:SHA,protocol:1,contentFingerprint:'73c6eb0f',uploadProtocol:2,replayApiVersion:2,checkpointSchema:2,economyPolicy:1};
 const context=vm.createContext({});const bytes=readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`,import.meta.url));
 assert.equal(createHash('sha256').update(bytes).digest('hex'),SHA);vm.runInContext(bytes.toString('utf8'),context);

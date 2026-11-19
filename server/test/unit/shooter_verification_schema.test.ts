@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { loadModule } from './harness';
+
+const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 
 const mod = loadModule();
 const schema = mod.global.HubSchema as { all(): { id: string; statements: string[] }[] };
@@ -87,4 +92,22 @@ assert.ok(later.includes('shooter_campaign_later_levels_issue_replay_note_missin
 assert.ok(later.includes('shooter_campaign_later_levels_work_replay_note_missing'));
 assert.equal(/UPDATE|DELETE|INSERT/.test(later), false, '0070 rewrites no row');
 assert.ok(all.findIndex((migration) => migration.id === '0070_shooter_campaign_later_levels') > all.findIndex((migration) => migration.id === '0069_shooter_campaign_level_bundle'));
+const bootSplit = all.filter((migration) => migration.id === '0076_shooter_campaign_boot_split');
+assert.equal(bootSplit.length, 1);
+const boot = bootSplit[0]!.statements[0]!;
+assert.ok(boot.includes("replace(src, '1fd01820e5f9f62fd549db09408261b7b6674c79', 'ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d')"));
+assert.ok(boot.includes("replace(src, '7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e', 'bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807')"));
+assert.ok(boot.includes('prior-campaign-bundle 1fd01820e5f9f62fd549db09408261b7b6674c79 7ba57e4214ce5b9b69dd00b78fd9cd36c6d08049bb0495cb9cf94faee0077f2e'));
+assert.ok(boot.indexOf("replace(src, note, '')") < boot.indexOf('shooter_campaign_boot_split_issue_not_replaced'));
+assert.ok(boot.indexOf('shooter_campaign_boot_split_issue_not_replaced') < boot.indexOf('|| note'));
+assert.ok(boot.indexOf('|| note') < boot.indexOf('shooter_campaign_boot_split_work_not_replaced'));
+assert.ok(boot.indexOf('shooter_campaign_boot_split_work_not_replaced') < boot.lastIndexOf('|| note'));
+assert.ok(boot.includes('shooter_campaign_boot_split_issue_replay_note_missing'));
+assert.ok(boot.includes('shooter_campaign_boot_split_work_replay_note_missing'));
+assert.equal(/UPDATE|DELETE|INSERT/.test(boot), false, '0076 rewrites no row');
+assert.ok(all.findIndex((migration) => migration.id === '0076_shooter_campaign_boot_split') > all.findIndex((migration) => migration.id === '0070_shooter_campaign_later_levels'));
+const verifierManifest = /sourceCommit: "([0-9a-f]{40})",\s*sha256: "([0-9a-f]{64})"/.exec(readFileSync(join(root, 'server/modules/src/games/shooter_verification_internal.ts'), 'utf8'));
+const campaignPin = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-sim.pin.json'), 'utf8')) as { commit: string; sha256: string };
+assert.deepEqual([verifierManifest?.[1], verifierManifest?.[2]], [campaignPin.commit, campaignPin.sha256], 'the verifier manifest names the vendored campaign pin');
+assert.ok(boot.includes(`'${campaignPin.commit}'`) && boot.includes(`'${campaignPin.sha256}'`), 'the latest allowlist migration names the vendored campaign pin');
 console.log('shooter verification schema registration and dormant contract ok');

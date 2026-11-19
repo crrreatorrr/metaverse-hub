@@ -22,6 +22,8 @@ import {
   type HubSdkEnv,
   type NakamaClient,
 } from '../src/index';
+import { resetOutboxHandle } from '../src/live';
+import { IDBFactory } from 'fake-indexeddb';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
 
@@ -385,6 +387,7 @@ async function main(): Promise<void> {
   await nakamaClientWire();
   await scoresAndSession();
   await refreshWire();
+  await outboxHandleReused();
   console.log('hub-sdk tests ok');
 }
 
@@ -416,7 +419,7 @@ async function liveSdk(): Promise<void> {
       if (id === 'profile.get') {
         return {
           playerId: 'user-1',
-          relics: ['tinubu_crown'],
+          relics: ['tinubu_crown', 'future_relic', 'Bad Id!', 7],
           gameBeaten: ['sproto'],
           scope: 'game',
           ranked: true,
@@ -432,6 +435,9 @@ async function liveSdk(): Promise<void> {
         if (data.key === 'boss-and-relic') return { granted: 'tinubu_crown', granted_items: [], tickets: 20 } as T;
         if (data.key === 'boss-zero') return { granted_items: [], tickets: 0 } as T;
         if (data.key === 'boss-rematch') return { granted_items: [] } as T;
+        // 0.9.0: items from game.item_rule come back; junk entries are dropped.
+        if (data.key === 'pet-grant') return { granted_items: ['pet_pepe_bull', '', 3, null] } as T;
+        if (data.key === 'future-relic') return { granted: 'future_relic_2', granted_items: [] } as T;
         if (typeof data.key === 'string' && data.key.startsWith('boss-junk-')) {
           const junk: Record<string, unknown> = { 'boss-junk-text': '20', 'boss-junk-neg': -20, 'boss-junk-frac': 2.5, 'boss-junk-nan': Number.NaN, 'boss-junk-null': null, 'boss-junk-big': 2 ** 60 };
           return { tickets: junk[data.key] } as T;
@@ -443,6 +449,7 @@ async function liveSdk(): Promise<void> {
       if (id === 'tickets.earn') return { balance: 20, capped: false } as T;
       if (id === 'tickets.exchange') return { verse: 2, ticketsLeft: 0, receiptId: 'r1' } as T;
       if (id === 'score.submit') return { accepted: false, stub: true } as T;
+      if (id === 'save.put') return { data: (body as { data: object }).data, updatedAt: 1 } as T;
       throw new Error(`unexpected rpc ${id}`);
     },
   };
@@ -471,15 +478,39 @@ async function liveSdk(): Promise<void> {
   assert.equal(custom[0]?.id, 't:ticket-1');
   assert.equal(custom[0]?.create, false);
   assert.deepEqual(custom[0]?.vars, { game: 'sproto' });
-  const refreshed = await sdk.init('sproto');
+  const warned: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warned.push(String(args[0]));
+  };
+  let refreshed;
+  try {
+    refreshed = await sdk.init('sproto');
+  } finally {
+    console.warn = originalWarn;
+  }
   assert.deepEqual(refreshed.relics, ['tinubu_crown']);
+  // 0.9.0: a Relic id newer than this SDK is passed on apart and logged, not dropped.
+  assert.deepEqual(refreshed.otherRelics, ['future_relic']);
+  assert.ok(warned.some((line) => line.includes('future_relic')), 'unknown relic is logged');
   const grant = await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu', elapsed: 4, godMode: true }, 'beat');
   assert.deepEqual(grant, { granted: 'tinubu_crown' }, 'no tickets key when the server sends none');
   // 0.7.1: the Tickets the server credited for the event come back, as an optional field.
-  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-paid'), { tickets: 20 });
-  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu' }, 'boss-and-relic'), { granted: 'tinubu_crown', tickets: 20 });
-  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-zero'), { tickets: 0 });
-  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-rematch'), {}, 'a boss that paid nothing has no tickets key');
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-paid'), { tickets: 20, granted_items: [] });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'tinubu' }, 'boss-and-relic'), { granted: 'tinubu_crown', tickets: 20, granted_items: [] });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-zero'), { tickets: 0, granted_items: [] });
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'boss-rematch'), { granted_items: [] }, 'a boss that paid nothing has no tickets key');
+  // 0.9.0: granted_items is no longer dropped (pets from game.item_rule).
+  assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'pet-grant'), { granted_items: ['pet_pepe_bull'] });
+  const future = await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, 'future-relic');
+  assert.deepEqual(future, { grantedOther: 'future_relic_2', granted_items: [] }, 'an unknown granted Relic is passed on apart');
+  assert.deepEqual((await sdk.init('sproto')).relics, ['tinubu_crown']);
+  // 0.9.0: writeSave can ask for keepalive so a save outlives exitToHub.
+  await sdk.writeSave?.({ level: 2 }, { keepalive: true });
+  assert.equal(calls.at(-1)?.id, 'save.put');
+  assert.equal(calls.at(-1)?.keepalive, true);
+  await sdk.writeSave?.({ level: 3 });
+  assert.equal(calls.at(-1)?.keepalive, undefined);
   for (const key of ['boss-junk-text', 'boss-junk-neg', 'boss-junk-frac', 'boss-junk-nan', 'boss-junk-null', 'boss-junk-big']) {
     assert.deepEqual(await sdk.reportEvent(HubEvent.SprotoBossDefeated, { boss: 'sahil' }, key), {}, `${key} is not a Ticket amount`);
   }
@@ -1570,6 +1601,54 @@ async function refreshWire(): Promise<void> {
   assert.equal(sdk.getSession?.()?.token, tokenWith(exp + 7200));
   await sdk.refreshSession?.();
   assert.equal(refreshed.length, 1, 'no refresh while the token has more than 5 minutes left');
+}
+
+/** 0.9.0: the hub-outbox database is opened once per page, not once per read or write. */
+async function outboxHandleReused(): Promise<void> {
+  const factory = new IDBFactory();
+  let opens = 0;
+  const globals = globalThis as { indexedDB?: unknown };
+  globals.indexedDB = {
+    open(name: string, version?: number) {
+      opens += 1;
+      return factory.open(name, version);
+    },
+  };
+  resetOutboxHandle();
+  try {
+    const token = fakeJwt('user-90', { sid: 'sid-90', ranked: '0', scope: 'game', game: 'nobu' });
+    const client: NakamaClient = {
+      async authenticateDevice() {
+        return { token: 'hub', userId: 'user-90' };
+      },
+      async authenticateCustom() {
+        return { token, refreshToken: 'r', userId: 'user-90' };
+      },
+      async rpc<T>(id: string): Promise<T> {
+        if (id === 'profile.get') return { playerId: 'user-90', relics: [], ticketsCapLeft: 100 } as T;
+        if (id === 'tickets.earn') return { balance: 5, capped: false } as T;
+        throw new Error(`unexpected rpc ${id}`);
+      },
+    };
+    let hash = '#t=idb';
+    const sdk = createHubSdk({
+      client,
+      hubUrl: '/hub/',
+      local: memoryKeyValue(),
+      session: memoryKeyValue(),
+      readHash: () => hash,
+      writeHash: (next) => {
+        hash = next;
+      },
+      assign: () => undefined,
+    });
+    await sdk.init('nobu');
+    for (let i = 0; i < 4; i++) assert.deepEqual(await sdk.earnTickets(5, 'win', `idb-${i}`), { balance: 5, capped: false });
+    assert.equal(opens, 1, 'one IndexedDB open for init plus four queued writes');
+  } finally {
+    resetOutboxHandle();
+    delete globals.indexedDB;
+  }
 }
 
 function TICKETS_FOR_CAP(): number {

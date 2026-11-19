@@ -42,6 +42,14 @@ interface PbSimIO {
   signalWorld(matchId: string, data: string): string | null;
   resolveUsername(name: string): { userId: string; username: string } | null;
   log(level: "info" | "warn" | "error", msg: string): void;
+  /**
+   * Optional hub parity (peoples-bitcoin src/server/host.ts HostIO). A bundle built before these
+   * existed never calls them; a newer one feature-detects them, so both work with this shell.
+   */
+  loadProfile?(who: PbSimWho): { relics?: string[]; effects?: { [k: string]: number | boolean | string } } | null;
+  getRelics?(who: PbSimWho): string[] | null;
+  reportEvent?(who: PbSimWho, eventId: string, data: { [k: string]: unknown }, key: string): { [k: string]: unknown };
+  submitScore?(who: PbSimWho, boardId: string, value: number, meta: { [k: string]: unknown }): { [k: string]: unknown };
 }
 
 interface PbSimOutbound {

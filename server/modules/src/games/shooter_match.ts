@@ -1122,6 +1122,8 @@ namespace ShooterMatch {
       logger.error("sproto_shooter_free pin " + mismatch);
       return fail("version_mismatch", "Simulation pin mismatch");
     }
+    var wagerOn = ShooterWagers.enabled(nk, ctx.userId || "", logger);
+    var guest = HubChat.isGuest(nk, logger, ctx.userId || "");
     return JSON.stringify({
       protocol: ShooterProto.PROTOCOL,
       sim: ShooterProto.SIM,
@@ -1141,7 +1143,11 @@ namespace ShooterMatch {
       stake: 0,
       ticketsMinted: 0,
       stakes: false,
-      wagerEnabled: ShooterWagers.enabled(nk, ctx.userId || "", logger),
+      wagerEnabled: wagerOn,
+      // Handoff §3.3 item 5: the client can show its wager entry without opening a socket and
+      // probing the matchmaker. wagerEligible = wagers are on for this account and it is not a guest.
+      isGuest: guest,
+      wagerEligible: wagerOn && !guest,
       wagerStake: ShooterWagers.STAKE,
       wagerPot: ShooterWagers.POT,
       guests: "one_seat",

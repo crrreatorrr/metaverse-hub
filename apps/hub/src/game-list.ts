@@ -25,9 +25,9 @@ export const GAME_LIST: readonly GameInfo[] = [
   { id: 'peoples-bitcoin', label: "The People's Bitcoin", blurb: '18+ satire · online worlds, quests and a Ticket shop', where: 'The White House gate', color: '#ffc233', goal: 'Finish the tutorial quest for the Genesis Block Shard', mature: true },
   { id: 'sproto', label: 'Sproto Duel', blurb: 'Wizard duels · story bosses and online 1v1', where: 'The Castle gate', color: '#7b5cff', goal: "Defeat Tinubu for Tinubu's Crown" },
   { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'First-person loot shooter · Wave Mode and a campaign', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
-  { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · ten giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
+  { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · twelve giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
   { id: 'sproto-fighter', label: 'Sproto Fighter', blurb: 'Story mode and online 1v1 duels', where: 'Bar cabinet', color: '#ff3d6e', goal: 'Win Story World 1 for the Tidebreaker Belt' },
-  { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Four players across twelve stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },
+  { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Up to four players across thirteen stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },
 ];
 
 export function gameInfo(id: GameId): GameInfo | undefined {

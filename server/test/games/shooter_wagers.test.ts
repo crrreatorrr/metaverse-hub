@@ -75,8 +75,11 @@ function wagerApi(mod: LoadedModule): WagerApi {
   assert.equal(api.POT, 20);
   assert.equal(api.EXPIRE_AGE, '1200 seconds');
   assert.equal(api.enabled(mod.nk, A, mod.logger), false);
-  const version = mod.call<{ wagerEnabled: boolean; stake: number; ticketsMinted: number }>('shooter.version', game(A, 'sa'), {});
+  const version = mod.call<{ wagerEnabled: boolean; stake: number; ticketsMinted: number; isGuest: boolean; wagerEligible: boolean }>('shooter.version', game(A, 'sa'), {});
   assert.equal(version.wagerEnabled, false);
+  // Handoff §3.3 item 5: the title screen reads eligibility here instead of probing the matchmaker.
+  assert.equal(version.isGuest, true, 'an account without an email is a guest');
+  assert.equal(version.wagerEligible, false, 'not eligible while the wager flag is off');
   assert.equal(version.stake, 0);
   assert.equal(version.ticketsMinted, 0);
   const boot = sqls(mod, 'shooter_wager_expire');
@@ -295,6 +298,19 @@ function wagerApi(mod: LoadedModule): WagerApi {
     { presence: a, properties: wager },
     { presence: b, properties: free },
   ]), undefined);
+}
+
+// Both flags on: a signed-in account is eligible, a guest is not.
+{
+  const mod = load(true);
+  signIn(mod, A);
+  const on = mod.call<{ wagerEnabled: boolean; isGuest: boolean; wagerEligible: boolean }>('shooter.version', game(A, 'sa'), {});
+  assert.equal(on.wagerEnabled, true);
+  assert.equal(on.isGuest, false);
+  assert.equal(on.wagerEligible, true);
+  const guest = mod.call<{ isGuest: boolean; wagerEligible: boolean }>('shooter.version', game('99999999-9999-4999-8999-999999999998', 'sg'), {});
+  assert.equal(guest.isGuest, true);
+  assert.equal(guest.wagerEligible, false);
 }
 
 console.log('shooter wager tests ok');

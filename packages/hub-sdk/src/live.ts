@@ -49,6 +49,8 @@ interface LiveSession {
   refreshToken?: string;
   effects: Record<string, number | boolean | string>;
   relics: RelicId[];
+  /** Relic ids from the server that this SDK version does not know. Older caches have none. */
+  otherRelics?: string[];
   ticketsCapLeft: number;
 }
 
@@ -68,6 +70,32 @@ function asRelics(value: unknown): RelicId[] {
   return value.filter((item): item is RelicId => typeof item === 'string' && isRelicId(item));
 }
 
+/** Shape of a server Relic id. Anything else from the wire is noise and is dropped. */
+const RELIC_ID_SHAPE = /^[a-z0-9_]{1,48}$/;
+const warnedRelics = new Set<string>();
+
+/**
+ * Relic ids the server sent that this SDK version does not know, for example a Relic added in a
+ * hub release the game has not re-vendored yet. They are kept apart (`InitResult.otherRelics`)
+ * instead of being dropped, so `relics` stays the typed canonical list.
+ */
+function otherRelicIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || isRelicId(item) || !RELIC_ID_SHAPE.test(item) || out.includes(item)) continue;
+    out.push(item);
+    noteUnknownRelic(item);
+  }
+  return out;
+}
+
+function noteUnknownRelic(id: string): void {
+  if (warnedRelics.has(id)) return;
+  warnedRelics.add(id);
+  if (typeof console !== 'undefined') console.warn(`[hub-sdk] Relic "${id}" is newer than this SDK; re-vendor @metaverse/hub-sdk to type it.`);
+}
+
 function clockMs(value: unknown): number {
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
 }
@@ -80,16 +108,46 @@ function useIndexedDb(): boolean {
   return typeof indexedDB !== 'undefined';
 }
 
+/**
+ * One open handle per page, shared by every read and write. It is dropped (and the next call
+ * reopens) when the open fails, the browser closes it, or another tab upgrades the database.
+ */
+let outboxDb: Promise<IDBDatabase> | null = null;
+
 function openOutbox(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
+  if (outboxDb) return outboxDb;
+  const opening = new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open(HUB_OUTBOX_DB, 1);
     request.onupgradeneeded = () => {
       const db = request.result;
       if (!db.objectStoreNames.contains(OUTBOX_STORE)) db.createObjectStore(OUTBOX_STORE, { keyPath: 'key' });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      const forget = (): void => {
+        if (outboxDb === opening) outboxDb = null;
+      };
+      db.onversionchange = () => {
+        forget();
+        db.close();
+      };
+      db.onclose = forget;
+      resolve(db);
+    };
     request.onerror = () => reject(request.error ?? new Error('indexedDB open failed'));
   });
+  outboxDb = opening;
+  opening.catch(() => {
+    if (outboxDb === opening) outboxDb = null;
+  });
+  return opening;
+}
+
+/** Test hook: close and forget the shared handle (fake-indexeddb resets between cases). */
+export function resetOutboxHandle(): void {
+  const db = outboxDb;
+  outboxDb = null;
+  void db?.then((d) => d.close()).catch(() => undefined);
 }
 
 function requestDone<T>(request: IDBRequest<T>): Promise<T> {
@@ -108,16 +166,26 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
 }
 
 async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => Promise<T> | T): Promise<T> {
-  const db = await openOutbox();
+  let db = await openOutbox();
+  let tx: IDBTransaction;
   try {
-    const tx = db.transaction(OUTBOX_STORE, mode);
-    const done = transactionDone(tx);
-    const result = await run(tx.objectStore(OUTBOX_STORE));
-    await done;
-    return result;
-  } finally {
-    db.close();
+    tx = db.transaction(OUTBOX_STORE, mode);
+  } catch (error) {
+    // Only a handle closed under us (InvalidStateError) is retried, once, with a fresh one.
+    if ((error as { name?: unknown } | null)?.name !== 'InvalidStateError') throw error;
+    outboxDb = null;
+    try {
+      db.close();
+    } catch {
+      // Already closed.
+    }
+    db = await openOutbox();
+    tx = db.transaction(OUTBOX_STORE, mode);
   }
+  const done = transactionDone(tx);
+  const result = await run(tx.objectStore(OUTBOX_STORE));
+  await done;
+  return result;
 }
 
 async function readWrite(key: string): Promise<OutboxRecord | null> {
@@ -307,6 +375,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       playerId: session.playerId,
       ranked: session.ranked,
       relics: [...session.relics],
+      ...(session.otherRelics?.length ? { otherRelics: [...session.otherRelics] } : {}),
       effects: { ...session.effects },
       ticketsCapLeft: session.ticketsCapLeft,
       serverTime,
@@ -328,7 +397,15 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
   function noteGrant(session: LiveSession, response: unknown): void {
     if (!response || typeof response !== 'object') return;
     const granted = (response as { granted?: unknown }).granted;
-    if (typeof granted !== 'string' || !isRelicId(granted) || session.relics.includes(granted)) return;
+    if (typeof granted !== 'string') return;
+    if (!isRelicId(granted)) {
+      const other = otherRelicIds([granted]);
+      if (!other.length || session.otherRelics?.includes(granted)) return;
+      session.otherRelics = [...(session.otherRelics ?? []), granted];
+      writeCached(session);
+      return;
+    }
+    if (session.relics.includes(granted)) return;
     session.relics.push(granted);
     writeCached(session);
   }
@@ -593,6 +670,7 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
           } else if (profile) {
             const loaded: Profile = profile;
             current.relics = asRelics(loaded.relics);
+            current.otherRelics = otherRelicIds(loaded.relics);
             readInventory(loaded);
             if (loaded.playerId) current.playerId = loaded.playerId;
             if (typeof loaded.ticketsCapLeft === 'number') current.ticketsCapLeft = loaded.ticketsCapLeft;
@@ -615,11 +693,22 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       }
       if (!active) return {};
       const result = await sendOnce(active, 'session.event', key, { eventId, data });
-      const answer = result && typeof result === 'object' ? (result as { granted?: unknown; tickets?: unknown }) : {};
+      const answer =
+        result && typeof result === 'object' ? (result as { granted?: unknown; tickets?: unknown; granted_items?: unknown }) : {};
       const out: EventResult = {};
-      if (typeof answer.granted === 'string' && isRelicId(answer.granted)) out.granted = answer.granted;
+      if (typeof answer.granted === 'string') {
+        if (isRelicId(answer.granted)) out.granted = answer.granted;
+        else {
+          const [other] = otherRelicIds([answer.granted]);
+          if (other) out.grantedOther = other;
+        }
+      }
       // The server names `tickets` only when this event credited some (a story boss, 0.7.1).
       if (typeof answer.tickets === 'number' && Number.isSafeInteger(answer.tickets) && answer.tickets >= 0) out.tickets = answer.tickets;
+      // Pets and other items from `game.item_rule` (migration 0030). Absent from older servers.
+      if (Array.isArray(answer.granted_items)) {
+        out.granted_items = answer.granted_items.filter((item): item is string => typeof item === 'string' && item.length > 0);
+      }
       return out;
     },
 
@@ -675,10 +764,12 @@ export function createLiveHubSdk(env: HubSdkEnv, client: NakamaClient): HubSdk {
       return readSaveResult(await client.rpc('save.get', {}, { token: active.token }));
     },
 
-    async writeSave(data) {
+    async writeSave(data, opts) {
       encodeSave(data);
       if (!active) return { ...EMPTY_SAVE };
-      return readSaveResult(await client.rpc('save.put', { data }, { token: active.token }));
+      // keepalive lets the request outlive the page (exitToHub); saves are at most 16 KB, under the 64 KB keepalive budget.
+      const rpcOpts = opts?.keepalive ? { token: active.token, keepalive: true } : { token: active.token };
+      return readSaveResult(await client.rpc('save.put', { data }, rpcOpts));
     },
 
     async feedbackAccess() {

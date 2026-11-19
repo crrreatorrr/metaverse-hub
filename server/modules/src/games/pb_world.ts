@@ -40,6 +40,25 @@ namespace PbWorld {
     return String(e).toLowerCase().indexOf("version") >= 0;
   }
 
+  /** Canonical Relic ids of one player, or null when the read failed. */
+  function relicsOf(state: State, w: PbSimWho): string[] | null {
+    if (!w || !w.userId) return null;
+    try {
+      var rows = state.env.nk.sqlQuery(
+        "SELECT COALESCE(json_agg(relic_id ORDER BY claimed_at), '[]'::json)::text AS result FROM game.relic_claim WHERE user_id = $1::uuid",
+        [w.userId],
+      );
+      var raw = rows && rows.length ? rows[0].result : "[]";
+      var list = (typeof raw === "string" ? JSON.parse(raw) : raw) as unknown[];
+      var out: string[] = [];
+      for (var i = 0; list && i < list.length; i++) if (typeof list[i] === "string") out.push(list[i] as string);
+      return out;
+    } catch (e) {
+      state.env.logger.warn("[pb_world " + state.worldNo + "] relic read failed " + String(e));
+      return null;
+    }
+  }
+
   /** The host's I/O over Nakama. Reads `state.env` so each callback's nk/logger is used. */
   function makeIO(state: State): PbSimIO {
     var nk = function () {
@@ -158,6 +177,32 @@ namespace PbWorld {
       },
       resolveUsername: function (name) {
         return resolveUsername(nk(), name);
+      },
+      // Hub parity (handoff §3.3 item 4): what a client gets from init, event and score calls.
+      loadProfile: function (w) {
+        var relics = relicsOf(state, w);
+        if (!relics) return null;
+        return { relics: relics, effects: HubEffects.resolve(GAME_ID, relics, false) as { [k: string]: number | boolean | string } };
+      },
+      getRelics: function (w) {
+        return relicsOf(state, w);
+      },
+      reportEvent: function (w, eventId, data, key) {
+        try {
+          return HubRpc.grantEvent(nk(), state.env.logger, who(w), eventId, data, key);
+        } catch (e) {
+          return { error: String(e) };
+        }
+      },
+      submitScore: function (w, boardId, value, meta) {
+        // Only this game's boards; the board module applies the same checks as score.submit.
+        if (HubBoards.gameOf(boardId) !== GAME_ID) return { error: "bad_board" };
+        var ctx = { userId: w.userId, vars: { scope: "game", game: GAME_ID, sid: w.sid } } as unknown as nkruntime.Context;
+        try {
+          return JSON.parse(HubBoards.submit(ctx, state.env.logger, nk(), JSON.stringify({ boardId: boardId, value: value, meta: meta || {} }))) as { [k: string]: unknown };
+        } catch (e) {
+          return { error: String(e) };
+        }
       },
       log: function (level, msg) {
         var line = "[pb_world " + state.worldNo + "] " + msg;

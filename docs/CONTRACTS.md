@@ -116,6 +116,7 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0071 | sproto-coop-battle | `games/coop_rewards.ts` | `0071_coop_combat_fingerprint` (updates the live settlement fingerprint to `d1ca2efc…`; no row or amount changes) |
 | 0072 | sproto-coop-battle | `games/coop_rewards.ts` | `0072_coop_mecha_fingerprint` updates the live settlement fingerprint to `1bdabcab…` for the new boss behavior. Existing rows and payout amounts stay intact. |
 | 0073 | sproto-coop-battle | `games/coop_rewards.ts` | `0073_coop_transform_fingerprint` updates the live settlement fingerprint to `9c1841f6…` for eight-second transformations. Existing rows and payout amounts stay intact. |
+| 0075 | sproto-coop-battle | `games/coop_rewards.ts` | `0075_coop_wire_fingerprint` updates the live settlement fingerprint to `3fddedd1…` for Coop main `4f142a78` (input batches, snapshot deltas). Existing rows and payout amounts stay intact. |
 | 0064 | hub | `games/hub_feedback.ts` | `0064_feedback_check` |
 | 0065 | sproto-shooter | `games/shooter_rewards.ts` | `0065_shooter_campaign_fingerprint` (`game.settle_shooter_clear` labels receipts with the vendored campaign fingerprint `73c6eb0f`; no row or amount changes) |
 | 0066 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0066_shooter_campaign_artifact` (live verification allowlist matches the vendored campaign bundle `4968fa64…` / `73c6eb0f`; no row or amount changes) |
@@ -123,7 +124,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0068 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0068_shooter_campaign_allowlist` (live allowlist matches campaign bundle `735b6da5…` / `73c6eb0f` from `2608511e`; Arena fingerprint `e749d2fd`, sha256 `a2cc1707…`; no row or amount changes) |
 | 0069 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0069_shooter_campaign_level_bundle` (live allowlist matches campaign bundle `ab175aae…` / `73c6eb0f` from `7db4fc4f`; Arena fingerprint `e749d2fd`, sha256 `493290c9…`; no row or amount changes) |
 | 0070 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0070_shooter_campaign_later_levels` (live allowlist matches campaign bundle `7ba57e42…` / `73c6eb0f` from `1fd01820`; Arena fingerprint `e749d2fd`, sha256 `2b799f2c…`; client `0d604fe8` names that commit and sha; no row or amount changes) |
-| 0071+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0076 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0076_shooter_campaign_boot_split` (live allowlist matches campaign bundle `bcfdba3e…` / `73c6eb0f` from `ccaa836d`, byte-identical to `1fd01820`'s apart from the baked commit; Arena fingerprint `e749d2fd`, sha256 `528ec266…`; client `3cf28f37` names that commit and sha; no row or amount changes) |
+| 0077+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
@@ -137,7 +139,7 @@ The game ranges (0013–0029) predate the runner's ordering rule. A game that ne
 | Sproto Duel | `sproto` | ring, The Castle (`sproto-duel`) | crrreatorrr/sproto-duel | `duel-sim.server.js` (not vendored) | relay and referee only: `sproto_arena` match, `sproto.room_*` RPCs |
 | Sproto Shooter | `sproto-shooter` | ring, The Range (`sproto-shooter`) | crrreatorrr/sproto-shooter | `shooter-sim.js`; `shooter-pvp-sim.js` | **yes**: campaign verifier (`shooter.run.issue` / `shooter.run.submit`) and the `sproto_shooter_free` match (authoritative free 1v1, no Tickets), `shooter.version`, `shooter.room_*`, `shooter.queue_cancel`, `shooter.resume`, `shooter.metrics` |
 | Sproto Fighter | `sproto-fighter` | Bar cabinet (`sproto-fighter`) | crrreatorrr/Sproto-Fighter | `sproto-sim.js` | **yes**: `sproto_duel` match (online 1v1 with replay verification and wagers) |
-| Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored) | no |
+| Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored: `sproto_arcade_coop` is a lockstep relay and runs no sim; main `9b6ec23b` builds `ARCADE_SIM_VERSION` `9249bbf1047466f3`, sha256 `2be4bbaa…`, 1.2 MB, with `ArcadeSim.coop`) | no |
 | Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked four-seat play), `coop.*` RPCs |
 
 Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choices are in `apps/hub/src/realms/plaza/config.ts`. `scripts/fetch-game-web.mjs` pulls the dev builds.
@@ -161,3 +163,16 @@ Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choi
   - HPOS10I QA ids such as `PHY-C2`
   - plaza model names such as `C1-mountain`
 - **HPOS10I's copy of `docs/higgsfield-workflow-guide.md` differs on purpose.** One table row leaves out The People's Bitcoin, because HPOS10I's originality scan bans the word "bitcoin" (term #425). The owner chose to keep this difference (2026-11-09). When you sync the guide, skip that line in HPOS10I rather than adding an allowlist exception.
+
+## 6. `effects` in `InitResult` (decision, 0.9.0)
+
+`effects` is kept, not removed. `portal.enter` stores `HubEffects.resolve(game, relics, ranked)`
+(`server/modules/src/effects.ts`, compiled and live) on the game session, and `init` returns it:
+the effects of the Relics the player owns, for this game, with gameplay parts dropped in Ranked
+(except People's Bitcoin). What is not live is the M3 loadout (`server/modules/src/loadout.ts`,
+`equip_change`, docs/m3-server-prep.md): it is not compiled, so a player cannot choose which owned
+effect sits in a slot, and every game gets its default slots. Games should keep reading Relics from
+`relics` and owned items from `items`, and treat `effects` as an optional bonus that may be empty;
+no game may require a key in it. Wiring `loadout.ts` is a separate change (it needs its own
+migration and an SDK call); until then `effects` stays exactly as it is.
+

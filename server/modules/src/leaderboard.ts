@@ -227,6 +227,11 @@ namespace HubBoards {
     return Object.prototype.hasOwnProperty.call(NOBU_FLOOR_MS, key) ? key : null;
   }
 
+  /** The game a board belongs to, or "" for an unknown board. */
+  export function gameOf(boardId: string): string {
+    return Object.prototype.hasOwnProperty.call(BOARD_GAME, boardId) ? BOARD_GAME[boardId] : "";
+  }
+
   /**
    * score.submit. The server decides eligibility: {accepted:false, reason} for
    * server_board / unranked / god_mode, an {error} for bad input. NOBU posts

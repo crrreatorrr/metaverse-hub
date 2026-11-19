@@ -17,6 +17,7 @@ namespace HubRpc {
     else message = String(e);
     var codes = [
       "idempotency_mismatch",
+      "session_superseded",
       "session_closed",
       "ticket_used",
       "ticket_expired",
@@ -487,6 +488,7 @@ namespace HubRpc {
       }
       seq = body.seq;
     }
+    if (seq === null && Flags.on(nk, FLAG_EVENT_SEQ, session.userId, logger)) return fail("bad_event", "seq is required");
     HubFault.apply(ctx, nk, session.userId, "grant.before_rpc");
     var hashed: { [key: string]: unknown } = { eventId: eventId, data: data };
     if (seq !== null) hashed.seq = seq;
@@ -507,6 +509,51 @@ namespace HubRpc {
       logger.info("relic granted " + result.granted + " user " + session.userId);
     }
     return ok(result);
+  }
+
+  /**
+   * session.event for a match handler: the same game.apply_event call, request hash and Relic
+   * storage sync as the RPC, for an account the match has seated (`who.sid` from its join).
+   * Used by server-settled co-op clears so their Relic follows the single-player path exactly.
+   */
+  export function grantEvent(nk: nkruntime.Nakama, logger: nkruntime.Logger, who: { userId: string; sid: string; game: string }, eventId: string, data: { [key: string]: unknown }, key: string): { [key: string]: unknown } {
+    if (!who || !UUID.test(who.userId || "") || !UUID.test(who.sid || "") || !GAMES[who.game]) return { error: "not_game_session" };
+    if (!eventId || eventId.length > 80 || !key || key.length > 80) return { error: "bad_event" };
+    var reqHash = nk.sha256Hash("session.event\n" + stable({ eventId: eventId, data: data }));
+    var result = queryJson(
+      nk,
+      "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text, $8::bigint)::text AS result",
+      [who.userId, who.sid, who.game, eventId, JSON.stringify(data), key, reqHash, null],
+    );
+    if (!result.error && typeof result.granted === "string") {
+      try {
+        syncStorage(nk, who.userId, [{ gameId: who.game, relicId: result.granted }]);
+      } catch (e) {
+        logger.warn("storage sync failed " + String(e));
+      }
+      logger.info("relic granted " + result.granted + " user " + who.userId);
+    }
+    return result;
+  }
+
+  /**
+   * Trust hardening (handoff §4.3), each behind a server flag that is off until an operator turns
+   * it on (a missing game.server_flags row is off), because it would refuse some live clients:
+   * - trust_event_seq: session.event must carry `seq` (monotonicity itself is already enforced
+   *   in game.apply_event whenever a seq is sent).
+   * - trust_godmode_tickets: tickets.earn refuses a body that says godMode: true.
+   * - trust_min_session: tickets.earn refuses an earn within MIN_SESSION_S of the session opening.
+   */
+  export var FLAG_EVENT_SEQ = "trust_event_seq";
+  export var FLAG_GODMODE_TICKETS = "trust_godmode_tickets";
+  export var FLAG_MIN_SESSION = "trust_min_session";
+  export var MIN_SESSION_S = 20;
+
+  function sessionAgeS(nk: nkruntime.Nakama, sid: string): number {
+    var rows = nk.sqlQuery("SELECT extract(epoch FROM (now() - opened_at))::float8::text AS age FROM game.game_session WHERE session_id = $1::uuid", [sid]);
+    if (!rows || !rows.length) return -1;
+    var age = Number(rows[0].age);
+    return isFinite(age) ? age : -1;
   }
 
   /** Cloud saves: one owner-readable, server-written storage object per player per game. */
@@ -600,6 +647,11 @@ namespace HubRpc {
     // Shooter boss clears are settled inside the server. A client cannot name that reason.
     if (reason.indexOf("srv_") === 0 || ShooterRewards.clientBlocked(reason) || CoopRewards.clientBlocked(reason)) return fail("server_reason", "This reason is granted by the server");
     var amount = Math.floor(body.amount);
+    if (body.godMode === true && Flags.on(nk, FLAG_GODMODE_TICKETS, session.userId, _logger)) return fail("god_mode", "God mode earns no Tickets");
+    if (Flags.on(nk, FLAG_MIN_SESSION, session.userId, _logger)) {
+      var age = sessionAgeS(nk, session.sid);
+      if (age >= 0 && age < MIN_SESSION_S) return fail("too_soon", "This session is too new to earn Tickets");
+    }
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
     var result = queryJson(

@@ -61,6 +61,8 @@ export interface ClubInteriorBuild extends InteriorBuild {
   mood: ClubMood;
   /** Sprotel barman root (null when `npc: false` or the GLB failed to load). */
   npc: Object3D | null;
+  /** Resolves once LOD0 is in (or failed, leaving LOD1). The room is usable before that. */
+  detailed: Promise<void>;
   /** Sprotel's store trigger / greet / talk / head-aim controller (null with no NPC). Tick it while inside. */
   sprotel: SprotelController | null;
 }
@@ -129,8 +131,10 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   const yaw = mount.yaw ?? 0;
   const standalone = mount.standalone ?? true;
   const wantNpc = mount.npc ?? true;
-  const [near, far, sign, env, npcGltf] = await Promise.all([
-    loadGLTF(`${WORLD_ROOT}v2/web/club-interior.glb`),
+  // The room opens on its 1.7 MB LOD1; the 4.8 MB LOD0 streams in after and takes over up close.
+  const nearTask = loadGLTF(`${WORLD_ROOT}v2/web/club-interior.glb`);
+  nearTask.catch(() => undefined);
+  const [far, sign, env, npcGltf] = await Promise.all([
     loadGLTF(`${WORLD_ROOT}v2/web/club-interior-lod1.glb`),
     loadNeonSign(CLUB_NEON_SIGN_SCALE),
     loadEnv(),
@@ -150,18 +154,30 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   leaderboard.flipY = false; // glTF UV convention
   const screenMat = new MeshBasicMaterial({ map: leaderboard, toneMapped: false });
   screenMat.name = 'leaderboard_screen';
-  for (const [gltf, distance] of [[near, 0], [far, LOD1_DISTANCE * CLUB_INTERIOR_SCALE]] as const) {
+  const makeLevel = (gltf: { scene: Object3D }, keepLights: boolean): Group => {
     const root = gltf.scene.clone(true);
     const screen = root.getObjectByName('leaderboard_screen') as Mesh | undefined;
     if (screen?.isMesh) screen.material = screenMat;
-    // Only LOD0 carries the KHR_lights_punctual lights we keep (3-4 real-time lights total).
-    if (distance > 0) root.getObjectByName('lights')?.removeFromParent();
+    // One level at a time carries the KHR_lights_punctual lights we keep (3-4 real-time lights total).
+    if (!keepLights) root.getObjectByName('lights')?.removeFromParent();
     prepare(root, lit, env);
     root.position.set(-ROOM_CENTRE.x, -ROOM_CENTRE.y, -ROOM_CENTRE.z);
     const level = new Group();
     level.add(root);
-    lod.addLevel(level, distance);
-  }
+    return level;
+  };
+  // LOD1 keeps its lights until LOD0 arrives, so the room is lit from the start (and stays lit if
+  // LOD0 never loads); LOD0 then takes the lights over.
+  const farLevel = makeLevel(far, true);
+  lod.addLevel(farLevel, 0);
+  const detailed = nearTask.then((near) => {
+    const farEntry = lod.levels.find((entry) => entry.object === farLevel);
+    if (farEntry) farEntry.distance = LOD1_DISTANCE * CLUB_INTERIOR_SCALE;
+    farLevel.getObjectByName('lights')?.removeFromParent();
+    lod.addLevel(makeLevel(near, true), 0);
+  }).catch((error: unknown) => {
+    console.warn('[club] LOD0 failed; the room stays on LOD1', error);
+  });
   // Scale the LOD cutoff with the room so its enlarged interior still stays on LOD0.
   lod.position.copy(ROOM_CENTRE);
   g.add(lod);
@@ -178,6 +194,7 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
     const m = (obj as Mesh).material as MeshStandardMaterial | undefined;
     if (env && m?.isMeshStandardMaterial) { m.envMap = env; m.needsUpdate = true; }
   });
+  if (env) sign.userData.envMap = env;
 
   const markers = {} as Record<ClubMarker, Group>;
   for (const [key, m] of Object.entries(CLUB_MARKERS) as [ClubMarker, (typeof CLUB_MARKERS)[ClubMarker]][]) {
@@ -238,18 +255,22 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   // Hub yaw: 0 walks -Z. Facing into the room (+Z local) is yaw = PI (minus the mount yaw).
   const spawn = { x: ts.x, y: ts.y, z: ts.z, yaw: Math.PI - yaw };
 
-  // Warm rope-light hum, very subtle.
-  const base = lit.map((m) => m.emissiveIntensity);
+  // Warm rope-light hum, very subtle. LOD0's materials join `lit` when it arrives, so bases are read lazily.
+  const base = new Map<MeshStandardMaterial, number>();
   animated.push((time) => {
     const k = 1 + 0.015 * Math.sin(time * 2.1);
-    lit.forEach((m, i) => { m.emissiveIntensity = base[i] * k; });
+    for (const m of lit) {
+      let b = base.get(m);
+      if (b === undefined) base.set(m, (b = m.emissiveIntensity));
+      m.emissiveIntensity = b * k;
+    }
   });
 
   g.visible = false;
   parent.add(g);
   return {
     group: g, exit: markers.exit_door, exitDoor: markers.exit_door, entry: markers.door_front,
-    leaderboard, storeAnchor, spawn, markers, colliderBoxes, npc, sprotel,
+    leaderboard, storeAnchor, spawn, markers, colliderBoxes, npc, sprotel, detailed,
     mood: {
       environment: env, environmentIntensity: 1.12,
       hemi: { sky: '#ffd7b4', ground: '#503122', intensity: 2.85 },

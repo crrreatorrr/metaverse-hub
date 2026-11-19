@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS game.play_lease (
   claimed_at timestamptz NOT NULL DEFAULT now(),
   heartbeat_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT play_lease_surface CHECK (
-    surface IN ('hub', 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto')
+    surface IN ('hub', 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle', 'vcoin')
   ),
   CONSTRAINT play_lease_lease_id_key UNIQUE (lease_id)
 );
@@ -33,7 +33,7 @@ DECLARE
   v_lease uuid;
   v_at timestamptz;
 BEGIN
-  IF p_surface NOT IN ('hub', 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto') THEN
+  IF p_surface NOT IN ('hub', 'hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle', 'vcoin') THEN
     RETURN jsonb_build_object('error', 'bad_surface');
   END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended('play_lease:' || p_user_id::text, 0));

@@ -17,6 +17,13 @@
 namespace HubMatch {
   export var MODULE = "hub";
   export var TICK_RATE = 10;
+  /**
+   * Area of interest for OP_DELTA, in cm. Players share a grid cell of AOI_CELL; everyone in the
+   * 3x3 cells around a receiver (at least AOI_CELL away in every direction, more than the client's
+   * 30 m rig radius) arrives every tick. Farther players arrive every FAR_EVERY_TICKS (2 Hz).
+   */
+  export var AOI_CELL = 5000;
+  export var FAR_EVERY_TICKS = 5;
   export var MAX_PLAYERS = 100;
   /** Placement stops sending new players above this; the rest is room for friends and reconnects. */
   export var SOFT_CAP = 90;
@@ -46,6 +53,11 @@ namespace HubMatch {
   var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true };
   var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin", "marina_anchor", "dragon_scale"];
   var ID = /^[a-z0-9_-]{1,32}$/;
+  /**
+   * Plaza characters a client may wear (apps/hub/src/config.ts CHARACTERS; hub_match.test.ts keeps
+   * the two lists equal). Anything else keeps the player's current look.
+   */
+  export var CHARACTERS = ["wizard", "pepe", "pepe-general", "pepe-tux", "sahil", "obama", "midget", "broccoli", "agent", "tinubu", "soldier", "midget2", "flyer", "obama2", "bigobama", "sahil2", "hexsahil", "tinubu2", "megatinubu", "laser", "shooterbot", "monster", "beast", "cargolem", "mole", "dragon"];
 
   export interface Player {
     slot: number;
@@ -66,6 +78,14 @@ namespace HubMatch {
     awayTick: number;
     placed: boolean;
     dirty: boolean;
+    /** Moved since the last far (2 Hz) delta; older states lack it. */
+    farDirty?: boolean;
+    /** AOI bookkeeping: current cell and the tick it was entered; cell and tick of the last near row. */
+    cellKey?: string;
+    cellTick?: number;
+    nearTick?: number;
+    nearCx?: number;
+    nearCz?: number;
     rejects: number;
     lastProfileTick: number;
     lastEmoteTick: number;
@@ -79,6 +99,8 @@ namespace HubMatch {
     present: number;
     emptyTicks: number;
     label: string;
+    /** Slots whose pet a "pet" signal changed since the last loop; sent as roster upd. Older states lack it. */
+    petUpd?: { [slot: string]: boolean };
   }
 
   function errorText(value: unknown): string {
@@ -288,18 +310,21 @@ namespace HubMatch {
     return true;
   }
 
-  function applyProfile(nk: nkruntime.Nakama, p: Player, raw: string, tick: number): boolean {
+  /**
+   * Character and staff from the client. The pet is not read here: it comes from storage at join
+   * (HubPets.activePets) and from loadout.set_hub's "pet" signal, so the 10 Hz loop does no DB or
+   * storage I/O for OP_PROFILE.
+   */
+  function applyProfile(p: Player, raw: string, tick: number): boolean {
     if (tick - p.lastProfileTick < PROFILE_EVERY_TICKS) return false;
     var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
     if (!data || typeof data !== "object") return false;
     var changed = false;
-    var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
+    var c = typeof data.character === "string" && CHARACTERS.indexOf(data.character) >= 0 ? data.character : p.character;
     var st = typeof data.staff === "string" && ID.test(data.staff) && ownsStaff(p, data.staff) ? data.staff : p.staff;
-    var pt = HubPets.profilePets(nk, p.userId).active || "";
-    if (c !== p.character || st !== p.staff || pt !== p.pet) changed = true;
+    if (c !== p.character || st !== p.staff) changed = true;
     p.character = c;
     p.staff = st;
-    p.pet = pt;
     p.lastProfileTick = tick;
     return changed;
   }
@@ -310,7 +335,7 @@ namespace HubMatch {
     var shard = Math.max(1, Math.floor(Number(params && params.shard) || 1));
     var slots: (Player | null)[] = [];
     for (var i = 0; i < MAX_PLAYERS; i++) slots.push(null);
-    var state: State = { realm: realm, shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "" };
+    var state: State = { realm: realm, shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "", petUpd: {} };
     state.label = labelOf(state);
     logger.info("hub shard " + String(shard) + " up, tick " + String(TICK_RATE) + " max " + String(MAX_PLAYERS));
     return { state: state, tickRate: TICK_RATE, label: state.label };
@@ -347,6 +372,12 @@ namespace HubMatch {
     var relicIds: string[] = [];
     for (var r = 0; r < fresh.length; r++) relicIds.push(fresh[r].userId);
     var relics = lookupRelics(nk, logger, relicIds);
+    var pets: { [userId: string]: string } = {};
+    try {
+      pets = HubPets.activePets(nk, relicIds, relics);
+    } catch (e) {
+      logger.warn("hub pet read failed " + errorText(e));
+    }
     var added: Player[] = [];
     for (var j = 0; j < fresh.length; j++) {
       var slot = freeSlot(state);
@@ -368,7 +399,7 @@ namespace HubMatch {
         game: "",
         character: "",
         staff: "",
-        pet: HubPets.profilePets(nk, fresh[j].userId).active || "",
+        pet: pets[fresh[j].userId] || "",
         away: false,
         awayTick: 0,
         placed: false,
@@ -452,7 +483,7 @@ namespace HubMatch {
       if (m.opCode === OP_POSE) {
         latest[String(slot)] = messageText(nk, m.data);
       } else if (m.opCode === OP_PROFILE) {
-        if (applyProfile(nk, p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
+        if (applyProfile(p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
       } else if (m.opCode === OP_EMOTE) {
         if (tick - p.lastEmoteTick < EMOTE_EVERY_TICKS) continue;
         var emote = parseJson(messageText(nk, m.data), 64) as { e?: unknown } | null;
@@ -468,6 +499,11 @@ namespace HubMatch {
           rosterUpd[String(slot)] = true;
         }
       }
+    }
+    if (state.petUpd) {
+      var petSlots = Object.keys(state.petUpd);
+      for (var ps = 0; ps < petSlots.length; ps++) rosterUpd[petSlots[ps]] = true;
+      state.petUpd = {};
     }
     var poseSlots = Object.keys(latest);
     for (var j = 0; j < poseSlots.length; j++) {
@@ -521,20 +557,72 @@ namespace HubMatch {
       send(dispatcher, OP_ROSTER, roster, presences(state, null, null));
     }
 
-    // Deltas: one broadcast per occupied zone with that zone's changed rows.
-    var byZone: { [zone: string]: number[][] } = {};
+    // Deltas, per zone and grid cell (AOI): one broadcast per occupied receiver cell with the rows that
+    // moved this tick in its 3x3 neighbourhood, plus, on a far tick, every other row that moved
+    // since the last far tick. The message shape is unchanged ({t, p}).
+    var farTick = tick % FAR_EVERY_TICKS === 0;
+    var cells: { [key: string]: { zone: string; cx: number; cz: number; near: number[][]; to: nkruntime.Presence[]; newest: number } } = {};
+    var farRows: { [zone: string]: { cx: number; cz: number; row: number[]; nearTick: number }[] } = {};
+    var cellOf = function (pl: Player): string {
+      return zoneOf(pl.y, state.realm) + "|" + String(Math.floor(pl.x / AOI_CELL)) + "|" + String(Math.floor(pl.z / AOI_CELL));
+    };
+    var cellAt = function (key: string, pl: Player) {
+      var c = cells[key];
+      if (!c) c = cells[key] = { zone: zoneOf(pl.y, state.realm), cx: Math.floor(pl.x / AOI_CELL), cz: Math.floor(pl.z / AOI_CELL), near: [], to: [], newest: -1 };
+      return c;
+    };
     for (var d = 0; d < state.slots.length; d++) {
       var dp = state.slots[d];
-      if (!dp || !dp.dirty) continue;
-      dp.dirty = false;
-      if (dp.away) continue;
-      var zone = zoneOf(dp.y, state.realm);
-      if (!byZone[zone]) byZone[zone] = [];
-      byZone[zone].push(rowOf(dp));
+      if (!dp) continue;
+      if (dp.away) {
+        dp.dirty = false;
+        continue;
+      }
+      var key = cellOf(dp);
+      var own = cellAt(key, dp);
+      own.to.push(dp.presence);
+      if (dp.cellKey !== key) {
+        dp.cellKey = key;
+        dp.cellTick = tick;
+      }
+      if ((dp.cellTick as number) > own.newest) own.newest = dp.cellTick as number;
+      if (dp.dirty) {
+        dp.dirty = false;
+        dp.farDirty = true;
+        dp.nearTick = tick;
+        dp.nearCx = own.cx;
+        dp.nearCz = own.cz;
+        own.near.push(rowOf(dp));
+      }
+      if (farTick && dp.farDirty) {
+        dp.farDirty = false;
+        (farRows[own.zone] = farRows[own.zone] || []).push({ cx: dp.nearCx as number, cz: dp.nearCz as number, row: rowOf(dp), nearTick: dp.nearTick as number });
+      }
     }
-    var zones = Object.keys(byZone);
-    for (var z = 0; z < zones.length; z++) {
-      send(dispatcher, OP_DELTA, { t: tick, p: byZone[zones[z]] }, presences(state, zones[z], null));
+    var keys = Object.keys(cells);
+    for (var z = 0; z < keys.length; z++) {
+      var rc = cells[keys[z]];
+      var rows: number[][] = [];
+      var seen: { [slot: string]: boolean } = {};
+      for (var ox = -1; ox <= 1; ox++) {
+        for (var oz = -1; oz <= 1; oz++) {
+          var nc = cells[rc.zone + "|" + String(rc.cx + ox) + "|" + String(rc.cz + oz)];
+          if (!nc) continue;
+          for (var r = 0; r < nc.near.length; r++) {
+            rows.push(nc.near[r]);
+            seen[String(nc.near[r][0])] = true;
+          }
+        }
+      }
+      // A far row skips a cell only when that cell neighboured the mover's last near row and nobody
+      // in it arrived after that row went out; a receiver that walked in later still gets it.
+      var far = farRows[rc.zone] || [];
+      for (var f2 = 0; f2 < far.length; f2++) {
+        var fr = far[f2];
+        if (Math.abs(fr.cx - rc.cx) <= 1 && Math.abs(fr.cz - rc.cz) <= 1 && rc.newest <= fr.nearTick) continue;
+        if (!seen[String(fr.row[0])]) rows.push(fr.row);
+      }
+      if (rows.length) send(dispatcher, OP_DELTA, { t: tick, p: rows }, rc.to);
     }
 
     try {
@@ -568,9 +656,25 @@ namespace HubMatch {
     return { state: state };
   }
 
-  /** "status" → {shard, players, games:{game: n}} (counts of roster `g`). */
+  /**
+   * "status" → {shard, players, games:{game: n}} (counts of roster `g`).
+   * {"op":"pet","u":userId,"pet":id} from loadout.set_hub (ownership already checked there) → the
+   * player's pet, sent as a roster upd on the next loop.
+   */
   export function matchSignal(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, _dispatcher: nkruntime.MatchDispatcher, _tick: number, state: State, data: string): { state: State; data: string } {
-    if (data !== "status") return { state: state, data: "" };
+    if (data !== "status") {
+      var sig = parseJson(data, 256) as { op?: unknown; u?: unknown; pet?: unknown } | null;
+      if (sig && sig.op === "pet" && typeof sig.u === "string" && typeof sig.pet === "string" && (sig.pet === "" || ID.test(sig.pet))) {
+        var slot = state.byUser[sig.u];
+        var pp = slot === undefined ? null : state.slots[slot];
+        if (pp && pp.pet !== sig.pet) {
+          pp.pet = sig.pet;
+          (state.petUpd = state.petUpd || {})[String(slot)] = true;
+        }
+        return { state: state, data: "ok" };
+      }
+      return { state: state, data: "" };
+    }
     var games: { [g: string]: number } = {};
     for (var i = 0; i < state.slots.length; i++) {
       var p = state.slots[i];

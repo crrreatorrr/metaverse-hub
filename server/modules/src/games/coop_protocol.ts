@@ -41,10 +41,10 @@ namespace CoopProto {
   export var MATCH_NAME = "sproto_coop";
   export var KIND = "sproto_coop";
   export var REPO = "crrreatorrr/Sproto-Coop-Battle.";
-  export var COMMIT = "3dad4f3867db2e4171ca6a93c55a0ffcdf41cbc6";
-  export var BUNDLE_SHA256 = "b77aebc87bf9cbd2fc5b3cc6240e54a4e9ba25824fb4a74d4a6cf0ea0c4f8ac1";
+  export var COMMIT = "4f142a78747fe44f9ac32f75daeeeddbae1938e0";
+  export var BUNDLE_SHA256 = "c4292eb9e35095b98cd8aaa33f118b234237a71f6377d7ad25cb46a78da2af5d";
   export var PROTOCOL = 1;
-  export var FINGERPRINT = "9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67";
+  export var FINGERPRINT = "3fddedd1b65c0e2d71600e54822e0db5c66b45ac765535b7d0e88c2cf262e97b";
 
   export var OP_HELLO = 1;
   export var OP_WELCOME = 2;
@@ -104,6 +104,25 @@ namespace CoopProto {
     }
     if (nk.sha256Hash(content) !== FINGERPRINT) return "fingerprint_mismatch";
     return null;
+  }
+
+  /**
+   * Optional wire savings the vendored bundle supports (Coop docs/coop-server-contract.md, "Optional:
+   * input batches and snapshot deltas"). Each is on only when the bundle exports its helper.
+   */
+  export function wireFeatures(): { inputBatch: boolean; snapshotDelta: boolean } {
+    var api = typeof CoopProtocol !== "undefined" && CoopProtocol ? CoopProtocol : null;
+    return {
+      inputBatch: !!api && typeof api.splitInputBatch === "function",
+      snapshotDelta: !!api && typeof api.snapshotDelta === "function",
+    };
+  }
+
+  /** A delta client gets a full snapshot envelope at least this often, in sim loops. */
+  export function keyframeLoops(): number {
+    var limits = typeof CoopProtocol !== "undefined" && CoopProtocol ? CoopProtocol.LIMITS : null;
+    var n = limits && typeof limits.snapshotKeyframeLoops === "number" ? limits.snapshotKeyframeLoops : 60;
+    return n > 0 ? n : 60;
   }
 
   export function versionsMatch(protocol: unknown, fingerprint: unknown): boolean {

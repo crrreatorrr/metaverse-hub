@@ -122,3 +122,31 @@ NAKAMA_URL=http://127.0.0.1:7350 HUB_DATABASE_URL=postgres://postgres:...@127.0.
 The first checks the server replays logs to exactly the browser's states. The
 second plays wagered duels end to end (payout, forfeit by leaving, forfeit by a
 stalled stream, insufficient balance).
+
+## TURN (optional)
+
+Peers connect directly over WebRTC with the ICE servers from the Fighter build's
+`VITE_ICE_SERVERS` (a JSON array of `RTCIceServer`; without it the client uses a
+public STUN server, `src/net/peer.ts` `defaultIceServers`). When no direct path
+is found (symmetric NAT, strict corporate networks), the duel still runs: inputs
+fall back to `RELAY` through this match, so TURN is not required for play. TURN
+only moves that fallback traffic off Nakama and lowers its latency.
+
+To add one later (nothing in `deploy/` runs it today):
+
+1. Run coturn on a host the players can reach on UDP 3478 (and TLS 5349 if
+   wanted), for example a small VPS next to the hub, with `use-auth-secret`,
+   a `static-auth-secret`, a `realm`, and `no-tcp-relay`/`denied-peer-ip` for
+   private ranges so it cannot be used to reach internal addresses.
+2. Build Sproto Fighter with, for example,
+   `VITE_ICE_SERVERS='[{"urls":"stun:turn.<domain>:3478"},{"urls":"turn:turn.<domain>:3478","username":"…","credential":"…"}]'`.
+   Credentials in `VITE_ICE_SERVERS` ship in the client bundle, so they must be
+   short-lived ones derived from the coturn secret, never the secret itself. A
+   static username and password in the bundle is an open relay for anyone who
+   reads it; minting time-limited credentials needs a small hub RPC that does
+   not exist yet.
+3. Open the coturn ports in the host firewall only; Caddy and Nakama need no change.
+
+The server side of online duels (`sproto_duel`, its simulation, escrow and
+outcomes) is already on `main`; the `claude/sproto-online-duels` branch named in
+older notes no longer exists.

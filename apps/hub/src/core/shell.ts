@@ -32,7 +32,7 @@ import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { createPetCollision } from './pet-collision';
 import { createPlanarSpeed } from './planar-speed';
 import { DEFAULT_PET_ID, EQUIPPABLE_PET_IDS } from '../v2/pets';
-import { gameUrl, type GameUrlContext } from '../games';
+import { GAME_URLS, gameUrl, type GameUrlContext } from '../games';
 import { createExchangeKeys, exchangeErrorText, walletFromAnswer, type BalancesAnswer, type ExchangeAnswer, type WalletState } from '../wallet';
 import { portalPosition } from '../layout';
 import { STAND_Y, createPlayerController, type MoveInput } from '../physics';
@@ -75,6 +75,36 @@ function dampAngle(from: number, to: number, lambda: number, dt: number): number
   return from + delta * (1 - Math.exp(-lambda * dt));
 }
 
+/** The network half of the first session: gate entry, device auth and `profile.get`. */
+interface EarlySession {
+  client: ReturnType<typeof createNakamaClient>;
+  deviceId: string;
+  auth: { token: string; userId: string };
+  username: string | null;
+  profile: ProfileResult;
+}
+
+/**
+ * Starts the first session's network round trips at once, so they overlap the engine and realm
+ * build instead of following them. `openSession` takes the result; a failure here is retried there.
+ */
+function prefetchSession(): Promise<EarlySession> {
+  const run = async (): Promise<EarlySession> => {
+    const client = createNakamaClient({ serverUrl: '', serverKey: __NAKAMA_SERVER_KEY__ });
+    const deviceId = getOrCreateDeviceId();
+    const entry = await gate.entry;
+    const auth = entry.kind === 'account'
+      ? { token: entry.token, userId: entry.userId }
+      : await client.authenticateDevice(deviceId);
+    const username = entry.kind === 'account' ? entry.username : null;
+    const profile = await client.rpc<ProfileResult>('profile.get', {}, { token: auth.token });
+    return { client, deviceId, auth, username, profile };
+  };
+  const early = run();
+  early.catch(() => undefined);
+  return early;
+}
+
 export async function startRealm(definition: RealmDefinition): Promise<void> {
   const CONTROLS_HINT = 'WASD or arrows move  ·  Mouse look  ·  Z / C turn camera  ·  Shift run  ·  Space jump  ·  E use  ·  Enter chat  ·  Esc menu';
   const padHint = (stick: MoveStick) => {
@@ -109,6 +139,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   DefaultLoadingManager.onProgress = (_url, loaded, total) => {
     gate.progress(SCRIPT_SHARE + (1 - SCRIPT_SHARE) * (loaded / Math.max(total, EXPECTED_ASSETS)));
   };
+  let earlySession: Promise<EarlySession> | null = prefetchSession();
   const engine = await createEngine(definition.engine, look);
   const content = await definition.build({
     engine,
@@ -1065,7 +1096,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     });
   }
 
-  const ENTER_FADE_MS = 700;
+  // The wipe fades in over 380 ms (style.css #wipe); leave once it covers the plaza, not later.
+  const ENTER_FADE_MS = 400;
   const PORTAL_ERROR_MS = 5000;
 
   async function travel(portal: { id: GameId; label: string; color: string }, page: string, matureConfirmed = false): Promise<void> {
@@ -1140,6 +1172,26 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     },
   };
 
+  // Warm DNS + TLS to the game host (play.<domain>) now, so entering a portal does not pay for it.
+  const preconnected = new Set<string>();
+  for (const game of GAME_URLS) {
+    const page = pageFor(game.id);
+    if (!page) continue;
+    let origin: string;
+    try {
+      origin = new URL(page, window.location.href).origin;
+    } catch {
+      continue;
+    }
+    if (origin === window.location.origin || preconnected.has(origin)) continue;
+    preconnected.add(origin);
+    const link = document.createElement('link');
+    link.rel = 'preconnect';
+    // No crossorigin: the portal is a navigation, which uses the credentialed connection pool.
+    link.href = origin;
+    document.head.append(link);
+  }
+
   // The Relics tab in the Esc menu lists the Relics; the HUD only shows a count that opens it.
   const relicCount = document.querySelector<HTMLButtonElement>('#relic-count');
   const relicPips = new Map<string, HTMLElement>();
@@ -1204,17 +1256,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   async function openSession(): Promise<HubSession> {
     const status = document.querySelector<HTMLElement>('#link-status');
     try {
-      const client = createNakamaClient({
-        serverUrl: '',
-        serverKey: __NAKAMA_SERVER_KEY__,
-      });
-      const deviceId = getOrCreateDeviceId();
-      const entry = await gate.entry;
-      const auth = entry.kind === 'account'
-        ? { token: entry.token, userId: entry.userId }
-        : await client.authenticateDevice(deviceId);
-      const username = entry.kind === 'account' ? entry.username : null;
-      const profile = await client.rpc<ProfileResult>('profile.get', {}, { token: auth.token });
+      // The first call uses the round trips started before the world was built.
+      const pending = earlySession;
+      earlySession = null;
+      const early = pending ? await pending.catch(() => null) : null;
+      const { client, deviceId, auth, username, profile } = early ?? (await prefetchSession());
       showRelics(profile.relics);
       showVerse(profile.verse ?? 0);
       menu.setPets(profile.pets?.owned ?? null);
@@ -1553,6 +1599,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       keys.clear();
       return false;
     },
+    // The WebGL buffer is not preserved (engine.ts): draw a frame now so the capture, which reads
+    // the canvas in this same task, is not blank.
+    beforeCapture: () => world.render(),
     canvases: () => [canvas],
     context: () => ({
       level: definition.id,

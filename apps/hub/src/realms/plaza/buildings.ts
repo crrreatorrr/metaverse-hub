@@ -59,14 +59,21 @@ export function buildPlazaEntrance(portal: PortalConfig): Group {
 export async function castle(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'castle';
-  const mtn = await part('C1-mountain', { h: 30, yaw: 0, glow: 0.12 });
+  // Fetch every part at once; placement below only needs the mountain's ground height.
+  const [mtn, tower, cluster, hall, viaduct] = await Promise.all([
+    part('C1-mountain', { h: 30, yaw: 0, glow: 0.12 }),
+    part('C2-tower', { h: 46, yaw: Y }),
+    part('C3-cluster', { h: 38, yaw: Y }),
+    part('C4-hall', { h: 24, yaw: Y }),
+    part('C5-viaduct', { h: 15, yaw: Y }),
+  ]);
   mtn.scale.set(1.35, 1, 1.15);
   g.add(mtn);
   const gy = (x: number, z: number) => groundY(mtn, x, z, 26) - 0.6;
-  g.add(at(await part('C2-tower', { h: 46, yaw: Y }), 0, gy(0, -10), -10));
-  g.add(at(await part('C3-cluster', { h: 38, yaw: Y }), 22, gy(22, -6), -6, -0.25));
-  g.add(at(await part('C4-hall', { h: 24, yaw: Y }), -24, gy(-24, -4), -4, 0.2));
-  g.add(at(await part('C5-viaduct', { h: 15, yaw: Y }), -24, gy(-24, -22) * 0.7, -22, 0.25));
+  g.add(at(tower, 0, gy(0, -10), -10));
+  g.add(at(cluster, 22, gy(22, -6), -6, -0.25));
+  g.add(at(hall, -24, gy(-24, -4), -4, 0.2));
+  g.add(at(viaduct, -24, gy(-24, -22) * 0.7, -22, 0.25));
   const portalZ = 46;
   return { group: g, depth: 86, portalZ };
 }
@@ -74,17 +81,19 @@ export async function castle(): Promise<{ group: Group; depth: number; portalZ: 
 export async function whiteHouse(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'white-house';
-  const main = await part('W1-main', { h: 30, yaw: Y, glow: 0.2 });
+  const [main, portico, wingL, wingR] = await Promise.all([
+    part('W1-main', { h: 30, yaw: Y, glow: 0.2 }),
+    part('W2-portico', { h: 27, yaw: Y, glow: 0.2 }),
+    part('W3-wing', { h: 24, yaw: Y, glow: 0.2 }),
+    part('W3-wing', { h: 24, yaw: Y, glow: 0.2 }),
+  ]);
   g.add(main);
   const size = main.userData.size as Vector3;
   const mw = size.x;
   const md = size.z;
-  const portico = await part('W2-portico', { h: 27, yaw: Y, glow: 0.2 });
   g.add(at(portico, 0, 0, md / 2 + (portico.userData.size as Vector3).z / 2 - 3));
-  const wingL = await part('W3-wing', { h: 24, yaw: Y, glow: 0.2 });
   const ww = (wingL.userData.size as Vector3).x;
   g.add(at(wingL, -(mw / 2 + ww / 2 - 1.5), 0, -2));
-  const wingR = await part('W3-wing', { h: 24, yaw: Y, glow: 0.2 });
   wingR.scale.x = -1;
   g.add(at(wingR, mw / 2 + ww / 2 - 1.5, 0, -2));
   const pole = new Mesh(
@@ -187,13 +196,28 @@ function coinField(n: number, spread: number, z0: number): InstancedMesh {
 export async function greenHill(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'green-hill';
-  const terr = await part('G1-terrain', { h: 34, yaw: Y });
+  const [terr, plateauL, plateauR] = await Promise.all([
+    part('G1-terrain', { h: 34, yaw: Y }),
+    part('G2-plateau', { h: 48 }),
+    part('G2-plateau', { h: 40 }),
+  ]);
   g.add(terr);
   const terrSize = terr.userData.size as Vector3;
   const tw = terrSize.x;
   const td = terrSize.z;
-  g.add(at(await part('G2-plateau', { h: 48 }), -tw / 2 - 6, 0, -td / 2 + 4, 0.3));
-  g.add(at(await part('G2-plateau', { h: 40 }), tw / 2 + 5, 0, -td / 4, -0.2));
+  // The palms' placement needs the terrain size, so their fetch starts here, before the meshes below.
+  const palms = instanced('G3-palm', [
+    { p: [-tw / 2 + 3, 34, 4] },
+    { p: [-tw / 2 + 10, 30, 12], r: 1 },
+    { p: [tw / 2 - 6, 34, -4], r: 2 },
+    { p: [tw / 2 + 2, 0, td / 2 + 8], r: 0.5, s: 1.1 },
+    { p: [-tw / 2 - 6, 0, td / 2 + 6], r: 2.4, s: 1.2 },
+    { p: [tw / 2 + 14, 0, 6], r: 1.5 },
+    { p: [-tw / 2 - 16, 0, -4], r: 0.3 },
+    { p: [4, 34, -td / 2 + 6], r: 2.2 },
+  ], { h: 16 });
+  g.add(at(plateauL, -tw / 2 - 6, 0, -td / 2 + 4, 0.3));
+  g.add(at(plateauR, tw / 2 + 5, 0, -td / 4, -0.2));
   g.add(at(loopTrack(14), -tw / 4, 33.5, -td / 4, 0));
   g.add(at(loopTrack(9), tw / 2 + 5, 40, -td / 4, -0.2));
   const plat = new InstancedMesh(
@@ -211,16 +235,7 @@ export async function greenHill(): Promise<{ group: Group; depth: number; portal
   plat.instanceMatrix.needsUpdate = true;
   g.add(plat);
   g.add(glow(at(waterfall(9, 26), 0, 13, td / 2 - 3)));
-  g.add(await instanced('G3-palm', [
-    { p: [-tw / 2 + 3, 34, 4] },
-    { p: [-tw / 2 + 10, 30, 12], r: 1 },
-    { p: [tw / 2 - 6, 34, -4], r: 2 },
-    { p: [tw / 2 + 2, 0, td / 2 + 8], r: 0.5, s: 1.1 },
-    { p: [-tw / 2 - 6, 0, td / 2 + 6], r: 2.4, s: 1.2 },
-    { p: [tw / 2 + 14, 0, 6], r: 1.5 },
-    { p: [-tw / 2 - 16, 0, -4], r: 0.3 },
-    { p: [4, 34, -td / 2 + 6], r: 2.2 },
-  ], { h: 16 }));
+  g.add(await palms);
   return { group: g, depth: td, portalZ: td / 2 + 16 };
 }
 
@@ -299,23 +314,30 @@ function waterfall(w: number, h: number): Mesh {
 export async function club(): Promise<{ group: Group; depth: number; door: Group }> {
   const g = new Group();
   g.name = 'bahamas-club';
-  g.add(at(await part('B1-building', { h: 27, yaw: 0, glow: 0.22 }), -17, 0, 8));
-  g.add(at(await part('B2-tree', { h: 40, glow: 0.12 }), 10, 0, -2, 0.6));
-  g.add(at(await part('B3-tailfin', { h: 30, yaw: Y, glow: 0.25 }), 34, 0, 2, -0.35));
-  g.add(await instanced('B4-table', [
-    { p: [14, 0, 20] },
-    { p: [24, 0, 22], r: 0.2 },
-    { p: [18, 0, 30], r: -0.1 },
-    { p: [30, 0, 32], r: 0.3 },
-    { p: [6, 0, 30], r: 0.1 },
-  ], { h: 3.2 }));
-  g.add(await instanced('B5-palm', [
-    { p: [-40, 0, -2] },
-    { p: [-36, 0, -16], r: 1, s: 0.9 },
-    { p: [48, 0, 14], r: 2 },
-    { p: [46, 0, -8], r: 0.4, s: 1.1 },
-    { p: [-20, 0, -22], r: 1.2 },
-  ], { h: 26 }));
+  const [building, tree, tailfin, tables, palms] = await Promise.all([
+    part('B1-building', { h: 27, yaw: 0, glow: 0.22 }),
+    part('B2-tree', { h: 40, glow: 0.12 }),
+    part('B3-tailfin', { h: 30, yaw: Y, glow: 0.25 }),
+    instanced('B4-table', [
+      { p: [14, 0, 20] },
+      { p: [24, 0, 22], r: 0.2 },
+      { p: [18, 0, 30], r: -0.1 },
+      { p: [30, 0, 32], r: 0.3 },
+      { p: [6, 0, 30], r: 0.1 },
+    ], { h: 3.2 }),
+    instanced('B5-palm', [
+      { p: [-40, 0, -2] },
+      { p: [-36, 0, -16], r: 1, s: 0.9 },
+      { p: [48, 0, 14], r: 2 },
+      { p: [46, 0, -8], r: 0.4, s: 1.1 },
+      { p: [-20, 0, -22], r: 1.2 },
+    ], { h: 26 }),
+  ]);
+  g.add(at(building, -17, 0, 8));
+  g.add(at(tree, 10, 0, -2, 0.6));
+  g.add(at(tailfin, 34, 0, 2, -0.35));
+  g.add(tables);
+  g.add(palms);
   const plank = new BoxGeometry(0.9, 4, 0.3);
   const fenceMat = new MeshStandardMaterial({ roughness: 0.6 });
   const pts: number[] = [];
@@ -430,18 +452,21 @@ export function textTex(txt: string, fg: string, bg: string, w: number, h: numbe
 export async function kennel(): Promise<{ group: Group; depth: number; portalZ: number }> {
   const g = new Group();
   g.name = 'kennel';
-  const house = await part('K1-house', { h: 50, yaw: Y, glow: 0.2 });
+  const [house, bowl] = await Promise.all([
+    part('K1-house', { h: 50, yaw: Y, glow: 0.2 }),
+    part('K3-bowl', { h: 7, yaw: Y, metal: 0.6, glow: 0.3 }),
+  ]);
   g.add(house);
   const houseSize = house.userData.size as Vector3;
   const hd = houseSize.z;
   const hw = houseSize.x;
-  const bowl = await part('K3-bowl', { h: 7, yaw: Y, metal: 0.6, glow: 0.3 });
   bowl.scale.setScalar(1.6);
   g.add(at(bowl, -hw / 2 + 2, 0, hd / 2 + 22));
   const ring = new Mesh(new TorusGeometry(11, 0.25, 8, 64), neonMat('#ffb020', 4));
   ring.rotation.x = Math.PI / 2;
   ring.position.set(-hw / 2 + 2, 0.2, hd / 2 + 22);
   g.add(glow(ring));
+  // Placement needs the house size, so the bones load after it (small, LOD0 only).
   g.add(await instanced('K2-bone', [
     { p: [hw / 2 + 10, 0, hd / 2 + 6], r: 0.6 },
     { p: [hw / 2 + 4, 0, -hd / 4], r: 2 },

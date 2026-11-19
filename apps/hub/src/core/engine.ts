@@ -28,7 +28,9 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
   const renderer = new WebGLRenderer({
     antialias: false,
     powerPreference: 'high-performance',
-    preserveDrawingBuffer: true,
+    // Off: keeping the buffer costs a copy every frame on many GPUs. Feedback screenshots render
+    // one frame in beforeCapture and read it in the same task (shell.ts installFeedback).
+    preserveDrawingBuffer: false,
     stencil: false,
   });
   // Every pass is fill-bound, and 1.5 drew 2.25x the pixels of 1.0 on high-DPI screens.
@@ -85,7 +87,8 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
     const collision: PetCollision = position => petCollision?.(position);
     collision.blocked = (bounds, transform) => petCollision?.blocked?.(bounds, transform) ?? false;
     collision.beamRange = (origin, direction, range) => petCollision?.beamRange?.(origin, direction, range) ?? range;
-    const pets = createPetFollower(scene, collision);
+    // The local pet stays beside the camera, so it never needs its LOD1 model.
+    const pets = createPetFollower(scene, collision, { nearOnly: true });
 
     const shadowMat = new MeshBasicMaterial({
       map: radialShadow(),
@@ -159,7 +162,11 @@ export async function createEngine(opts: EngineOptions, initialLook?: AvatarLook
       gems.update(elapsed);
       return rigMoving;
     },
-    render(measure = true) {
+    /**
+     * `measure` draws the scene once more without post-processing to count its draw calls
+     * (`sceneDraws`). That doubles the frame's cost, so it is opt-in.
+     */
+    render(measure = false) {
       scene.updateMatrixWorld(true);
       scene.traverse((obj) => { const lod = obj as LOD; if (lod.isLOD) lod.update(camera); });
       if (measure) {

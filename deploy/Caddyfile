@@ -42,12 +42,39 @@
 (game) {
 	handle_path /{args[0]}/* {
 		root * /srv/play/{args[0]}/current
-		@html path_regexp html_{args[2]} "(^/$|\.html$)"
+		@html path_regexp html_{args[2]} "(^/$|\.html$|/asset-manifest\.json$)"
 		# Matchers see the path before handle_path strips the game prefix.
-		@hashed path_regexp hashed_{args[2]} "^(/{args[0]})?/index\.[A-Za-z0-9_-]+\.(wasm|pck|js)$"
+		# Godot exports (index.<hash>.wasm|pck|js) and Vite's code chunks
+		# (assets/<name>-<8 char hash>.js|css|wasm) never change under one name.
+		# Only code: Vite emits it, while a game's public/ can put a hand-named
+		# media file such as boss-intro_01.mp3 under assets/ too, and an 8-char
+		# tail cannot tell the two apart. An 8-letter lowercase word is never
+		# taken for a hash.
+		@hashed {
+			path_regexp hashed_{args[2]} "^(/{args[0]})?/(index\.[A-Za-z0-9_-]+\.(wasm|pck|js)|assets/(.+/)?[^/]+-[A-Za-z0-9_-]{8}\.(js|mjs|css|wasm))$"
+			not path_regexp hashed_word_{args[2]} "-[a-z-]{8}\.[a-z0-9]+$"
+		}
+		# Hash-looking media: an hour, then the browser revalidates in the background.
+		@hashed_media {
+			path_regexp hashed_media_{args[2]} "^(/{args[0]})?/assets/(.+/)?[^/]+-[A-Za-z0-9_-]{8}\.(png|webp|jpg|jpeg|avif|glb|ktx2|mp3|ogg|m4a|woff2|svg)$"
+			not path_regexp hashed_media_word_{args[2]} "-[a-z-]{8}\.[a-z0-9]+$"
+		}
+		# Coop-Battle busts caches with ?v=<24 hex> on files it changes.
+		@busted {
+			expression `{query.v}.matches("^[0-9a-f]{24}$")`
+			not path_regexp busted_html_{args[2]} "(^/$|\.html$|/asset-manifest\.json$)"
+		}
 		@wasm path_regexp wasm_{args[2]} "\.wasm$"
 		header Cache-Control "public, max-age=300"
 		header @hashed {
+			defer
+			Cache-Control "public, max-age=31536000, immutable"
+		}
+		header @hashed_media {
+			defer
+			Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
+		}
+		header @busted {
 			defer
 			Cache-Control "public, max-age=31536000, immutable"
 		}
@@ -103,17 +130,45 @@
 		respond "Games are on the play host." 404
 	}
 
+	# deploy-hub.sh writes .br and .gz beside each compressible file. Serve
+	# those (same 206 workaround as the play host); `encode gzip` above still
+	# covers anything without a sibling, and skips a body already encoded.
 	handle /assets/* {
 		root * /srv/hub/current
 		@assetwasm path_regexp hub_asset_wasm "\.wasm$"
 		header Cache-Control "public, max-age=31536000, immutable"
 		header @assetwasm Content-Type "application/wasm"
-		file_server
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
+	}
+
+	# /world/ is copied from public/ with stable names, so it cannot be
+	# immutable. An hour covers a portal round trip; after that the browser
+	# keeps using its copy while it revalidates in the background.
+	handle /world/* {
+		root * /srv/hub/current
+		@worldwasm path_regexp hub_world_wasm "\.wasm$"
+		header Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
+		header @worldwasm Content-Type "application/wasm"
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
 	}
 
 	handle {
 		root * /srv/hub/current
-		@html path_regexp hub_html "(^/hub/?$|^/admin/?$|^/realm/[^/]+/?$|\.html$)"
+		@html path_regexp hub_html "(^/hub/?$|^/admin/?$|^/realm/[^/]+/?$|\.html$|/asset-manifest\.json$)"
 		@wasm path_regexp hub_wasm "\.wasm$"
 		header Cache-Control "public, max-age=300"
 		header @html {
@@ -121,7 +176,14 @@
 			Cache-Control "no-cache"
 		}
 		header @wasm Content-Type "application/wasm"
-		file_server
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
 	}
 }
 
@@ -162,6 +224,28 @@ play.{$DOMAIN} {
 	import game sproto-arcade {$GAME_COOP_SPROTO_ARCADE:0} sproto_arcade
 	import game sproto-shooter {$GAME_COOP_SPROTO_SHOOTER:0} sproto_shooter
 	import game sproto-coop-battle {$GAME_COOP_SPROTO_COOP_BATTLE:0} sproto_coop_battle
+
+	# Character rigs and stage packs shared by sproto-duel and sproto-shooter, deployed once under
+	# /srv/play/shared-assets/sproto/current. Names are hand-picked, so nothing is immutable: an hour,
+	# then background revalidation (like the hub's /world/).
+	handle_path /shared-assets/sproto/* {
+		root * /srv/play/shared-assets/sproto/current
+		header Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
+		header {
+			X-Content-Type-Options nosniff
+			Access-Control-Allow-Origin *
+			Cross-Origin-Resource-Policy cross-origin
+			-Server
+		}
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
+	}
 
 	handle {
 		respond "play host" 404

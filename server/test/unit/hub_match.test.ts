@@ -201,3 +201,133 @@ console.log('hub match tests ok');
     assert.equal(state.slots[0]!.y, id === 'sandbox' ? 178 : -30000, 'sandbox_bounds_reject_interior_band');
   }
 }
+
+// Pets: read in one batch at join, never in the loop; loadout.set_hub signals the shard (handoff §3.1).
+{
+  const pets = loadModule();
+  pets.nk.onSql(/FROM game\.relic_claim WHERE user_id = ANY/, () => [{ user_id: uid(9001), relics: JSON.stringify(['tinubu_crown']) }]);
+  pets.nk.onSql(/AT TIME ZONE/, () => [{ result: '2026-11-19T00:00:00Z' }]);
+  const m = pets.startMatch('hub', { shard: '9' });
+  // 9001 owns the Wizard pet through Tinubu's Crown and has it equipped; 9002 has no loadout row (default pet).
+  pets.nk.storage.set(`loadout/hub/${uid(9001)}`, { value: { v: 1, slots: { pet: 'pet_wizard' }, seq: 1 }, version: 'v1', permissionRead: 1, permissionWrite: 0 });
+  const before = pets.nk.sqlCalls.length;
+  m.join([P(9001), P(9002)], HUB);
+  const joinSql = pets.nk.sqlCalls.slice(before).map((c) => c.sql);
+  assert.equal(joinSql.filter((sql) => sql.includes('game.item_owned')).length, 1, 'one batched item_owned read for the whole join');
+  assert.equal(pets.nk.storage.has(`pets/owned/${uid(9001)}`), false, 'the join writes no entitlement snapshot');
+  const st = m.state as { slots: { pet: string }[] };
+  assert.equal(st.slots[0]!.pet, 'pet_wizard');
+  assert.equal(st.slots[1]!.pet, 'pet_pepe_bull');
+
+  // OP_PROFILE in the loop: no SQL and no storage read.
+  const sqlBefore = pets.nk.sqlCalls.length;
+  const reads = { n: 0 };
+  type Read = (keys: { collection: string; key: string; userId: string }[]) => unknown[];
+  const fake = pets.nk as unknown as { storageRead: Read };
+  const read = fake.storageRead.bind(fake);
+  fake.storageRead = (keys) => { reads.n += 1; return read(keys); };
+  m.dispatcher.clear();
+  m.loop([{ sender: P(9001), opCode: 5, data: { character: 'wizard', staff: 'sproto', pet: 'pet_mecha' } }]);
+  assert.equal(pets.nk.sqlCalls.length, sqlBefore, 'OP_PROFILE runs no SQL');
+  assert.equal(reads.n, 0, 'OP_PROFILE reads no storage');
+  assert.equal(st.slots[0]!.pet, 'pet_wizard', 'the client cannot pick its pet over the socket');
+  fake.storageRead = read;
+
+  // Equip the starter: set_hub signals every hub shard and the roster carries it on the next loop.
+  const ack = pets.call<{ ok: boolean }>('loadout.set_hub', { userId: uid(9001), vars: { scope: 'hub' } }, { pet: 'pet_starter', seq: 2 });
+  assert.equal(ack.ok, true);
+  assert.ok(pets.nk.signals.some((sig) => sig.matchId === m.match.matchId && JSON.parse(sig.data).op === 'pet'));
+  m.dispatcher.clear();
+  m.loop([]);
+  const upd = m.dispatcher.sent<{ upd: { u: string; pt: string }[] }>(4);
+  assert.equal(upd[0]!.body.upd.find((e) => e.u === uid(9001))!.pt, 'pet_starter');
+  assert.equal(m.signal(JSON.stringify({ op: 'pet', u: uid(9001), pet: 'Bad Id!' })), '', 'a malformed pet signal is ignored');
+  console.log('hub match pets ok');
+}
+
+// AOI (handoff §3.2): full rate within the 3x3 grid cells, 2 Hz beyond, same {t, p} message.
+{
+  const aoi = loadModule();
+  const m = aoi.startMatch('hub', { shard: '11' });
+  m.join([P(9101), P(9102), P(9103)], HUB);
+  // 9101 and 9102 stand together near the fountain; 9103 is 100 m away.
+  m.loop([
+    { sender: P(9101), opCode: 1, data: [100, 178, 4200, 0, 1] },
+    { sender: P(9102), opCode: 1, data: [300, 178, 4200, 0, 1] },
+    { sender: P(9103), opCode: 1, data: [100, 178, -5800, 0, 1] },
+  ]);
+  const rowsFor = (user: string) => m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === user)).flatMap((d) => d.body.p.map((r) => r[0]));
+  // Walk 9101 for ten ticks; 9102 sees every step, 9103 only the far ticks.
+  m.dispatcher.clear();
+  for (let i = 1; i <= 10; i += 1) m.loop([{ sender: P(9101), opCode: 1, data: [100 + i * 50, 178, 4200, 0, 1] }]);
+  assert.equal(rowsFor(uid(9102)).filter((s) => s === 0).length, 10, 'a neighbour gets every move');
+  const far = rowsFor(uid(9103)).filter((s) => s === 0).length;
+  assert.ok(far >= 1 && far <= 3, `a far player gets the mover at 2 Hz (got ${far} of 10)`);
+  // The last position always reaches the far player by the next far tick.
+  m.dispatcher.clear();
+  for (let i = 0; i < 5; i += 1) m.loop([]);
+  const lastFar = m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === uid(9103))).flatMap((d) => d.body.p).filter((r) => r[0] === 0);
+  assert.ok(lastFar.length <= 1);
+  const seenByFar = [...rowsFor(uid(9103))];
+  assert.ok(seenByFar.length <= 1, 'nothing repeats once the far player is up to date');
+
+  // 100 movers spread over the plaza: bytes per client against the old zone-wide broadcast.
+  const big = aoi.startMatch('hub', { shard: '12' });
+  const ids = Array.from({ length: 100 }, (_v, i) => 9200 + i);
+  for (const n of ids) big.join([P(n)], HUB);
+  const at = (i: number, t: number) => [-12000 + (i % 10) * 2600 + (t % 2) * 40, 178, -12000 + Math.floor(i / 10) * 2600, 0, 1];
+  big.loop(ids.map((n, i) => ({ sender: P(n), opCode: 1, data: at(i, 0) })));
+  big.dispatcher.clear();
+  const TICKS = 50;
+  let oldBytes = 0;
+  for (let t = 1; t <= TICKS; t += 1) {
+    big.loop(ids.map((n, i) => ({ sender: P(n), opCode: 1, data: at(i, t) })));
+    // What the zone-wide delta sent: every row to every player.
+    oldBytes += JSON.stringify({ t, p: ids.map((_n, i) => [i, ...at(i, t)]) }).length * ids.length;
+  }
+  let newBytes = 0;
+  for (const b of big.dispatcher.broadcasts.filter((x) => x.opCode === 3)) newBytes += b.data.length * (b.presences?.length ?? 0);
+  const perClient = (bytes: number) => Math.round(bytes / ids.length / (TICKS / 10));
+  console.log(`hub AOI: 100 movers over the plaza, delta bytes/s per client ${perClient(oldBytes)} zone-wide -> ${perClient(newBytes)} AOI`);
+  assert.ok(newBytes < oldBytes / 2, 'AOI at least halves delta bandwidth for a spread-out crowd');
+  console.log('hub match AOI ok');
+}
+
+// Character allowlist (handoff §4.3): the server list equals the plaza's, and anything else keeps the look.
+{
+  const { readFileSync } = await import('node:fs');
+  const cfg = readFileSync(new URL('../../../apps/hub/src/config.ts', import.meta.url), 'utf8');
+  const block = cfg.slice(cfg.indexOf('export const CHARACTERS = ['), cfg.indexOf('] as const;', cfg.indexOf('export const CHARACTERS = [')));
+  const plaza = [...block.matchAll(/id: '([a-z0-9_-]+)'/g)].map((x) => x[1]);
+  const chars = loadModule();
+  assert.deepEqual(plain((chars.global.HubMatch as { CHARACTERS: string[] }).CHARACTERS), plaza, 'server CHARACTERS match apps/hub/src/config.ts');
+  const m = chars.startMatch('hub', { shard: '13' });
+  m.join([P(9301)], HUB);
+  m.loop([{ sender: P(9301), opCode: 5, data: { character: 'wizard', staff: 'sproto' } }]);
+  for (let i = 0; i < 25; i += 1) m.loop([]);
+  m.loop([{ sender: P(9301), opCode: 5, data: { character: 'definitely-not-a-skin', staff: 'sproto' } }]);
+  assert.equal((m.state as { slots: { character: string }[] }).slots[0]!.character, 'wizard');
+  console.log('hub match characters ok');
+}
+
+// AOI catch-up (review): a receiver that walks into a mover's neighbourhood after the mover stopped
+// gets the mover's last position on the next far tick.
+{
+  const aoi = loadModule();
+  const m = aoi.startMatch('hub', { shard: '14' });
+  m.join([P(9401), P(9402)], HUB);
+  m.loop([
+    { sender: P(9401), opCode: 1, data: [100, 178, 4200, 0, 1] },
+    { sender: P(9402), opCode: 1, data: [100, 178, -5800, 0, 1] },
+  ]);
+  for (let i = 0; i < 6; i += 1) m.loop([]);
+  m.dispatcher.clear();
+  // 9401 takes three steps and stops; 9402 then walks over next to it (cell jumps are allowed per tick within 49 m steps).
+  for (let i = 1; i <= 3; i += 1) m.loop([{ sender: P(9401), opCode: 1, data: [100 + i * 100, 178, 4200, 0, 1] }]);
+  for (let z = -5800 + 4000, k = 0; k < 3; z += 4000, k += 1) m.loop([{ sender: P(9402), opCode: 1, data: [100, 178, Math.min(z, 4000), 0, 1] }]);
+  for (let i = 0; i < 6; i += 1) m.loop([]);
+  const rows = m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === uid(9402))).flatMap((d) => d.body.p).filter((r) => r[0] === 0);
+  assert.ok(rows.length >= 1, 'the late arrival gets the mover');
+  assert.equal(rows.at(-1)![1], 400, "the late arrival sees the mover's final x");
+  console.log('hub match AOI catch-up ok');
+}

@@ -3927,6 +3927,9 @@ namespace HubSchema {
   // 0070_shooter_campaign_later_levels is registered from the same file. It moves that allowlist
   // onto the campaign bundle rebuilt from 1fd01820 / 7ba57e42 (Levels 7-10). The fingerprint stays
   // 73c6eb0f. The client at 0d604fe8 names that commit and sha. No row or wager change.
+  // 0076_shooter_campaign_boot_split is registered from the same file. It moves that allowlist onto
+  // the campaign bundle rebuilt from ccaa836d / bcfdba3e (bytes unchanged apart from the baked
+  // commit). The fingerprint stays 73c6eb0f. The client at 3cf28f37 names that commit and sha.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

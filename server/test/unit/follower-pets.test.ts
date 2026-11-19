@@ -35,6 +35,8 @@ assert.equal(equip('pet_nobu', 4).ok, true);
 assert.deepEqual(plain(mod.nk.storage.get(`pets/owned/${userId}`)!.value.ids), ['pet_nobu', 'pet_pepe_bull', 'pet_starter']);
 
 // Reload / realm join hydrates the equipped pet without waiting for a client profile message.
+// The match reads relics for the whole join in one batch (HubMatch.lookupRelics), answered here in that shape.
+mod.nk.onSql(/FROM game.relic_claim WHERE user_id = ANY/, args => ((args[0] as string[]).includes(userId) && conesTip ? [{ user_id: userId, relics: JSON.stringify(['cones_tip']) }] : []));
 const m = mod.startMatch('hub', { realm: 'plaza', shard: '8' });
 const sender = presence(userId, 'owner', 's1');
 m.join([sender], ctx);
@@ -44,11 +46,15 @@ m.dispatcher.clear();
 m.loop([{ sender, opCode: 5, data: { pet: 'pet_speed_sproto', character: 'wizard', staff: 'shooter' } }]);
 assert.equal(m.dispatcher.sent<{ upd: { pt: string }[] }>(4)[0]!.body.upd[0]!.pt, 'pet_nobu', 'forged presence must use the equipped pet');
 assert.notEqual(m.dispatcher.sent<{ upd: { st: string }[] }>(4)[0]!.body.upd[0]!.st, 'shooter', 'forged profile cannot equip a staff without its relic');
+// Recalling the pet reaches the shard as a signal from loadout.set_hub, not by the loop reading storage.
+m.dispatcher.clear();
 assert.equal(equip(null, 5).ok, true);
+m.loop([]);
+assert.equal(m.dispatcher.sent<{ upd: { pt: string }[] }>(4)[0]!.body.upd[0]!.pt, '');
 for (let i = 0; i < 20; i++) m.loop([]);
 m.dispatcher.clear();
 m.loop([{ sender, opCode: 5, data: { pet: 'pet_nobu' } }]);
-assert.equal(m.dispatcher.sent<{ upd: { pt: string }[] }>(4)[0]!.body.upd[0]!.pt, '');
+assert.equal(m.dispatcher.sent<{ upd: { pt: string }[] }>(4).some((r) => r.body.upd.some((e) => e.pt === 'pet_nobu')), false, 'a profile message cannot re-equip the recalled pet');
 assert.equal(mod.nk.sqlCalls.some(call => /UPDATE.*wallet|INSERT INTO game.item_ledger/i.test(call.sql)), false);
 console.log('follower pet RPC and presence tests ok');
 

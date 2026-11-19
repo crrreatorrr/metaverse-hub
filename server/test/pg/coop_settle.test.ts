@@ -15,12 +15,14 @@ const CoopRewards = mod.global.CoopRewards as {
   FINGERPRINT_0041: string;
   FINGERPRINT_0071: string;
   FINGERPRINT_0072: string;
+  FINGERPRINT_0073: string;
   BOSSES: string[];
 };
 const CoopProto = mod.global.CoopProto as { FINGERPRINT: string };
 const NEW = CoopRewards.FINGERPRINT;
 const OLD = CoopRewards.FINGERPRINT_0041;
 const MECHA = CoopRewards.FINGERPRINT_0072;
+const TRANSFORM = CoopRewards.FINGERPRINT_0073;
 const pin = JSON.parse(readFileSync(fileURLToPath(new URL('../../modules/vendor/coop-sim.pin.json', import.meta.url)), 'utf8')) as { contentSha256: string };
 assert.equal(NEW, CoopProto.FINGERPRINT);
 assert.equal(NEW, pin.contentSha256);
@@ -71,6 +73,7 @@ assert.deepEqual(booted.logger.lines.filter((line) => line.level === 'error'), [
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0063_coop_settle_fingerprint'"), 1);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0072_coop_mecha_fingerprint'"), 1);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0073_coop_transform_fingerprint'"), 1);
+assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0075_coop_wire_fingerprint'"), 1);
 assert.equal(functionBody().includes(OLD), false);
 assert.equal(functionBody().split(NEW).length - 1, 5);
 
@@ -115,6 +118,8 @@ const previous = settle(fresh, freshSid, B1, 'room-previous', 'enc-previous', Co
 assert.deepEqual([previous.paid, previous.tickets, previous.reason], [false, 0, 'bad_version']);
 const mecha = settle(fresh, freshSid, B1, 'room-mecha', 'enc-mecha', MECHA);
 assert.deepEqual([mecha.paid, mecha.tickets, mecha.reason], [false, 0, 'bad_version']);
+const transform = settle(fresh, freshSid, B1, 'room-transform', 'enc-transform', TRANSFORM);
+assert.deepEqual([transform.paid, transform.tickets, transform.reason], [false, 0, 'bad_version']);
 assert.equal(tickets(pg, fresh, GAME), 0);
 assert.equal(count(pg, 'SELECT 1 FROM game.coop_receipt WHERE user_id = $1::uuid', [fresh]), 0);
 
@@ -134,18 +139,41 @@ assert.equal(functionBody(), bodyBefore);
 pg.run(`DO $previous$ DECLARE src text; BEGIN
   src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
   src := replace(src, '  -- Historic Coop fingerprint 0072: ' || quote_literal('${MECHA}') || chr(10), '');
+  src := replace(src, '  -- Historic Coop fingerprint 0073: ' || quote_literal('${TRANSFORM}') || chr(10), '');
   EXECUTE replace(src, quote_literal('${NEW}'), quote_literal('${MECHA}'));
 END $previous$`);
 const mechaUser = addUser(pg, 'coop_mecha_veteran');
 const mechaSession = openGameSession(pg, mechaUser, GAME);
 const mechaReceipt = settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', MECHA);
 assert.deepEqual([mechaReceipt.paid, mechaReceipt.tickets, mechaReceipt.fingerprint], [true, 20, MECHA]);
-pg.run("DELETE FROM game.schema_migrations WHERE id = '0073_coop_transform_fingerprint'");
+// The runner refuses an unapplied id below the highest recorded one, so later ids (0074_play_lease, 0076) replay too.
+pg.run("DELETE FROM game.schema_migrations WHERE id >= '0073_coop_transform_fingerprint'");
 assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(functionBody(), bodyBefore);
 assert.deepEqual(settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', NEW), mechaReceipt);
 assert.equal(stored(mechaUser, B1)?.fingerprint, MECHA);
 assert.equal(tickets(pg, mechaUser, GAME), 20);
+
+// Upgrade a database already on 0073 (and 0074_play_lease), including a receipt paid under its label.
+pg.run(`DO $previous$ DECLARE src text; BEGIN
+  src := pg_get_functiondef('game.settle_coop_clear(uuid,uuid,text,text,text,date,bigint,bigint,smallint,text,integer,integer,text,text,text)'::regprocedure);
+  src := replace(src, '  -- Historic Coop fingerprint 0073: ' || quote_literal('${TRANSFORM}') || chr(10), '');
+  EXECUTE replace(src, quote_literal('${NEW}'), quote_literal('${TRANSFORM}'));
+END $previous$`);
+assert.equal(functionBody().includes(NEW), false);
+const transformUser = addUser(pg, 'coop_transform_veteran');
+const transformSession = openGameSession(pg, transformUser, GAME);
+const transformReceipt = settle(transformUser, transformSession, B1, 'room-paid-transform', 'enc-paid-transform', TRANSFORM);
+assert.deepEqual([transformReceipt.paid, transformReceipt.tickets, transformReceipt.fingerprint], [true, 20, TRANSFORM]);
+pg.run("DELETE FROM game.schema_migrations WHERE id >= '0075_coop_wire_fingerprint'");
+assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
+assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0075_coop_wire_fingerprint'"), 1);
+assert.equal(functionBody(), bodyBefore);
+assert.deepEqual(settle(transformUser, transformSession, B1, 'room-paid-transform', 'enc-paid-transform', NEW), transformReceipt);
+assert.equal(stored(transformUser, B1)?.fingerprint, TRANSFORM);
+assert.equal(tickets(pg, transformUser, GAME), 20);
+const afterWire = settle(transformUser, transformSession, B2, 'room-wire', 'enc-wire', NEW);
+assert.deepEqual([afterWire.paid, afterWire.tickets, afterWire.fingerprint], [true, 20, NEW]);
 
 pg.audit();
 console.log('pg coop settle fingerprint ok');

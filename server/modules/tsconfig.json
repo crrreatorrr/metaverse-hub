@@ -43,6 +43,7 @@
     "src/item_grant.ts",
     "src/pet_catalog.ts",
     "src/pets.ts",
+    "src/play_lease.ts",
     "src/main.ts"
   ],
   // Game files (Contract C3): emitted after `files`, alphabetically, so they can
