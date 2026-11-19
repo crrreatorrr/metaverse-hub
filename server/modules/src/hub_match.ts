@@ -17,6 +17,13 @@
 namespace HubMatch {
   export var MODULE = "hub";
   export var TICK_RATE = 10;
+  /**
+   * Area of interest for OP_DELTA, in cm. Players share a grid cell of AOI_CELL; everyone in the
+   * 3x3 cells around a receiver (at least AOI_CELL away in every direction, more than the client's
+   * 30 m rig radius) arrives every tick. Farther players arrive every FAR_EVERY_TICKS (2 Hz).
+   */
+  export var AOI_CELL = 5000;
+  export var FAR_EVERY_TICKS = 5;
   export var MAX_PLAYERS = 100;
   /** Placement stops sending new players above this; the rest is room for friends and reconnects. */
   export var SOFT_CAP = 90;
@@ -66,6 +73,8 @@ namespace HubMatch {
     awayTick: number;
     placed: boolean;
     dirty: boolean;
+    /** Moved since the last far (2 Hz) delta; older states lack it. */
+    farDirty?: boolean;
     rejects: number;
     lastProfileTick: number;
     lastEmoteTick: number;
@@ -537,20 +546,63 @@ namespace HubMatch {
       send(dispatcher, OP_ROSTER, roster, presences(state, null, null));
     }
 
-    // Deltas: one broadcast per occupied zone with that zone's changed rows.
-    var byZone: { [zone: string]: number[][] } = {};
+    // Deltas, per zone and grid cell (AOI): one broadcast per occupied receiver cell with the rows that
+    // moved this tick in its 3x3 neighbourhood, plus, on a far tick, every other row that moved
+    // since the last far tick. The message shape is unchanged ({t, p}).
+    var farTick = tick % FAR_EVERY_TICKS === 0;
+    var cells: { [key: string]: { zone: string; cx: number; cz: number; near: number[][]; to: nkruntime.Presence[] } } = {};
+    var farRows: { [zone: string]: { cx: number; cz: number; row: number[] }[] } = {};
+    var cellOf = function (pl: Player): string {
+      return zoneOf(pl.y, state.realm) + "|" + String(Math.floor(pl.x / AOI_CELL)) + "|" + String(Math.floor(pl.z / AOI_CELL));
+    };
+    var cellAt = function (key: string, pl: Player) {
+      var c = cells[key];
+      if (!c) c = cells[key] = { zone: zoneOf(pl.y, state.realm), cx: Math.floor(pl.x / AOI_CELL), cz: Math.floor(pl.z / AOI_CELL), near: [], to: [] };
+      return c;
+    };
     for (var d = 0; d < state.slots.length; d++) {
       var dp = state.slots[d];
-      if (!dp || !dp.dirty) continue;
-      dp.dirty = false;
-      if (dp.away) continue;
-      var zone = zoneOf(dp.y, state.realm);
-      if (!byZone[zone]) byZone[zone] = [];
-      byZone[zone].push(rowOf(dp));
+      if (!dp) continue;
+      if (dp.away) {
+        dp.dirty = false;
+        continue;
+      }
+      var key = cellOf(dp);
+      var own = cellAt(key, dp);
+      own.to.push(dp.presence);
+      if (dp.dirty) {
+        dp.dirty = false;
+        dp.farDirty = true;
+        own.near.push(rowOf(dp));
+      }
+      if (farTick && dp.farDirty) {
+        dp.farDirty = false;
+        (farRows[own.zone] = farRows[own.zone] || []).push({ cx: own.cx, cz: own.cz, row: rowOf(dp) });
+      }
     }
-    var zones = Object.keys(byZone);
-    for (var z = 0; z < zones.length; z++) {
-      send(dispatcher, OP_DELTA, { t: tick, p: byZone[zones[z]] }, presences(state, zones[z], null));
+    var keys = Object.keys(cells);
+    for (var z = 0; z < keys.length; z++) {
+      var rc = cells[keys[z]];
+      var rows: number[][] = [];
+      var seen: { [slot: string]: boolean } = {};
+      for (var ox = -1; ox <= 1; ox++) {
+        for (var oz = -1; oz <= 1; oz++) {
+          var nc = cells[rc.zone + "|" + String(rc.cx + ox) + "|" + String(rc.cz + oz)];
+          if (!nc) continue;
+          for (var r = 0; r < nc.near.length; r++) {
+            rows.push(nc.near[r]);
+            seen[String(nc.near[r][0])] = true;
+          }
+        }
+      }
+      // Far rows go only to cells outside the mover's neighbourhood: the neighbours had every move.
+      var far = farRows[rc.zone] || [];
+      for (var f2 = 0; f2 < far.length; f2++) {
+        var fr = far[f2];
+        if (Math.abs(fr.cx - rc.cx) <= 1 && Math.abs(fr.cz - rc.cz) <= 1) continue;
+        if (!seen[String(fr.row[0])]) rows.push(fr.row);
+      }
+      if (rows.length) send(dispatcher, OP_DELTA, { t: tick, p: rows }, rc.to);
     }
 
     try {

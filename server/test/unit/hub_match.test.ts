@@ -242,3 +242,51 @@ console.log('hub match tests ok');
   assert.equal(m.signal(JSON.stringify({ op: 'pet', u: uid(9001), pet: 'Bad Id!' })), '', 'a malformed pet signal is ignored');
   console.log('hub match pets ok');
 }
+
+// AOI (handoff §3.2): full rate within the 3x3 grid cells, 2 Hz beyond, same {t, p} message.
+{
+  const aoi = loadModule();
+  const m = aoi.startMatch('hub', { shard: '11' });
+  m.join([P(9101), P(9102), P(9103)], HUB);
+  // 9101 and 9102 stand together near the fountain; 9103 is 100 m away.
+  m.loop([
+    { sender: P(9101), opCode: 1, data: [100, 178, 4200, 0, 1] },
+    { sender: P(9102), opCode: 1, data: [300, 178, 4200, 0, 1] },
+    { sender: P(9103), opCode: 1, data: [100, 178, -5800, 0, 1] },
+  ]);
+  const rowsFor = (user: string) => m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === user)).flatMap((d) => d.body.p.map((r) => r[0]));
+  // Walk 9101 for ten ticks; 9102 sees every step, 9103 only the far ticks.
+  m.dispatcher.clear();
+  for (let i = 1; i <= 10; i += 1) m.loop([{ sender: P(9101), opCode: 1, data: [100 + i * 50, 178, 4200, 0, 1] }]);
+  assert.equal(rowsFor(uid(9102)).filter((s) => s === 0).length, 10, 'a neighbour gets every move');
+  const far = rowsFor(uid(9103)).filter((s) => s === 0).length;
+  assert.ok(far >= 1 && far <= 3, `a far player gets the mover at 2 Hz (got ${far} of 10)`);
+  // The last position always reaches the far player by the next far tick.
+  m.dispatcher.clear();
+  for (let i = 0; i < 5; i += 1) m.loop([]);
+  const lastFar = m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === uid(9103))).flatMap((d) => d.body.p).filter((r) => r[0] === 0);
+  assert.ok(lastFar.length <= 1);
+  const seenByFar = [...rowsFor(uid(9103))];
+  assert.ok(seenByFar.length <= 1, 'nothing repeats once the far player is up to date');
+
+  // 100 movers spread over the plaza: bytes per client against the old zone-wide broadcast.
+  const big = aoi.startMatch('hub', { shard: '12' });
+  const ids = Array.from({ length: 100 }, (_v, i) => 9200 + i);
+  for (const n of ids) big.join([P(n)], HUB);
+  const at = (i: number, t: number) => [-12000 + (i % 10) * 2600 + (t % 2) * 40, 178, -12000 + Math.floor(i / 10) * 2600, 0, 1];
+  big.loop(ids.map((n, i) => ({ sender: P(n), opCode: 1, data: at(i, 0) })));
+  big.dispatcher.clear();
+  const TICKS = 50;
+  let oldBytes = 0;
+  for (let t = 1; t <= TICKS; t += 1) {
+    big.loop(ids.map((n, i) => ({ sender: P(n), opCode: 1, data: at(i, t) })));
+    // What the zone-wide delta sent: every row to every player.
+    oldBytes += JSON.stringify({ t, p: ids.map((_n, i) => [i, ...at(i, t)]) }).length * ids.length;
+  }
+  let newBytes = 0;
+  for (const b of big.dispatcher.broadcasts.filter((x) => x.opCode === 3)) newBytes += b.data.length * (b.presences?.length ?? 0);
+  const perClient = (bytes: number) => Math.round(bytes / ids.length / (TICKS / 10));
+  console.log(`hub AOI: 100 movers over the plaza, delta bytes/s per client ${perClient(oldBytes)} zone-wide -> ${perClient(newBytes)} AOI`);
+  assert.ok(newBytes < oldBytes / 2, 'AOI at least halves delta bandwidth for a spread-out crowd');
+  console.log('hub match AOI ok');
+}
