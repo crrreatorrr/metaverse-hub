@@ -222,14 +222,16 @@ console.log('hub match tests ok');
   // OP_PROFILE in the loop: no SQL and no storage read.
   const sqlBefore = pets.nk.sqlCalls.length;
   const reads = { n: 0 };
-  const read = pets.nk.storageRead.bind(pets.nk);
-  pets.nk.storageRead = (keys) => { reads.n += 1; return read(keys); };
+  type Read = (keys: { collection: string; key: string; userId: string }[]) => unknown[];
+  const fake = pets.nk as unknown as { storageRead: Read };
+  const read = fake.storageRead.bind(fake);
+  fake.storageRead = (keys) => { reads.n += 1; return read(keys); };
   m.dispatcher.clear();
   m.loop([{ sender: P(9001), opCode: 5, data: { character: 'wizard', staff: 'sproto', pet: 'pet_mecha' } }]);
   assert.equal(pets.nk.sqlCalls.length, sqlBefore, 'OP_PROFILE runs no SQL');
   assert.equal(reads.n, 0, 'OP_PROFILE reads no storage');
   assert.equal(st.slots[0]!.pet, 'pet_wizard', 'the client cannot pick its pet over the socket');
-  pets.nk.storageRead = read;
+  fake.storageRead = read;
 
   // Equip the starter: set_hub signals every hub shard and the roster carries it on the next loop.
   const ack = pets.call<{ ok: boolean }>('loadout.set_hub', { userId: uid(9001), vars: { scope: 'hub' } }, { pet: 'pet_starter', seq: 2 });
