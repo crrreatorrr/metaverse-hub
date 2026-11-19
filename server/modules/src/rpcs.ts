@@ -509,6 +509,31 @@ namespace HubRpc {
     return ok(result);
   }
 
+  /**
+   * session.event for a match handler: the same game.apply_event call, request hash and Relic
+   * storage sync as the RPC, for an account the match has seated (`who.sid` from its join).
+   * Used by server-settled co-op clears so their Relic follows the single-player path exactly.
+   */
+  export function grantEvent(nk: nkruntime.Nakama, logger: nkruntime.Logger, who: { userId: string; sid: string; game: string }, eventId: string, data: { [key: string]: unknown }, key: string): { [key: string]: unknown } {
+    if (!who || !UUID.test(who.userId || "") || !UUID.test(who.sid || "") || !GAMES[who.game]) return { error: "not_game_session" };
+    if (!eventId || eventId.length > 80 || !key || key.length > 80) return { error: "bad_event" };
+    var reqHash = nk.sha256Hash("session.event\n" + stable({ eventId: eventId, data: data }));
+    var result = queryJson(
+      nk,
+      "SELECT game.apply_event($1::uuid, $2::uuid, $3::text, $4::text, $5::jsonb, $6::text, $7::text, $8::bigint)::text AS result",
+      [who.userId, who.sid, who.game, eventId, JSON.stringify(data), key, reqHash, null],
+    );
+    if (!result.error && typeof result.granted === "string") {
+      try {
+        syncStorage(nk, who.userId, [{ gameId: who.game, relicId: result.granted }]);
+      } catch (e) {
+        logger.warn("storage sync failed " + String(e));
+      }
+      logger.info("relic granted " + result.granted + " user " + who.userId);
+    }
+    return result;
+  }
+
   /** Cloud saves: one owner-readable, server-written storage object per player per game. */
   export var SAVE_COLLECTION = "game_save";
   export var SAVE_MAX_BYTES = 16384;

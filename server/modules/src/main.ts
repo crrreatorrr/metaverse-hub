@@ -326,6 +326,10 @@ function InitModule(
   // ----
   // >>> game: sproto-coop-battle registrations
   initializer.registerMatch("sproto_coop", { matchInit: sprotoCoopInit, matchJoinAttempt: sprotoCoopJoinAttempt, matchJoin: sprotoCoopJoin, matchLeave: sprotoCoopLeave, matchLoop: sprotoCoopLoop, matchTerminate: sprotoCoopTerminate, matchSignal: sprotoCoopSignal });
+  initializer.registerMatch("sproto_arcade_coop", { matchInit: arcadeCoopInit, matchJoinAttempt: arcadeCoopJoinAttempt, matchJoin: arcadeCoopJoin, matchLeave: arcadeCoopLeave, matchLoop: arcadeCoopLoop, matchTerminate: arcadeCoopTerminate, matchSignal: arcadeCoopSignal });
+  initializer.registerRpc("arcade.coop_create", rpcArcadeCoopCreate);
+  initializer.registerRpc("arcade.coop_join", rpcArcadeCoopJoin);
+  initializer.registerRpc("arcade.coop_quick", rpcArcadeCoopQuick);
   initializer.registerRpc("coop.version", rpcCoopVersion);
   initializer.registerRpc("coop.room_create", rpcCoopRoomCreate);
   initializer.registerRpc("coop.room_join", rpcCoopRoomJoin);
