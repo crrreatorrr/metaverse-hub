@@ -61,6 +61,8 @@ put('play/sproto-arcade/current/assets/hero-sheet.png', 'PNG', false);
 put('play/sproto-coop-battle/current/sprites/hero.png', 'PNG', false);
 put('play/sproto-coop-battle/current/index.html', `<!doctype html>${filler}`);
 put('play/hpos10i/current/index.Ab12cd.wasm', `\0asm${filler}`);
+put('play/shared-assets/sproto/current/rigs/wizard.glb', `glTF${filler}`);
+put('play/shared-assets/sproto/current/rigs/wizard-Ab3dE9xQ.glb', `glTF${filler}`);
 
 const port = await freePort();
 let cf = readFileSync(join(root, 'deploy/Caddyfile'), 'utf8');
@@ -122,6 +124,8 @@ const cases = [
   ['play.hub.test', '/sproto-coop-battle/sprites/hero.png?v=nothex', null, 'public, max-age=300'],
   ['play.hub.test', '/sproto-coop-battle/index.html?v=0123456789abcdef01234567', 'br', 'no-cache'],
   ['play.hub.test', '/hpos10i/index.Ab12cd.wasm', 'br', IMMUTABLE],
+  ['play.hub.test', '/shared-assets/sproto/rigs/wizard.glb', 'br', 'public, max-age=3600, stale-while-revalidate=86400'],
+  ['play.hub.test', '/shared-assets/sproto/rigs/wizard-Ab3dE9xQ.glb', 'br', IMMUTABLE],
 ];
 
 let failed = 0;

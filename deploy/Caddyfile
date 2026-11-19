@@ -214,6 +214,36 @@ play.{$DOMAIN} {
 	import game sproto-shooter {$GAME_COOP_SPROTO_SHOOTER:0} sproto_shooter
 	import game sproto-coop-battle {$GAME_COOP_SPROTO_COOP_BATTLE:0} sproto_coop_battle
 
+	# Character rigs and stage packs shared by sproto-duel and sproto-shooter, deployed once under
+	# /srv/play/shared-assets/sproto/current. Stable names, so an hour plus background revalidation
+	# (like the hub's /world/); content-hashed names under it are immutable.
+	handle_path /shared-assets/sproto/* {
+		root * /srv/play/shared-assets/sproto/current
+		@shared_hashed {
+			path_regexp shared_hashed "-[A-Za-z0-9_-]{8}\.[a-z0-9]+$"
+			not path_regexp shared_word "-[a-z-]{8}\.[a-z0-9]+$"
+		}
+		header Cache-Control "public, max-age=3600, stale-while-revalidate=86400"
+		header @shared_hashed {
+			defer
+			Cache-Control "public, max-age=31536000, immutable"
+		}
+		header {
+			X-Content-Type-Options nosniff
+			Access-Control-Allow-Origin *
+			Cross-Origin-Resource-Policy cross-origin
+			-Server
+		}
+		file_server {
+			precompressed br gzip
+			status 200
+		}
+		header {
+			defer
+			-Content-Range
+		}
+	}
+
 	handle {
 		respond "play host" 404
 	}
