@@ -488,6 +488,7 @@ namespace HubRpc {
       }
       seq = body.seq;
     }
+    if (seq === null && Flags.on(nk, FLAG_EVENT_SEQ, session.userId, logger)) return fail("bad_event", "seq is required");
     HubFault.apply(ctx, nk, session.userId, "grant.before_rpc");
     var hashed: { [key: string]: unknown } = { eventId: eventId, data: data };
     if (seq !== null) hashed.seq = seq;
@@ -533,6 +534,26 @@ namespace HubRpc {
       logger.info("relic granted " + result.granted + " user " + who.userId);
     }
     return result;
+  }
+
+  /**
+   * Trust hardening (handoff §4.3), each behind a server flag that is off until an operator turns
+   * it on (a missing game.server_flags row is off), because it would refuse some live clients:
+   * - trust_event_seq: session.event must carry `seq` (monotonicity itself is already enforced
+   *   in game.apply_event whenever a seq is sent).
+   * - trust_godmode_tickets: tickets.earn refuses a body that says godMode: true.
+   * - trust_min_session: tickets.earn refuses an earn within MIN_SESSION_S of the session opening.
+   */
+  export var FLAG_EVENT_SEQ = "trust_event_seq";
+  export var FLAG_GODMODE_TICKETS = "trust_godmode_tickets";
+  export var FLAG_MIN_SESSION = "trust_min_session";
+  export var MIN_SESSION_S = 20;
+
+  function sessionAgeS(nk: nkruntime.Nakama, sid: string): number {
+    var rows = nk.sqlQuery("SELECT extract(epoch FROM (now() - opened_at))::float8::text AS age FROM game.game_session WHERE session_id = $1::uuid", [sid]);
+    if (!rows || !rows.length) return -1;
+    var age = Number(rows[0].age);
+    return isFinite(age) ? age : -1;
   }
 
   /** Cloud saves: one owner-readable, server-written storage object per player per game. */
@@ -626,6 +647,11 @@ namespace HubRpc {
     // Shooter boss clears are settled inside the server. A client cannot name that reason.
     if (reason.indexOf("srv_") === 0 || ShooterRewards.clientBlocked(reason) || CoopRewards.clientBlocked(reason)) return fail("server_reason", "This reason is granted by the server");
     var amount = Math.floor(body.amount);
+    if (body.godMode === true && Flags.on(nk, FLAG_GODMODE_TICKETS, session.userId, _logger)) return fail("god_mode", "God mode earns no Tickets");
+    if (Flags.on(nk, FLAG_MIN_SESSION, session.userId, _logger)) {
+      var age = sessionAgeS(nk, session.sid);
+      if (age >= 0 && age < MIN_SESSION_S) return fail("too_soon", "This session is too new to earn Tickets");
+    }
     HubFault.apply(ctx, nk, session.userId, "earn.before_rpc");
     var reqHash = nk.sha256Hash("tickets.earn\n" + stable({ amount: amount, reason: reason }));
     var result = queryJson(

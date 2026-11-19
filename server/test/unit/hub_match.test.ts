@@ -292,3 +292,20 @@ console.log('hub match tests ok');
   assert.ok(newBytes < oldBytes / 2, 'AOI at least halves delta bandwidth for a spread-out crowd');
   console.log('hub match AOI ok');
 }
+
+// Character allowlist (handoff §4.3): the server list equals the plaza's, and anything else keeps the look.
+{
+  const { readFileSync } = await import('node:fs');
+  const cfg = readFileSync(new URL('../../../apps/hub/src/config.ts', import.meta.url), 'utf8');
+  const block = cfg.slice(cfg.indexOf('export const CHARACTERS = ['), cfg.indexOf('] as const;', cfg.indexOf('export const CHARACTERS = [')));
+  const plaza = [...block.matchAll(/id: '([a-z0-9_-]+)'/g)].map((x) => x[1]);
+  const chars = loadModule();
+  assert.deepEqual(plain((chars.global.HubMatch as { CHARACTERS: string[] }).CHARACTERS), plaza, 'server CHARACTERS match apps/hub/src/config.ts');
+  const m = chars.startMatch('hub', { shard: '13' });
+  m.join([P(9301)], HUB);
+  m.loop([{ sender: P(9301), opCode: 5, data: { character: 'wizard', staff: 'sproto' } }]);
+  for (let i = 0; i < 25; i += 1) m.loop([]);
+  m.loop([{ sender: P(9301), opCode: 5, data: { character: 'definitely-not-a-skin', staff: 'sproto' } }]);
+  assert.equal((m.state as { slots: { character: string }[] }).slots[0]!.character, 'wizard');
+  console.log('hub match characters ok');
+}

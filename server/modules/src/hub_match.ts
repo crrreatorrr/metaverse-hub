@@ -53,6 +53,11 @@ namespace HubMatch {
   var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true };
   var RELIC_ORDER = ["hpos10i_core", "genesis_shard", "cones_tip", "tinubu_crown", "tidebreaker_belt", "breakwater_coin", "marina_anchor", "dragon_scale"];
   var ID = /^[a-z0-9_-]{1,32}$/;
+  /**
+   * Plaza characters a client may wear (apps/hub/src/config.ts CHARACTERS; hub_match.test.ts keeps
+   * the two lists equal). Anything else keeps the player's current look.
+   */
+  export var CHARACTERS = ["wizard", "pepe", "pepe-general", "pepe-tux", "sahil", "obama", "midget", "broccoli", "agent", "tinubu", "soldier", "midget2", "flyer", "obama2", "bigobama", "sahil2", "hexsahil", "tinubu2", "megatinubu", "laser", "shooterbot", "monster", "beast", "cargolem", "mole", "dragon"];
 
   export interface Player {
     slot: number;
@@ -309,7 +314,7 @@ namespace HubMatch {
     var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
     if (!data || typeof data !== "object") return false;
     var changed = false;
-    var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
+    var c = typeof data.character === "string" && CHARACTERS.indexOf(data.character) >= 0 ? data.character : p.character;
     var st = typeof data.staff === "string" && ID.test(data.staff) && ownsStaff(p, data.staff) ? data.staff : p.staff;
     if (c !== p.character || st !== p.staff) changed = true;
     p.character = c;
