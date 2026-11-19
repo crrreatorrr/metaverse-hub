@@ -63,7 +63,9 @@ precompress_tree() {
     ! -name '*.gz' ! -name '*.br' ! -name '*.tmp' \
     \( -name '*.wasm' -o -name '*.pck' -o -name '*.js' -o -name '*.mjs' \
        -o -name '*.html' -o -name '*.css' -o -name '*.json' \
-       -o -name '*.svg' -o -name '*.txt' -o -name '*.xml' \) -print0)
+       -o -name '*.svg' -o -name '*.txt' -o -name '*.xml' \
+       -o -name '*.glb' -o -name '*.gltf' -o -name '*.bin' \
+       -o -name '*.ttf' -o -name '*.otf' -o -name '*.fnt' \) -print0)
 }
 
 stage_release() {
