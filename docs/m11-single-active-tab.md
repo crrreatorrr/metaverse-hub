@@ -1,6 +1,6 @@
 # M11 single active tab
 
-Server pieces for one active tab per profile. Nothing here is registered or applied. Hub #12 and #13 edit `schema.ts`, `rpcs.ts`, `main.ts`, `tsconfig.json`, and the SDK, so this branch only adds files. Wire the pieces on main after those PRs merge. QA covers this in M12. This change adds no tests.
+Server pieces for one active tab per profile. Steps 1-4 below are done (migration `0074_play_lease`, `play_lease.ts` compiled, `session.claim` and `session.heartbeat` registered, `session_superseded` mapped). Step 5 onward (write RPCs requiring a lease, the SDK claim and heartbeat) is not: nothing is fenced yet.
 
 The runtime is the TypeScript Nakama module (`InitModule` in `server/modules/src/main.ts`). Postgres time is `now()` inside the migration. There is no Go plugin. The SQL file is unnumbered: wiring gives it the next free id in the migration ledger (`MIGRATIONS` in `server/modules/src/schema.ts`).
 

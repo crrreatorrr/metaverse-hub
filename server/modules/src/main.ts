@@ -51,6 +51,14 @@ function rpcPetCatalog(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkr
   return guard(HubPets.catalog, ctx, logger, nk, payload);
 }
 
+function rpcSessionClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubLease.claim, ctx, logger, nk, payload);
+}
+
+function rpcSessionHeartbeat(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+  return guard(HubLease.heartbeat, ctx, logger, nk, payload);
+}
+
 function rpcLoadoutSetHub(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
   return guard(HubPets.setHub, ctx, logger, nk, payload);
 }
@@ -268,6 +276,8 @@ function InitModule(
   initializer.registerRpc("account.claim", rpcAccountClaim);
   initializer.registerRpc("pets.catalog", rpcPetCatalog);
   initializer.registerRpc("loadout.set_hub", rpcLoadoutSetHub);
+  initializer.registerRpc("session.claim", rpcSessionClaim);
+  initializer.registerRpc("session.heartbeat", rpcSessionHeartbeat);
   initializer.registerBeforeWriteStorageObjects(beforePetStorage);
   initializer.registerBeforeDeleteStorageObjects(beforePetStorage);
   initializer.registerRpc("sproto.dev_replay", rpcSprotoDevReplay);

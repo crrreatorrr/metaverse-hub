@@ -17,6 +17,7 @@ namespace HubRpc {
     else message = String(e);
     var codes = [
       "idempotency_mismatch",
+      "session_superseded",
       "session_closed",
       "ticket_used",
       "ticket_expired",
