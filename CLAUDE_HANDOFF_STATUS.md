@@ -115,6 +115,8 @@ Times are SwiftShader in a 4-core VM and dominated by CPU; compare them only wit
 
 ## Cross-repo follow-ups
 
+- **Bundle sync (blocked, needs the owner).** The orchestrating session reported that Coop main (`4f142a78`, PR #43) and peoples-bitcoin main (`a2eb7fa8`, PR #47) have merged, and asked for a re-vendor. I verified that Coop `build/coop-sim.js` at `4f142a78` is sha256 `c4292eb9…af5d`. The hub vendors `b77aebc8…` (commit `3dad4f38`, content `9c1841f6…`), and Coop main's content fingerprint is `3fddedd1…`, so the re-vendor also needs a `game.settle_coop_clear` re-pin migration (next id 0075, in the 0071-0073 pattern) plus `CoopProto` / `CoopRewards.FINGERPRINT` updates. Overwriting `server/modules/vendor/` was refused by this session's safety check, consistent with the brief's "do not change server/modules/vendor/". It needs the owner's direct go-ahead. The Coop input-batch and snapshot-delta hub side (feature-detected on the bundle) is not built either; it depends on that re-vendor.
+
 - Sproto-Arcade: the co-op client builds against `sproto_arcade_coop` as described in the contract notes above (`levelIndex = level - 1`, `god: false` required). The client must not also send `tickets.earn arcade_clear` or `arcade.boss_defeated` for a co-op clear; the server pays it.
 - peoples-bitcoin: re-vendor `pb-sim.js` once its HostIO additions merge; this shell already provides them.
 - sproto-shooter: read `isGuest` / `wagerEligible` from `shooter.version` instead of the socket probe.
