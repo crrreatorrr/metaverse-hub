@@ -9,7 +9,7 @@ No pull request opened, no deploy, no production change. Status per item: done (
 |---|---|---|
 | §1.1.1 precompress glb/gltf/bin/fonts | done f103ecd | `deploy/scripts/lib.sh` `precompress_tree` adds `*.glb *.gltf *.bin *.ttf *.otf *.fnt` (wasm/json/svg were already there). Already-compressed formats (webp, png, jpg, mp3, ogg, woff2, ktx2) stay skipped. |
 | §1.1.2 `precompressed br gzip` on `{$DOMAIN}` | done f103ecd | All three hub `file_server` blocks, with the play host's 206 workaround (`status 200`, `-Content-Range`). `encode gzip` stays as fallback. |
-| §1.1.3 immutable hashed chunks on play | done f103ecd | `@hashed` now also matches `assets/<name>-<8 char hash>.<ext>`; an 8-letter all-lowercase tail (`boss-defeated.mp3`) is excluded as a word, not a hash. `?v=<24 hex>` (Coop-Battle) is immutable except on HTML/manifest. |
+| §1.1.3 immutable hashed chunks on play | done f103ecd, 2a3c833 | `@hashed` also matches Vite code chunks `assets/<name>-<8 char hash>.js|mjs|css|wasm` (immutable). Hash-looking media under `assets/` gets `max-age=3600, stale-while-revalidate=86400` instead: a game's `public/` can put hand-named files there (`boss-intro_01.mp3`) that an 8-character tail cannot tell from a Vite hash (review finding). An 8-letter all-lowercase tail is never taken for a hash. `?v=<24 hex>` (Coop-Battle) is immutable except on HTML/manifest. |
 | §1.1.3 `/world/*` caching | done f103ecd | Chose the non-versioned option: `public, max-age=3600, stale-while-revalidate=86400` (handoff suggested 86400 + 7 d SWR; an hour keeps a stale GLB after a deploy to at most one hour plus one background revalidation). Release-versioned `/world/<hash>/` left as a follow-up. |
 | §1.1.4 `index.html`, `asset-manifest.json` no-cache | done f103ecd | Both hosts. |
 | §1.1 acceptance test | done f103ecd | `scripts/caddy-headers.test.mjs` (in `npm test`) serves a sample tree with the deploy Caddyfile and checks Content-Encoding and Cache-Control on 14 paths; skips when no caddy binary. Ran here with Caddy v2.10.2 release binary (`CADDY_BIN`). |
@@ -29,7 +29,7 @@ No pull request opened, no deploy, no production change. Status per item: done (
 | §2.1.2 `verse.board` off the critical path | done f2f4844 | Done in the plaza's `onSession` (the board paints when it arrives, one retry after 15 s), so the session resolves and the plaza socket opens without it. |
 | §2.1.3 preconnect to `play.<domain>` | done f2f4844 | Injected at boot for each cross-origin game URL. Without `crossorigin`: a portal is a navigation, which uses the credentialed connection pool (the handoff's `crossorigin` would warm the wrong pool). |
 | §2.2.1 `Promise.all` in the five builders | done c8b3a57 | castle, whiteHouse, greenHill, club, kennel. Placement maths and child order unchanged; the Kennel bones and Green Hill palms still wait for the size they are placed from. Aerial screenshot before/after matches (PSNR 39.4 dB over the plaza centre; the difference is animated sparkles). |
-| §2.2.2 Bar LOD1 first, LOD0 streamed | done c8b3a57 | `club-interior.ts` and `neon-sign.ts` build on LOD1 and add LOD0 at distance 0 when it lands. Until then the room has no punctual lights (only LOD0 carries them), so it is slightly darker for that moment. |
+| §2.2.2 Bar LOD1 first, LOD0 streamed | done c8b3a57 | `club-interior.ts` and `neon-sign.ts` build on LOD1 and add LOD0 at distance 0 when it lands. LOD1 keeps its punctual lights until LOD0 arrives and takes them over (1875177, review finding), so the room is lit from the start and stays lit if LOD0 fails. |
 | §2.2.2 GLB re-compression | partial c8b3a57 | `club-interior.glb` 6,677,432 → 4,823,760 B (textures to WebP q88, same resolution), `I9-neon-sign.glb` 4,346,112 → 1,161,720 B (4096 → 2048 px, WebP q90). Meshopt kept in lossless quantize mode; bounds, primitive counts and lights unchanged. Texture PSNR at display size ≥ 38.6 dB (alpha-weighted), Bar screenshot PSNR 56.1 dB over the room. The handoff's < 2.5 MB / < 1 MB targets would need 1024 px atlases or decimation, which would visibly soften the room's art atlas and mural; not done. |
 | §2.2.3 pet LOD0 only for the local pet | done c8b3a57 | `createPetFollower(..., { nearOnly: true })` for the local pet (it never leaves LOD0 range). Remote pets keep both levels. |
 | §2.3.1 fire `portal.enter` at dwell start | skipped | `portal.enter` is rate limited (`claim_portal_rate`) and opens a game session (`open_portal`), so firing it speculatively when a player brushes a gate would spend the rate limit and could close a live session. The RPC already runs during the wipe. |
@@ -43,7 +43,7 @@ No pull request opened, no deploy, no production change. Status per item: done (
 | §3.1.1 no storage write on the read path | done b233841 | `ownedSet` materializes the `pets/owned` snapshot only on RPC paths (`profile.get`, `loadout.set_hub`); the plaza match never writes it. |
 | §3.1.2 batched pet lookup in `matchJoin` | done b233841 | `HubPets.activePets`: one `item_owned` query and one storage read for the whole join, reusing the join's batched relic read. |
 | §3.1.3 no DB I/O for `OP_PROFILE` in `matchLoop` | done b233841 | `loadout.set_hub` signals every hub shard (`{op:"pet"}`) and the shard sends the pet as a roster upd. The loop's 30 s staggered relic refresh (batched, a quarter of the slots) is unchanged. `follower-pets.test.ts` was adapted: its relic mock now answers the batched query's shape, and the recall is checked through the signal. |
-| §3.2.1 AOI culling for `OP_DELTA` | done fda3f25 | 50 m grid cells per zone: the 3x3 neighbourhood every tick (≥ 50 m, the client rigs only 30 m), farther players at 2 Hz with only their latest row. Message format unchanged. 100 spread movers: 24,438 → 9,834 delta bytes/s per client (`server/test/unit/hub_match.test.ts`). |
+| §3.2.1 AOI culling for `OP_DELTA` | done fda3f25 | 50 m grid cells per zone: the 3x3 neighbourhood every tick (≥ 50 m, the client rigs only 30 m), farther players at 2 Hz with only their latest row; a receiver that walks into a mover's neighbourhood after its last move gets that row on the next far tick (ed5914b, review finding, regression test). Message format unchanged. 100 spread movers: 24,438 → 9,834 delta bytes/s per client (`server/test/unit/hub_match.test.ts`). |
 | §3.2.2 measure RAM per VM, raise `js_max_count` | blocked | Needs Nakama (`server/docker-compose.yml`): the Docker daemon is not running here and starting it was not permitted. `js_max_count` stays 64; not raised without a measurement, per the brief. |
 | §3.2.3 lazy sims in vendored bundles | skipped | The bundles in `server/modules/vendor/` must not change in this pass (brief). |
 | §3.3.1 `sproto_arcade_coop` | done 995b08a | Built to the protocol v1 contract (below). 13 test groups in `server/test/games/arcade_coop.test.ts`. No migration: rewards use the existing `arcade_clear` reason and `arcade.boss_defeated` rule (0025). |
@@ -59,11 +59,25 @@ No deviations. Choices where the contract leaves room, all backward compatible:
 - Tick rate 30 Hz. `OP_INPUT` frames: 1-32 per message, each 0-1023; a resent tick is relayed but counted once for AFK.
 - `OP_RESULT.god` must be `false` to pay; a missing field counts as god mode.
 - Only seats still present when the match settles are paid (a dropped seat is not).
-- A clear also fails when the last checked hash disagreed and no snapshot followed. A seat-0 `OP_SNAPSHOT` resets that check.
+- A clear also fails when the last checked hash disagreed. A seat-0 `OP_SNAPSHOT` does not clear that; only a later matching hash does (24fe144, review finding).
+- AFK: non-zero frames ≥ 0.5 × the distinct ticks actually received from that seat (a reconnect gap does not count against it).
 - A rejoining seat gets `OP_START` again (and `OP_GO` in play); its next hash usually desyncs and the snapshot path brings it level.
 - `OP_OUTCOME.rewards.tickets` is 20, or 0 when a cap held the credit back (`game.earn_tickets` does not report a partial amount).
 - Lobby: a leave frees the seat; idle lobbies close after 10 min, a load that does not finish after 2 min (`OP_CANCEL`).
 - Ticket and Relic keys: `arcade-coop:<sha256(matchId)[0:16]>:L<level>:clear` / `:coin`, per account.
+
+## Phase 3 (handoff §4)
+
+| Item | Status | Notes |
+|---|---|---|
+| §4.3.1 wire `play_lease.ts` | partial 3dbd82d | Compiled, `session.claim` / `session.heartbeat` registered, `session_superseded` mapped, migration `0074_play_lease` (reserved in `docs/migration-allocations.md`; no open PRs hold a number) with surfaces widened from 5 ids to every game id. Remaining (would change live behaviour): write RPCs calling `RequireLease`, and the SDK claiming and heartbeating a lease. |
+| §4.3.2 `event_seq` and minimum session age | done f96b632 (flag off) | `trust_event_seq` makes `seq` required on `session.event` (monotonicity is already enforced in `game.apply_event` when sent). `trust_min_session` refuses `tickets.earn` within 20 s of the session opening. Both off until a `game.server_flags` row turns them on: current clients do not all send `seq`. |
+| §4.3.3 `godMode` and Tickets | done f96b632 (flag off) | `trust_godmode_tickets` refuses `tickets.earn` with `godMode: true`. Relic policy left as is: Relics are granted in god mode by design in several games (for example Sproto Arcade's README: god-mode wins count for the Coin); changing that is a product decision for the owner. |
+| §4.3.4 character allowlist | done f96b632 | `HubMatch.CHARACTERS` (26 ids) equals `apps/hub/src/config.ts` `CHARACTERS`, checked by `hub_match.test.ts`; an unknown id keeps the player's look. A new plaza character now needs the server list updated in the same change (the test fails otherwise). |
+| §4.2.1 SDK sub-paths | done 61cb8a9 | `/core`, `/realtime` (no mock), `/mock`, `/feedback` (modern-screenshot was already lazy), `/progress`, `/pb-shop`. Root entry and IIFE unchanged (pin bytes `8eb127e0…` identical). Minified ESM: root 127,311 B, core 44,510, realtime 18,452, mock 28,417, feedback 50,438, progress 4,645, pb-shop 11,968. The global is `HubSDK` in the IIFE already; renaming the games' own globals is a game-repo change. |
+| §4.2.2 `effects` | done 61cb8a9 (decision) | Kept: `portal.enter` resolves it from owned Relics (`effects.ts`, live). Only the M3 loadout (`loadout.ts`, slot choice) is unwired; documented in `docs/CONTRACTS.md` §6. Wiring it needs its own migration and an SDK call. |
+| §4.2.3 `/shared-assets/sproto/` mount | done 72e12d8, 2a3c833 | Play host, `/srv/play/shared-assets/sproto/current`, precompressed, 1 h + SWR for everything (hand-picked names, so nothing immutable), CORS/CORP open; covered by `scripts/caddy-headers.test.mjs`. No deploy script fills it and no game uses it yet. |
+| §4.1 shared replay-verifier pool | skipped | `services/shooter-verifier` is a deliberately dormant, staged design (its README: PR10 must authenticate worker claims, PR11 must validate and atomically commit progress; no payment authority). Generalizing it to other sims and wiring it into Nakama and `deploy/compose.yml` touches settlement and production infra and could not be made solid in this pass. Server-issued challenge seeds for single-player runs need client changes in each game. Suggested order: finish PR10/PR11 for the Shooter, then add `duel-sim.server.js` and `arcade-sim.server.js` as further approved artifacts. |
 
 ## Checks
 
@@ -105,8 +119,13 @@ Times are SwiftShader in a 4-core VM and dominated by CPU; compare them only wit
 - sproto-shooter: read `isGuest` / `wagerEligible` from `shooter.version` instead of the socket probe.
 - sproto-duel: guest input hashing waits on vendoring `duel-sim.server.js` here (see §3.3.3).
 
+- Operators: the three `trust_*` flags are off; turn each on per game once its clients send `seq`, stop sending `godMode: true` with earns, and never earn in the first 20 s.
 - Re-sync `@metaverse/hub-sdk` 0.9.0 (after this branch merges) into every game: hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-shooter (`node scripts/vendor-sdk.mjs` from the hub); Sproto-Fighter and Sproto-Arcade use their own vendor scripts; Sproto-Coop-Battle loads the IIFE (`HubSDK`, pin in `packages/hub-sdk/SOURCE.pin.json`); HPOS10I pins SDK line numbers in `tools/qa/originality_allow.txt`, which will need updating. Not re-vendored in this pass, per the brief.
 - nobu and HPOS10I: call `store.flushKeepalive()` before `exitToHub()` once on 0.9.0.
+
+## Review
+
+`/code-review` (medium) over the full diff against `main` reported 9 findings. Fixed: the co-op snapshot clearing a failed hash check (24fe144), AOI far rows skipping a receiver that arrived late (ed5914b), the Bar opening without lights (1875177), year-long immutable caching of possibly hand-named media and shared assets (2a3c833), the arcade registrations sitting in the Coop Battle block (ae46be5), the IndexedDB retry leaking a handle on errors other than InvalidStateError (1976e45), AFK counting reconnect gaps (24fe144), and the `gameOf` doc comment placement (ae46be5). Not changed: with `render(measure = false)` the `?debug` draw-call overlay in a production build shows the one-time plaza sample rather than a live count (dev builds still measure every frame); left as is because measuring every frame is the double render this pass removes.
 
 ## Proposed repo-hygiene deletions
 
