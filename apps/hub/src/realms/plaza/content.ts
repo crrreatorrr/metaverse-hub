@@ -711,9 +711,19 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       sprotelTalk.setPad(on);
     },
     async onSession(session) {
-      const board = await session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token });
-      boardRows = board.rows ?? [];
-      paintBar(boardTab);
+      // The Verse board fills in when it arrives; the plaza socket does not wait for it.
+      const loadBoard = (retry: boolean): void => {
+        session.client.rpc<{ rows?: EarnedRow[] }>('verse.board', {}, { token: session.token })
+          .then((board) => {
+            boardRows = board.rows ?? [];
+            paintBar(boardTab);
+          })
+          .catch((error: unknown) => {
+            console.warn('[plaza] verse.board failed', error);
+            if (retry) window.setTimeout(() => loadBoard(false), 15_000);
+          });
+      };
+      loadBoard(true);
       if (!devPreview) {
         innerBoards = createLiveLeaderboardProvider(session.client, () => session.token);
         liveBoards = true;
