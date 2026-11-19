@@ -161,3 +161,16 @@ Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choi
   - HPOS10I QA ids such as `PHY-C2`
   - plaza model names such as `C1-mountain`
 - **HPOS10I's copy of `docs/higgsfield-workflow-guide.md` differs on purpose.** One table row leaves out The People's Bitcoin, because HPOS10I's originality scan bans the word "bitcoin" (term #425). The owner chose to keep this difference (2026-11-09). When you sync the guide, skip that line in HPOS10I rather than adding an allowlist exception.
+
+## 6. `effects` in `InitResult` (decision, 0.9.0)
+
+`effects` is kept, not removed. `portal.enter` stores `HubEffects.resolve(game, relics, ranked)`
+(`server/modules/src/effects.ts`, compiled and live) on the game session, and `init` returns it:
+the effects of the Relics the player owns, for this game, with gameplay parts dropped in Ranked
+(except People's Bitcoin). What is not live is the M3 loadout (`server/modules/src/loadout.ts`,
+`equip_change`, docs/m3-server-prep.md): it is not compiled, so a player cannot choose which owned
+effect sits in a slot, and every game gets its default slots. Games should keep reading Relics from
+`relics` and owned items from `items`, and treat `effects` as an optional bonus that may be empty;
+no game may require a key in it. Wiring `loadout.ts` is a separate change (it needs its own
+migration and an SDK call); until then `effects` stays exactly as it is.
+
