@@ -170,9 +170,15 @@ async function withStore<T>(mode: IDBTransactionMode, run: (store: IDBObjectStor
   let tx: IDBTransaction;
   try {
     tx = db.transaction(OUTBOX_STORE, mode);
-  } catch {
-    // The cached handle was closed under us (InvalidStateError): reopen once.
-    if (outboxDb) outboxDb = null;
+  } catch (error) {
+    // Only a handle closed under us (InvalidStateError) is retried, once, with a fresh one.
+    if ((error as { name?: unknown } | null)?.name !== 'InvalidStateError') throw error;
+    outboxDb = null;
+    try {
+      db.close();
+    } catch {
+      // Already closed.
+    }
     db = await openOutbox();
     tx = db.transaction(OUTBOX_STORE, mode);
   }
