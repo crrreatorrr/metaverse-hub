@@ -88,6 +88,7 @@ No deviations. Choices where the contract leaves room, all backward compatible:
 | `npm test` | pass, run with `GOTOOLCHAIN=auto` (the container has Go 1.24.7 and `server/test/games/shooter_runs.test.ts` needs ≥ 1.26). That file's goja `cpu_budget` check is timing-sensitive on this 4-core VM: it failed once in the full run after Phase 1 and passed on the rerun alone; the code it covers is untouched. |
 | `VITE_NAKAMA_SERVER_KEY=ci-build-placeholder-not-a-server-key npm run build` | pass (same placeholder CI uses) |
 | `npm test` after Phase 2 (05d2f3b) | pass, all 41 server test files (`GOTOOLCHAIN=auto`, `CADDY_BIN` set) |
+| Final, after the review fixes: lint, typecheck, build, `npm test` | all pass (43 server test files; `GOTOOLCHAIN=auto`, `CADDY_BIN` set) |
 | `npm run test:dup` | blocked: the Docker daemon is not running in this container and starting it was not permitted, so Nakama from `server/docker-compose.yml` cannot come up. |
 | `caddy validate --config deploy/Caddyfile` | The raw file needs `/etc/caddy/cloudflare-proxies.caddy` and the origin cert on disk, so it cannot validate outside the VPS. The test validates and runs it with only those lines and the site addresses swapped. |
 
