@@ -154,23 +154,26 @@ export async function buildClubInterior(parent: Object3D, mount: ClubMount = {})
   leaderboard.flipY = false; // glTF UV convention
   const screenMat = new MeshBasicMaterial({ map: leaderboard, toneMapped: false });
   screenMat.name = 'leaderboard_screen';
-  const makeLevel = (gltf: { scene: Object3D }, isNear: boolean): Group => {
+  const makeLevel = (gltf: { scene: Object3D }, keepLights: boolean): Group => {
     const root = gltf.scene.clone(true);
     const screen = root.getObjectByName('leaderboard_screen') as Mesh | undefined;
     if (screen?.isMesh) screen.material = screenMat;
-    // Only LOD0 carries the KHR_lights_punctual lights we keep (3-4 real-time lights total).
-    if (!isNear) root.getObjectByName('lights')?.removeFromParent();
+    // One level at a time carries the KHR_lights_punctual lights we keep (3-4 real-time lights total).
+    if (!keepLights) root.getObjectByName('lights')?.removeFromParent();
     prepare(root, lit, env);
     root.position.set(-ROOM_CENTRE.x, -ROOM_CENTRE.y, -ROOM_CENTRE.z);
     const level = new Group();
     level.add(root);
     return level;
   };
-  const farLevel = makeLevel(far, false);
+  // LOD1 keeps its lights until LOD0 arrives, so the room is lit from the start (and stays lit if
+  // LOD0 never loads); LOD0 then takes the lights over.
+  const farLevel = makeLevel(far, true);
   lod.addLevel(farLevel, 0);
   const detailed = nearTask.then((near) => {
     const farEntry = lod.levels.find((entry) => entry.object === farLevel);
     if (farEntry) farEntry.distance = LOD1_DISTANCE * CLUB_INTERIOR_SCALE;
+    farLevel.getObjectByName('lights')?.removeFromParent();
     lod.addLevel(makeLevel(near, true), 0);
   }).catch((error: unknown) => {
     console.warn('[club] LOD0 failed; the room stays on LOD1', error);
