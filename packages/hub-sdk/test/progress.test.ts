@@ -29,6 +29,7 @@ const model: ProgressModel<Save> = {
 class FakeServer {
   saves = new Map<string, SaveResult>();
   writes = 0;
+  lastKeepalive = false;
   failNext = 0;
   clock = 1000;
   for(playerId: string): ProgressCloud {
@@ -40,8 +41,9 @@ class FakeServer {
         }
         return this.saves.get(playerId) ?? { data: null, updatedAt: 0 };
       },
-      writeSave: async (data) => {
+      writeSave: async (data, opts) => {
         this.writes += 1;
+        this.lastKeepalive = opts?.keepalive === true;
         const saved = { data: JSON.parse(JSON.stringify(data)) as Record<string, unknown>, updatedAt: ++this.clock };
         this.saves.set(playerId, saved);
         return saved;
@@ -56,6 +58,26 @@ const store = (storage: KeyValue | null, extra: object = {}) =>
   createProgressStore({ key: 'game-progress', model, storage, pushDelayMs: 0, retryDelayMs: 60_000, ...extra });
 
 async function run(): Promise<void> {
+  // 0.9.0: flushKeepalive sends unsynced account progress with keepalive and keeps it marked unsynced.
+  {
+    const kv = memoryKeyValue();
+    const server = new FakeServer();
+    const s = createProgressStore({ key: 'game-progress', model, storage: kv, pushDelayMs: 60_000, retryDelayMs: 60_000 });
+    assert.equal(s.flushKeepalive(), false, 'device progress has nothing to send');
+    await s.attach(server.for('kai'), 'kai');
+    assert.equal(s.flushKeepalive(), false, 'nothing unsynced after attach');
+    s.update(clear('k1'));
+    const before = server.writes;
+    assert.equal(s.flushKeepalive(), true);
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(server.writes, before + 1);
+    assert.equal(server.lastKeepalive, true);
+    assert.deepEqual(server.saves.get('kai')?.data, { cleared: ['k1'], best: 0 });
+    assert.equal(kv.getItem('game-progress@kai:unsynced'), '1', 'the next visit still merges with the cloud');
+    await s.flush();
+    assert.equal(kv.getItem('game-progress@kai:unsynced'), null, 'a normal push clears the mark');
+  }
+
   // Play outside the hub stays in the device copy and survives a reload.
   {
     const kv = memoryKeyValue();

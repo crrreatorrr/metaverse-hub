@@ -82,6 +82,13 @@ export interface ProgressStore<T> {
   release(): void;
   /** Pushes any unsynced account progress now. Resolves when done or failed. */
   flush(): Promise<void>;
+  /**
+   * For page exit (`exitToHub`, `pagehide`): sends the unsynced account copy as one
+   * `save.put` with `keepalive`, so the write outlives the page (0.9.0). It skips the cloud
+   * read, so it writes this tab's merged copy; the unsynced mark stays set and the next
+   * visit's push merges with the cloud as usual. Returns false when there was nothing to send.
+   */
+  flushKeepalive(): boolean;
 }
 
 const MAX_RETRY_MS = 120_000;
@@ -348,6 +355,24 @@ export function createProgressStore<T>(options: ProgressStoreOptions<T>): Progre
       }
       status = 'local';
       emit();
+    },
+
+    flushKeepalive() {
+      if (owner.kind !== 'account' || !cloud?.writeSave || !isDirty(owner)) return false;
+      if (pushTimer) {
+        clearTimeout(pushTimer);
+        pushTimer = null;
+      }
+      value = model.merge(value, readSlot(owner));
+      const body = toCloud(value);
+      try {
+        encodeSave(body);
+      } catch (error) {
+        options.onError?.(error);
+        return false;
+      }
+      void cloud.writeSave(body, { keepalive: true }).catch((error: unknown) => options.onError?.(error));
+      return true;
     },
 
     flush() {
