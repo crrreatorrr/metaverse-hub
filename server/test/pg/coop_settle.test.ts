@@ -146,7 +146,8 @@ const mechaUser = addUser(pg, 'coop_mecha_veteran');
 const mechaSession = openGameSession(pg, mechaUser, GAME);
 const mechaReceipt = settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', MECHA);
 assert.deepEqual([mechaReceipt.paid, mechaReceipt.tickets, mechaReceipt.fingerprint], [true, 20, MECHA]);
-pg.run("DELETE FROM game.schema_migrations WHERE id IN ('0073_coop_transform_fingerprint', '0075_coop_wire_fingerprint')");
+// The runner refuses an unapplied id below the highest recorded one, so later ids (0074_play_lease, 0076) replay too.
+pg.run("DELETE FROM game.schema_migrations WHERE id >= '0073_coop_transform_fingerprint'");
 assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(functionBody(), bodyBefore);
 assert.deepEqual(settle(mechaUser, mechaSession, B1, 'room-paid-mecha', 'enc-paid-mecha', NEW), mechaReceipt);
@@ -164,7 +165,7 @@ const transformUser = addUser(pg, 'coop_transform_veteran');
 const transformSession = openGameSession(pg, transformUser, GAME);
 const transformReceipt = settle(transformUser, transformSession, B1, 'room-paid-transform', 'enc-paid-transform', TRANSFORM);
 assert.deepEqual([transformReceipt.paid, transformReceipt.tickets, transformReceipt.fingerprint], [true, 20, TRANSFORM]);
-pg.run("DELETE FROM game.schema_migrations WHERE id = '0075_coop_wire_fingerprint'");
+pg.run("DELETE FROM game.schema_migrations WHERE id >= '0075_coop_wire_fingerprint'");
 assert.deepEqual(pg.reload().logger.lines.filter((line) => line.level === 'error'), []);
 assert.equal(count(pg, "SELECT 1 FROM game.schema_migrations WHERE id = '0075_coop_wire_fingerprint'"), 1);
 assert.equal(functionBody(), bodyBefore);
