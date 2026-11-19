@@ -201,3 +201,44 @@ console.log('hub match tests ok');
     assert.equal(state.slots[0]!.y, id === 'sandbox' ? 178 : -30000, 'sandbox_bounds_reject_interior_band');
   }
 }
+
+// Pets: read in one batch at join, never in the loop; loadout.set_hub signals the shard (handoff §3.1).
+{
+  const pets = loadModule();
+  pets.nk.onSql(/FROM game\.relic_claim WHERE user_id = ANY/, () => [{ user_id: uid(9001), relics: JSON.stringify(['tinubu_crown']) }]);
+  pets.nk.onSql(/AT TIME ZONE/, () => [{ result: '2026-11-19T00:00:00Z' }]);
+  const m = pets.startMatch('hub', { shard: '9' });
+  // 9001 owns the Wizard pet through Tinubu's Crown and has it equipped; 9002 has no loadout row (default pet).
+  pets.nk.storage.set(`loadout/hub/${uid(9001)}`, { value: { v: 1, slots: { pet: 'pet_wizard' }, seq: 1 }, version: 'v1', permissionRead: 1, permissionWrite: 0 });
+  const before = pets.nk.sqlCalls.length;
+  m.join([P(9001), P(9002)], HUB);
+  const joinSql = pets.nk.sqlCalls.slice(before).map((c) => c.sql);
+  assert.equal(joinSql.filter((sql) => sql.includes('game.item_owned')).length, 1, 'one batched item_owned read for the whole join');
+  assert.equal(pets.nk.storage.has(`pets/owned/${uid(9001)}`), false, 'the join writes no entitlement snapshot');
+  const st = m.state as { slots: { pet: string }[] };
+  assert.equal(st.slots[0]!.pet, 'pet_wizard');
+  assert.equal(st.slots[1]!.pet, 'pet_pepe_bull');
+
+  // OP_PROFILE in the loop: no SQL and no storage read.
+  const sqlBefore = pets.nk.sqlCalls.length;
+  const reads = { n: 0 };
+  const read = pets.nk.storageRead.bind(pets.nk);
+  pets.nk.storageRead = (keys) => { reads.n += 1; return read(keys); };
+  m.dispatcher.clear();
+  m.loop([{ sender: P(9001), opCode: 5, data: { character: 'wizard', staff: 'sproto', pet: 'pet_mecha' } }]);
+  assert.equal(pets.nk.sqlCalls.length, sqlBefore, 'OP_PROFILE runs no SQL');
+  assert.equal(reads.n, 0, 'OP_PROFILE reads no storage');
+  assert.equal(st.slots[0]!.pet, 'pet_wizard', 'the client cannot pick its pet over the socket');
+  pets.nk.storageRead = read;
+
+  // Equip the starter: set_hub signals every hub shard and the roster carries it on the next loop.
+  const ack = pets.call<{ ok: boolean }>('loadout.set_hub', { userId: uid(9001), vars: { scope: 'hub' } }, { pet: 'pet_starter', seq: 2 });
+  assert.equal(ack.ok, true);
+  assert.ok(pets.nk.signals.some((sig) => sig.matchId === m.match.matchId && JSON.parse(sig.data).op === 'pet'));
+  m.dispatcher.clear();
+  m.loop([]);
+  const upd = m.dispatcher.sent<{ upd: { u: string; pt: string }[] }>(4);
+  assert.equal(upd[0]!.body.upd.find((e) => e.u === uid(9001))!.pt, 'pet_starter');
+  assert.equal(m.signal(JSON.stringify({ op: 'pet', u: uid(9001), pet: 'Bad Id!' })), '', 'a malformed pet signal is ignored');
+  console.log('hub match pets ok');
+}

@@ -200,7 +200,7 @@ namespace HubPets {
    * The only pet-ownership check. profilePets and setHub both call this.
    * Starter pets are free, relic summons come from relic_claim, and earned pets come from item_owned.
    */
-  function ownedSet(nk: nkruntime.Nakama, userId: string): { [id: string]: boolean } {
+  function ownedSet(nk: nkruntime.Nakama, userId: string, materialize?: boolean): { [id: string]: boolean } {
     var have: { [id: string]: boolean } = { pet_starter: true };
     var itemSql = "SELECT COALESCE(json_agg(item_id ORDER BY item_id), '[]'::json)::text AS result FROM game.item_owned WHERE user_id = $1::uuid AND item_id IN (" + nonRelicList() + ")";
     var items = queryList(nk, itemSql, [userId]);
@@ -218,6 +218,8 @@ namespace HubPets {
       if (def.relic && relics.indexOf(def.relic) >= 0) have[def.id] = true;
     }
     // Materialize the authoritative entitlement snapshot in owner-readable, server-write-only storage.
+    // RPC paths only: the plaza match reads ownership through activePets, which never writes.
+    if (materialize === false) return have;
     var ids = sortedIds(have);
     var rows = nk.storageRead([{ collection: "pets", key: "owned", userId: userId }]);
     if (!rows.length || JSON.stringify(rows[0].value.ids) !== JSON.stringify(ids)) {
@@ -278,6 +280,67 @@ namespace HubPets {
     var slot = readHub(nk, userId);
     var active = slot.pet && have[slot.pet] ? slot.pet : null;
     return { owned: owned, active: active };
+  }
+
+  /**
+   * The active pet of many players in one item_owned query and one storage read, for the plaza
+   * match's join. `relicsByUser` is the match's own batched relic_claim read, which covers every
+   * Relic a summon needs. Same answer as profilePets(..).active, without the storage snapshot write.
+   */
+  export function activePets(nk: nkruntime.Nakama, userIds: string[], relicsByUser: { [userId: string]: string[] }): { [userId: string]: string } {
+    var out: { [userId: string]: string } = {};
+    var ids: string[] = [];
+    for (var i = 0; i < userIds.length; i++) if (UUID.test(userIds[i])) ids.push(userIds[i]);
+    if (!ids.length) return out;
+    var items: { [userId: string]: { [id: string]: boolean } } = {};
+    var itemSql = "SELECT COALESCE(json_agg(json_build_object('u', user_id::text, 'i', item_id)), '[]'::json)::text AS result FROM game.item_owned WHERE user_id = ANY($1::uuid[]) AND item_id IN (" + nonRelicList() + ")";
+    var rows = queryList(nk, itemSql, [ids]);
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r] as { u?: unknown; i?: unknown };
+      if (!row || typeof row.u !== "string" || typeof row.i !== "string") continue;
+      (items[row.u] = items[row.u] || {})[row.i] = true;
+    }
+    var keys: nkruntime.StorageReadRequest[] = [];
+    for (var k = 0; k < ids.length; k++) keys.push({ collection: HUB_COLLECTION, key: HUB_KEY, userId: ids[k] });
+    var slots: { [userId: string]: string | null } = {};
+    var stored = nk.storageRead(keys) || [];
+    for (var s2 = 0; s2 < stored.length; s2++) {
+      var obj = stored[s2];
+      if (!obj || !obj.userId) continue;
+      slots[obj.userId] = petField(obj.value && isObject(obj.value) ? obj.value : {});
+    }
+    for (var u = 0; u < ids.length; u++) {
+      var userId = ids[u];
+      // A missing loadout row means the default pet, as in readHub.
+      var pet = Object.prototype.hasOwnProperty.call(slots, userId) ? slots[userId] : DEFAULT_PET;
+      if (!pet) continue;
+      var def = findPet(pet);
+      var relics = relicsByUser[userId] || [];
+      var owned = pet === "pet_starter" || (def !== null && (def.free || (def.relic ? relics.indexOf(def.relic) >= 0 : !!(items[userId] && items[userId][pet]))));
+      if (owned) out[userId] = pet;
+    }
+    return out;
+  }
+
+  /**
+   * Tell every plaza shard that `userId` changed pet, so the match updates its roster without
+   * reading storage in its loop (hub_match.ts matchSignal "pet"). Best effort: a shard that
+   * misses it shows the new pet on the player's next join.
+   */
+  function notifyHubPet(nk: nkruntime.Nakama, logger: nkruntime.Logger, userId: string, pet: string | null): void {
+    try {
+      var matches = nk.matchList(100, true, null, null, null, "+label.game:hub") || [];
+      var data = JSON.stringify({ op: "pet", u: userId, pet: pet || "" });
+      for (var i = 0; i < matches.length; i++) {
+        try {
+          nk.matchSignal(matches[i].matchId, data);
+        } catch (_e) {
+          // The shard closed between list and signal.
+        }
+      }
+    } catch (e) {
+      logger.warn("hub pet signal failed " + String(e));
+    }
   }
 
   function fail(code: string): string {
@@ -396,6 +459,7 @@ namespace HubPets {
       throw e;
     }
     logger.info("hub pet set user " + userId);
+    notifyHubPet(nk, logger, userId, nextPet);
     return ack(true, seq, nextPet, updatedAt, "");
   }
 

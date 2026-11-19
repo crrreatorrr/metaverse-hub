@@ -79,6 +79,8 @@ namespace HubMatch {
     present: number;
     emptyTicks: number;
     label: string;
+    /** Slots whose pet a "pet" signal changed since the last loop; sent as roster upd. Older states lack it. */
+    petUpd?: { [slot: string]: boolean };
   }
 
   function errorText(value: unknown): string {
@@ -288,18 +290,21 @@ namespace HubMatch {
     return true;
   }
 
-  function applyProfile(nk: nkruntime.Nakama, p: Player, raw: string, tick: number): boolean {
+  /**
+   * Character and staff from the client. The pet is not read here: it comes from storage at join
+   * (HubPets.activePets) and from loadout.set_hub's "pet" signal, so the 10 Hz loop does no DB or
+   * storage I/O for OP_PROFILE.
+   */
+  function applyProfile(p: Player, raw: string, tick: number): boolean {
     if (tick - p.lastProfileTick < PROFILE_EVERY_TICKS) return false;
     var data = parseJson(raw, 256) as { [k: string]: unknown } | null;
     if (!data || typeof data !== "object") return false;
     var changed = false;
     var c = typeof data.character === "string" && ID.test(data.character) ? data.character : p.character;
     var st = typeof data.staff === "string" && ID.test(data.staff) && ownsStaff(p, data.staff) ? data.staff : p.staff;
-    var pt = HubPets.profilePets(nk, p.userId).active || "";
-    if (c !== p.character || st !== p.staff || pt !== p.pet) changed = true;
+    if (c !== p.character || st !== p.staff) changed = true;
     p.character = c;
     p.staff = st;
-    p.pet = pt;
     p.lastProfileTick = tick;
     return changed;
   }
@@ -310,7 +315,7 @@ namespace HubMatch {
     var shard = Math.max(1, Math.floor(Number(params && params.shard) || 1));
     var slots: (Player | null)[] = [];
     for (var i = 0; i < MAX_PLAYERS; i++) slots.push(null);
-    var state: State = { realm: realm, shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "" };
+    var state: State = { realm: realm, shard: shard, slots: slots, byUser: {}, present: 0, emptyTicks: 0, label: "", petUpd: {} };
     state.label = labelOf(state);
     logger.info("hub shard " + String(shard) + " up, tick " + String(TICK_RATE) + " max " + String(MAX_PLAYERS));
     return { state: state, tickRate: TICK_RATE, label: state.label };
@@ -347,6 +352,12 @@ namespace HubMatch {
     var relicIds: string[] = [];
     for (var r = 0; r < fresh.length; r++) relicIds.push(fresh[r].userId);
     var relics = lookupRelics(nk, logger, relicIds);
+    var pets: { [userId: string]: string } = {};
+    try {
+      pets = HubPets.activePets(nk, relicIds, relics);
+    } catch (e) {
+      logger.warn("hub pet read failed " + errorText(e));
+    }
     var added: Player[] = [];
     for (var j = 0; j < fresh.length; j++) {
       var slot = freeSlot(state);
@@ -368,7 +379,7 @@ namespace HubMatch {
         game: "",
         character: "",
         staff: "",
-        pet: HubPets.profilePets(nk, fresh[j].userId).active || "",
+        pet: pets[fresh[j].userId] || "",
         away: false,
         awayTick: 0,
         placed: false,
@@ -452,7 +463,7 @@ namespace HubMatch {
       if (m.opCode === OP_POSE) {
         latest[String(slot)] = messageText(nk, m.data);
       } else if (m.opCode === OP_PROFILE) {
-        if (applyProfile(nk, p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
+        if (applyProfile(p, messageText(nk, m.data), tick)) rosterUpd[String(slot)] = true;
       } else if (m.opCode === OP_EMOTE) {
         if (tick - p.lastEmoteTick < EMOTE_EVERY_TICKS) continue;
         var emote = parseJson(messageText(nk, m.data), 64) as { e?: unknown } | null;
@@ -468,6 +479,11 @@ namespace HubMatch {
           rosterUpd[String(slot)] = true;
         }
       }
+    }
+    if (state.petUpd) {
+      var petSlots = Object.keys(state.petUpd);
+      for (var ps = 0; ps < petSlots.length; ps++) rosterUpd[petSlots[ps]] = true;
+      state.petUpd = {};
     }
     var poseSlots = Object.keys(latest);
     for (var j = 0; j < poseSlots.length; j++) {
@@ -568,9 +584,25 @@ namespace HubMatch {
     return { state: state };
   }
 
-  /** "status" → {shard, players, games:{game: n}} (counts of roster `g`). */
+  /**
+   * "status" → {shard, players, games:{game: n}} (counts of roster `g`).
+   * {"op":"pet","u":userId,"pet":id} from loadout.set_hub (ownership already checked there) → the
+   * player's pet, sent as a roster upd on the next loop.
+   */
   export function matchSignal(_ctx: nkruntime.Context, _logger: nkruntime.Logger, _nk: nkruntime.Nakama, _dispatcher: nkruntime.MatchDispatcher, _tick: number, state: State, data: string): { state: State; data: string } {
-    if (data !== "status") return { state: state, data: "" };
+    if (data !== "status") {
+      var sig = parseJson(data, 256) as { op?: unknown; u?: unknown; pet?: unknown } | null;
+      if (sig && sig.op === "pet" && typeof sig.u === "string" && typeof sig.pet === "string" && (sig.pet === "" || ID.test(sig.pet))) {
+        var slot = state.byUser[sig.u];
+        var pp = slot === undefined ? null : state.slots[slot];
+        if (pp && pp.pet !== sig.pet) {
+          pp.pet = sig.pet;
+          (state.petUpd = state.petUpd || {})[String(slot)] = true;
+        }
+        return { state: state, data: "ok" };
+      }
+      return { state: state, data: "" };
+    }
     var games: { [g: string]: number } = {};
     for (var i = 0; i < state.slots.length; i++) {
       var p = state.slots[i];
