@@ -309,3 +309,25 @@ console.log('hub match tests ok');
   assert.equal((m.state as { slots: { character: string }[] }).slots[0]!.character, 'wizard');
   console.log('hub match characters ok');
 }
+
+// AOI catch-up (review): a receiver that walks into a mover's neighbourhood after the mover stopped
+// gets the mover's last position on the next far tick.
+{
+  const aoi = loadModule();
+  const m = aoi.startMatch('hub', { shard: '14' });
+  m.join([P(9401), P(9402)], HUB);
+  m.loop([
+    { sender: P(9401), opCode: 1, data: [100, 178, 4200, 0, 1] },
+    { sender: P(9402), opCode: 1, data: [100, 178, -5800, 0, 1] },
+  ]);
+  for (let i = 0; i < 6; i += 1) m.loop([]);
+  m.dispatcher.clear();
+  // 9401 takes three steps and stops; 9402 then walks over next to it (cell jumps are allowed per tick within 49 m steps).
+  for (let i = 1; i <= 3; i += 1) m.loop([{ sender: P(9401), opCode: 1, data: [100 + i * 100, 178, 4200, 0, 1] }]);
+  for (let z = -5800 + 4000, k = 0; k < 3; z += 4000, k += 1) m.loop([{ sender: P(9402), opCode: 1, data: [100, 178, Math.min(z, 4000), 0, 1] }]);
+  for (let i = 0; i < 6; i += 1) m.loop([]);
+  const rows = m.dispatcher.sent<{ p: number[][] }>(3).filter((d) => d.to!.some((p) => p.userId === uid(9402))).flatMap((d) => d.body.p).filter((r) => r[0] === 0);
+  assert.ok(rows.length >= 1, 'the late arrival gets the mover');
+  assert.equal(rows.at(-1)![1], 400, "the late arrival sees the mover's final x");
+  console.log('hub match AOI catch-up ok');
+}

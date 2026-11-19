@@ -80,6 +80,12 @@ namespace HubMatch {
     dirty: boolean;
     /** Moved since the last far (2 Hz) delta; older states lack it. */
     farDirty?: boolean;
+    /** AOI bookkeeping: current cell and the tick it was entered; cell and tick of the last near row. */
+    cellKey?: string;
+    cellTick?: number;
+    nearTick?: number;
+    nearCx?: number;
+    nearCz?: number;
     rejects: number;
     lastProfileTick: number;
     lastEmoteTick: number;
@@ -555,14 +561,14 @@ namespace HubMatch {
     // moved this tick in its 3x3 neighbourhood, plus, on a far tick, every other row that moved
     // since the last far tick. The message shape is unchanged ({t, p}).
     var farTick = tick % FAR_EVERY_TICKS === 0;
-    var cells: { [key: string]: { zone: string; cx: number; cz: number; near: number[][]; to: nkruntime.Presence[] } } = {};
-    var farRows: { [zone: string]: { cx: number; cz: number; row: number[] }[] } = {};
+    var cells: { [key: string]: { zone: string; cx: number; cz: number; near: number[][]; to: nkruntime.Presence[]; newest: number } } = {};
+    var farRows: { [zone: string]: { cx: number; cz: number; row: number[]; nearTick: number }[] } = {};
     var cellOf = function (pl: Player): string {
       return zoneOf(pl.y, state.realm) + "|" + String(Math.floor(pl.x / AOI_CELL)) + "|" + String(Math.floor(pl.z / AOI_CELL));
     };
     var cellAt = function (key: string, pl: Player) {
       var c = cells[key];
-      if (!c) c = cells[key] = { zone: zoneOf(pl.y, state.realm), cx: Math.floor(pl.x / AOI_CELL), cz: Math.floor(pl.z / AOI_CELL), near: [], to: [] };
+      if (!c) c = cells[key] = { zone: zoneOf(pl.y, state.realm), cx: Math.floor(pl.x / AOI_CELL), cz: Math.floor(pl.z / AOI_CELL), near: [], to: [], newest: -1 };
       return c;
     };
     for (var d = 0; d < state.slots.length; d++) {
@@ -575,14 +581,22 @@ namespace HubMatch {
       var key = cellOf(dp);
       var own = cellAt(key, dp);
       own.to.push(dp.presence);
+      if (dp.cellKey !== key) {
+        dp.cellKey = key;
+        dp.cellTick = tick;
+      }
+      if ((dp.cellTick as number) > own.newest) own.newest = dp.cellTick as number;
       if (dp.dirty) {
         dp.dirty = false;
         dp.farDirty = true;
+        dp.nearTick = tick;
+        dp.nearCx = own.cx;
+        dp.nearCz = own.cz;
         own.near.push(rowOf(dp));
       }
       if (farTick && dp.farDirty) {
         dp.farDirty = false;
-        (farRows[own.zone] = farRows[own.zone] || []).push({ cx: own.cx, cz: own.cz, row: rowOf(dp) });
+        (farRows[own.zone] = farRows[own.zone] || []).push({ cx: dp.nearCx as number, cz: dp.nearCz as number, row: rowOf(dp), nearTick: dp.nearTick as number });
       }
     }
     var keys = Object.keys(cells);
@@ -600,11 +614,12 @@ namespace HubMatch {
           }
         }
       }
-      // Far rows go only to cells outside the mover's neighbourhood: the neighbours had every move.
+      // A far row skips a cell only when that cell neighboured the mover's last near row and nobody
+      // in it arrived after that row went out; a receiver that walked in later still gets it.
       var far = farRows[rc.zone] || [];
       for (var f2 = 0; f2 < far.length; f2++) {
         var fr = far[f2];
-        if (Math.abs(fr.cx - rc.cx) <= 1 && Math.abs(fr.cz - rc.cz) <= 1) continue;
+        if (Math.abs(fr.cx - rc.cx) <= 1 && Math.abs(fr.cz - rc.cz) <= 1 && rc.newest <= fr.nearTick) continue;
         if (!seen[String(fr.row[0])]) rows.push(fr.row);
       }
       if (rows.length) send(dispatcher, OP_DELTA, { t: tick, p: rows }, rc.to);
