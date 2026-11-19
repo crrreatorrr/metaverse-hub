@@ -227,16 +227,16 @@ namespace HubBoards {
     return Object.prototype.hasOwnProperty.call(NOBU_FLOOR_MS, key) ? key : null;
   }
 
-  /**
-   * score.submit. The server decides eligibility: {accepted:false, reason} for
-   * server_board / unranked / god_mode, an {error} for bad input. NOBU posts
-   * integer ms per level and counts from unranked sessions.
-   */
   /** The game a board belongs to, or "" for an unknown board. */
   export function gameOf(boardId: string): string {
     return Object.prototype.hasOwnProperty.call(BOARD_GAME, boardId) ? BOARD_GAME[boardId] : "";
   }
 
+  /**
+   * score.submit. The server decides eligibility: {accepted:false, reason} for
+   * server_board / unranked / god_mode, an {error} for bad input. NOBU posts
+   * integer ms per level and counts from unranked sessions.
+   */
   export function submit(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     if (!ctx.userId || !UUID.test(ctx.userId)) return fail("unauthorized");
     var session = sessionOf(ctx);
