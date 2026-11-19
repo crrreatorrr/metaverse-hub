@@ -124,7 +124,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0068 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0068_shooter_campaign_allowlist` (live allowlist matches campaign bundle `735b6da5…` / `73c6eb0f` from `2608511e`; Arena fingerprint `e749d2fd`, sha256 `a2cc1707…`; no row or amount changes) |
 | 0069 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0069_shooter_campaign_level_bundle` (live allowlist matches campaign bundle `ab175aae…` / `73c6eb0f` from `7db4fc4f`; Arena fingerprint `e749d2fd`, sha256 `493290c9…`; no row or amount changes) |
 | 0070 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0070_shooter_campaign_later_levels` (live allowlist matches campaign bundle `7ba57e42…` / `73c6eb0f` from `1fd01820`; Arena fingerprint `e749d2fd`, sha256 `2b799f2c…`; client `0d604fe8` names that commit and sha; no row or amount changes) |
-| 0071+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0076 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0076_shooter_campaign_boot_split` (live allowlist matches campaign bundle `bcfdba3e…` / `73c6eb0f` from `ccaa836d`, byte-identical to `1fd01820`'s apart from the baked commit; Arena fingerprint `e749d2fd`, sha256 `528ec266…`; client `3cf28f37` names that commit and sha; no row or amount changes) |
+| 0077+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
