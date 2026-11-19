@@ -36,6 +36,35 @@ No pull request opened, no deploy, no production change. Status per item: done (
 | §2.3.2 `ENTER_FADE_MS`, `READY_BEAT_MS` | done c8b3a57 | Fade wait 700 → 400 ms, not 200-250: the wipe's CSS fade is 380 ms, so leaving earlier would freeze a half-faded frame. Ready beat 350 → 0 ms on `#from=` returns. The 1 s gate dwell is a design rule ("a shorter visit does not enter") and is kept. |
 | §2.3.3 stale copy | done c8b3a57 | Checked in the game repos (Sproto-Arcade `aa0f6bab` `levels.js`: 14 levels, 12 boss encounters plus Rooftop Breakaway and Codebreak Ascent; Coop-Battle README: up to four players, 13 stages). Now "twelve giant bosses" and "Up to four players across thirteen stages". |
 
+## Phase 2 (handoff §3)
+
+| Item | Status | Notes |
+|---|---|---|
+| §3.1.1 no storage write on the read path | done b233841 | `ownedSet` materializes the `pets/owned` snapshot only on RPC paths (`profile.get`, `loadout.set_hub`); the plaza match never writes it. |
+| §3.1.2 batched pet lookup in `matchJoin` | done b233841 | `HubPets.activePets`: one `item_owned` query and one storage read for the whole join, reusing the join's batched relic read. |
+| §3.1.3 no DB I/O for `OP_PROFILE` in `matchLoop` | done b233841 | `loadout.set_hub` signals every hub shard (`{op:"pet"}`) and the shard sends the pet as a roster upd. The loop's 30 s staggered relic refresh (batched, a quarter of the slots) is unchanged. `follower-pets.test.ts` was adapted: its relic mock now answers the batched query's shape, and the recall is checked through the signal. |
+| §3.2.1 AOI culling for `OP_DELTA` | done fda3f25 | 50 m grid cells per zone: the 3x3 neighbourhood every tick (≥ 50 m, the client rigs only 30 m), farther players at 2 Hz with only their latest row. Message format unchanged. 100 spread movers: 24,438 → 9,834 delta bytes/s per client (`server/test/unit/hub_match.test.ts`). |
+| §3.2.2 measure RAM per VM, raise `js_max_count` | blocked | Needs Nakama (`server/docker-compose.yml`): the Docker daemon is not running here and starting it was not permitted. `js_max_count` stays 64; not raised without a measurement, per the brief. |
+| §3.2.3 lazy sims in vendored bundles | skipped | The bundles in `server/modules/vendor/` must not change in this pass (brief). |
+| §3.3.1 `sproto_arcade_coop` | done 995b08a | Built to the protocol v1 contract (below). 13 test groups in `server/test/games/arcade_coop.test.ts`. No migration: rewards use the existing `arcade_clear` reason and `arcade.boss_defeated` rule (0025). |
+| §3.3.2 Fighter online duels | done 70f2f20 (docs) | `claude/sproto-online-duels` is gone and `main` already has `sproto_duel` (matchmaking, signaling, server-run sim, escrow). The Fighter handoff's READY barrier is peer to peer; the server's stall rule only forfeits a seat while the other streams, so a barrier needs no server change. Added TURN notes to `docs/sproto-online-duels.md` (no infra change). |
+| §3.3.3 sproto-duel guest input hashing | blocked | sproto-duel's `OP.LOG` (opcode 25) carries range-coded per-seat records of what the sim read (move/held/press/facing/aim), not the guest's `OP.INPUT` frames, so comparing them needs the Duel sim's log decoder (`duel-sim.server.js`). It is not vendored in this repo and the brief forbids vendor changes in this pass; this server also ignores opcode 25 today. Needs: vendor `duel-sim.server.js`, then ingest `OP.LOG` chunks (≤ 64 KB) and compare the decoded guest stream with the relayed INPUTs, tolerant of hosts that send no log. |
+| §3.3.4 `pb_world` HostIO parity | done 0df6104 | `loadProfile`, `getRelics`, `reportEvent` (session.event path), `submitScore` (score.submit checks, PB boards only). Optional in the typings, so the vendored bundle that lacks them is unaffected; `server/test/games/pb_hostio.test.ts`. |
+| §3.3.5 `shooter.version` flags | done 6ea6f12 | `isGuest` (no email) and `wagerEligible` (wager flag on and not a guest). |
+
+### Arcade co-op protocol v1: contract notes
+
+No deviations. Choices where the contract leaves room, all backward compatible:
+- `OP_START.levelIndex` is `level - 1` (the client's 0-based `LEVELS` index; `level` in the RPCs and in `OP_RESULT` is 1-14).
+- Tick rate 30 Hz. `OP_INPUT` frames: 1-32 per message, each 0-1023; a resent tick is relayed but counted once for AFK.
+- `OP_RESULT.god` must be `false` to pay; a missing field counts as god mode.
+- Only seats still present when the match settles are paid (a dropped seat is not).
+- A clear also fails when the last checked hash disagreed and no snapshot followed. A seat-0 `OP_SNAPSHOT` resets that check.
+- A rejoining seat gets `OP_START` again (and `OP_GO` in play); its next hash usually desyncs and the snapshot path brings it level.
+- `OP_OUTCOME.rewards.tickets` is 20, or 0 when a cap held the credit back (`game.earn_tickets` does not report a partial amount).
+- Lobby: a leave frees the seat; idle lobbies close after 10 min, a load that does not finish after 2 min (`OP_CANCEL`).
+- Ticket and Relic keys: `arcade-coop:<sha256(matchId)[0:16]>:L<level>:clear` / `:coin`, per account.
+
 ## Checks
 
 | Command | Result |
@@ -44,6 +73,7 @@ No pull request opened, no deploy, no production change. Status per item: done (
 | `npm run typecheck` | pass |
 | `npm test` | pass, run with `GOTOOLCHAIN=auto` (the container has Go 1.24.7 and `server/test/games/shooter_runs.test.ts` needs ≥ 1.26). That file's goja `cpu_budget` check is timing-sensitive on this 4-core VM: it failed once in the full run after Phase 1 and passed on the rerun alone; the code it covers is untouched. |
 | `VITE_NAKAMA_SERVER_KEY=ci-build-placeholder-not-a-server-key npm run build` | pass (same placeholder CI uses) |
+| `npm test` after Phase 2 (05d2f3b) | pass, all 41 server test files (`GOTOOLCHAIN=auto`, `CADDY_BIN` set) |
 | `npm run test:dup` | blocked: the Docker daemon is not running in this container and starting it was not permitted, so Nakama from `server/docker-compose.yml` cannot come up. |
 | `caddy validate --config deploy/Caddyfile` | The raw file needs `/etc/caddy/cloudflare-proxies.caddy` and the origin cert on disk, so it cannot validate outside the VPS. The test validates and runs it with only those lines and the site addresses swapped. |
 
@@ -69,6 +99,11 @@ Times are SwiftShader in a 4-core VM and dominated by CPU; compare them only wit
 `apps/hub/dist`: Phase 0 92,616,208 bytes, Phase 1 87,579,497 bytes (220 files both).
 
 ## Cross-repo follow-ups
+
+- Sproto-Arcade: the co-op client builds against `sproto_arcade_coop` as described in the contract notes above (`levelIndex = level - 1`, `god: false` required). The client must not also send `tickets.earn arcade_clear` or `arcade.boss_defeated` for a co-op clear; the server pays it.
+- peoples-bitcoin: re-vendor `pb-sim.js` once its HostIO additions merge; this shell already provides them.
+- sproto-shooter: read `isGuest` / `wagerEligible` from `shooter.version` instead of the socket probe.
+- sproto-duel: guest input hashing waits on vendoring `duel-sim.server.js` here (see §3.3.3).
 
 - Re-sync `@metaverse/hub-sdk` 0.9.0 (after this branch merges) into every game: hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-shooter (`node scripts/vendor-sdk.mjs` from the hub); Sproto-Fighter and Sproto-Arcade use their own vendor scripts; Sproto-Coop-Battle loads the IIFE (`HubSDK`, pin in `packages/hub-sdk/SOURCE.pin.json`); HPOS10I pins SDK line numbers in `tools/qa/originality_allow.txt`, which will need updating. Not re-vendored in this pass, per the brief.
 - nobu and HPOS10I: call `store.flushKeepalive()` before `exitToHub()` once on 0.9.0.
