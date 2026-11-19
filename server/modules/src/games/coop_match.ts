@@ -59,7 +59,12 @@ namespace CoopMatch {
     sampleOver: number;
     snapBytes: number;
     snapCount: number;
+    /** Snapshot-delta bytes and messages sent (one per broadcast), for coop.metrics. */
+    deltaBytes: number;
+    deltaCount: number;
     loopCount: number;
+    /** Socket session ids whose join metadata set snapDelta: '1' (only when the bundle can make deltas). */
+    deltaPeers: { [sessionId: string]: number };
     /** Plain restart blob. Present only while the live sim is not in `session.state`. */
     simPacked: CoopExport | null;
     cold: boolean;
@@ -201,7 +206,10 @@ namespace CoopMatch {
       sampleOver: 0,
       snapBytes: 0,
       snapCount: 0,
+      deltaBytes: 0,
+      deltaCount: 0,
       loopCount: 0,
+      deltaPeers: {},
       simPacked: null,
       cold: false,
       golden: "",
@@ -230,6 +238,9 @@ namespace CoopMatch {
     if (!state.weaponTiers) state.weaponTiers = {};
     if (!state.pendingWeaponClears) state.pendingWeaponClears = {};
     if (!state.payDay) state.payDay = {};
+    if (!state.deltaPeers) state.deltaPeers = {};
+    if (typeof state.deltaBytes !== "number") state.deltaBytes = 0;
+    if (typeof state.deltaCount !== "number") state.deltaCount = 0;
   }
 
   // Banked loadouts are earned by this server; a practice save can be client edited.
@@ -479,9 +490,94 @@ namespace CoopMatch {
     if (to.length) d.broadcastMessage(op, JSON.stringify(body), to, null, true);
   }
 
-  function sendRaw(d: nkruntime.MatchDispatcher, state: State, op: number, raw: string): void {
+  /**
+   * Snapshot-delta bookkeeping for this VM, per match: the last envelope broadcast and, per socket,
+   * the loop of the envelope it last got and of its last full one. Losing it (a restart) only means
+   * everyone gets a full envelope next.
+   */
+  interface DeltaPeer { base: number; key: number }
+  interface DeltaBook { last: CoopSnap | null; stage: number; peers: { [sessionId: string]: DeltaPeer } }
+  var deltaBooks: { [matchId: string]: DeltaBook } = {};
+
+  function deltaBook(matchId: string): DeltaBook {
+    var book = deltaBooks[matchId];
+    if (!book) {
+      book = { last: null, stage: -1, peers: {} };
+      deltaBooks[matchId] = book;
+    }
+    return book;
+  }
+
+  /** The socket's next snapshot is a full envelope (join, resume, start). */
+  function forgetPeer(state: State, sessionId: string): void {
+    var book = state.matchId ? deltaBooks[state.matchId] : null;
+    if (book) delete book.peers[sessionId];
+  }
+
+  function forgetPeers(state: State): void {
+    var book = state.matchId ? deltaBooks[state.matchId] : null;
+    if (book) book.peers = {};
+  }
+
+  /**
+   * One OP_SNAPSHOT loop. Sockets that opted into deltas get CoopProtocol.snapshotDelta(last, next)
+   * when the last envelope broadcast is the one they hold; a full envelope otherwise, on a stage
+   * change, and at least every keyframeLoops() loops. Everyone else gets the full envelope.
+   */
+  function sendSnapshot(d: nkruntime.MatchDispatcher, state: State, snap: CoopSnap): void {
+    var raw = JSON.stringify(snap);
+    state.snapBytes += raw.length;
+    state.snapCount++;
     var to = recipients(state);
-    if (to.length) d.broadcastMessage(op, raw, to, null, true);
+    var canDelta = CoopProto.wireFeatures().snapshotDelta && !!state.matchId;
+    if (!canDelta) {
+      if (to.length) d.broadcastMessage(CoopProto.OP_SNAPSHOT, raw, to, null, true);
+      return;
+    }
+    var book = deltaBook(state.matchId);
+    var stage = state.session ? state.session.state.stageIdx : -1;
+    var last = book.last;
+    var keyframe = CoopProto.keyframeLoops();
+    var reset = !last || book.stage !== stage || !!snap.restart || last.matchId !== snap.matchId;
+    var full: nkruntime.Presence[] = [];
+    var delta: nkruntime.Presence[] = [];
+    var peers: { [sessionId: string]: DeltaPeer } = {};
+    for (var i = 0; i < to.length; i++) {
+      var presence = to[i];
+      var sid = presence.sessionId;
+      if (!state.deltaPeers[sid]) {
+        full.push(presence);
+        continue;
+      }
+      var peer = book.peers[sid];
+      if (reset || !peer || peer.base !== last!.loop || snap.loop - peer.key >= keyframe) {
+        full.push(presence);
+        peers[sid] = { base: snap.loop, key: snap.loop };
+      } else {
+        delta.push(presence);
+        peers[sid] = { base: snap.loop, key: peer.key };
+      }
+    }
+    if (delta.length) {
+      var made = CoopProtocol.snapshotDelta!(last!, snap);
+      if (made.ok) {
+        var deltaRaw = JSON.stringify((made as { ok: true; delta: CoopSnapDelta }).delta);
+        state.deltaBytes += deltaRaw.length;
+        state.deltaCount++;
+        d.broadcastMessage(CoopProto.OP_SNAPSHOT, deltaRaw, delta, null, true);
+      } else {
+        for (var j = 0; j < delta.length; j++) {
+          full.push(delta[j]);
+          peers[delta[j].sessionId] = { base: snap.loop, key: snap.loop };
+        }
+      }
+    }
+    if (full.length) d.broadcastMessage(CoopProto.OP_SNAPSHOT, raw, full, null, true);
+    book.peers = peers;
+    // The envelope shares objects with the live sim (the banner timer, for one), which the next
+    // steps change in place. Keep the copy the sockets actually got, and only when one diffs from it.
+    book.last = Object.keys(peers).length ? (JSON.parse(raw) as CoopSnap) : null;
+    book.stage = stage;
   }
 
   function scopeOk(ctx: nkruntime.Context): boolean {
@@ -819,6 +915,7 @@ namespace CoopMatch {
     state.accounts[presence.userId] = account;
     var kind = reclaimed || account.generation > 1 ? "resume" : "welcome";
     send(d, presence, kind === "resume" ? CoopProto.OP_RESUME : CoopProto.OP_WELCOME, viewBody(state, account, kind));
+    forgetPeer(state, presence.sessionId);
     broadcastSeats(d, state);
   }
 
@@ -870,6 +967,34 @@ namespace CoopMatch {
     account.devices = left;
     if (!account.devices.length) account.ready = false;
     broadcastSeats(d, state);
+  }
+
+  /**
+   * { t: 'inputs', batch } (only when the bundle has splitInputBatch): each item goes through onInput
+   * as if it had arrived alone, so seq, rate, owner and frame checks are the single-message ones.
+   * The batch itself may be up to maxPayloadBytes; each item still has the single-input size cap.
+   */
+  function onInputBatch(d: nkruntime.MatchDispatcher, state: State, presence: nkruntime.Presence, msg: { [key: string]: unknown }): void {
+    if (!CoopProto.wireFeatures().inputBatch) {
+      reject(d, presence, "rejected");
+      return;
+    }
+    var split = CoopProtocol.splitInputBatch!(msg);
+    if (!split.ok) {
+      reject(d, presence, String((split as CoopFail).reason || "batch"));
+      return;
+    }
+    var items = (split as { ok: true; inputs: { [key: string]: unknown }[] }).inputs;
+    for (var i = 0; i < items.length; i++) {
+      var item = items[i];
+      var len = 0;
+      try {
+        len = JSON.stringify(item).length;
+      } catch (e) {
+        len = CoopProtocol.LIMITS.maxPayloadBytes + 1;
+      }
+      onInput(d, state, presence, item, len);
+    }
   }
 
   function onInput(d: nkruntime.MatchDispatcher, state: State, presence: nkruntime.Presence, msg: { [key: string]: unknown }, rawLen: number): void {
@@ -940,7 +1065,9 @@ namespace CoopMatch {
       }
       var raw = textOf(nk, message.data);
       var op = message.opCode;
-      if (raw.length > 2048 || (op === CoopProto.OP_INPUT && raw.length > CoopProtocol.LIMITS.maxInputBytes)) {
+      // A single input has its own cap; a batch (t: 'inputs') only the payload cap, checked again by splitInputBatch.
+      var batchable = op === CoopProto.OP_INPUT && CoopProto.wireFeatures().inputBatch && raw.indexOf('"inputs"') >= 0;
+      if (raw.length > 2048 || (op === CoopProto.OP_INPUT && !batchable && raw.length > CoopProtocol.LIMITS.maxInputBytes)) {
         reject(d, presence, "oversized");
         continue;
       }
@@ -961,6 +1088,16 @@ namespace CoopMatch {
       if (op === CoopProto.OP_HELLO) onHello(d, logger, nk, state, presence, msg);
       else if (op === CoopProto.OP_READY) onReady(d, state, presence);
       else if (op === CoopProto.OP_RELEASE) onRelease(d, state, presence, msg);
+      else if (op === CoopProto.OP_INPUT && msg["t"] === "inputs") {
+        // Each item counts toward the per-tick message cap, as it would have arrived alone.
+        var items = Array.isArray(msg["batch"]) ? (msg["batch"] as unknown[]).length : 1;
+        if (items > 1) counts[presence.userId] += items - 1;
+        if (counts[presence.userId] > CoopProto.MAX_MSGS_PER_TICK) {
+          reject(d, presence, "rate");
+          continue;
+        }
+        onInputBatch(d, state, presence, msg);
+      }
       else if (op === CoopProto.OP_INPUT) onInput(d, state, presence, msg, raw.length);
       else if (CoopProto.banned(msg)) onCommand(d, presence);
     }
@@ -1010,6 +1147,7 @@ namespace CoopMatch {
     state.phase = "playing";
     state.playTick = tick;
     state.forceCheckpoint = true;
+    forgetPeers(state);
     sendAll(d, state, CoopProto.OP_START, {
       t: "start",
       protocol: CoopProto.PROTOCOL,
@@ -1354,7 +1492,10 @@ namespace CoopMatch {
 
   /** Drop the in-VM sim. Every match end goes through here, including a handler that returns null. */
   export function releaseLive(matchId: string): void {
-    if (matchId) delete liveSessions[matchId];
+    if (matchId) {
+      delete liveSessions[matchId];
+      delete deltaBooks[matchId];
+    }
   }
 
   function liveSim(session: CoopSession | null): session is CoopSession {
@@ -1537,6 +1678,14 @@ namespace CoopMatch {
       if (live && live !== (ctx.matchId || "")) return { state: ret(state).state, accept: false, rejectMessage: "already_in_match" };
       if (!rosterAllows(state, presence.userId)) return { state: ret(state).state, accept: false, rejectMessage: "not_in_roster" };
       if (!state.accounts[presence.userId] && countHuman(state) >= CoopProto.MAX_SEATS) return { state: ret(state).state, accept: false, rejectMessage: "match_full" };
+      maps(state);
+      // Snapshot deltas only for a socket that asked, and only when the bundle can make them.
+      if (metadata && String(metadata["snapDelta"]) === "1" && CoopProto.wireFeatures().snapshotDelta && presence.sessionId) {
+        var peers: { [sessionId: string]: number } = {};
+        for (var sid in state.deltaPeers) peers[sid] = state.deltaPeers[sid];
+        peers[presence.sessionId] = 1;
+        state.deltaPeers = peers;
+      }
       return { state: ret(state).state, accept: true };
     },
 
@@ -1564,6 +1713,12 @@ namespace CoopMatch {
       for (var i = 0; i < presences.length; i++) {
         var presence = presences[i];
         var account = state.accounts[presence.userId];
+        if (state.deltaPeers[presence.sessionId]) {
+          var kept: { [sessionId: string]: number } = {};
+          for (var sid in state.deltaPeers) if (sid !== presence.sessionId) kept[sid] = state.deltaPeers[sid];
+          state.deltaPeers = kept;
+        }
+        forgetPeer(state, presence.sessionId);
         var current = state.present[presence.userId];
         if (!current || current.sessionId !== presence.sessionId) continue;
         state.present[presence.userId] = null;
@@ -1655,12 +1810,7 @@ namespace CoopMatch {
           if (payMessage.indexOf("fault_injected") < 0) logger.error("sproto_coop settle " + payMessage);
           else logger.warn("sproto_coop fault after commit");
         }
-        if (advanced.snapshot) {
-          var raw = JSON.stringify(advanced.snapshot);
-          state.snapBytes += raw.length;
-          state.snapCount++;
-          sendRaw(d, state, CoopProto.OP_SNAPSHOT, raw);
-        }
+        if (advanced.snapshot) sendSnapshot(d, state, advanced.snapshot);
         stepped = true;
       } catch (e) {
         logger.error("sproto_coop step " + String(e));
@@ -1700,6 +1850,8 @@ namespace CoopMatch {
         state.sampleOver = 0;
         state.snapBytes = 0;
         state.snapCount = 0;
+        state.deltaBytes = 0;
+        state.deltaCount = 0;
         state.loopCount = 0;
         return { state: ret(state).state, data: "{\"ok\":true}" };
       }
@@ -1745,6 +1897,8 @@ namespace CoopMatch {
       over25: state.sampleOver,
       snapBytes: state.snapBytes,
       snapCount: state.snapCount,
+      deltaBytes: state.deltaBytes || 0,
+      deltaCount: state.deltaCount || 0,
       loops: state.loopCount,
       tick: state.session ? state.session.state.t : 0,
       mode: state.session ? state.session.state.mode : "",
@@ -1779,6 +1933,7 @@ namespace CoopMatch {
       hostTakeover: 0,
       match: CoopProto.MATCH_NAME,
       enabled: open(ctx),
+      features: CoopProto.wireFeatures(),
       opcodes: {
         hello: CoopProto.OP_HELLO,
         welcome: CoopProto.OP_WELCOME,

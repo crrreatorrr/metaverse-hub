@@ -10,7 +10,7 @@ const USER = '00000000-0000-4000-8000-000000000000';
 const SID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 // Coop #26: four seats per match, so one account holds four of its devices.
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1'];
-const FP = '9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67';
+const FP = '3fddedd1b65c0e2d71600e54822e0db5c66b45ac765535b7d0e88c2cf262e97b';
 const OP = { HELLO: 1, READY: 3 };
 
 function game(userId = USER) {
@@ -88,6 +88,7 @@ const CoopRewards = mod.global.CoopRewards as {
   FINGERPRINT_0063: string;
   FINGERPRINT_0071: string;
   FINGERPRINT_0072: string;
+  FINGERPRINT_0073: string;
   PAY: number;
   SWEEP: number;
   BOSSES: string[];
@@ -185,10 +186,20 @@ const present = { accountId: USER, slots: 4, presentAtStart: 1, nonNeutral: 4, n
   assert.equal(transform[0]!.statements.length, 1);
   const transformSwap = transform[0]!.statements[0]!;
   assert.ok(transformSwap.includes(`previous_label constant text := quote_literal('${CoopRewards.FINGERPRINT_0072}')`));
-  assert.ok(transformSwap.includes(`current_label constant text := quote_literal('${CoopRewards.FINGERPRINT}')`));
+  assert.ok(transformSwap.includes(`current_label constant text := quote_literal('${CoopRewards.FINGERPRINT_0073}')`));
   assert.ok(transformSwap.includes('replace(src, previous_label, current_label)'));
   assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(transformSwap), false, 'the migration rewrites no row and no amount');
   assert.ok(ids.indexOf('0073_coop_transform_fingerprint') > ids.indexOf('0072_coop_mecha_fingerprint'));
+  const wire = all.filter(row => row.id === '0075_coop_wire_fingerprint');
+  assert.equal(wire.length, 1);
+  assert.equal(wire[0]!.statements.length, 1);
+  const wireSwap = wire[0]!.statements[0]!;
+  assert.ok(wireSwap.includes(`previous_label constant text := quote_literal('${CoopRewards.FINGERPRINT_0073}')`));
+  assert.ok(wireSwap.includes(`current_label constant text := quote_literal('${CoopRewards.FINGERPRINT}')`));
+  assert.ok(wireSwap.includes("replay_guard constant text := '  -- Historic Coop fingerprint 0073: '"));
+  assert.ok(wireSwap.includes('replace(src, previous_label, current_label)'));
+  assert.equal(/tickets|earn_window|coop_receipt|UPDATE|DELETE|INSERT/.test(wireSwap), false, 'the migration rewrites no row and no amount');
+  assert.ok(ids.indexOf('0075_coop_wire_fingerprint') > ids.indexOf('0073_coop_transform_fingerprint'));
 }
 
 {

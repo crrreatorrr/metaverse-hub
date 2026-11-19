@@ -31,6 +31,7 @@ when merging; do not edit an applied migration's ID or statement body.
 | 0072 | `0072_coop_mecha_fingerprint`: re-pins `game.settle_coop_clear` from `d1ca2efc…` to `1bdabcab…` for the boss transformation and Phase 2 moves. No stored row or payout changes. Branch `codex/coop-mecha-sim-pin` |
 | 0073 | `0073_coop_transform_fingerprint`: re-pins `game.settle_coop_clear` from `1bdabcab…` to `9c1841f6…` for eight-second boss transformations. Stored settlements and payout rules stay intact. Branch `codex/coop-boss-polish-pin` |
 | 0074 | `0074_play_lease`: M11 single active tab. Creates `game.play_lease` and `game.claim_play_lease` / `heartbeat_play_lease` / `require_lease` (`server/modules/migrations/play_lease.sql`, surfaces widened to every game id). Additive: no write RPC requires a lease yet. Branch `claude/happy-pasteur-0dhfzp` |
+| 0075 | `0075_coop_wire_fingerprint`: re-pins `game.settle_coop_clear` from `9c1841f6…` to `3fddedd1…` for Coop main `4f142a78` (input batches and snapshot deltas; bundle `c4292eb9…`). Same replay-guard pattern as 0073. No stored row or payout changes. Branch `claude/happy-pasteur-0dhfzp` |
 
 The two 0050 migrations merged independently. Their full IDs are ledger keys;
 renumbering either could orphan recorded history or replay an already applied

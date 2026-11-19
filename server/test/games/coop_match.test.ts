@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { checkRegistrations, loadModule, presence, type LoadedModule, type MatchDriver, type Presence } from '../unit/harness';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '../../..');
-const FP = '9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67';
+const FP = '3fddedd1b65c0e2d71600e54822e0db5c66b45ac765535b7d0e88c2cf262e97b';
 const PROTO = 1;
 const DEVICES = ['k1', 'k2', 'gp0', 'gp1', 'gp2', 'gp3'];
 // Coop #26: four seats per match. One account may hold any four of the six devices.

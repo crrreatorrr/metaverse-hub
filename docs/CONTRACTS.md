@@ -116,6 +116,7 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0071 | sproto-coop-battle | `games/coop_rewards.ts` | `0071_coop_combat_fingerprint` (updates the live settlement fingerprint to `d1ca2efc…`; no row or amount changes) |
 | 0072 | sproto-coop-battle | `games/coop_rewards.ts` | `0072_coop_mecha_fingerprint` updates the live settlement fingerprint to `1bdabcab…` for the new boss behavior. Existing rows and payout amounts stay intact. |
 | 0073 | sproto-coop-battle | `games/coop_rewards.ts` | `0073_coop_transform_fingerprint` updates the live settlement fingerprint to `9c1841f6…` for eight-second transformations. Existing rows and payout amounts stay intact. |
+| 0075 | sproto-coop-battle | `games/coop_rewards.ts` | `0075_coop_wire_fingerprint` updates the live settlement fingerprint to `3fddedd1…` for Coop main `4f142a78` (input batches, snapshot deltas). Existing rows and payout amounts stay intact. |
 | 0064 | hub | `games/hub_feedback.ts` | `0064_feedback_check` |
 | 0065 | sproto-shooter | `games/shooter_rewards.ts` | `0065_shooter_campaign_fingerprint` (`game.settle_shooter_clear` labels receipts with the vendored campaign fingerprint `73c6eb0f`; no row or amount changes) |
 | 0066 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0066_shooter_campaign_artifact` (live verification allowlist matches the vendored campaign bundle `4968fa64…` / `73c6eb0f`; no row or amount changes) |

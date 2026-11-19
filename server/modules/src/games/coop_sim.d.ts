@@ -170,6 +170,10 @@ interface CoopLimits {
   encounterGraceTicks: number;
   afkAliveTicks: number;
   buttonMaskMax: number;
+  /** Bundles from Coop 4f142a78: items per { t: 'inputs', batch } message. */
+  inputBatchMax?: number;
+  /** Bundles from Coop 4f142a78: a delta client gets a full envelope at least this often (loops). */
+  snapshotKeyframeLoops?: number;
 }
 
 interface CoopProtocolApi {
@@ -196,6 +200,24 @@ interface CoopProtocolApi {
   lifeFacts(state: CoopSimState): CoopLifeFacts;
   neutralButtons(): CoopButton;
   unpackMask(mask: number): CoopButton;
+  /** Optional wire savings (Coop 4f142a78). Absent in older bundles: the hub feature-detects them. */
+  splitInputBatch?(msg: { [key: string]: unknown }): { ok: true; inputs: { [key: string]: unknown }[] } | CoopFail;
+  snapshotDelta?(base: CoopSnap, next: CoopSnap): { ok: true; delta: CoopSnapDelta } | CoopFail;
+  applySnapshotDelta?(base: CoopSnap, delta: CoopSnapDelta): { ok: true; envelope: CoopSnap } | CoopFail;
+}
+
+interface CoopSnapDelta {
+  kind: string;
+  protocol: number;
+  gameId: string;
+  matchId: string;
+  tick: number;
+  loop: number;
+  hz: number;
+  restart: number;
+  base: number;
+  baseTick: number;
+  d: unknown;
 }
 
 interface CoopExport {

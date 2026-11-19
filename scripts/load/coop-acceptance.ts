@@ -28,7 +28,7 @@ const BASE = process.env.NAKAMA_URL ?? 'http://127.0.0.1:7350';
 const GAME = 'sproto-coop-battle';
 /** Seats per Coop match (Coop #26 cut six to four). */
 const SEATS = 4;
-const FP = '9c1841f69463c17a4fd737787b0be20578020f39d29b7310826f992841d3cb67';
+const FP = '3fddedd1b65c0e2d71600e54822e0db5c66b45ac765535b7d0e88c2cf262e97b';
 // game.settle_coop_clear compares with the vendored sim's fingerprint since 0063_coop_settle_fingerprint.
 const SETTLE_FP = FP;
 const HASH = 'ab'.repeat(32);
