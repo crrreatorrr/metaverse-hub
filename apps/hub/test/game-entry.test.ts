@@ -1,28 +1,34 @@
 // H1 entrances. Shooter uses the empty plaza ring. Coop Battle is a Bar cabinet choice.
-// A missing page is Coming soon, so the entrance does not mint a ticket. Neither game earns.
+// Open World is a sixth ring beside the Range. A missing page is Coming soon, so the entrance does
+// not mint a ticket. None of the three earns.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RELIC_BY_GAME } from '@metaverse/hub-sdk';
 
-// games.ts reads Vite env for the two new pages. This program has Node types only.
+// games.ts reads Vite env for the three new pages. This program has Node types only.
 declare global {
   interface ImportMeta {
     readonly env: {
       readonly VITE_GAME_URL_SPROTO_SHOOTER?: string;
       readonly VITE_GAME_URL_SPROTO_COOP_BATTLE?: string;
+      readonly VITE_GAME_URL_SPROTO_OPEN_WORLD?: string;
     };
   }
 }
-import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, STATUE_PORTALS } from '../src/realms/plaza/config';
+import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, OPEN_WORLD_ARC, PILLAR_OFFSET, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, RANGE_ANGLE, STATUE_PORTALS } from '../src/realms/plaza/config';
 import { ARCADE_PROMPT, ARCADE_RETURN, ARCADE_WALKUP } from '../src/realms/plaza/arcade-layout';
-import { gameUrl } from '../src/games';
-import { spawnFor, spawnForArrival } from '../src/realms/plaza/layout';
+import { gameById, gameUrl } from '../src/games';
+import { gameInfo, relicOfGame } from '../src/game-list';
+import { buildingBoxColliders, buildingCylinderColliders } from '../src/realms/plaza/blockouts';
+import { pillarBoxes, spawnFor, spawnForArrival } from '../src/realms/plaza/layout';
+import { portalPosition } from '../src/layout';
 import { parseReturnGame, portalContaining } from '../src/travel';
 import { GATE_LOCKED_TEXT, LAUNCH_TIMEOUT_MS, LaunchTimeoutError, SERVER_SILENT_TEXT, launchErrorText, serverSilent, withTimeout } from '../src/core/launch-errors';
 
 const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
 
 // The four original rings stay on their slots. Shooter takes the empty fifth. Coop has no ring.
+// Open World is the sixth ring, off-slot beside the Range.
 {
   const slots: Record<string, number> = {
     hpos10i: 2,
@@ -31,8 +37,9 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
     sproto: 0,
     'sproto-shooter': 3,
   };
-  assert.deepEqual(PORTALS.map((portal) => portal.id), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-shooter']);
+  assert.deepEqual(PORTALS.map((portal) => portal.id), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-shooter', 'sproto-open-world']);
   for (const portal of PORTALS) {
+    if (portal.id === 'sproto-open-world') continue;
     assert.equal(portal.angle, slots[portal.id]! * PLAZA_SLOT + PLAZA_YAW, portal.id);
   }
   assert.equal(PORTALS.filter((portal) => portal.id === 'sproto-shooter').length, 1);
@@ -56,6 +63,74 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   );
   assert.equal(gate?.id, 'sproto-shooter');
   assert.equal(parseReturnGame('#from=sproto-shooter'), 'sproto-shooter');
+}
+
+// Open World is the sixth ring: 10 m of arc from the Range on the Green Hill side, on the same
+// 96 m circle, facing the statue. The two entrances and their triggers do not overlap.
+{
+  assert.equal(PORTALS.filter((portal) => portal.id === 'sproto-open-world').length, 1);
+  const world = PORTALS.find((portal) => portal.id === 'sproto-open-world')!;
+  const range = PORTALS.find((portal) => portal.id === 'sproto-shooter')!;
+  assert.equal(world.label, 'Sproto Open World');
+  assert.equal(world.place, 'Sproutvale');
+  assert.equal(world.color, '#a6ff4d');
+  assert.equal(world.mature, undefined);
+  assert.equal(world.distance, PORTAL_DISTANCE);
+  assert.equal(world.triggerRadius, range.triggerRadius);
+  assert.equal(range.angle, RANGE_ANGLE);
+  assert.equal(world.angle, RANGE_ANGLE - OPEN_WORLD_ARC / PORTAL_DISTANCE);
+  assert.ok(world.angle < range.angle, 'on the Green Hill side, away from the Bar fence gap');
+  const a = portalPosition(world.angle, world.distance);
+  const b = portalPosition(range.angle, range.distance);
+  const apart = Math.hypot(a.x - b.x, a.z - b.z);
+  // Entrance signs are 11 m × 0.57 wide and the posts stand 3 m either side of centre.
+  assert.ok(apart > 11 * 0.57 + 2 && apart < 12, `rings ${apart.toFixed(2)} m apart`);
+  assert.equal(portalContaining(PORTALS, a.x, a.z)?.id, 'sproto-open-world');
+  assert.equal(portalContaining(PORTALS, b.x, b.z)?.id, 'sproto-shooter');
+  assert.ok(apart > world.triggerRadius + range.triggerRadius + 4);
+  // No portal shell, so nothing solid sits around the ring or on the way to the Bar.
+  for (const box of [...buildingBoxColliders(), ...buildingCylinderColliders()]) {
+    assert.ok(Math.hypot(box.x - a.x, box.z - a.z) > 8, 'no blockout collider beside Open World');
+  }
+  // Its pillar colliders stand clear of the Range's.
+  const pillars = pillarBoxes();
+  const index = PORTALS.indexOf(world);
+  const own = pillars.slice(index * 2, index * 2 + 2);
+  const rangePillars = pillars.slice(PORTALS.indexOf(range) * 2, PORTALS.indexOf(range) * 2 + 2);
+  for (const p of own) {
+    assert.ok(Math.abs(Math.hypot(p.x - a.x, p.z - a.z) - PILLAR_OFFSET) < 1e-9);
+    for (const q of rangePillars) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) > 6);
+  }
+  const entry = gameById('sproto-open-world');
+  assert.equal(entry?.slug, 'sproto-open-world');
+  assert.equal(entry?.env, 'VITE_GAME_URL_SPROTO_OPEN_WORLD');
+  assert.equal(entry?.entry, 'ring');
+  const info = gameInfo('sproto-open-world');
+  assert.equal(info?.label, world.label);
+  assert.equal(info?.color, world.color);
+  assert.equal(info?.where, 'Plaza ring by The Range');
+  assert.equal(relicOfGame('sproto-open-world'), undefined);
+  assert.equal(/Relic|Dragon|Scale/.test(info?.goal ?? ''), false, 'the goal names no Relic');
+}
+
+// #from=sproto-open-world lands in front of the new ring, outside every trigger, facing it.
+{
+  const at = spawnForArrival('#from=sproto-open-world');
+  assert.equal(parseReturnGame('#from=sproto-open-world'), 'sproto-open-world');
+  assert.deepEqual(at, spawnFor('sproto-open-world'));
+  assert.notDeepEqual(at, spawnFor(null));
+  assert.notDeepEqual(at, spawnFor('sproto-shooter'));
+  assert.equal(portalContaining([...PORTALS, ...STATUE_PORTALS], at.x, at.z), null);
+  assert.ok(Math.abs(Math.hypot(at.x, at.z) - (PORTAL_DISTANCE - PORTAL_STANDOFF)) < 0.001);
+  const ring = portalPosition(RANGE_ANGLE - OPEN_WORLD_ARC / PORTAL_DISTANCE, PORTAL_DISTANCE);
+  const toRing = { x: ring.x - at.x, z: ring.z - at.z };
+  const length = Math.hypot(toRing.x, toRing.z);
+  assert.ok(Math.abs(length - PORTAL_STANDOFF) < 0.001);
+  const facing = (Math.sin(at.yaw) * toRing.x - Math.cos(at.yaw) * toRing.z) / length;
+  assert.ok(facing > 0.9999, 'facing the Open World ring');
+  const gate = portalContaining(PORTALS, Math.sin(at.yaw) * PORTAL_DISTANCE, -Math.cos(at.yaw) * PORTAL_DISTANCE);
+  assert.equal(gate?.id, 'sproto-open-world');
+  assert.equal(ARCADE_GAMES.some((game) => game.id === parseReturnGame('#from=sproto-open-world')), false);
 }
 
 // The green gate behind the statue head (north, off the 25 m pedestal) is a second Shooter entrance.
@@ -108,6 +183,11 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(gameUrl('sproto-coop-battle', { dev: true, overrides: { 'sproto-coop-battle': '' } }), null);
   assert.equal(gameUrl('sproto-shooter', { dev: false }), null);
   assert.equal(gameUrl('sproto-coop-battle', { dev: false }), null);
+  assert.equal(gameUrl('sproto-open-world', { dev: true }), '/play/sproto-open-world/');
+  assert.equal(gameUrl('sproto-open-world', { dev: false, playDomain: 'example.com' }), 'https://play.example.com/sproto-open-world/');
+  assert.equal(gameUrl('sproto-open-world', { dev: true, overrides: { 'sproto-open-world': '' } }), null);
+  assert.equal(gameUrl('sproto-open-world', { dev: false, overrides: { 'sproto-open-world': 'https://example.org/world/' } }), 'https://example.org/world/');
+  assert.equal(gameUrl('sproto-open-world', { dev: false }), null);
   assert.equal(gameUrl('sproto-fighter', { dev: true }), '/play/sproto-fighter/');
   assert.equal(gameUrl('sproto-arcade', { dev: true }), '/play/sproto-arcade/');
   assert.equal(gameUrl('sproto', { dev: true }), '/play/sproto-duel/');
@@ -120,6 +200,7 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(relics['sproto-coop-battle'], 'marina_anchor');
   assert.equal(relics['sproto-fighter'], 'tidebreaker_belt');
   assert.equal(relics['sproto-arcade'], 'breakwater_coin');
+  assert.equal(relics['sproto-open-world'], undefined);
   assert.equal(JSON.stringify(PORTALS).includes('vcoin'), false);
   assert.equal(JSON.stringify(ARCADE_GAMES).includes('vcoin'), false);
 }

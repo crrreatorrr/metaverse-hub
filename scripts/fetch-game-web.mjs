@@ -14,6 +14,7 @@
  *   node scripts/fetch-game-web.mjs sproto-arcade  (the cabinet's second game)
  *   node scripts/fetch-game-web.mjs sproto-shooter (dark ring; no plaza placement in H0)
  *   node scripts/fetch-game-web.mjs sproto-coop-battle (Bar cabinet game; no separate portal)
+ *   node scripts/fetch-game-web.mjs sproto-open-world (the ring beside the Range)
  *   node scripts/fetch-game-web.mjs --all
  *
  * Games without a "Web build" artifact are cloned. A clone whose package.json
@@ -54,6 +55,8 @@ export const GAMES = {
   // Cabinet game: the fetch path is /play/sproto-coop-battle/, not a plaza ring.
   // No Pages fallback: a banked match is the hub's sproto_coop, not a static export.
   'sproto-coop-battle': { repo: 'crrreatorrr/Sproto-Coop-Battle.', entry: 'cabinet' },
+  // Cloned and built from source (a Vite build with a relative base). No web-build artifact.
+  'sproto-open-world': { repo: 'crrreatorrr/Sproto-Open-World', entry: 'ring' },
 };
 
 /** Nakama game ids that differ from their slug. */

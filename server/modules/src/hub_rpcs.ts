@@ -97,7 +97,7 @@ namespace HubRealtimeRpc {
   }
   // ---------------------------------------------------------------- plaza life (gameplay plan E3, E4)
 
-  var PRESENCE_GAMES: string[] = ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle"];
+  var PRESENCE_GAMES: string[] = ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle", "sproto-open-world"];
   export var PRESENCE_WINDOW_MINUTES = 30;
   export var PRESENCE_CACHE_SECONDS = 15;
   export var PRESENCE_PER_MINUTE = 12;

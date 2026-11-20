@@ -114,7 +114,11 @@ async function arcadeAndSaves(): Promise<void> {
 
 async function coopAndShooterRelics(): Promise<void> {
   assert.deepEqual(GAME_IDS.slice(0, 6), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade']);
-  assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle']);
+  assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle', 'sproto-open-world']);
+  // Sproto Open World (0.10.0) has no Relic: it cannot grant one from any event.
+  assert.equal(RELIC_BY_GAME['sproto-open-world'], undefined);
+  assert.equal(relicForEvent('sproto-open-world', HubEvent.GameBeaten, {}), undefined);
+  assert.equal(relicForEvent('sproto-open-world', HubEvent.ShooterWaveClear, { wave: 1 }), undefined);
   assert.deepEqual(RELIC_IDS.slice(6), ['marina_anchor', 'dragon_scale']);
   assert.deepEqual([...FOUR_LIGHTS_RELIC_IDS], ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown']);
   assert.equal(RELIC_BY_GAME['sproto-coop-battle'], 'marina_anchor');

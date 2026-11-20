@@ -9,6 +9,7 @@ export const GAME_IDS = [
   'sproto-arcade',
   'sproto-shooter',
   'sproto-coop-battle',
+  'sproto-open-world',
 ] as const;
 export type GameId = (typeof GAME_IDS)[number];
 

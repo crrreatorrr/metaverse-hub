@@ -50,7 +50,7 @@ export function createHudGuide(hud: HTMLElement, onDismissOnboarding: () => void
   card.hidden = true;
   card.setAttribute('aria-label', 'Getting started');
   const cardTitle = el('h2', 'guide-title', 'Welcome to the plaza');
-  const cardLede = el('p', 'guide-lede', 'Eight games live here. Each one gives a Relic.');
+  const cardLede = el('p', 'guide-lede', 'Nine games live here. Eight of them give a Relic.');
   const steps = el('ol', 'guide-steps');
   const stepNodes = ONBOARDING_STEPS.map((step, index) => {
     const item = el('li', 'guide-step');

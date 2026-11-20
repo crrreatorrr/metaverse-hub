@@ -140,7 +140,7 @@ export interface MenuOptions {
   /** Vertical look: true is the plaza's original inverted sense. */
   invertLook: () => boolean;
   setInvertLook: (inverted: boolean) => void;
-  /** The eight games, in Games-tab order. */
+  /** The nine games, in Games-tab order. */
   games: readonly GameInfo[];
   /** False when a game's page is not set: its row says "Coming soon". */
   gameAvailable: (id: GameId) => boolean;
@@ -235,7 +235,7 @@ export function createMenu(options: MenuOptions): Menu {
   const gamesList = el('ul', 'menu-grid game-rows');
   gamesPage.append(
     el('h3', 'menu-h', 'Games'),
-    el('p', 'menu-note', 'Eight games, one Relic each. Play from here, or walk to a gate. Tickets you earn show up in Wallet.'),
+    el('p', 'menu-note', 'Nine games, eight with a Relic. Play from here, or walk to a gate. Tickets you earn show up in Wallet.'),
     gamesList,
   );
   const playButtons = new Map<GameId, HTMLButtonElement>();
@@ -253,7 +253,8 @@ export function createMenu(options: MenuOptions): Menu {
       card.dataset.game = game.id;
       card.style.setProperty('--accent', game.color);
       const text = el('div', 'pet-text');
-      const facts = [`${relicName}: ${owns ? 'owned' : 'not yet'}`];
+      // Sproto Open World has no Relic, so its row has no Relic fact.
+      const facts = relic === undefined ? [] : [`${relicName}: ${owns ? 'owned' : 'not yet'}`];
       if (wallet) facts.push(`${wallet.balance.toLocaleString('en-US')} Tickets`);
       facts.push(game.where);
       text.append(el('strong', '', game.label), el('span', 'pet-from', game.blurb), el('span', 'pet-from game-facts', facts.join(' · ')));
