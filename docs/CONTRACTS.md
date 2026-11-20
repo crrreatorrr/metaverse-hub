@@ -1,6 +1,6 @@
 # Cross-repo contracts
 
-This page indexes what the hub and the eight games depend on each other for. It lists:
+This page indexes what the hub and the nine games depend on each other for. It lists:
 
 - the numbered contracts C1–C14 that code comments cite
 - what each kind of change forces in other repos
@@ -56,6 +56,7 @@ Then in each game: `npm run vendor:sdk -- <game-repo>` (`scripts/vendor-sdk.mjs`
 | Sproto Arcade | Not the vendor script. Run Arcade's own `node tools/vendor-hub-sdk.mjs <path-to-metaverse-hub>`. It builds one IIFE, `vendor/hub-sdk/hub-sdk.iife.js`, with global **`HubSdk`**, for `legacy.html`. |
 | Sproto Shooter | the vendor script. The game imports the ESM build. Keep `VENDOR.md` and `SOURCE.pin.json` together. |
 | Sproto Coop Battle | the vendor script. The game loads the IIFE (global `HubSDK`). `scripts/build.mjs` refuses a copy whose version or hash differs from `SOURCE.pin.json`, so update `scripts/build.mjs` and `docs/coop-hub.md` too. |
+| Sproto Open World | Its `vendor/hub-sdk/VENDOR.md`. The game imports only the `/feedback` and `/core` entries. It needs 0.10.0 or later for its own game id. |
 
 In-game feedback (`docs/feedback.md`) lives in the SDK from 0.7.0. Each game calls `installFeedback` with its own pause, context and theme adapter; the window, the screenshot and the transport come from the vendored copy.
 
@@ -125,7 +126,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0069 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0069_shooter_campaign_level_bundle` (live allowlist matches campaign bundle `ab175aae…` / `73c6eb0f` from `7db4fc4f`; Arena fingerprint `e749d2fd`, sha256 `493290c9…`; no row or amount changes) |
 | 0070 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0070_shooter_campaign_later_levels` (live allowlist matches campaign bundle `7ba57e42…` / `73c6eb0f` from `1fd01820`; Arena fingerprint `e749d2fd`, sha256 `2b799f2c…`; client `0d604fe8` names that commit and sha; no row or amount changes) |
 | 0076 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0076_shooter_campaign_boot_split` (live allowlist matches campaign bundle `bcfdba3e…` / `73c6eb0f` from `ccaa836d`, byte-identical to `1fd01820`'s apart from the baked commit; Arena fingerprint `e749d2fd`, sha256 `528ec266…`; client `3cf28f37` names that commit and sha; no row or amount changes) |
-| 0077+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0077 | sproto-open-world | `games/sproto_open_world.ts` | `0077_sproto_open_world` (widens `game_session`, `auth_ticket`, `play_lease.surface` and `game.claim_play_lease`; no Relic, Ticket or score row) |
+| 0078+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
@@ -141,6 +143,7 @@ The game ranges (0013–0029) predate the runner's ordering rule. A game that ne
 | Sproto Fighter | `sproto-fighter` | Bar cabinet (`sproto-fighter`) | crrreatorrr/Sproto-Fighter | `sproto-sim.js` | **yes**: `sproto_duel` match (online 1v1 with replay verification and wagers) |
 | Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored: `sproto_arcade_coop` is a lockstep relay and runs no sim; main `9b6ec23b` builds `ARCADE_SIM_VERSION` `9249bbf1047466f3`, sha256 `2be4bbaa…`, 1.2 MB, with `ArcadeSim.coop`) | no |
 | Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked four-seat play), `coop.*` RPCs |
+| Sproto Open World | `sproto-open-world` | ring, Sproutvale beside The Range (`sproto-open-world`) | crrreatorrr/Sproto-Open-World | none | no: session, `save.get` / `save.put`, `session.close`, lease, presence and feedback only. No Relic, Tickets or boards |
 
 Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choices are in `apps/hub/src/realms/plaza/config.ts`. `scripts/fetch-game-web.mjs` pulls the dev builds.
 

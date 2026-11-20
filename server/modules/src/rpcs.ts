@@ -1,6 +1,6 @@
 namespace HubRpc {
   // vcoin is the coming-soon arcade session. It is not an alias of sproto-arcade.
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, vcoin: true, "sproto-shooter": true, "sproto-coop-battle": true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, vcoin: true, "sproto-shooter": true, "sproto-coop-battle": true, "sproto-open-world": true };
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
   export function fail(code: string, message: string): string {
@@ -686,7 +686,7 @@ namespace HubRpc {
     return ok(result);
   }
 
-  /** The eight games with a Ticket wallet, in the Wallet tab's order. vcoin has none. */
+  /** The eight games with a Ticket wallet, in the Wallet tab's order. vcoin and sproto-open-world have none. */
   export var WALLET_GAMES: string[] = ["hpos10i", "nobu", "peoples-bitcoin", "sproto", "sproto-fighter", "sproto-arcade", "sproto-shooter", "sproto-coop-battle"];
   export var VERSE_DAILY_CAP = 50;
   export var TICKETS_PER_VERSE = 10;

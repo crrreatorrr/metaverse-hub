@@ -27,6 +27,7 @@ const PLAY_GAMES = [
   { slug: 'sproto-arcade', env: 'VITE_GAME_URL_SPROTO_ARCADE' },
   { slug: 'sproto-shooter', env: 'VITE_GAME_URL_SPROTO_SHOOTER' },
   { slug: 'sproto-coop-battle', env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE' },
+  { slug: 'sproto-open-world', env: 'VITE_GAME_URL_SPROTO_OPEN_WORLD' },
 ] as const;
 
 function fetchedBuild(slug: string): boolean {

@@ -35,6 +35,7 @@ namespace HubFeedback {
     "sproto-arcade": "ARCADE",
     "sproto-shooter": "SHOOTER",
     "sproto-coop-battle": "COOP",
+    "sproto-open-world": "WORLD",
   };
 
   export function games(): string[] {

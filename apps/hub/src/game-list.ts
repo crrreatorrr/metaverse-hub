@@ -1,7 +1,7 @@
 import { RELIC_BY_GAME, type GameId, type RelicId } from '@metaverse/hub-sdk';
 
 /**
- * The eight games, for the menu's Games tab, the return card and the 18+ confirm (plan items D3,
+ * The nine games, for the menu's Games tab, the return card and the 18+ confirm (plan items D3,
  * D4, D5). Pure data: labels and colours repeat the plaza's portal and cabinet config, and
  * apps/hub/test/guide.test.ts fails when they drift.
  */
@@ -13,7 +13,7 @@ export interface GameInfo {
   /** Where the scenic route is. */
   where: string;
   color: string;
-  /** What earns this game's Relic, as a goal: "Defeat Cone for Cone's Tip". */
+  /** What earns this game's Relic, as a goal: "Defeat Cone for Cone's Tip". A game with no Relic names its own aim. */
   goal: string;
   /** 18+ satire: the plaza asks once before launching. */
   mature?: boolean;
@@ -25,6 +25,7 @@ export const GAME_LIST: readonly GameInfo[] = [
   { id: 'peoples-bitcoin', label: "The People's Bitcoin", blurb: '18+ satire · online worlds, quests and a Ticket shop', where: 'The White House gate', color: '#ffc233', goal: 'Finish the tutorial quest for the Genesis Block Shard', mature: true },
   { id: 'sproto', label: 'Sproto Duel', blurb: 'Wizard duels · story bosses and online 1v1', where: 'The Castle gate', color: '#7b5cff', goal: "Defeat Tinubu for Tinubu's Crown" },
   { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'First-person loot shooter · Wave Mode and a campaign', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
+  { id: 'sproto-open-world', label: 'Sproto Open World', blurb: 'Action RPG · staff and magic, quests and bosses', where: 'Plaza ring by The Range', color: '#a6ff4d', goal: 'Explore Sproutvale, take quests and beat its bosses' },
   { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · twelve giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
   { id: 'sproto-fighter', label: 'Sproto Fighter', blurb: 'Story mode and online 1v1 duels', where: 'Bar cabinet', color: '#ff3d6e', goal: 'Win Story World 1 for the Tidebreaker Belt' },
   { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Up to four players across thirteen stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },

@@ -15,7 +15,7 @@ namespace HubLease {
   export var SESSION_SUPERSEDED_SUBJECT = "session_superseded";
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true, vcoin: true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true, "sproto-open-world": true, vcoin: true };
 
   export interface LeaseError {
     error: "session_superseded" | "unauthorized";
@@ -220,6 +220,7 @@ namespace HubLease {
 }
 
 // Statements from server/modules/migrations/play_lease.sql, surfaces widened to every game id.
+// Applied: never edit. 0077_sproto_open_world (games/sproto_open_world.ts) adds sproto-open-world.
 HubSchema.register({
   id: "0074_play_lease",
   statements: [

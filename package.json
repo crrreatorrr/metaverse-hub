@@ -28,6 +28,7 @@
     "fetch:sproto-arcade": "node scripts/fetch-game-web.mjs sproto-arcade",
     "fetch:sproto-shooter": "node scripts/fetch-game-web.mjs sproto-shooter",
     "fetch:sproto-coop-battle": "node scripts/fetch-game-web.mjs sproto-coop-battle",
+    "fetch:sproto-open-world": "node scripts/fetch-game-web.mjs sproto-open-world",
     "build:sdk-iife": "node scripts/build-sdk-iife.mjs --write",
     "check:sdk-iife": "node scripts/build-sdk-iife.mjs --check",
     "preview": "npm run preview -w @metaverse/hub",
