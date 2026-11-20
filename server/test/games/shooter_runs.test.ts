@@ -213,10 +213,15 @@ const mod = loadModule();
   const relabel = all.filter((row) => row.id === '0065_shooter_campaign_fingerprint');
   assert.equal(relabel.length, 1);
   const swap = relabel[0]!.statements[0]!;
-  assert.ok(swap.includes(`replace(src, 'cea1f88b', '${pin.fingerprint}')`));
+  assert.ok(swap.includes("replace(src, 'cea1f88b', '73c6eb0f')"), '0065 stays on the fingerprint it was applied with');
   assert.equal(ShooterRewards.FINGERPRINT, pin.fingerprint);
   assert.equal(/UPDATE|DELETE|INSERT/.test(swap), false, 'the migration rewrites no row');
   assert.ok(ids.indexOf('0065_shooter_campaign_fingerprint') > ids.indexOf('0064_feedback_check'));
+  // 0078 moves the live settle_shooter_clear from 73c6eb0f to the vendored fingerprint.
+  const sidearms = all.find((row) => row.id === '0078_shooter_campaign_sidearms')!.statements.join('\n');
+  assert.ok(sidearms.includes("pg_get_functiondef('game.settle_shooter_clear("));
+  assert.ok(sidearms.includes(`replace(src, '73c6eb0f', '${pin.fingerprint}')`));
+  assert.ok(ids.indexOf('0078_shooter_campaign_sidearms') > ids.indexOf('0065_shooter_campaign_fingerprint'));
 }
 const mark = () => mod.nk.sqlCalls.length;
 let at = mark();

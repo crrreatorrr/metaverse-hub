@@ -27,13 +27,13 @@ namespace ShooterProto {
   export var KIND = "sproto_shooter_free";
   export var MODE = "free";
   export var REPO = "crrreatorrr/sproto-shooter";
-  export var COMMIT = "ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d";
-  export var BUNDLE_SHA256 = "528ec26617906877212cd7f314eb284951cb27ed5eb5c99cc24ea3d7ec5fce51";
+  export var COMMIT = "fd97966869387a40c22c97a87075dc3431cd4b05";
+  export var BUNDLE_SHA256 = "2959802ddb03083cf425c6fbe1f5ca18641f722463872c11966f8049c9d60520";
   export var PROTOCOL = 2;
   export var SIM = 2;
   export var FINGERPRINT = "e749d2fd";
   export var LOADOUT_HASH = "37131c3e";
-  export var CAMPAIGN_FINGERPRINT = "73c6eb0f";
+  export var CAMPAIGN_FINGERPRINT = "dfb46fb6";
 
   export var OP_HELLO = 1;
   export var OP_WELCOME = 2;
