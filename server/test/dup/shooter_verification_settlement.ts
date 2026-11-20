@@ -9,9 +9,9 @@ import { guest, openGame, call, psql, psqlAsync, num, sleep, arm, disarm, instal
 
 type TestFn = (category: string, name: string, fn: () => Promise<void>) => Promise<void>;
 type Obj = Record<string, unknown>;
-const SHA = 'bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807';
-const SOURCE = 'ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d';
-const MANIFEST = { artifact: 'shooter-sim', sourceCommit: SOURCE, sha256: SHA, protocol: 1, contentFingerprint: '73c6eb0f', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
+const SHA = '63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3';
+const SOURCE = 'fd97966869387a40c22c97a87075dc3431cd4b05';
+const MANIFEST = { artifact: 'shooter-sim', sourceCommit: SOURCE, sha256: SHA, protocol: 1, contentFingerprint: 'dfb46fb6', uploadProtocol: 2, replayApiVersion: 2, checkpointSchema: 2, economyPolicy: 1 };
 const ctx = vm.createContext({ console });
 const artifactBytes = readFileSync(new URL(`../../../services/shooter-verifier/artifacts/${SHA}/shooter-sim.js`, import.meta.url));
 assert.equal(createHash('sha256').update(artifactBytes).digest('hex'), SHA, 'execute exact approved bytes, not merely a SHA-named path');
@@ -78,7 +78,7 @@ export async function fixture(name = 'broccoli-success-7', options: Options = {}
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${login.hub.userId}','${login.sessionId}','pay:${run}','${day}','${String(original.canonicalBoss)}',${Number(original.seed)},'${sql(JSON.stringify(issuance))}');
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${login.hub.userId}','${login.sessionId}',1,2,1,'${SHA}','${SOURCE}','73c6eb0f',now()-interval '20 minutes',now()+interval '25 minutes')`);
+    VALUES('${run}','${login.hub.userId}','${login.sessionId}',1,2,1,'${SHA}','${SOURCE}','dfb46fb6',now()-interval '20 minutes',now()+interval '25 minutes')`);
   const segment = (obj(sample.log).segments as Obj[])[0]!;
   assert.equal((obj(sample.log).segments as Obj[]).length, 1, 'use the complete stored original trace');
   const n = Number(segment.n), tail = options.tail || 0;
@@ -151,7 +151,7 @@ async function readyRun(): Promise<{ run: string; worker: Worker }> {
   psql(`INSERT INTO game.shooter_run(run_id,user_id,session_id,idem_key,day,canonical_boss,seed,issuance_json)
     VALUES('${run}','${login.hub.userId}','${login.sessionId}','pay-ready:${run}',current_date,'sahil',7,'${sql(JSON.stringify(issuance))}');
     INSERT INTO game.shooter_verification_run(run_id,user_id,session_id,simulator_protocol,checkpoint_schema,economy_policy,artifact_sha256,source_commit,content_fingerprint,issued_at,upload_deadline)
-    VALUES('${run}','${login.hub.userId}','${login.sessionId}',1,2,1,'${SHA}','${SOURCE}','73c6eb0f',now()-interval '1 minute',now()+interval '44 minutes')`);
+    VALUES('${run}','${login.hub.userId}','${login.sessionId}',1,2,1,'${SHA}','${SOURCE}','dfb46fb6',now()-interval '1 minute',now()+interval '44 minutes')`);
   const accepted = obj((await call('shooter.run.append', { protocol: 2, runId: run, sequence: 0, tick0: 0, n: 1, frames: Buffer.alloc(12).toString('base64'), actions: [] }, login.gameToken)).body);
   assert.equal(accepted.state, 'received'); return { run, worker: await worker() };
 }

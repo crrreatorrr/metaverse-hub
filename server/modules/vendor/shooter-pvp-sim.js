@@ -189,6 +189,8 @@ var SprotoShooterPvp = (() => {
     pickupTtl: 30,
     gunPickupTtl: 120,
     gunPickupRadius: 2.2,
+    // Melee (any gun): Interact with nothing in reach. Hits the closest enemy in a cone in front (src/sim/dualWield.js).
+    melee: { damage: 45, range: 2.4, coneDeg: 50, cooldown: 0.7, fireLock: 0.35 },
     hitscanRange: GAMEPLAY.hitscanRange
   };
   var ARENA_R = TUNING.arenaRadius;
@@ -259,6 +261,33 @@ var SprotoShooterPvp = (() => {
       weight: 6,
       fireMode: "auto",
       base: B({ damage: 140, fireRate: 0.6, spread: 0.5, adsSpread: 0.2, magSize: 1, reloadTime: 2.2, projectileSpeed: 28, critMult: 1.5, critChance: 0, elementChance: 0.5, splashRadius: 4, splashDamage: 110, recoil: 4, recoilYaw: 0.5, swapTime: 0.7, zoomFov: 70 })
+    },
+    // Dual-wieldable sidearms (dualWield): hold one, then hold Reload / Interact on another dual-wieldable gun on the
+    // floor to take it in the left hand (src/sim/dualWield.js). Each gun keeps its own magazine and reload.
+    // Placeholder rectangle viewmodels for now (no model, no animation).
+    {
+      id: "handgun",
+      name: "Handgun",
+      short: "HG",
+      ammoType: "bullets",
+      weight: 25,
+      dualWield: true,
+      fireMode: "auto",
+      infiniteReserve: true,
+      range: { full: 22, max: 55, min: 0.5 },
+      base: B({ damage: 16, fireRate: 3.5, spread: 1, adsSpread: 0.5, magSize: 12, reloadTime: 1.5, critMult: 2.2, critChance: 0.06, elementChance: 0.1, recoil: 1.4, recoilYaw: 0.35, swapTime: 0.35, zoomFov: 70 })
+    },
+    {
+      id: "machinepistol",
+      name: "Machine Pistol",
+      short: "MP",
+      ammoType: "bullets",
+      weight: 20,
+      dualWield: true,
+      fireMode: "auto",
+      infiniteReserve: true,
+      range: { full: 14, max: 40, min: 0.4 },
+      base: B({ damage: 7, fireRate: 11, spread: 2.4, adsSpread: 1.4, magSize: 24, reloadTime: 1.8, critMult: 1.8, critChance: 0.04, elementChance: 0.08, recoil: 0.45, recoilYaw: 0.3, swapTime: 0.35, zoomFov: 70 })
     },
     // Boss weapons (bossOnly): never rolled at random (weight 0), not crafted or sold in the shop. Every boss kill
     // drops one (data/drops.js 'bossGun'). Endless spare ammo; the magazine still reloads.
@@ -342,12 +371,12 @@ var SprotoShooterPvp = (() => {
     { id: "goo", name: "Goo", color: "#9be33b", weight: 16, proc: { kind: "slow", slow: 0.4, duration: 2.5 } }
   ];
   var WACKY = [
-    { id: "rubberDuck", name: "Rubber Duckie", desc: "Shots become bouncing rubber ducks.", allowedTypes: ["mg", "shotgun", "sniper"] },
-    { id: "yeetReload", name: "Yeet Reload", desc: "Reloading throws the gun as an explosive.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "tenthMega", name: "Every Tenth", desc: "Every 10th shot fires a giant mega bullet.", allowedTypes: ["mg", "shotgun", "sniper"] },
-    { id: "critSproto", name: "Lil Buddy", desc: "Weak-spot hits spawn a mini friendly Sproto.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "confettiKill", name: "Party Popper", desc: "Kills explode in damaging confetti.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "bigHead", name: "Big Head Mode", desc: "Enemies you hit get huge heads (bigger weak spots).", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] }
+    { id: "rubberDuck", name: "Rubber Duckie", desc: "Shots become bouncing rubber ducks.", allowedTypes: ["mg", "shotgun", "sniper", "handgun", "machinepistol"] },
+    { id: "yeetReload", name: "Yeet Reload", desc: "Reloading throws the gun as an explosive.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "tenthMega", name: "Every Tenth", desc: "Every 10th shot fires a giant mega bullet.", allowedTypes: ["mg", "shotgun", "sniper", "handgun", "machinepistol"] },
+    { id: "critSproto", name: "Lil Buddy", desc: "Weak-spot hits spawn a mini friendly Sproto.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "confettiKill", name: "Party Popper", desc: "Kills explode in damaging confetti.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "bigHead", name: "Big Head Mode", desc: "Enemies you hit get huge heads (bigger weak spots).", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] }
   ];
   var byId = (arr) => Object.fromEntries(arr.map((x) => [x.id, x]));
   var GUN_TYPES_BY_ID = byId(GUN_TYPES);
@@ -3064,7 +3093,7 @@ var SprotoShooterPvp = (() => {
   }
 
   // src/sim/pvp/export.js
-  var SOURCE_COMMIT = "ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d";
+  var SOURCE_COMMIT = "fd97966869387a40c22c97a87075dc3431cd4b05";
   function receipt(state) {
     const pinned = /^0{40}$/.test(SOURCE_COMMIT) ? null : SOURCE_COMMIT;
     return {

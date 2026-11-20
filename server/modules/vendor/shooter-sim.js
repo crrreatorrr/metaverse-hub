@@ -372,6 +372,8 @@ var SprotoShooterSim = (() => {
     pickupTtl: 30,
     gunPickupTtl: 120,
     gunPickupRadius: 2.2,
+    // Melee (any gun): Interact with nothing in reach. Hits the closest enemy in a cone in front (src/sim/dualWield.js).
+    melee: { damage: 45, range: 2.4, coneDeg: 50, cooldown: 0.7, fireLock: 0.35 },
     hitscanRange: GAMEPLAY.hitscanRange
   };
   var ARENA_R = TUNING.arenaRadius;
@@ -1413,6 +1415,33 @@ var SprotoShooterSim = (() => {
       fireMode: "auto",
       base: B({ damage: 140, fireRate: 0.6, spread: 0.5, adsSpread: 0.2, magSize: 1, reloadTime: 2.2, projectileSpeed: 28, critMult: 1.5, critChance: 0, elementChance: 0.5, splashRadius: 4, splashDamage: 110, recoil: 4, recoilYaw: 0.5, swapTime: 0.7, zoomFov: 70 })
     },
+    // Dual-wieldable sidearms (dualWield): hold one, then hold Reload / Interact on another dual-wieldable gun on the
+    // floor to take it in the left hand (src/sim/dualWield.js). Each gun keeps its own magazine and reload.
+    // Placeholder rectangle viewmodels for now (no model, no animation).
+    {
+      id: "handgun",
+      name: "Handgun",
+      short: "HG",
+      ammoType: "bullets",
+      weight: 25,
+      dualWield: true,
+      fireMode: "auto",
+      infiniteReserve: true,
+      range: { full: 22, max: 55, min: 0.5 },
+      base: B({ damage: 16, fireRate: 3.5, spread: 1, adsSpread: 0.5, magSize: 12, reloadTime: 1.5, critMult: 2.2, critChance: 0.06, elementChance: 0.1, recoil: 1.4, recoilYaw: 0.35, swapTime: 0.35, zoomFov: 70 })
+    },
+    {
+      id: "machinepistol",
+      name: "Machine Pistol",
+      short: "MP",
+      ammoType: "bullets",
+      weight: 20,
+      dualWield: true,
+      fireMode: "auto",
+      infiniteReserve: true,
+      range: { full: 14, max: 40, min: 0.4 },
+      base: B({ damage: 7, fireRate: 11, spread: 2.4, adsSpread: 1.4, magSize: 24, reloadTime: 1.8, critMult: 1.8, critChance: 0.04, elementChance: 0.08, recoil: 0.45, recoilYaw: 0.3, swapTime: 0.35, zoomFov: 70 })
+    },
     // Boss weapons (bossOnly): never rolled at random (weight 0), not crafted or sold in the shop. Every boss kill
     // drops one (data/drops.js 'bossGun'). Endless spare ammo; the magazine still reloads.
     // Ray Gun: a piercing laser beam (hitscan, drawn as a glowing ray), fast and accurate.
@@ -1498,12 +1527,12 @@ var SprotoShooterSim = (() => {
     { id: "goo", name: "Goo", color: "#9be33b", weight: 16, proc: { kind: "slow", slow: 0.4, duration: 2.5 } }
   ];
   var WACKY = [
-    { id: "rubberDuck", name: "Rubber Duckie", desc: "Shots become bouncing rubber ducks.", allowedTypes: ["mg", "shotgun", "sniper"] },
-    { id: "yeetReload", name: "Yeet Reload", desc: "Reloading throws the gun as an explosive.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "tenthMega", name: "Every Tenth", desc: "Every 10th shot fires a giant mega bullet.", allowedTypes: ["mg", "shotgun", "sniper"] },
-    { id: "critSproto", name: "Lil Buddy", desc: "Weak-spot hits spawn a mini friendly Sproto.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "confettiKill", name: "Party Popper", desc: "Kills explode in damaging confetti.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] },
-    { id: "bigHead", name: "Big Head Mode", desc: "Enemies you hit get huge heads (bigger weak spots).", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun"] }
+    { id: "rubberDuck", name: "Rubber Duckie", desc: "Shots become bouncing rubber ducks.", allowedTypes: ["mg", "shotgun", "sniper", "handgun", "machinepistol"] },
+    { id: "yeetReload", name: "Yeet Reload", desc: "Reloading throws the gun as an explosive.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "tenthMega", name: "Every Tenth", desc: "Every 10th shot fires a giant mega bullet.", allowedTypes: ["mg", "shotgun", "sniper", "handgun", "machinepistol"] },
+    { id: "critSproto", name: "Lil Buddy", desc: "Weak-spot hits spawn a mini friendly Sproto.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "confettiKill", name: "Party Popper", desc: "Kills explode in damaging confetti.", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] },
+    { id: "bigHead", name: "Big Head Mode", desc: "Enemies you hit get huge heads (bigger weak spots).", allowedTypes: ["mg", "shotgun", "sniper", "bazooka", "raygun", "bigbullets", "duckgun", "handgun", "machinepistol"] }
   ];
   var NAME_BITS = {
     mg: ["Brrrt-o-Matic", "Spray Sprout", "Bullet Hose", "Rattler"],
@@ -1513,6 +1542,8 @@ var SprotoShooterSim = (() => {
     raygun: ["Zapper", "Beam Buddy", "Ray-o-Matic", "Laser Lad"],
     bigbullets: ["Hand Cannon", "Chonker", "Big Bertha", "Thumper"],
     duckgun: ["Quackinator", "Bath Time", "Quack Attack", "Rubber Ruckus"],
+    handgun: ["Pea Shooter", "Pocket Pal", "Snubby", "Side Piece"],
+    machinepistol: ["Bzzt Pistol", "Lil Sprayer", "Wrist Rattler", "Pocket Hose"],
     element: { none: ["", "Trusty", "Basic"], fire: ["Spicy", "Toasty", "Hot"], shock: ["Zappy", "Buzzy", "Static"], goo: ["Gloopy", "Sticky", "Slimy"] }
   };
   var byId = (arr) => Object.fromEntries(arr.map((x) => [x.id, x]));
@@ -1533,6 +1564,7 @@ var SprotoShooterSim = (() => {
     if (d <= range2.full) return 1;
     return 1 + (range2.min - 1) * ((d - range2.full) / Math.max(1e-6, range2.max - range2.full));
   }
+  var isDualWield = (gun) => !!(gun && GUN_TYPES_BY_ID[gun.type] && GUN_TYPES_BY_ID[gun.type].dualWield);
   var hasInfiniteReserve = (gun) => !!(gun && GUN_TYPES_BY_ID[gun.type] && GUN_TYPES_BY_ID[gun.type].infiniteReserve);
   var PARTS_BY_SLOT = Object.fromEntries(SLOTS.map((s) => [s, PARTS.filter((p) => p.slot === s)]));
   var STAT_KEYS = ["damage", "fireRate", "spread", "magSize", "reloadTime", "projectileSpeed", "critMult", "elementChance"];
@@ -1540,9 +1572,9 @@ var SprotoShooterSim = (() => {
   // src/data/shop.js
   var SHOP = {
     offerCount: 4,
-    basePrice: { mg: 25, shotgun: 45, sniper: 45, bazooka: 90, raygun: 150, bigbullets: 170, duckgun: 200 },
+    basePrice: { mg: 25, shotgun: 45, sniper: 45, bazooka: 90, raygun: 150, bigbullets: 170, duckgun: 200, handgun: 20, machinepistol: 25 },
     sellBase: 8,
-    typePremium: { mg: 1, shotgun: 1.5, sniper: 1.5, bazooka: 2.5, raygun: 3, bigbullets: 3.5, duckgun: 4 },
+    typePremium: { mg: 1, shotgun: 1.5, sniper: 1.5, bazooka: 2.5, raygun: 3, bigbullets: 3.5, duckgun: 4, handgun: 0.8, machinepistol: 0.9 },
     rerollBase: 10,
     rerollStep: 5,
     vendPrice: 35,
@@ -11636,534 +11668,87 @@ var SprotoShooterSim = (() => {
     return { x: 0, z: 0, wait: true };
   }
 
-  // src/sim/player.js
-  var EMPTY_CMD = { yaw: 0, pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
-  function playerInput(state, commands) {
-    for (const p of Object.values(state.players)) {
-      const c = commands[p.id] || { ...EMPTY_CMD, yaw: p.yaw, pitch: p.pitch };
-      p.cmd = c;
-      p.yaw = c.yaw;
-      p.pitch = clamp(c.pitch, -1.5, 1.5);
-      p.zooming = !!c.held.zoom && !p.dead;
-    }
+  // src/sim/dualWield.js
+  function grabsOffhand(p, floorGun) {
+    const held = p.guns[p.activeSlot];
+    return !!held && isDualWield(held) && isDualWield(floorGun);
   }
-  function playerMovement(state, dt) {
-    for (const p of Object.values(state.players)) {
-      if (p.dead) {
-        p.vel.x = p.vel.z = 0;
-        continue;
-      }
-      const c = p.cmd;
-      if (p.stamina == null) {
-        p.stamina = 1;
-        p.staminaDelay = 0;
-        p.staminaLock = false;
-        p.grappleCd = 0;
-        p.grapple = null;
-      }
-      const scales = [];
-      if (p.campaignSpeed) scales.push(p.campaignSpeed);
-      if (state.mode === "campaign" && p.hazardSlow != null && p.hazardSlow < 1) scales.push(p.hazardSlow);
-      if (p.iceSlow != null && p.iceSlow < 1) scales.push(p.iceSlow);
-      if (state.mode === "campaign" && p.scriptSlow != null && p.scriptSlow < 1) scales.push(p.scriptSlow);
-      const solidsNow = activeSolids(state);
-      const body = {
-        pos: p.pos,
-        vel: p.vel,
-        yaw: p.yaw,
-        pitch: p.pitch,
-        onGround: p.onGround,
-        downed: !!p.downed,
-        zooming: !!p.zooming,
-        stamina: p.stamina,
-        staminaDelay: p.staminaDelay,
-        staminaLock: !!p.staminaLock,
-        coyoteT: p.coyoteT || 0,
-        jumpBufferT: p.jumpBufferT || 0,
-        jumpsLeft: p.jumpsLeft == null ? 2 : p.jumpsLeft,
-        invulnT: p.invulnT || 0,
-        grapple: p.grapple,
-        move: p.move,
-        speedScales: scales,
-        zoomCancelled: !!p.zoomCancelled
-      };
-      stepLocomotion(body, {
-        moveX: c.moveX || 0,
-        moveZ: c.moveZ || 0,
-        sprint: !!(c.held && c.held.sprint),
-        jump: !!(c.pressed && c.pressed.jump),
-        dash: !!(c.pressed && c.pressed.dash),
-        slide: !!(c.pressed && c.pressed.slide),
-        crouch: !!(c.held && c.held.crouch),
-        zoom: !!(c.held && c.held.zoom)
-      }, dt, {
-        groundAt: solidsNow ? (x, z, radius, feet, reach) => groundHeight(solidsNow, x, z, radius, feet, reach) : null,
-        emit: (name) => emit(state, name, { playerId: p.id })
-      });
-      p.onGround = body.onGround;
-      p.stamina = body.stamina;
-      p.staminaDelay = body.staminaDelay;
-      p.staminaLock = body.staminaLock;
-      p.coyoteT = body.coyoteT;
-      p.jumpBufferT = body.jumpBufferT;
-      p.jumpsLeft = body.jumpsLeft;
-      p.invulnT = body.invulnT;
-      p.zooming = !!body.zooming;
-      if (body.zoomCancelled) p.zoomCancelled = true;
-      else delete p.zoomCancelled;
-      const seal2 = sealOf(state, p);
-      const m = p.move;
-      applyGravity(body, dt);
-      if (state.mode === "campaign" && state.level && state.level.gravityMult !== 1 && m.mode !== "dash") {
-        p.vel.y -= TUNING.gravity * (state.level.gravityMult - 1) * dt;
-      }
-      if (state.mode === "campaign" && p.jetpack && state.level) {
-        const lv = state.level;
-        if (lv.fuel == null) lv.fuel = 0;
-        const infinite = !!(lv.modifiers && lv.modifiers.fuelInfinite);
-        const drop = !p.onGround && (c.pressed.slide || c.held && c.held.slide);
-        if (drop) p.vel.y = Math.min(p.vel.y, -16);
-        else if (!p.onGround && c.held.jump && (infinite || lv.fuel > 0)) {
-          p.vel.y += TUNING.gravity * dt;
-          p.vel.y *= Math.max(0, 1 - 8 * dt);
-          if (!infinite) lv.fuel = Math.max(0, lv.fuel - 10 * dt);
-        }
-        if (p.onGround && !infinite && lv.fuel < 100) lv.fuel = Math.min(100, lv.fuel + 25 * dt);
-      }
-      tickGrapple(state, p, dt);
-      p.pos.x += p.vel.x * dt;
-      p.pos.y += p.vel.y * dt;
-      p.pos.z += p.vel.z * dt;
-      const wasAir = !p.onGround;
-      const solids = activeSolids(state);
-      if (solids) {
-        const height = playerHeight(p);
-        const ceiling = state.level.legacyCeiling;
-        if (ceiling && p.pos.y + height > ceiling) {
-          p.pos.y = ceiling - height;
-          p.vel.y = Math.min(0, p.vel.y);
-        }
-        pushHorizontal(p, solids, TUNING.playerRadius, height, STEP_UP);
-        const beforeY = p.pos.y;
-        snapToGround(p, solids, TUNING.playerRadius, STEP_UP);
-        if (wasAir && p.onGround && beforeY - p.pos.y > 0.05 && p.vel.y < -6) {
-          emit(state, "land", { playerId: p.id, speed: 6 });
-        }
-        const hole = voidAt(p.pos, state.level.voids);
-        if (hole) {
-          const safe = state.level.safePos;
-          const useSafe = hole.mode !== "fixed" && safe;
-          const dest = useSafe ? [safe.x, safe.y, safe.z] : hole.to;
-          if (dest) {
-            p.pos.x = dest[0];
-            p.pos.y = dest[1];
-            p.pos.z = dest[2];
-            p.vel.x = p.vel.y = p.vel.z = 0;
-            p.onGround = true;
-            if (hole.penalty) damagePlayer(state, p, { base: p.maxHp * hole.penalty, sourceKind: "world", fromPos: p.pos });
-            if (hole.invuln) p.invulnT = Math.max(p.invulnT || 0, hole.invuln);
-            emit(state, "voidRescue", { id: hole.id || "void", penalty: hole.penalty || 0 });
-          }
-        } else if (p.onGround && state.level.voids) {
-          state.level.safePos = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
-        }
-        if (p.pos.y < abyssY(state.level)) {
-          p.hp = 0;
-          p.shield = 0;
-          p.vel.x = p.vel.y = p.vel.z = 0;
-          p.dead = true;
-          p.downed = false;
-          p.respawnT = TUNING.sandboxRespawn;
-          emit(state, "playerFell", { playerId: p.id });
-          emit(state, "playerDied", { playerId: p.id });
-        }
-      } else if (p.pos.y <= 0) {
-        p.pos.y = 0;
-        if (p.vel.y < 0) {
-          if (wasAir && p.vel.y < -6) emit(state, "land", { playerId: p.id, speed: -p.vel.y });
-          p.vel.y = 0;
-        }
-        p.onGround = true;
-      } else p.onGround = false;
-      if (seal2) clampToRoom(p, seal2);
-      if (state.mode === "campaign" && p.jetpack && state.level) {
-        const lids = state.level.flyerLids || (state.level.flyerVolume ? [state.level.flyerVolume] : []);
-        for (const lid of lids) {
-          if (!lid || !lid.max || !lid.min) continue;
-          if (p.pos.x < lid.min[0] || p.pos.x > lid.max[0] || p.pos.z < lid.min[2] || p.pos.z > lid.max[2]) continue;
-          const cap = lid.max[1] - 2;
-          if (p.pos.y > cap) {
-            p.pos.y = cap;
-            if (p.vel.y > 0) p.vel.y = 0;
-          }
-        }
-      }
-      if (state.mode !== "campaign") {
-        clampToArena(p, TUNING.playerRadius);
-        pushOutOfBoxes(state, p, TUNING.playerRadius);
-      }
-    }
+  function takeOffhand(state, p, gun) {
+    if (p.dual) dropOffhand(state, p);
+    const held = p.guns[p.activeSlot];
+    p.dual = { gun, rightId: held.id, fireCd: 0.3, reloadT: 0, gap: 0, turn: "left" };
+    p.zooming = false;
+    emit(state, "gunPickedUp", { playerId: p.id, gunId: gun.id, slot: "left", quality: gun.quality });
+    emit(state, "dualWield", { playerId: p.id, on: true, gunId: gun.id });
   }
-  function activeGun(p) {
-    return p.guns[p.activeSlot];
+  function dropOffhand(state, p) {
+    const d = p.dual;
+    if (!d) return;
+    delete p.dual;
+    const fx = -Math.sin(p.yaw), fz = -Math.cos(p.yaw);
+    createPickup(state, {
+      kind: "gun",
+      gun: d.gun,
+      pos: { x: p.pos.x + fx * 0.6, y: p.pos.y + 1, z: p.pos.z + fz * 0.6 },
+      vel: { x: fx * 2.5, y: 3.5, z: fz * 2.5 },
+      ttl: TUNING.gunPickupTtl
+    });
+    emit(state, "gunDropped", { gunId: d.gun.id, slot: "left" });
+    emit(state, "dualWield", { playerId: p.id, on: false, gunId: d.gun.id });
   }
-  function switchSlot(state, p, slot) {
-    if (slot === p.activeSlot || !slotUsable(p, slot) || !p.guns[slot]) return;
-    p.activeSlot = slot;
+  function checkOffhand(state, p) {
+    if (!p.dual) return;
+    const held = p.guns[p.activeSlot];
+    if (!held || held.id !== p.dual.rightId || !isDualWield(held)) dropOffhand(state, p);
+  }
+  function melee(state, p) {
+    const m = TUNING.melee;
+    if (p.meleeCd > 0 || p.downed || p.medkitT > 0) return false;
+    if (p.dual) dropOffhand(state, p);
+    p.meleeCd = m.cooldown;
+    p.fireCd = Math.max(p.fireCd, m.fireLock);
     p.reloadT = 0;
-    const g = p.guns[slot];
-    p.swapT = effectiveGunStats(g, p).swapTime;
-    p.fireCd = Math.max(p.fireCd, 0);
-    emit(state, "swap", { playerId: p.id, slot });
-  }
-  function startReload(state, p, g) {
-    if (p.reloadT > 0 || g.ammoInMag >= g.stats.magSize) return;
-    const free = state.tuning.infiniteAmmo || state.tuning.godMode || hasInfiniteReserve(g);
-    if (!free && p.ammo[g.ammoType] <= 0) {
-      emit(state, "ammoEmpty", { playerId: p.id });
-      return;
-    }
-    const st = effectiveGunStats(g, p);
-    p.reloadT = st.reloadTime;
-    emit(state, "reloadStart", { playerId: p.id, slot: p.activeSlot, time: st.reloadTime });
-    if (g.wacky === "yeetReload") {
-      const eye = eyePos(p);
-      const d = dirFromYawPitch(p.yaw, p.pitch + 0.15);
-      createProjectile(state, {
-        kind: "yeetGun",
-        faction: "player",
-        ownerId: p.id,
-        gunId: g.id,
-        sourceKind: "gun",
-        pos: { x: eye.x + d.x * 0.6, y: eye.y + d.y * 0.6, z: eye.z + d.z * 0.6 },
-        vel: { x: d.x * 20, y: d.y * 20 + 3, z: d.z * 20 },
-        radius: 0.3,
-        gravity: 18,
-        damage: g.stats.damage * 3,
-        element: g.element,
-        elementChance: 1,
-        ttl: 3,
-        splash: { radius: 3.5, damage: g.stats.damage * g.stats.pellets * 4 + 40, minFalloff: 0.3, selfMult: 0, knockback: 8 }
-      });
-    }
-  }
-  function finishReload(state, p, g) {
-    const need = g.stats.magSize - g.ammoInMag;
-    const free = state.tuning.infiniteAmmo || state.tuning.godMode || hasInfiniteReserve(g);
-    const take = free ? need : Math.min(need, p.ammo[g.ammoType]);
-    if (!free) p.ammo[g.ammoType] -= take;
-    g.ammoInMag += take;
-    emit(state, "reloadEnd", { playerId: p.id, slot: p.activeSlot });
-  }
-  function coneDir(state, aim, spreadDeg) {
-    if (spreadDeg <= 0) return aim;
-    const theta = deg(spreadDeg) * Math.sqrt(float(state.rng));
-    const phi = float(state.rng) * Math.PI * 2;
-    const up = Math.abs(aim.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
-    let rx = aim.y * up.z - aim.z * up.y, ry = aim.z * up.x - aim.x * up.z, rz = aim.x * up.y - aim.y * up.x;
-    const rl = Math.hypot(rx, ry, rz);
-    rx /= rl;
-    ry /= rl;
-    rz /= rl;
-    const ux = ry * aim.z - rz * aim.y, uy = rz * aim.x - rx * aim.z, uz = rx * aim.y - ry * aim.x;
-    const st = Math.sin(theta), ct = Math.cos(theta), cp = Math.cos(phi), sp = Math.sin(phi);
-    return { x: aim.x * ct + (rx * cp + ux * sp) * st, y: aim.y * ct + (ry * cp + uy * sp) * st, z: aim.z * ct + (rz * cp + uz * sp) * st };
-  }
-  function fireHitscan(state, p, g, st, origin, dir, extra = {}) {
-    let o = origin;
-    const ignore = {};
-    const rng = gunRange(g);
-    let remaining = Math.min(TUNING.hitscanRange, rng.max);
-    if (campaignSolidsOn(state)) {
-      const solids = activeSolids(state);
-      if (solids) {
-        const wall2 = firstSolid(solids, origin, dir, remaining);
-        if (wall2 && !damageLevelSolid(state, wall2.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall2.t;
-      }
-      const alarm2 = alarmRay(state, origin, dir, remaining);
-      if (alarm2) {
-        damageAlarm(state, alarm2, st.damage);
-        remaining = alarm2.t;
+    const aim = dirFromYawPitch(p.yaw, 0);
+    const cosCone = Math.cos(deg(m.coneDeg));
+    const footY = p.pos.y;
+    let best = null, bestD = Infinity;
+    for (const e of state.enemies) {
+      if (e.dead || e.faction !== "enemy") continue;
+      const dx = e.pos.x - p.pos.x, dz = e.pos.z - p.pos.z;
+      const flat = Math.hypot(dx, dz);
+      const reach = flat - (e.radius || 0.5) * (e.scale || 1);
+      if (reach > m.range) continue;
+      if (e.pos.y > footY + 2.2 || e.pos.y + (e.height || 1.8) * (e.scale || 1) < footY - 0.4) continue;
+      if (flat > 0.01 && (dx * aim.x + dz * aim.z) / flat < cosCone) continue;
+      if (reach < bestD) {
+        bestD = reach;
+        best = e;
       }
     }
-    let pierce = st.pierce;
-    let end = null;
-    for (let i = 0; i <= pierce; i++) {
-      const hit = raycastEnemies(state, o, dir, remaining, ignore);
-      if (!hit) break;
-      const dist = Math.hypot(hit.point.x - origin.x, hit.point.y - origin.y, hit.point.z - origin.z);
-      damageEnemy(state, hit.e, {
+    if (best) {
+      const point = { x: best.pos.x, y: best.pos.y + (best.height || 1.8) * (best.scale || 1) * 0.55, z: best.pos.z };
+      damageEnemy(state, best, {
         sourceId: p.id,
-        sourceKind: "gun",
-        base: st.damage * (extra.dmgMult || 1) * rangeFalloff(rng, dist),
-        element: g.element,
-        elementChance: st.elementChance,
-        zone: hit.zone,
-        critChance: st.critChance,
-        critMult: st.critMult,
-        canCrit: true,
-        pellet: st.pellets > 1,
-        point: hit.point,
-        gunId: g.id,
-        arcane: g.arcane,
-        wacky: g.wacky
+        sourceKind: "melee",
+        base: m.damage,
+        element: "none",
+        elementChance: 0,
+        zone: "body",
+        critChance: 0,
+        critMult: 1,
+        canCrit: false,
+        point
       });
-      ignore[hit.e.id] = true;
-      end = hit.point;
-      remaining -= hit.t;
-      o = { x: hit.point.x + dir.x * 0.05, y: hit.point.y + dir.y * 0.05, z: hit.point.z + dir.z * 0.05 };
-      if (i === pierce) break;
     }
-    if (!end) {
-      const t = rayWorld(origin, dir, Math.min(60, rng.max));
-      end = { x: origin.x + dir.x * t, y: origin.y + dir.y * t, z: origin.z + dir.z * t };
-      if (origin.y + dir.y * t <= 0.01) emit(state, "impact", { pos: end, element: g.element });
-    }
-    emit(state, "tracer", { from: origin, to: end, element: g.element, gunType: g.type, mega: !!extra.mega });
-  }
-  function playerCombat(state, dt) {
-    for (const p of Object.values(state.players)) {
-      if (p.dead) continue;
-      const c = p.cmd;
-      if (p.medkitT > 0) {
-        p.medkitT -= dt;
-        if (p.medkitT <= 0) {
-          healPlayer(p, TUNING.medkitHeal);
-          emit(state, "pickup", { playerId: p.id, kind: "medkit", amount: TUNING.medkitHeal });
-        }
-      } else if (c.pressed.medkit && p.medkits > 0 && p.hp < p.maxHp && !p.downed) {
-        p.medkits--;
-        p.medkitT = TUNING.medkitTime;
-        emit(state, "medkitStart", { playerId: p.id });
-      }
-      if (c.slot >= 0) switchSlot(state, p, c.slot);
-      else if (c.wheel) {
-        for (let i = 1; i <= SLOT_COUNT; i++) {
-          const s = (p.activeSlot + c.wheel * i + SLOT_COUNT * SLOT_COUNT) % SLOT_COUNT;
-          if (slotUsable(p, s) && p.guns[s]) {
-            switchSlot(state, p, s);
-            break;
-          }
-        }
-      }
-      const rec = p.recoil;
-      const recoverRate = deg(9) * dt * (c.held.fire ? 0.35 : 1);
-      rec.pitch = Math.max(0, rec.pitch - recoverRate - rec.pitch * 4 * dt * (c.held.fire ? 0.2 : 1));
-      rec.yaw *= Math.max(0, 1 - 6 * dt);
-      if (!c.held.fire) rec.heat = Math.max(0, rec.heat - 1.5 * dt);
-      const g = activeGun(p);
-      if (!g) continue;
-      const st = effectiveGunStats(g, p);
-      if (p.swapT > 0) {
-        p.swapT -= dt;
-        continue;
-      }
-      if (p.reloadT > 0) {
-        p.reloadT -= dt;
-        if (p.reloadT <= 0) {
-          p.reloadT = 0;
-          finishReload(state, p, g);
-        }
-        continue;
-      }
-      if (c.pressed.reload) {
-        startReload(state, p, g);
-        continue;
-      }
-      p.fireCd = Math.max(-0.05, p.fireCd - dt);
-      if (!c.held.fire || p.fireCd > 0 || p.medkitT > 0) continue;
-      if (g.ammoInMag <= 0) {
-        startReload(state, p, g);
-        continue;
-      }
-      p.fireCd += 1 / st.fireRate;
-      if (!(st.ammoSaveChance > 0 && float(state.rng) < st.ammoSaveChance) && !state.tuning.infiniteAmmo) g.ammoInMag--;
-      p.shotCounter++;
-      const mega = g.wacky === "tenthMega" && p.shotCounter % 10 === 0;
-      const eye = eyePos(p);
-      const aim = dirFromYawPitch(p.yaw + rec.yaw, p.pitch + rec.pitch);
-      const muzzle2 = { x: eye.x + aim.x * 0.5, y: eye.y + aim.y * 0.5 - 0.12, z: eye.z + aim.z * 0.5 };
-      if (mega) {
-        createProjectile(state, {
-          kind: "megaBullet",
-          ownerId: p.id,
-          gunId: g.id,
-          pos: muzzle2,
-          vel: { x: aim.x * 40, y: aim.y * 40, z: aim.z * 40 },
-          radius: 0.6,
-          damage: st.damage * st.pellets * 6,
-          element: g.element,
-          elementChance: 1,
-          critMult: st.critMult,
-          pierce: 5,
-          ttl: 3,
-          arcane: g.arcane,
-          splash: { radius: 3, damage: st.damage * st.pellets * 3, minFalloff: 0.4, selfMult: 0, knockback: 6 }
-        });
-      } else if (GUN_TYPES_BY_ID[g.type].projectile === "rubberBullet") {
-        const d = coneDir(state, aim, st.spread);
-        createProjectile(state, {
-          kind: "rubberBullet",
-          ownerId: p.id,
-          gunId: g.id,
-          pos: muzzle2,
-          vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed + 2.5, z: d.z * st.projectileSpeed },
-          radius: 0.24,
-          gravity: 14,
-          bounces: 1,
-          damage: st.damage,
-          element: g.element,
-          elementChance: st.elementChance,
-          critMult: st.critMult,
-          critChance: st.critChance,
-          ttl: 4,
-          arcane: g.arcane,
-          wacky: g.wacky,
-          splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.35, selfMult: 0, knockback: 9 }
-        });
-      } else if (GUN_TYPES_BY_ID[g.type].projectile === "bigBullet") {
-        const d = coneDir(state, aim, st.spread);
-        createProjectile(state, {
-          kind: "bigBullet",
-          ownerId: p.id,
-          gunId: g.id,
-          pos: muzzle2,
-          vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed, z: d.z * st.projectileSpeed },
-          radius: 0.32,
-          gravity: 4,
-          damage: st.damage,
-          element: g.element,
-          elementChance: st.elementChance,
-          critMult: st.critMult,
-          critChance: st.critChance,
-          pierce: st.pierce,
-          ttl: 3,
-          arcane: g.arcane,
-          wacky: g.wacky,
-          splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.4, selfMult: 0, knockback: 7 }
-        });
-      } else if (st.projectileSpeed > 0) {
-        const d = coneDir(state, aim, st.spread);
-        createProjectile(state, {
-          kind: "rocket",
-          ownerId: p.id,
-          gunId: g.id,
-          pos: muzzle2,
-          vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed, z: d.z * st.projectileSpeed },
-          radius: 0.2,
-          damage: st.damage,
-          element: g.element,
-          elementChance: st.elementChance,
-          critMult: st.critMult,
-          ttl: 5,
-          arcane: g.arcane,
-          wacky: g.wacky,
-          splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.3, selfMult: 0.35, knockback: 8 }
-        });
-      } else if (g.wacky === "rubberDuck") {
-        for (let i = 0; i < st.pellets; i++) {
-          const d = coneDir(state, aim, st.spread + 1);
-          createProjectile(state, {
-            kind: "duckBullet",
-            ownerId: p.id,
-            gunId: g.id,
-            pos: muzzle2,
-            vel: { x: d.x * 45, y: d.y * 45, z: d.z * 45 },
-            radius: 0.18,
-            gravity: 10,
-            damage: st.damage * 1.15,
-            element: g.element,
-            elementChance: st.elementChance,
-            critMult: st.critMult,
-            critChance: st.critChance,
-            bounces: 3,
-            ttl: 3,
-            arcane: g.arcane,
-            wacky: g.wacky,
-            pellet: st.pellets > 1
-          });
-        }
-      } else {
-        for (let i = 0; i < st.pellets; i++) fireHitscan(state, p, g, st, eye, coneDir(state, aim, st.spread));
-      }
-      rec.pitch += deg(st.recoil) * (1 + rec.heat * 0.6);
-      rec.yaw += deg(st.recoilYaw) * range(state.rng, -1, 1);
-      rec.pitch = Math.min(rec.pitch, deg(25));
-      rec.heat = Math.min(1, rec.heat + 0.08);
-      emit(state, "shot", { playerId: p.id, gunId: g.id, gunType: g.type, manufacturer: g.manufacturer, element: g.element, mega });
-      if (g.ammoInMag <= 0) startReload(state, p, g);
-    }
-  }
-  function playerVitals(state, dt) {
-    for (const p of Object.values(state.players)) {
-      p.invulnT = Math.max(0, p.invulnT - dt);
-      p.lastDamageT += dt;
-      p.lifestealBudget = Math.min(4, p.lifestealBudget + 4 * dt);
-      p.xpCaps.dmg = Math.max(0, p.xpCaps.dmg - 15 * dt);
-      p.xpCaps.weak = Math.max(0, p.xpCaps.weak - 10 * dt);
-      const kf = p.buffs.killFrenzy;
-      if (kf.stacks > 0) {
-        kf.t -= dt;
-        if (kf.t <= 0) kf.stacks = 0;
-      }
-      if (p.dead) {
-        p.respawnT -= dt;
-        if (state.mode === "sandbox" && p.respawnT <= 0) respawn(state, p);
-        continue;
-      }
-      if (p.downed) {
-        if (tickDowned(p, dt)) {
-          p.dead = true;
-          p.respawnT = TUNING.sandboxRespawn;
-          emit(state, "playerDied", { playerId: p.id });
-        }
-        continue;
-      }
-      if (p.shieldDelayT > 0) {
-        p.shieldDelayT -= dt;
-        if (p.shieldDelayT <= 0 && p.shield < p.maxShield) emit(state, "shieldRegenStart", { playerId: p.id });
-      } else if (p.shield < p.maxShield) {
-        p.shield = Math.min(p.maxShield, p.shield + TUNING.shieldRegen * (p.perks.quickShield ? TUNING.quickShieldRegenMult : 1) * dt);
-      }
-      const inAura = p.inAuraT > 0;
-      if (p.spells.manaShieldOn) {
-        p.mana -= 4 * dt;
-        if (p.mana <= 0) {
-          p.mana = 0;
-          p.spells.manaShieldOn = false;
-          emit(state, "manaShieldOff", { playerId: p.id });
-        }
-      } else if (!inAura) {
-        p.mana = Math.min(p.maxMana, p.mana + TUNING.manaRegen * dt);
-      }
-      if (state.tuning.godMode) {
-        p.mana = p.maxMana;
-        godTopUp(p);
-      }
-      if (p.inAuraT > 0) p.inAuraT -= dt;
-    }
-  }
-  function godTopUp(p) {
-    if (p.tickets < TUNING.godTickets) p.tickets = TUNING.godTickets;
-    for (const k of Object.keys(p.ammoCap)) if (p.ammo[k] < p.ammoCap[k]) p.ammo[k] = p.ammoCap[k];
-    if (p.medkits < TUNING.medkitCarry) p.medkits = TUNING.medkitCarry;
-  }
-  function respawn(state, p) {
-    p.dead = false;
-    p.downed = false;
-    p.hp = p.maxHp;
-    p.shield = p.maxShield;
-    p.mana = p.maxMana;
-    p.pos = { x: 0, y: 0, z: 8 };
-    p.prevPos = { ...p.pos };
-    p.vel = { x: 0, y: 0, z: 0 };
-    p.invulnT = 2;
-    p.unkillableUsed = false;
-    if (p.downCount != null) delete p.downCount;
-    emit(state, "playerRespawn", { playerId: p.id });
+    emit(state, "melee", { playerId: p.id, hit: !!best, targetId: best ? best.id : null });
+    return true;
   }
 
   // src/sim/economy.js
+  function nearBox(state, p) {
+    for (const b of state.weaponBoxes) if (Math.hypot(p.pos.x - b.pos.x, p.pos.z - b.pos.z) <= b.interactRadius) return b;
+    return null;
+  }
   function startCraft(state, p) {
     return fail(state, p, "Crafting is gone");
   }
@@ -12189,6 +11774,11 @@ var SprotoShooterSim = (() => {
     if (!k) return;
     if (Math.hypot(p.pos.x - k.pos.x, p.pos.z - k.pos.z) > TUNING.gunPickupRadius + 1) return;
     const gun = k.gun;
+    if (grabsOffhand(p, gun)) {
+      k.dead = true;
+      takeOffhand(state, p, gun);
+      return;
+    }
     const legendary = gun.quality === "legendary";
     let slot = -1;
     if (legendary && !p.guns[LEGENDARY_SLOT]) slot = LEGENDARY_SLOT;
@@ -12314,6 +11904,583 @@ var SprotoShooterSim = (() => {
     if (id === "ammoRefill") for (const k of Object.keys(p.ammo)) p.ammo[k] = p.ammoCap[k];
     if (id === "medkit") p.medkits++;
     emit(state, "purchase", { playerId: p.id, item: id, price: def.price });
+  }
+
+  // src/sim/player.js
+  var EMPTY_CMD = { yaw: 0, pitch: 0, moveX: 0, moveZ: 0, held: {}, pressed: {}, slot: -1, wheel: 0, actions: [] };
+  function playerInput(state, commands) {
+    for (const p of Object.values(state.players)) {
+      const c = commands[p.id] || { ...EMPTY_CMD, yaw: p.yaw, pitch: p.pitch };
+      p.cmd = c;
+      p.yaw = c.yaw;
+      p.pitch = clamp(c.pitch, -1.5, 1.5);
+      p.zooming = !!c.held.zoom && !p.dead && !p.dual;
+    }
+  }
+  function playerMovement(state, dt) {
+    for (const p of Object.values(state.players)) {
+      if (p.dead) {
+        p.vel.x = p.vel.z = 0;
+        continue;
+      }
+      const c = p.cmd;
+      if (p.stamina == null) {
+        p.stamina = 1;
+        p.staminaDelay = 0;
+        p.staminaLock = false;
+        p.grappleCd = 0;
+        p.grapple = null;
+      }
+      const scales = [];
+      if (p.campaignSpeed) scales.push(p.campaignSpeed);
+      if (state.mode === "campaign" && p.hazardSlow != null && p.hazardSlow < 1) scales.push(p.hazardSlow);
+      if (p.iceSlow != null && p.iceSlow < 1) scales.push(p.iceSlow);
+      if (state.mode === "campaign" && p.scriptSlow != null && p.scriptSlow < 1) scales.push(p.scriptSlow);
+      const solidsNow = activeSolids(state);
+      const body = {
+        pos: p.pos,
+        vel: p.vel,
+        yaw: p.yaw,
+        pitch: p.pitch,
+        onGround: p.onGround,
+        downed: !!p.downed,
+        zooming: !!p.zooming,
+        stamina: p.stamina,
+        staminaDelay: p.staminaDelay,
+        staminaLock: !!p.staminaLock,
+        coyoteT: p.coyoteT || 0,
+        jumpBufferT: p.jumpBufferT || 0,
+        jumpsLeft: p.jumpsLeft == null ? 2 : p.jumpsLeft,
+        invulnT: p.invulnT || 0,
+        grapple: p.grapple,
+        move: p.move,
+        speedScales: scales,
+        zoomCancelled: !!p.zoomCancelled
+      };
+      stepLocomotion(body, {
+        moveX: c.moveX || 0,
+        moveZ: c.moveZ || 0,
+        sprint: !!(c.held && c.held.sprint),
+        jump: !!(c.pressed && c.pressed.jump),
+        dash: !!(c.pressed && c.pressed.dash),
+        slide: !!(c.pressed && c.pressed.slide),
+        crouch: !!(c.held && c.held.crouch),
+        zoom: !!(c.held && c.held.zoom)
+      }, dt, {
+        groundAt: solidsNow ? (x, z, radius, feet, reach) => groundHeight(solidsNow, x, z, radius, feet, reach) : null,
+        emit: (name) => emit(state, name, { playerId: p.id })
+      });
+      p.onGround = body.onGround;
+      p.stamina = body.stamina;
+      p.staminaDelay = body.staminaDelay;
+      p.staminaLock = body.staminaLock;
+      p.coyoteT = body.coyoteT;
+      p.jumpBufferT = body.jumpBufferT;
+      p.jumpsLeft = body.jumpsLeft;
+      p.invulnT = body.invulnT;
+      p.zooming = !!body.zooming && !p.dual;
+      if (body.zoomCancelled) p.zoomCancelled = true;
+      else delete p.zoomCancelled;
+      const seal2 = sealOf(state, p);
+      const m = p.move;
+      applyGravity(body, dt);
+      if (state.mode === "campaign" && state.level && state.level.gravityMult !== 1 && m.mode !== "dash") {
+        p.vel.y -= TUNING.gravity * (state.level.gravityMult - 1) * dt;
+      }
+      if (state.mode === "campaign" && p.jetpack && state.level) {
+        const lv = state.level;
+        if (lv.fuel == null) lv.fuel = 0;
+        const infinite = !!(lv.modifiers && lv.modifiers.fuelInfinite);
+        const drop = !p.onGround && (c.pressed.slide || c.held && c.held.slide);
+        if (drop) p.vel.y = Math.min(p.vel.y, -16);
+        else if (!p.onGround && c.held.jump && (infinite || lv.fuel > 0)) {
+          p.vel.y += TUNING.gravity * dt;
+          p.vel.y *= Math.max(0, 1 - 8 * dt);
+          if (!infinite) lv.fuel = Math.max(0, lv.fuel - 10 * dt);
+        }
+        if (p.onGround && !infinite && lv.fuel < 100) lv.fuel = Math.min(100, lv.fuel + 25 * dt);
+      }
+      tickGrapple(state, p, dt);
+      p.pos.x += p.vel.x * dt;
+      p.pos.y += p.vel.y * dt;
+      p.pos.z += p.vel.z * dt;
+      const wasAir = !p.onGround;
+      const solids = activeSolids(state);
+      if (solids) {
+        const height = playerHeight(p);
+        const ceiling = state.level.legacyCeiling;
+        if (ceiling && p.pos.y + height > ceiling) {
+          p.pos.y = ceiling - height;
+          p.vel.y = Math.min(0, p.vel.y);
+        }
+        pushHorizontal(p, solids, TUNING.playerRadius, height, STEP_UP);
+        const beforeY = p.pos.y;
+        snapToGround(p, solids, TUNING.playerRadius, STEP_UP);
+        if (wasAir && p.onGround && beforeY - p.pos.y > 0.05 && p.vel.y < -6) {
+          emit(state, "land", { playerId: p.id, speed: 6 });
+        }
+        const hole = voidAt(p.pos, state.level.voids);
+        if (hole) {
+          const safe = state.level.safePos;
+          const useSafe = hole.mode !== "fixed" && safe;
+          const dest = useSafe ? [safe.x, safe.y, safe.z] : hole.to;
+          if (dest) {
+            p.pos.x = dest[0];
+            p.pos.y = dest[1];
+            p.pos.z = dest[2];
+            p.vel.x = p.vel.y = p.vel.z = 0;
+            p.onGround = true;
+            if (hole.penalty) damagePlayer(state, p, { base: p.maxHp * hole.penalty, sourceKind: "world", fromPos: p.pos });
+            if (hole.invuln) p.invulnT = Math.max(p.invulnT || 0, hole.invuln);
+            emit(state, "voidRescue", { id: hole.id || "void", penalty: hole.penalty || 0 });
+          }
+        } else if (p.onGround && state.level.voids) {
+          state.level.safePos = { x: p.pos.x, y: p.pos.y, z: p.pos.z };
+        }
+        if (p.pos.y < abyssY(state.level)) {
+          p.hp = 0;
+          p.shield = 0;
+          p.vel.x = p.vel.y = p.vel.z = 0;
+          p.dead = true;
+          p.downed = false;
+          p.respawnT = TUNING.sandboxRespawn;
+          emit(state, "playerFell", { playerId: p.id });
+          emit(state, "playerDied", { playerId: p.id });
+        }
+      } else if (p.pos.y <= 0) {
+        p.pos.y = 0;
+        if (p.vel.y < 0) {
+          if (wasAir && p.vel.y < -6) emit(state, "land", { playerId: p.id, speed: -p.vel.y });
+          p.vel.y = 0;
+        }
+        p.onGround = true;
+      } else p.onGround = false;
+      if (seal2) clampToRoom(p, seal2);
+      if (state.mode === "campaign" && p.jetpack && state.level) {
+        const lids = state.level.flyerLids || (state.level.flyerVolume ? [state.level.flyerVolume] : []);
+        for (const lid of lids) {
+          if (!lid || !lid.max || !lid.min) continue;
+          if (p.pos.x < lid.min[0] || p.pos.x > lid.max[0] || p.pos.z < lid.min[2] || p.pos.z > lid.max[2]) continue;
+          const cap = lid.max[1] - 2;
+          if (p.pos.y > cap) {
+            p.pos.y = cap;
+            if (p.vel.y > 0) p.vel.y = 0;
+          }
+        }
+      }
+      if (state.mode !== "campaign") {
+        clampToArena(p, TUNING.playerRadius);
+        pushOutOfBoxes(state, p, TUNING.playerRadius);
+      }
+    }
+  }
+  function activeGun(p) {
+    return p.guns[p.activeSlot];
+  }
+  function switchSlot(state, p, slot) {
+    if (slot === p.activeSlot || !slotUsable(p, slot) || !p.guns[slot]) return;
+    if (p.dual) dropOffhand(state, p);
+    p.activeSlot = slot;
+    p.reloadT = 0;
+    const g = p.guns[slot];
+    p.swapT = effectiveGunStats(g, p).swapTime;
+    p.fireCd = Math.max(p.fireCd, 0);
+    emit(state, "swap", { playerId: p.id, slot });
+  }
+  function startReload(state, p, g, h = p) {
+    if (h.reloadT > 0 || g.ammoInMag >= g.stats.magSize) return;
+    const free = state.tuning.infiniteAmmo || state.tuning.godMode || hasInfiniteReserve(g);
+    if (!free && p.ammo[g.ammoType] <= 0) {
+      emit(state, "ammoEmpty", { playerId: p.id });
+      return;
+    }
+    const st = effectiveGunStats(g, p);
+    h.reloadT = st.reloadTime;
+    emit(state, "reloadStart", { playerId: p.id, slot: h === p ? p.activeSlot : "left", time: st.reloadTime });
+    if (g.wacky === "yeetReload") {
+      const eye = eyePos(p);
+      const d = dirFromYawPitch(p.yaw, p.pitch + 0.15);
+      createProjectile(state, {
+        kind: "yeetGun",
+        faction: "player",
+        ownerId: p.id,
+        gunId: g.id,
+        sourceKind: "gun",
+        pos: { x: eye.x + d.x * 0.6, y: eye.y + d.y * 0.6, z: eye.z + d.z * 0.6 },
+        vel: { x: d.x * 20, y: d.y * 20 + 3, z: d.z * 20 },
+        radius: 0.3,
+        gravity: 18,
+        damage: g.stats.damage * 3,
+        element: g.element,
+        elementChance: 1,
+        ttl: 3,
+        splash: { radius: 3.5, damage: g.stats.damage * g.stats.pellets * 4 + 40, minFalloff: 0.3, selfMult: 0, knockback: 8 }
+      });
+    }
+  }
+  function finishReload(state, p, g, h = p) {
+    const need = g.stats.magSize - g.ammoInMag;
+    const free = state.tuning.infiniteAmmo || state.tuning.godMode || hasInfiniteReserve(g);
+    const take = free ? need : Math.min(need, p.ammo[g.ammoType]);
+    if (!free) p.ammo[g.ammoType] -= take;
+    g.ammoInMag += take;
+    emit(state, "reloadEnd", { playerId: p.id, slot: h === p ? p.activeSlot : "left" });
+  }
+  function coneDir(state, aim, spreadDeg) {
+    if (spreadDeg <= 0) return aim;
+    const theta = deg(spreadDeg) * Math.sqrt(float(state.rng));
+    const phi = float(state.rng) * Math.PI * 2;
+    const up = Math.abs(aim.y) < 0.99 ? { x: 0, y: 1, z: 0 } : { x: 1, y: 0, z: 0 };
+    let rx = aim.y * up.z - aim.z * up.y, ry = aim.z * up.x - aim.x * up.z, rz = aim.x * up.y - aim.y * up.x;
+    const rl = Math.hypot(rx, ry, rz);
+    rx /= rl;
+    ry /= rl;
+    rz /= rl;
+    const ux = ry * aim.z - rz * aim.y, uy = rz * aim.x - rx * aim.z, uz = rx * aim.y - ry * aim.x;
+    const st = Math.sin(theta), ct = Math.cos(theta), cp = Math.cos(phi), sp = Math.sin(phi);
+    return { x: aim.x * ct + (rx * cp + ux * sp) * st, y: aim.y * ct + (ry * cp + uy * sp) * st, z: aim.z * ct + (rz * cp + uz * sp) * st };
+  }
+  function fireHitscan(state, p, g, st, origin, dir, extra = {}) {
+    let o = origin;
+    const ignore = {};
+    const rng = gunRange(g);
+    let remaining = Math.min(TUNING.hitscanRange, rng.max);
+    if (campaignSolidsOn(state)) {
+      const solids = activeSolids(state);
+      if (solids) {
+        const wall2 = firstSolid(solids, origin, dir, remaining);
+        if (wall2 && !damageLevelSolid(state, wall2.solid, { base: st.damage, sourceKind: "gun" })) remaining = wall2.t;
+      }
+      const alarm2 = alarmRay(state, origin, dir, remaining);
+      if (alarm2) {
+        damageAlarm(state, alarm2, st.damage);
+        remaining = alarm2.t;
+      }
+    }
+    let pierce = st.pierce;
+    let end = null;
+    for (let i = 0; i <= pierce; i++) {
+      const hit = raycastEnemies(state, o, dir, remaining, ignore);
+      if (!hit) break;
+      const dist = Math.hypot(hit.point.x - origin.x, hit.point.y - origin.y, hit.point.z - origin.z);
+      damageEnemy(state, hit.e, {
+        sourceId: p.id,
+        sourceKind: "gun",
+        base: st.damage * (extra.dmgMult || 1) * rangeFalloff(rng, dist),
+        element: g.element,
+        elementChance: st.elementChance,
+        zone: hit.zone,
+        critChance: st.critChance,
+        critMult: st.critMult,
+        canCrit: true,
+        pellet: st.pellets > 1,
+        point: hit.point,
+        gunId: g.id,
+        arcane: g.arcane,
+        wacky: g.wacky
+      });
+      ignore[hit.e.id] = true;
+      end = hit.point;
+      remaining -= hit.t;
+      o = { x: hit.point.x + dir.x * 0.05, y: hit.point.y + dir.y * 0.05, z: hit.point.z + dir.z * 0.05 };
+      if (i === pierce) break;
+    }
+    if (!end) {
+      const t = rayWorld(origin, dir, Math.min(60, rng.max));
+      end = { x: origin.x + dir.x * t, y: origin.y + dir.y * t, z: origin.z + dir.z * t };
+      if (origin.y + dir.y * t <= 0.01) emit(state, "impact", { pos: end, element: g.element });
+    }
+    const tracer = { from: origin, to: end, element: g.element, gunType: g.type, mega: !!extra.mega };
+    if (extra.hand) tracer.hand = extra.hand;
+    emit(state, "tracer", tracer);
+  }
+  function playerCombat(state, dt) {
+    for (const p of Object.values(state.players)) {
+      if (p.dead) continue;
+      const c = p.cmd;
+      if (p.medkitT > 0) {
+        p.medkitT -= dt;
+        if (p.medkitT <= 0) {
+          healPlayer(p, TUNING.medkitHeal);
+          emit(state, "pickup", { playerId: p.id, kind: "medkit", amount: TUNING.medkitHeal });
+        }
+      } else if (c.pressed.medkit && p.medkits > 0 && p.hp < p.maxHp && !p.downed) {
+        p.medkits--;
+        p.medkitT = TUNING.medkitTime;
+        emit(state, "medkitStart", { playerId: p.id });
+      }
+      if (c.slot >= 0) switchSlot(state, p, c.slot);
+      else if (c.wheel) {
+        for (let i = 1; i <= SLOT_COUNT; i++) {
+          const s = (p.activeSlot + c.wheel * i + SLOT_COUNT * SLOT_COUNT) % SLOT_COUNT;
+          if (slotUsable(p, s) && p.guns[s]) {
+            switchSlot(state, p, s);
+            break;
+          }
+        }
+      }
+      const rec = p.recoil;
+      const recoverRate = deg(9) * dt * (c.held.fire ? 0.35 : 1);
+      rec.pitch = Math.max(0, rec.pitch - recoverRate - rec.pitch * 4 * dt * (c.held.fire ? 0.2 : 1));
+      rec.yaw *= Math.max(0, 1 - 6 * dt);
+      if (!c.held.fire) rec.heat = Math.max(0, rec.heat - 1.5 * dt);
+      if (p.meleeCd > 0) p.meleeCd = Math.max(0, p.meleeCd - dt);
+      checkOffhand(state, p);
+      if (c.pressed.interact && !p.nearGunPickupId && !p.downed && !nearBox(state, p)) melee(state, p);
+      const g = activeGun(p);
+      if (!g) continue;
+      const st = effectiveGunStats(g, p);
+      if (p.swapT > 0) {
+        p.swapT -= dt;
+        continue;
+      }
+      if (p.dual) {
+        dualCombat(state, p, g, st, c, dt);
+        continue;
+      }
+      if (p.reloadT > 0) {
+        p.reloadT -= dt;
+        if (p.reloadT <= 0) {
+          p.reloadT = 0;
+          finishReload(state, p, g);
+        }
+        continue;
+      }
+      if (c.pressed.reload) {
+        startReload(state, p, g);
+        continue;
+      }
+      p.fireCd = Math.max(-0.05, p.fireCd - dt);
+      if (!c.held.fire || p.fireCd > 0 || p.medkitT > 0) continue;
+      if (g.ammoInMag <= 0) {
+        startReload(state, p, g);
+        continue;
+      }
+      p.fireCd += 1 / st.fireRate;
+      shoot(state, p, g, st, 0);
+      if (g.ammoInMag <= 0) startReload(state, p, g);
+    }
+  }
+  function shoot(state, p, g, st, side) {
+    const rec = p.recoil;
+    if (!(st.ammoSaveChance > 0 && float(state.rng) < st.ammoSaveChance) && !state.tuning.infiniteAmmo) g.ammoInMag--;
+    p.shotCounter++;
+    const mega = g.wacky === "tenthMega" && p.shotCounter % 10 === 0;
+    const eye = eyePos(p);
+    const aim = dirFromYawPitch(p.yaw + rec.yaw, p.pitch + rec.pitch);
+    const sx = Math.cos(p.yaw) * 0.16 * side, sz = -Math.sin(p.yaw) * 0.16 * side;
+    const muzzle2 = { x: eye.x + aim.x * 0.5 + sx, y: eye.y + aim.y * 0.5 - 0.12, z: eye.z + aim.z * 0.5 + sz };
+    if (mega) {
+      createProjectile(state, {
+        kind: "megaBullet",
+        ownerId: p.id,
+        gunId: g.id,
+        pos: muzzle2,
+        vel: { x: aim.x * 40, y: aim.y * 40, z: aim.z * 40 },
+        radius: 0.6,
+        damage: st.damage * st.pellets * 6,
+        element: g.element,
+        elementChance: 1,
+        critMult: st.critMult,
+        pierce: 5,
+        ttl: 3,
+        arcane: g.arcane,
+        splash: { radius: 3, damage: st.damage * st.pellets * 3, minFalloff: 0.4, selfMult: 0, knockback: 6 }
+      });
+    } else if (GUN_TYPES_BY_ID[g.type].projectile === "rubberBullet") {
+      const d = coneDir(state, aim, st.spread);
+      createProjectile(state, {
+        kind: "rubberBullet",
+        ownerId: p.id,
+        gunId: g.id,
+        pos: muzzle2,
+        vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed + 2.5, z: d.z * st.projectileSpeed },
+        radius: 0.24,
+        gravity: 14,
+        bounces: 1,
+        damage: st.damage,
+        element: g.element,
+        elementChance: st.elementChance,
+        critMult: st.critMult,
+        critChance: st.critChance,
+        ttl: 4,
+        arcane: g.arcane,
+        wacky: g.wacky,
+        splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.35, selfMult: 0, knockback: 9 }
+      });
+    } else if (GUN_TYPES_BY_ID[g.type].projectile === "bigBullet") {
+      const d = coneDir(state, aim, st.spread);
+      createProjectile(state, {
+        kind: "bigBullet",
+        ownerId: p.id,
+        gunId: g.id,
+        pos: muzzle2,
+        vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed, z: d.z * st.projectileSpeed },
+        radius: 0.32,
+        gravity: 4,
+        damage: st.damage,
+        element: g.element,
+        elementChance: st.elementChance,
+        critMult: st.critMult,
+        critChance: st.critChance,
+        pierce: st.pierce,
+        ttl: 3,
+        arcane: g.arcane,
+        wacky: g.wacky,
+        splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.4, selfMult: 0, knockback: 7 }
+      });
+    } else if (st.projectileSpeed > 0) {
+      const d = coneDir(state, aim, st.spread);
+      createProjectile(state, {
+        kind: "rocket",
+        ownerId: p.id,
+        gunId: g.id,
+        pos: muzzle2,
+        vel: { x: d.x * st.projectileSpeed, y: d.y * st.projectileSpeed, z: d.z * st.projectileSpeed },
+        radius: 0.2,
+        damage: st.damage,
+        element: g.element,
+        elementChance: st.elementChance,
+        critMult: st.critMult,
+        ttl: 5,
+        arcane: g.arcane,
+        wacky: g.wacky,
+        splash: { radius: st.splashRadius, damage: st.splashDamage, minFalloff: 0.3, selfMult: 0.35, knockback: 8 }
+      });
+    } else if (g.wacky === "rubberDuck") {
+      for (let i = 0; i < st.pellets; i++) {
+        const d = coneDir(state, aim, st.spread + 1);
+        createProjectile(state, {
+          kind: "duckBullet",
+          ownerId: p.id,
+          gunId: g.id,
+          pos: muzzle2,
+          vel: { x: d.x * 45, y: d.y * 45, z: d.z * 45 },
+          radius: 0.18,
+          gravity: 10,
+          damage: st.damage * 1.15,
+          element: g.element,
+          elementChance: st.elementChance,
+          critMult: st.critMult,
+          critChance: st.critChance,
+          bounces: 3,
+          ttl: 3,
+          arcane: g.arcane,
+          wacky: g.wacky,
+          pellet: st.pellets > 1
+        });
+      }
+    } else {
+      for (let i = 0; i < st.pellets; i++) fireHitscan(state, p, g, st, eye, coneDir(state, aim, st.spread), side < 0 ? { hand: "left" } : void 0);
+    }
+    rec.pitch += deg(st.recoil) * (1 + rec.heat * 0.6);
+    rec.yaw += deg(st.recoilYaw) * range(state.rng, -1, 1);
+    rec.pitch = Math.min(rec.pitch, deg(25));
+    rec.heat = Math.min(1, rec.heat + 0.08);
+    emit(state, "shot", side < 0 ? { playerId: p.id, gunId: g.id, gunType: g.type, manufacturer: g.manufacturer, element: g.element, mega, hand: "left" } : { playerId: p.id, gunId: g.id, gunType: g.type, manufacturer: g.manufacturer, element: g.element, mega });
+  }
+  function dualCombat(state, p, g, st, c, dt) {
+    const d = p.dual, L = d.gun, stL = effectiveGunStats(L, p);
+    const right = { h: p, gun: g, st, side: 1 }, left = { h: d, gun: L, st: stL, side: -1 };
+    for (const hand of [right, left]) {
+      if (hand.h.reloadT > 0) {
+        hand.h.reloadT -= dt;
+        if (hand.h.reloadT <= 0) {
+          hand.h.reloadT = 0;
+          finishReload(state, p, hand.gun, hand.h);
+        }
+      }
+    }
+    if (c.pressed.reload) {
+      startReload(state, p, g, p);
+      startReload(state, p, L, d);
+      return;
+    }
+    p.fireCd = Math.max(-0.05, p.fireCd - dt);
+    d.fireCd = Math.max(-0.05, d.fireCd - dt);
+    d.gap = Math.max(0, d.gap - dt);
+    if (!c.held.fire || p.medkitT > 0 || d.gap > 0) return;
+    for (const hand of d.turn === "left" ? [left, right] : [right, left]) {
+      if (hand.h.reloadT > 0 || hand.h.fireCd > 0) continue;
+      if (hand.gun.ammoInMag <= 0) {
+        startReload(state, p, hand.gun, hand.h);
+        continue;
+      }
+      hand.h.fireCd += 1 / hand.st.fireRate;
+      d.gap = 0.5 / hand.st.fireRate;
+      d.turn = hand.side < 0 ? "right" : "left";
+      shoot(state, p, hand.gun, hand.st, hand.side);
+      if (hand.gun.ammoInMag <= 0) startReload(state, p, hand.gun, hand.h);
+      return;
+    }
+  }
+  function playerVitals(state, dt) {
+    for (const p of Object.values(state.players)) {
+      p.invulnT = Math.max(0, p.invulnT - dt);
+      p.lastDamageT += dt;
+      p.lifestealBudget = Math.min(4, p.lifestealBudget + 4 * dt);
+      p.xpCaps.dmg = Math.max(0, p.xpCaps.dmg - 15 * dt);
+      p.xpCaps.weak = Math.max(0, p.xpCaps.weak - 10 * dt);
+      const kf = p.buffs.killFrenzy;
+      if (kf.stacks > 0) {
+        kf.t -= dt;
+        if (kf.t <= 0) kf.stacks = 0;
+      }
+      if (p.dead) {
+        p.respawnT -= dt;
+        if (state.mode === "sandbox" && p.respawnT <= 0) respawn(state, p);
+        continue;
+      }
+      if (p.downed) {
+        if (tickDowned(p, dt)) {
+          p.dead = true;
+          p.respawnT = TUNING.sandboxRespawn;
+          emit(state, "playerDied", { playerId: p.id });
+        }
+        continue;
+      }
+      if (p.shieldDelayT > 0) {
+        p.shieldDelayT -= dt;
+        if (p.shieldDelayT <= 0 && p.shield < p.maxShield) emit(state, "shieldRegenStart", { playerId: p.id });
+      } else if (p.shield < p.maxShield) {
+        p.shield = Math.min(p.maxShield, p.shield + TUNING.shieldRegen * (p.perks.quickShield ? TUNING.quickShieldRegenMult : 1) * dt);
+      }
+      const inAura = p.inAuraT > 0;
+      if (p.spells.manaShieldOn) {
+        p.mana -= 4 * dt;
+        if (p.mana <= 0) {
+          p.mana = 0;
+          p.spells.manaShieldOn = false;
+          emit(state, "manaShieldOff", { playerId: p.id });
+        }
+      } else if (!inAura) {
+        p.mana = Math.min(p.maxMana, p.mana + TUNING.manaRegen * dt);
+      }
+      if (state.tuning.godMode) {
+        p.mana = p.maxMana;
+        godTopUp(p);
+      }
+      if (p.inAuraT > 0) p.inAuraT -= dt;
+    }
+  }
+  function godTopUp(p) {
+    if (p.tickets < TUNING.godTickets) p.tickets = TUNING.godTickets;
+    for (const k of Object.keys(p.ammoCap)) if (p.ammo[k] < p.ammoCap[k]) p.ammo[k] = p.ammoCap[k];
+    if (p.medkits < TUNING.medkitCarry) p.medkits = TUNING.medkitCarry;
+  }
+  function respawn(state, p) {
+    p.dead = false;
+    p.downed = false;
+    p.hp = p.maxHp;
+    p.shield = p.maxShield;
+    p.mana = p.maxMana;
+    p.pos = { x: 0, y: 0, z: 8 };
+    p.prevPos = { ...p.pos };
+    p.vel = { x: 0, y: 0, z: 0 };
+    p.invulnT = 2;
+    p.unkillableUsed = false;
+    if (p.downCount != null) delete p.downCount;
+    emit(state, "playerRespawn", { playerId: p.id });
   }
 
   // src/sim/waves.js
@@ -13337,6 +13504,7 @@ var SprotoShooterSim = (() => {
     state.run = newRunStats();
     if (p.downCount != null) delete p.downCount;
     if (p.dead || p.downed) respawn(state, p);
+    delete p.dual;
     p.hp = p.maxHp;
     p.shield = p.maxShield;
     p.mana = p.maxMana;
@@ -13437,6 +13605,16 @@ var SprotoShooterSim = (() => {
     state.tuning.infiniteAmmo = true;
     setGodMode(state, p, true);
     debugOp(state, p, "spawnDummies", {});
+    placeTestSidearms(state, p);
+  }
+  var TEST_SIDEARMS = ["handgun", "handgun", "machinepistol", "machinepistol"];
+  function placeTestSidearms(state, p) {
+    TEST_SIDEARMS.forEach((type, i) => {
+      const gun = generateGun({ seed: 20958 + i, level: state.tier, forced: { type, quality: "common", manufacturer: i % 2 ? "zippity" : "blastco", element: "none" } });
+      const k = spawnGunPickup(state, gun, { x: p.pos.x - 3 + i * 2, z: p.pos.z - 3 }, "sandbox");
+      k.ttl = Infinity;
+      k.vel = { x: 0, y: 0, z: 0 };
+    });
   }
   function setGodMode(state, p, on) {
     state.tuning.godMode = !!on;
@@ -16396,7 +16574,7 @@ var SprotoShooterSim = (() => {
   }
 
   // src/server/runContract.js
-  var SOURCE_COMMIT = "ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d";
+  var SOURCE_COMMIT = "fd97966869387a40c22c97a87075dc3431cd4b05";
   var ECONOMY = Object.freeze({
     mintsTickets: false,
     ticketsMintedByArtifact: 0,

@@ -376,10 +376,12 @@ export function revendor(commit, { pvpOnly = false, build = fetchAndBuild } = {}
       if (already) already[1] = nextText;
       else writes.push([file, nextText]);
     }
+    // shooter_rewards.ts is not in this list: setVar above moves FINGERPRINT, and its
+    // other literals belong to applied migrations (0065), which must not change. A new
+    // fingerprint also needs a migration that rewrites the live SQL functions.
     const fingerprintFiles = [
       'scripts/check-shooter-sim-version.mjs',
       'scripts/load/shooter-bots.ts',
-      'server/modules/src/games/shooter_rewards.ts',
     ];
     for (const rel of fingerprintFiles) {
       const file = join(root, rel);

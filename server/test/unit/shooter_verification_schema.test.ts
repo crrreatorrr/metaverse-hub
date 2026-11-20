@@ -109,5 +109,23 @@ assert.ok(all.findIndex((migration) => migration.id === '0076_shooter_campaign_b
 const verifierManifest = /sourceCommit: "([0-9a-f]{40})",\s*sha256: "([0-9a-f]{64})"/.exec(readFileSync(join(root, 'server/modules/src/games/shooter_verification_internal.ts'), 'utf8'));
 const campaignPin = JSON.parse(readFileSync(join(root, 'server/modules/vendor/shooter-sim.pin.json'), 'utf8')) as { commit: string; sha256: string };
 assert.deepEqual([verifierManifest?.[1], verifierManifest?.[2]], [campaignPin.commit, campaignPin.sha256], 'the verifier manifest names the vendored campaign pin');
-assert.ok(boot.includes(`'${campaignPin.commit}'`) && boot.includes(`'${campaignPin.sha256}'`), 'the latest allowlist migration names the vendored campaign pin');
+const sidearmRows = all.filter((migration) => migration.id === '0078_shooter_campaign_sidearms');
+assert.equal(sidearmRows.length, 1);
+const sidearms = sidearmRows[0]!.statements[0]!;
+assert.ok(sidearms.includes("replace(src, 'ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d', 'fd97966869387a40c22c97a87075dc3431cd4b05')"));
+assert.ok(sidearms.includes("replace(src, 'bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807', '63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3')"));
+assert.equal(sidearms.split("replace(src, '73c6eb0f', 'dfb46fb6')").length - 1, 4, '0078 moves the fingerprint in all four functions');
+for (const fn of ['issue_shooter_verification_run', 'shooter_verification_private_work', 'settle_shooter_verified_result', 'settle_shooter_clear']) {
+  assert.ok(sidearms.includes(`pg_get_functiondef('game.${fn}(`), `0078 rewrites ${fn}`);
+}
+assert.ok(sidearms.includes('prior-campaign-bundle ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807 fingerprint 73c6eb0f'));
+assert.ok(sidearms.includes('prior-campaign-fingerprint 73c6eb0f'));
+for (const step of ['issue', 'work', 'settlement', 'clear']) {
+  assert.ok(sidearms.includes(`shooter_campaign_sidearms_${step}_not_replaced`));
+  assert.ok(sidearms.includes(`shooter_campaign_sidearms_${step}_replay_note_missing`));
+  assert.ok(sidearms.indexOf(`shooter_campaign_sidearms_${step}_not_replaced`) < sidearms.indexOf(`shooter_campaign_sidearms_${step}_replay_note_missing`));
+}
+assert.equal(/UPDATE|DELETE|INSERT/.test(sidearms), false, '0078 rewrites no row');
+assert.ok(all.findIndex((migration) => migration.id === '0078_shooter_campaign_sidearms') > all.findIndex((migration) => migration.id === '0076_shooter_campaign_boot_split'));
+assert.ok(sidearms.includes(`'${campaignPin.commit}'`) && sidearms.includes(`'${campaignPin.sha256}'`), 'the latest allowlist migration names the vendored campaign pin');
 console.log('shooter verification schema registration and dormant contract ok');

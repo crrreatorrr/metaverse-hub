@@ -598,3 +598,102 @@ HubSchema.register({
     $art$`,
   ],
 });
+
+// 0065, 0066 and 0076 are already applied, so their literals stay. Shooter #158
+// added dual-wieldable sidearms and melee to the campaign sim, so the campaign
+// fingerprint moves from 73c6eb0f to dfb46fb6 and the live allowlist moves onto
+// the bundle built from fd97966 (sha256 63c65024…). Runs issued against
+// ccaa836d / 73c6eb0f do not verify on this bundle. This rewrites the four
+// functions that name the campaign build: issue and private work (commit, sha
+// and fingerprint), verified settlement and the legacy settle_shooter_clear
+// (fingerprint), so new receipts carry dfb46fb6. A historical replay runs the
+// earlier migrations against these rewritten functions, so the comments put
+// back below keep ccaa836d, bcfdba3e… and 73c6eb0f visible to their position()
+// guards; the comparisons use the new literals. The Arena pin moves to the
+// same commit; its fingerprint stays e749d2fd, sha256 2959802d…. Stored rows,
+// the 20 Ticket amount, and wager settlement are untouched. Applying this
+// twice changes nothing.
+HubSchema.register({
+  id: "0078_shooter_campaign_sidearms",
+  statements: [
+    `DO $art$
+    DECLARE src text;
+      note text := E'\\n        -- prior-campaign-bundle ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807 fingerprint 73c6eb0f';
+      fp_note text := E'\\n        -- prior-campaign-fingerprint 73c6eb0f';
+      clear_note text := E'-- prior-campaign-fingerprint 73c6eb0f\\n      ';
+      issue_anchor text := 'PERFORM pg_advisory_xact_lock(hashtextextended(''shooter-issue:'' || u::text || '':'' || k,0));';
+      work_anchor text := 'SELECT issuance_json::jsonb INTO issuance FROM game.shooter_run WHERE run_id=r.run_id AND user_id=r.user_id AND session_id=r.session_id;';
+      settle_anchor text := 'IF run.simulator_protocol<>1 OR run.upload_protocol<>2 OR run.checkpoint_schema<>2 OR run.economy_policy<>1';
+      clear_anchor text := 'IF p_protocol IS DISTINCT FROM 1 OR p_fingerprint IS DISTINCT FROM ';
+    BEGIN
+      src := pg_get_functiondef('game.issue_shooter_verification_run(uuid,uuid,text,text,date,text,bigint,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, 'ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d', 'fd97966869387a40c22c97a87075dc3431cd4b05');
+      src := replace(src, 'bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807', '63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3');
+      src := replace(src, '73c6eb0f', 'dfb46fb6');
+      IF position('ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d' in src) > 0
+        OR position('fd97966869387a40c22c97a87075dc3431cd4b05' in src) = 0
+        OR position('bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807' in src) > 0
+        OR position('63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3' in src) = 0
+        OR position('73c6eb0f' in src) > 0 OR position('dfb46fb6' in src) = 0
+        OR position(issue_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_issue_not_replaced';
+      END IF;
+      src := replace(src, issue_anchor, issue_anchor || note);
+      IF position(note in src) = 0 OR position('ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d' in replace(src, note, '')) > 0
+        OR position('73c6eb0f' in replace(src, note, '')) > 0
+        OR position('fd97966869387a40c22c97a87075dc3431cd4b05' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_issue_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.shooter_verification_private_work(jsonb,text)'::regprocedure);
+      src := replace(src, note, '');
+      src := replace(src, 'ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d', 'fd97966869387a40c22c97a87075dc3431cd4b05');
+      src := replace(src, 'bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807', '63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3');
+      src := replace(src, '73c6eb0f', 'dfb46fb6');
+      IF position('ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d' in src) > 0
+        OR position('fd97966869387a40c22c97a87075dc3431cd4b05' in src) = 0
+        OR position('bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807' in src) > 0
+        OR position('63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3' in src) = 0
+        OR position('73c6eb0f' in src) > 0 OR position('dfb46fb6' in src) = 0
+        OR position(work_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_work_not_replaced';
+      END IF;
+      src := replace(src, work_anchor, work_anchor || note);
+      IF position(note in src) = 0 OR position('ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d' in replace(src, note, '')) > 0
+        OR position('73c6eb0f' in replace(src, note, '')) > 0
+        OR position('fd97966869387a40c22c97a87075dc3431cd4b05' in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_work_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.settle_shooter_verified_result(uuid,text,text,text,text)'::regprocedure);
+      src := replace(src, fp_note, '');
+      src := replace(src, '73c6eb0f', 'dfb46fb6');
+      IF position('73c6eb0f' in src) > 0 OR position('dfb46fb6' in src) = 0
+        OR position(settle_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_settlement_not_replaced';
+      END IF;
+      src := replace(src, settle_anchor, settle_anchor || fp_note);
+      IF position(fp_note in src) = 0 OR position('73c6eb0f' in replace(src, fp_note, '')) > 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_settlement_replay_note_missing';
+      END IF;
+      EXECUTE src;
+
+      src := pg_get_functiondef('game.settle_shooter_clear(uuid,uuid,text,text,date,text,text,bigint,integer,text,text)'::regprocedure);
+      src := replace(src, clear_note, '');
+      src := replace(src, '73c6eb0f', 'dfb46fb6');
+      IF position('73c6eb0f' in src) > 0 OR position('dfb46fb6' in src) = 0
+        OR position(clear_anchor in src) = 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_clear_not_replaced';
+      END IF;
+      src := replace(src, clear_anchor, clear_note || clear_anchor);
+      IF position(clear_note in src) = 0 OR position('73c6eb0f' in replace(src, clear_note, '')) > 0 THEN
+        RAISE EXCEPTION 'shooter_campaign_sidearms_clear_replay_note_missing';
+      END IF;
+      EXECUTE src;
+    END;
+    $art$`,
+  ],
+});

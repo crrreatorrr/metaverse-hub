@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "corpusSourceCommit": "ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d",
+  "corpusSourceCommit": "fd97966869387a40c22c97a87075dc3431cd4b05",
   "authority": "Legacy observations are not v2 first-terminal expectations; retained approved incremental replay establishes those independently.",
   "approvedManifest": {
     "artifact": "shooter-sim",
-    "sourceCommit": "ccaa836dcfa1f93fc3bb2ee3c55e4209e9cf219d",
-    "sha256": "bcfdba3eefe012accc6675faf233186d6588d55bf55a8600b5423ca2b0e46807",
+    "sourceCommit": "fd97966869387a40c22c97a87075dc3431cd4b05",
+    "sha256": "63c650240469000451a4156de04c551ace92fc838e1d8497907a22d64a2281b3",
     "protocol": 1,
-    "contentFingerprint": "73c6eb0f",
+    "contentFingerprint": "dfb46fb6",
     "uploadProtocol": 2,
     "replayApiVersion": 2,
     "checkpointSchema": 2,
@@ -22,7 +22,7 @@
   "cases": [
     {
       "id": "sahil-success-7",
-      "fixtureSha256": "11aaae99072ecdfcf171f661d923c4fdbe5920c58be3fb43b12c83a9092f3538",
+      "fixtureSha256": "91e2812d30f72e31196c02e62d575f73183695c943b28765a2943e592be339e3",
       "boss": "sahil",
       "seed": 7,
       "frames": 9634,
@@ -43,7 +43,7 @@
     },
     {
       "id": "sahil-success-11",
-      "fixtureSha256": "704dcbb4aba4ceb06391c9ca3350974a1e68baf7f6cbbb189d3916923a7c02c0",
+      "fixtureSha256": "6e852c6890c2c3b01074c8040e88b1c8733c9c15a5f2dabb025446dfaabdeb60",
       "boss": "sahil",
       "seed": 11,
       "frames": 6550,
@@ -52,7 +52,7 @@
       "legacyObservation": {
         "outcome": "clear",
         "reason": "boss_clear",
-        "stateHash": "cc208087",
+        "stateHash": "6af25c14",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [
@@ -63,7 +63,7 @@
     },
     {
       "id": "sahil-fail-7",
-      "fixtureSha256": "3768dcfbd4b8c1032141baaf135e7c48d57e827979fa77f0c4a63ee34ec1be48",
+      "fixtureSha256": "7bfaa5ab6e9fc0f95ff5b735cf8110c030510811550a49c2780656a41d53135b",
       "boss": "sahil",
       "seed": 7,
       "frames": 1001,
@@ -83,7 +83,7 @@
     },
     {
       "id": "sahil-assisted-9",
-      "fixtureSha256": "430eee9ccd2a501e16fe451bbf27120c2e311806f786d27a2ea0e088620ce105",
+      "fixtureSha256": "b109b35bdbf8244917e0b34bb6e8aa40e6b634a05fabf92e0d605736ec326e90",
       "boss": "sahil",
       "seed": 9,
       "frames": 9347,
@@ -103,7 +103,7 @@
     },
     {
       "id": "obama-success-7",
-      "fixtureSha256": "a800ffd56703f976d43c82b6a1a72067ca40c76b3f757e024ebec7536aea53ad",
+      "fixtureSha256": "a884811d6cfc7d019d7c2662ace812630bc48071f291793d5d59dfdf9957bfd9",
       "boss": "obama",
       "seed": 7,
       "frames": 24000,
@@ -123,7 +123,7 @@
     },
     {
       "id": "obama-success-11",
-      "fixtureSha256": "36dca1ce8da844c92b862e5dde0b2b898893d09ccc0df07b3722819bbada8126",
+      "fixtureSha256": "0ab28ed313375e5cf689c07e841aa3f5176bc0aed3d9bf84417937de8210cdde",
       "boss": "obama",
       "seed": 11,
       "frames": 5049,
@@ -143,7 +143,7 @@
     },
     {
       "id": "broccoli-success-7",
-      "fixtureSha256": "c0725a11289cf9668f1cdb55cfc4f5d51200568601b5db2f38c25130c8de2f82",
+      "fixtureSha256": "2db982b4be2e28c7de096500e1dc83506391bddd794b99a702e674e935a65d6a",
       "boss": "broccoli",
       "seed": 7,
       "frames": 2959,
@@ -163,7 +163,7 @@
     },
     {
       "id": "broccoli-success-11",
-      "fixtureSha256": "5b244a1bd2f9fbe285b9d4fcb330bdc61c603469ac5285b40dc392278d453a8a",
+      "fixtureSha256": "9c79edb62b78bb76e94de01c09f4e26eb33ed48dd93d5771944a841f346eb94e",
       "boss": "broccoli",
       "seed": 11,
       "frames": 2701,
@@ -183,7 +183,7 @@
     },
     {
       "id": "glowie-success-7",
-      "fixtureSha256": "ba39538670f08b0b8984de213132a7f9bd176d0df01b49fdd78597f28070c16d",
+      "fixtureSha256": "c80461468c8492f268f58f3c81a1794c958486d0de9627f5110fd30768136c4b",
       "boss": "glowie",
       "seed": 7,
       "frames": 1676,
@@ -203,7 +203,7 @@
     },
     {
       "id": "glowie-success-11",
-      "fixtureSha256": "def07d8b36bbd38f5baa2b4b341372f5c244ad8566df2b3f6b77258f5948b822",
+      "fixtureSha256": "96e805e1377ca7ff0ac57cd68e898aeb07876cf2ee34d57700b0a82a3537d5a2",
       "boss": "glowie",
       "seed": 11,
       "frames": 1812,
@@ -223,7 +223,7 @@
     },
     {
       "id": "tinubu-success-7",
-      "fixtureSha256": "535460aba36be15d6a8abb3454ce9184fb1cc04d62b86f565d6433231104842a",
+      "fixtureSha256": "f7ad667bb053bf410dc9fb9ef2d7e5b42ac8ec38a7136e044e642735d15a3b05",
       "boss": "tinubu",
       "seed": 7,
       "frames": 1120,
@@ -243,7 +243,7 @@
     },
     {
       "id": "tinubu-success-11",
-      "fixtureSha256": "17b4fb854853805af435b8da7a5dc7e52c923b1848d139b7b731f64057468d46",
+      "fixtureSha256": "5bb9bc0399732ebdb90edcac5bf0c9e683d411e55f7ffa24cb7a9baefb484a64",
       "boss": "tinubu",
       "seed": 11,
       "frames": 7425,
@@ -252,7 +252,7 @@
       "legacyObservation": {
         "outcome": "fail",
         "reason": "player_down",
-        "stateHash": "fdabe0f0",
+        "stateHash": "b9bbf878",
         "recorderMatchesVerifier": true
       },
       "requiredExecution": [

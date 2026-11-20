@@ -3930,6 +3930,10 @@ namespace HubSchema {
   // 0076_shooter_campaign_boot_split is registered from the same file. It moves that allowlist onto
   // the campaign bundle rebuilt from ccaa836d / bcfdba3e (bytes unchanged apart from the baked
   // commit). The fingerprint stays 73c6eb0f. The client at 3cf28f37 names that commit and sha.
+  // 0078_shooter_campaign_sidearms is registered from the same file. Shooter #158 added sidearms and
+  // melee to the campaign sim, so it moves that allowlist onto fd97966 / 63c65024 and the campaign
+  // fingerprint from 73c6eb0f to dfb46fb6 in issue, private work, verified settlement and the legacy
+  // settle_shooter_clear. Shooter main after #159 names that commit and sha. No row or wager change.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

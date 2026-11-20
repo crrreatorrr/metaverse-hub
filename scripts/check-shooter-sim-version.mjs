@@ -17,7 +17,7 @@ const pinPath = join(root, 'server/modules/vendor/shooter-sim.pin.json');
 const sourcePath = join(root, 'server/modules/src/games/shooter_rewards.ts');
 const runsPath = join(root, 'server/modules/src/games/shooter_runs.ts');
 const REPO = 'crrreatorrr/sproto-shooter';
-const FINGERPRINT = '73c6eb0f';
+const FINGERPRINT = 'dfb46fb6';
 
 function sha256(buf) {
   return createHash('sha256').update(buf).digest('hex');
