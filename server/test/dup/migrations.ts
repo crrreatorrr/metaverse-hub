@@ -495,8 +495,11 @@ async function prepare(): Promise<Fixture> {
   return prepared;
 }
 
-/** 0039 adds sproto-shooter and sproto-coop-battle; their dup Relic flows (0045) leave sessions and game_beaten rows. */
-const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle')";
+/**
+ * 0039 adds sproto-shooter and sproto-coop-battle; their dup Relic flows (0045) leave sessions and game_beaten rows.
+ * 0077 adds sproto-open-world (sessions and tickets only).
+ */
+const LATER_GAMES = "('sproto-fighter', 'sproto-arcade', 'sproto-shooter', 'sproto-coop-battle', 'sproto-open-world')";
 const PARKED_TABLES = ['game_session', 'game_beaten', 'auth_ticket'] as const;
 /**
  * Relics added after 0009's relic check (0025: breakwater_coin; 0045: marina_anchor, dragon_scale).

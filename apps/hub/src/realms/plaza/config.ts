@@ -6,6 +6,13 @@ export const PORTAL_TRIGGER_RADIUS = 2.4;
 /** Artist slots are 72° apart, castle at north. Two slots of yaw keep HPOS10I on the north gate. */
 export const PLAZA_SLOT = (Math.PI * 2) / 5;
 export const PLAZA_YAW = -2 * PLAZA_SLOT;
+/** The Range ring's angle, on the fifth artist slot in front of the Bar. */
+export const RANGE_ANGLE = 3 * PLAZA_SLOT + PLAZA_YAW;
+/**
+ * Sproto Open World stands this many metres of arc from the Range ring, on the Green Hill side
+ * (lower angle). The Bar's fence gap is on the other side, so the door path stays clear.
+ */
+export const OPEN_WORLD_ARC = 10;
 
 export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', angle: 2 * PLAZA_SLOT + PLAZA_YAW, color: '#39ff6a' },
@@ -14,6 +21,8 @@ export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto', label: 'Sproto Duel', place: 'The Castle', angle: 0 * PLAZA_SLOT + PLAZA_YAW, color: '#7b5cff' },
   // The Range entrance stands in front of the Bar.
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 * PLAZA_SLOT + PLAZA_YAW, color: '#ff5ec4' },
+  // Sixth ring, beside the Range on the same 96 m circle. Like every ring it faces the statue.
+  { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-open-world', label: 'Sproto Open World', place: 'Sproutvale', angle: RANGE_ANGLE - OPEN_WORLD_ARC / PORTAL_DISTANCE, color: '#a6ff4d' },
 ];
 
 /**

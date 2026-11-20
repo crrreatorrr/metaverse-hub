@@ -543,7 +543,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     );
   }
 
-  /** HUD markers (plan D2): the five entrances at sign height, and the Bar with its three cabinet games. */
+  /** HUD markers (plan D2): the six entrances at sign height, and the Bar with its three cabinet games. */
   const WAYPOINT_HEIGHT = 5.4;
   const gateWaypoints = PORTALS.map((portal) => {
     const at = portalPosition(portal.angle, portal.distance);

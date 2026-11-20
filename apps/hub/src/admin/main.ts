@@ -83,6 +83,7 @@ const GAME_LABEL: Record<string, string> = {
   'sproto-arcade': 'Sproto Arcade',
   'sproto-shooter': 'Sproto Shooter',
   'sproto-coop-battle': 'Sproto Coop Battle',
+  'sproto-open-world': 'Sproto Open World',
 };
 const TOKEN_KEY = 'hub:feedback-admin';
 

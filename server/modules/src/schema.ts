@@ -3930,6 +3930,9 @@ namespace HubSchema {
   // 0076_shooter_campaign_boot_split is registered from the same file. It moves that allowlist onto
   // the campaign bundle rebuilt from ccaa836d / bcfdba3e (bytes unchanged apart from the baked
   // commit). The fingerprint stays 73c6eb0f. The client at 3cf28f37 names that commit and sha.
+  // 0077_sproto_open_world is registered from src/games/sproto_open_world.ts. It widens game_session,
+  // auth_ticket, play_lease.surface and game.claim_play_lease for sproto-open-world. No Relic,
+  // Ticket or score row.
   // The runner refuses an unapplied id below the highest recorded one, so PRs merge and deploy in id order.
   var REGISTERED: SchemaMigration[] = [];
 

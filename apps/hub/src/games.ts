@@ -26,7 +26,8 @@ export interface GameUrlEntry {
     | 'VITE_GAME_URL_SPROTO_FIGHTER'
     | 'VITE_GAME_URL_SPROTO_ARCADE'
     | 'VITE_GAME_URL_SPROTO_SHOOTER'
-    | 'VITE_GAME_URL_SPROTO_COOP_BATTLE';
+    | 'VITE_GAME_URL_SPROTO_COOP_BATTLE'
+    | 'VITE_GAME_URL_SPROTO_OPEN_WORLD';
   /**
    * `ring` is a plaza portal. `cabinet` is a Bar arcade-machine choice and has no ring.
    * Registering the URL does not add a ring or a menu row.
@@ -94,6 +95,13 @@ export const GAME_URLS: readonly GameUrlEntry[] = [
     env: 'VITE_GAME_URL_SPROTO_COOP_BATTLE',
     entry: 'cabinet',
   },
+  {
+    // Sixth plaza ring, beside the Range ring in front of the Bar. No Relic and no Ticket earn.
+    id: 'sproto-open-world',
+    slug: 'sproto-open-world',
+    env: 'VITE_GAME_URL_SPROTO_OPEN_WORLD',
+    entry: 'ring',
+  },
 ];
 
 export interface GameUrlContext {
@@ -121,9 +129,9 @@ export function playOrigin(domain: string | undefined): string | null {
 }
 
 /**
- * Page override. An own property, including `''`, wins. Shooter and Coop Battle are not listed in
- * the shell's override map, so a missing key reads their `VITE_GAME_URL_*` variable. Empty means
- * Coming soon. Other games stay on the map the shell passes.
+ * Page override. An own property, including `''`, wins. A missing key for Shooter, Coop Battle or
+ * Open World reads their `VITE_GAME_URL_*` variable. Empty means Coming soon. Other games stay on
+ * the map the shell passes.
  */
 function pageOverride(id: GameId, ctx: GameUrlContext): string | undefined {
   if (ctx.overrides && Object.prototype.hasOwnProperty.call(ctx.overrides, id)) return ctx.overrides[id];
@@ -133,7 +141,9 @@ function pageOverride(id: GameId, ctx: GameUrlContext): string | undefined {
     ? import.meta.env.VITE_GAME_URL_SPROTO_SHOOTER
     : id === 'sproto-coop-battle'
       ? import.meta.env.VITE_GAME_URL_SPROTO_COOP_BATTLE
-      : undefined;
+      : id === 'sproto-open-world'
+        ? import.meta.env.VITE_GAME_URL_SPROTO_OPEN_WORLD
+        : undefined;
   return typeof value === 'string' ? value : undefined;
 }
 
