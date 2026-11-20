@@ -24,7 +24,7 @@ export const GAME_LIST: readonly GameInfo[] = [
   { id: 'nobu', label: 'NOBU: Saviour Dog', blurb: '3D platformer · time trials on every level', where: 'The Kennel gate', color: '#ff8a1f', goal: "Defeat Cone for Cone's Tip" },
   { id: 'peoples-bitcoin', label: "The People's Bitcoin", blurb: '18+ satire · online worlds, quests and a Ticket shop', where: 'The White House gate', color: '#ffc233', goal: 'Finish the tutorial quest for the Genesis Block Shard', mature: true },
   { id: 'sproto', label: 'Sproto Duel', blurb: 'Wizard duels · story bosses and online 1v1', where: 'The Castle gate', color: '#7b5cff', goal: "Defeat Tinubu for Tinubu's Crown" },
-  { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'First-person loot shooter · Wave Mode and a campaign', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
+  { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'Legacy standalone shooter · now unified into Sproto Open World', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
   { id: 'sproto-open-world', label: 'Sproto Open World', blurb: 'Action RPG & shooter · 6 regions, 9 guns, 10 dungeons and 1v1 PvP', where: 'Plaza ring by The Range', color: '#a6ff4d', goal: 'Explore all 6 regions, master all 4 classes, clear L01–L10 and duel in 1v1 PvP' },
   { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · twelve giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
   { id: 'sproto-fighter', label: 'Sproto Fighter', blurb: 'Story mode and online 1v1 duels', where: 'Bar cabinet', color: '#ff3d6e', goal: 'Win Story World 1 for the Tidebreaker Belt' },
