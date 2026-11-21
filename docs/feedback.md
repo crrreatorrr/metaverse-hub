@@ -75,9 +75,32 @@ export.
 
 **Check** at the top of the panel starts the agent on every note that is not resolved yet.
 
-1. The panel calls `feedback.admin.check`. The server queues one run in `game.feedback_run`
-   (migration `0064_feedback_check`). A unique index allows one queued-or-running run, so a second
-   press, or a press in another tab, shows the run already in flight instead of starting another.
+Beside it are a **prompt** box and a **model** picker, both for the whole run and both optional:
+
+- The prompt is your own words to the agent, up to 2,000 characters: which notes or games to work,
+  what comes first, anything else it should know ("only the Sproto Open World notes", "start with
+  the crash reports", "HUB-0012 and HUB-0015 are the same bug"). The worker adds it to the playbook
+  for that run. It steers the run; it does not lift the playbook's "Never" list (no merge, deploy
+  or push to `main`). Ctrl or Cmd with Enter in the box presses Check.
+- The model is the one the agent runs on: Fable, Opus, Sonnet or Haiku (Claude Code's names for
+  the latest of each), or **Worker default**, which leaves it to the worker (`FEEDBACK_MODEL`,
+  else the agent's own default). The panel remembers the last pick in this browser.
+
+Both are fixed when the run starts and are locked while one is in flight. The run bar shows the
+run's model and prompt. Pressing Check while a run is in flight shows that run; the new prompt is
+not added to it.
+
+**A prompt is an instruction to an agent on your computer.** The worker takes one only from a hub
+on the same computer (the local dev server). From any other hub, production included, it refuses:
+the run fails at once, untouched, and its summary says why. To allow prompts there, start the
+worker with `FEEDBACK_ALLOW_PROMPT=1`, and change the panel password first (see above): with the
+default login, anyone who finds the page could then tell the agent on your computer what to do.
+`FEEDBACK_ALLOW_PROMPT=0` refuses prompts everywhere. The model picker is not limited this way.
+
+1. The panel calls `feedback.admin.check` with the prompt and the model. The server queues one run
+   in `game.feedback_run` (migrations `0064_feedback_check` and `0079_feedback_check_prompt`). A
+   unique index allows one queued-or-running run, so a second press, or a press in another tab,
+   shows the run already in flight instead of starting another.
 2. The worker on the owner's computer claims the queued run and starts Claude Code headless with
    `docs/feedback-check.md`, the playbook. Start it once and leave it running:
 
@@ -133,7 +156,7 @@ run log, and the panel's run bar shows the latest one. The raw stream is kept in
 | `feedback.admin.update` | admin token | Status, resolution, verification, fixing commit, pull request link |
 | `feedback.admin.delete` | admin token | `{ids}` (up to 100) → `{deleted}`. Removes those notes for good, with their screenshots and history |
 | `feedback.admin.prstate` | admin token | The worker reports each linked PR's state from GitHub |
-| `feedback.admin.check` | admin token | Queue a check run over every unresolved note, or return the one in flight |
+| `feedback.admin.check` | admin token | `{prompt?, model?}` → queue a check run over every unresolved note, or return the one in flight. The prompt (up to 2,000 characters; longer is refused, not cut) and the model name are kept on the run for the worker |
 | `feedback.admin.runs` | admin token | The run in flight and the latest runs |
 | `feedback.admin.claim` | admin token | The worker takes the queued run |
 | `feedback.admin.run` | admin token | The worker's heartbeat and result; the panel's cancel |

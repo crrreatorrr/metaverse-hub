@@ -16,8 +16,16 @@
 //   ... --once        claim at most one run, work it, exit
 //   ... --dry-run     claim and finish runs without starting the agent (to test the wiring)
 //
+// A run can carry what the owner typed beside Check: a prompt, added to the playbook under "This
+// run", and a model, passed to the agent as --model (FEEDBACK_MODEL is the default when the run
+// names none). A prompt is an instruction to an agent on this computer from whoever holds the
+// panel's login, so it is taken only from a hub on this computer unless FEEDBACK_ALLOW_PROMPT=1
+// (FEEDBACK_ALLOW_PROMPT=0 refuses it everywhere). A run whose prompt is refused fails at once,
+// untouched, and its summary says why.
+//
 // FEEDBACK_WORKER_NAME (default the host name), FEEDBACK_POLL_SECONDS (20), FEEDBACK_HEARTBEAT_SECONDS (60),
 // FEEDBACK_MAX_MINUTES (240), FEEDBACK_AGENT (claude), FEEDBACK_PERMISSION_MODE (auto),
+// FEEDBACK_MODEL (the agent's own default), FEEDBACK_ALLOW_PROMPT (see above),
 // FEEDBACK_GAMES_DIR (the folder that holds metaverse-hub and the game repos),
 // FEEDBACK_LOG_DIR (~/.feedback-worker). The login is the panel's (see feedback-rpc.mjs).
 import { execFile, execFileSync, spawn } from 'node:child_process';
@@ -65,9 +73,13 @@ export function gamesDir(env = process.env) {
   }
 }
 
-/** The prompt for one run: the playbook plus this run's facts. */
+/** The owner's prompt of a run, trimmed; '' when the run has none. */
+const ownerPrompt = (run) => (typeof run?.prompt === 'string' ? run.prompt.trim() : '');
+
+/** The prompt for one run: the playbook plus this run's facts and, if any, the owner's prompt. */
 export function promptFor(run, ctx) {
   const playbook = readFileSync(join(ctx.hubRoot, 'docs', 'feedback-check.md'), 'utf8');
+  const owner = ownerPrompt(run);
   return [
     playbook,
     '',
@@ -77,10 +89,52 @@ export function promptFor(run, ctx) {
     `- Games folder (your working directory): ${ctx.gamesDir}`,
     `- Admin CLI: node ${join(ctx.hubRoot, 'scripts', 'feedback-admin.mjs')} (HUB_URL and the login are already in your environment).`,
     `- Branch slug for each issue: feedback-check-${run.id}-<note id in lower case>, e.g. feedback-check-${run.id}-hub-0001`,
+    ...(owner
+      ? ['', "### The owner's prompt", '', 'The owner typed this beside Check for this run. Read "The owner\'s prompt" in the playbook above, then follow it:', '', '<owner-prompt>', owner, '</owner-prompt>']
+      : []),
     '',
     'Work the notes now, following the playbook above. End with the SUMMARY line.',
   ].join('\n');
 }
+
+/** A model name safe to pass as one argument: an alias ("opus") or a full name. Same shape as the server's. */
+const MODEL = /^[A-Za-z0-9][A-Za-z0-9._:[\]-]{0,63}$/;
+
+/** The model for a run: the one picked in the panel, else the worker's FEEDBACK_MODEL, else '' (the agent's own default). */
+export function modelFor(run, opts) {
+  for (const model of [run?.model, opts?.model]) if (typeof model === 'string' && MODEL.test(model)) return model;
+  return '';
+}
+
+/** The agent's arguments for one run. */
+export function agentArgs(run, opts) {
+  // stream-json: every step arrives as it happens, so this terminal, the run log and the panel
+  // can show what the agent is doing instead of nothing until it ends.
+  const args = ['-p', promptFor(run, opts), '--output-format', 'stream-json', '--verbose', '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
+  const model = modelFor(run, opts);
+  if (model) args.push('--model', model);
+  return args;
+}
+
+/**
+ * May a run's prompt reach the agent? Yes from a hub on this computer, where only its owner can
+ * press Check. From any other hub only with FEEDBACK_ALLOW_PROMPT=1: there the prompt comes from
+ * whoever holds the panel's login. FEEDBACK_ALLOW_PROMPT=0 refuses it everywhere.
+ */
+export function promptAllowed(env, base) {
+  if (env.FEEDBACK_ALLOW_PROMPT === '1') return true;
+  if (env.FEEDBACK_ALLOW_PROMPT === '0') return false;
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(base).hostname);
+  } catch {
+    return false;
+  }
+}
+
+export const PROMPT_REFUSED =
+  'Not started: this check carries a prompt, and this worker does not take prompts from a hub on another computer. ' +
+  'To allow them, start the worker with FEEDBACK_ALLOW_PROMPT=1 (change the panel password first: whoever can sign in to the panel can then instruct the agent on this computer). ' +
+  'Or press Check again with the prompt box empty.';
 
 function log(...parts) {
   console.log(`[${new Date().toISOString()}]`, ...parts);
@@ -252,12 +306,23 @@ let current = null;
 let agentGroup = 0;
 let quitting = false;
 
-async function work(run, client, opts) {
+export async function work(run, client, opts) {
   const { worker } = opts;
-  log(`run #${run.id} claimed (${run.noteCount} notes)`);
+  const model = modelFor(run, opts);
+  log(`run #${run.id} claimed (${run.noteCount} notes${model ? `, model ${model}` : ''}${ownerPrompt(run) ? ', with a prompt from the owner' : ''})`);
   if (opts.dryRun) {
     await client.rpc('feedback.admin.run', { id: run.id, worker, state: 'done', summary: 'Dry run: the worker claimed this run and did not start the agent.' });
     log(`run #${run.id} finished (dry run)`);
+    return;
+  }
+  if (ownerPrompt(run) && !opts.allowPrompt) {
+    // Failed, not run without it: a prompt that narrows the run must never be dropped silently.
+    try {
+      await client.rpc('feedback.admin.run', { id: run.id, worker, state: 'failed', summary: PROMPT_REFUSED });
+    } catch (error) {
+      log(`run #${run.id}: could not report failed: ${error.message}`);
+    }
+    log(`run #${run.id} failed: its prompt was refused (FEEDBACK_ALLOW_PROMPT is not 1 and the hub is not on this computer)`);
     return;
   }
 
@@ -265,10 +330,7 @@ async function work(run, client, opts) {
   const logPath = join(opts.logDir, `run-${run.id}.log`);
   const logFile = createWriteStream(logPath, { flags: 'a' });
   logFile.on('error', (error) => log(`run #${run.id}: cannot write ${logPath}: ${error.message}`));
-  // stream-json: every step arrives as it happens, so this terminal, the run log and the panel
-  // can show what the agent is doing instead of nothing until it ends.
-  const args = ['-p', promptFor(run, opts), '--output-format', 'stream-json', '--verbose', '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
-  const child = spawn(opts.agent, args, {
+  const child = spawn(opts.agent, agentArgs(run, opts), {
     cwd: opts.gamesDir,
     env: { ...process.env, FEEDBACK_RUN_ID: String(run.id), HUB_URL: opts.config.base, NAKAMA_SERVER_KEY: opts.config.serverKey },
     stdio: ['ignore', 'pipe', 'pipe'],
@@ -403,12 +465,15 @@ async function main() {
     prSyncMs: env.FEEDBACK_PR_SYNC_SECONDS === '0' ? 0 : envNumber(env.FEEDBACK_PR_SYNC_SECONDS, 30, 15) * 1000,
     agent: env.FEEDBACK_AGENT ?? 'claude',
     permissionMode: env.FEEDBACK_PERMISSION_MODE ?? 'auto',
+    model: env.FEEDBACK_MODEL ?? '',
+    allowPrompt: promptAllowed(env, config.base),
     hubRoot,
     gamesDir: gamesDir(env),
     logDir: env.FEEDBACK_LOG_DIR ?? join(homedir(), '.feedback-worker'),
   };
   const client = feedbackClient(config);
   log(`feedback worker ${opts.worker} on ${config.base}, games in ${opts.gamesDir}${opts.dryRun ? ' (dry run)' : ''}`);
+  if (!opts.allowPrompt) log('prompts typed beside Check are refused: this hub is on another computer and FEEDBACK_ALLOW_PROMPT is not 1');
   mkdirSync(opts.logDir, { recursive: true });
   const other = takeWorkerLock(opts);
   if (other) {

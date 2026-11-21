@@ -45,6 +45,9 @@ interface Run {
   worker: string;
   summary: string;
   noteCount: number;
+  /** What the owner typed beside Check for this run, and the model picked there ('' = the worker's default). */
+  prompt?: string;
+  model?: string;
   requestedAt: string;
   startedAt: string | null;
   heartbeatAt: string | null;
@@ -212,13 +215,11 @@ async function showPanel(): Promise<void> {
     sessionStorage.removeItem(TOKEN_KEY);
     showLogin();
   });
-  checkButton = el('button', 'btn primary', 'Check');
-  checkButton.title = 'Start the agent on every note that is not resolved yet';
-  checkButton.addEventListener('click', () => void startCheck());
   workerBox = el('div', 'worker');
   workerBox.hidden = true;
-  who.append(workerBox, checkButton, exportJson, exportCsv, out);
+  who.append(workerBox, exportJson, exportCsv, out);
   top.append(el('h1', '', 'Feedback'), who);
+  const checkBar = buildCheckBar();
   runBox = el('div', 'runbar');
   runBox.setAttribute('role', 'status');
   runBox.hidden = true;
@@ -267,7 +268,7 @@ async function showPanel(): Promise<void> {
   cols.append(left, detailBox);
   workerLog = el('pre', 'workerlog');
   workerLog.hidden = true;
-  wrap.append(top, workerLog, runBox, tabsBox, filters, cols);
+  wrap.append(top, workerLog, checkBar, runBox, tabsBox, filters, cols);
   app.append(wrap);
   await load();
   await loadRuns();
@@ -540,8 +541,85 @@ function drawMap(canvas: HTMLCanvasElement, points: Note[]): void {
 
 let runBox: HTMLElement;
 let checkButton: HTMLButtonElement;
+let promptBox: HTMLTextAreaElement;
+let modelPick: HTMLSelectElement;
 let runTimer = 0;
 let lastRun = '';
+/** What is typed in the prompt box, kept while the panel is rebuilt (signing in again). */
+let promptDraft = '';
+
+/** The server's limit (RUN_PROMPT_MAX in hub_feedback.ts). */
+const PROMPT_MAX = 2000;
+const MODEL_KEY = 'hub:feedback-check-model';
+/**
+ * The models the agent can run on. The values are Claude Code's own names for the latest model
+ * of each family (`claude --model opus`), so this list needs no change when a family moves on.
+ * '' leaves the choice to the worker (FEEDBACK_MODEL, else the agent's own default).
+ */
+const MODELS: readonly (readonly [id: string, label: string])[] = [
+  ['', 'Worker default'],
+  ['fable', 'Fable'],
+  ['opus', 'Opus'],
+  ['sonnet', 'Sonnet'],
+  ['haiku', 'Haiku'],
+];
+const modelLabel = (id: string): string => MODELS.find((m) => m[0] === id)?.[1] ?? id;
+
+function savedModel(): string {
+  try {
+    const id = localStorage.getItem(MODEL_KEY) ?? '';
+    return MODELS.some((m) => m[0] === id) ? id : '';
+  } catch {
+    return ''; // Storage is blocked: the picker still works, it just starts on the default.
+  }
+}
+
+/** The row under the title: a prompt for the run, the model it runs on, and Check. */
+function buildCheckBar(): HTMLElement {
+  const bar = el('form', 'checkbar');
+  promptBox = el('textarea', 'field');
+  promptBox.rows = 1;
+  promptBox.maxLength = PROMPT_MAX;
+  promptBox.value = promptDraft;
+  promptBox.placeholder = 'Optional. For example: only the Sproto Open World notes, and start with the crash reports.';
+  promptBox.addEventListener('input', () => {
+    promptDraft = promptBox.value;
+  });
+  // Enter starts a new line, as in any note; Ctrl or Cmd with Enter presses Check.
+  promptBox.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (!checkButton.disabled) void startCheck();
+    }
+  });
+  const promptLabel = el('label', 'grow', 'Prompt for this check');
+  promptLabel.title = 'Added to the agent\u2019s instructions for the whole run: which notes or games to work, what comes first, anything else it should know';
+  promptLabel.append(promptBox);
+
+  modelPick = el('select', 'field');
+  modelPick.append(...MODELS.map(([id, label]) => new Option(label, id)));
+  modelPick.value = savedModel();
+  modelPick.addEventListener('change', () => {
+    try {
+      localStorage.setItem(MODEL_KEY, modelPick.value);
+    } catch {
+      // Not remembered, that is all.
+    }
+  });
+  const modelLabelBox = el('label', '', 'Model');
+  modelLabelBox.title = 'The model the agent runs on for this check';
+  modelLabelBox.append(modelPick);
+
+  checkButton = el('button', 'btn primary', 'Check');
+  checkButton.type = 'submit';
+  checkButton.title = 'Start the agent on every note that is not resolved yet';
+  bar.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void startCheck();
+  });
+  bar.append(promptLabel, modelLabelBox, checkButton);
+  return bar;
+}
 
 const RUN_LABEL: Record<Run['state'], string> = {
   queued: 'Waiting for the worker',
@@ -552,13 +630,32 @@ const RUN_LABEL: Record<Run['state'], string> = {
 };
 
 async function startCheck(): Promise<void> {
+  const prompt = promptBox.value.trim();
+  const model = modelPick.value;
   checkButton.disabled = true;
   try {
-    const result = await adminRpc<{ run: Run | null; created: boolean }>('feedback.admin.check');
+    const result = await adminRpc<{ run: Run | null; created: boolean }>('feedback.admin.check', { prompt, model });
     if (!result.run) renderRun(null, null, 'Nothing to check: every note is resolved.');
-    else renderRun(result.run, null, result.created ? '' : 'A check is already in progress.');
-  } catch {
-    renderRun(null, null, 'Could not start a check. Is the hub server up?');
+    else if (!result.created) renderRun(result.run, null, prompt ? 'A check is already in progress. Your prompt was not added to it.' : 'A check is already in progress.');
+    else if ((result.run.prompt ?? '') !== prompt || (result.run.model ?? '') !== model) {
+      // A hub server from before prompts and models: it queued the run without them.
+      renderRun(result.run, null, 'This hub server is older than this panel: the check started without your prompt and model. Cancel it if they matter.');
+    } else {
+      // The run has the prompt now; the box is free for the next one.
+      promptBox.value = promptDraft = '';
+      renderRun(result.run, null);
+    }
+  } catch (error) {
+    const code = error instanceof HubSdkError ? error.code : '';
+    renderRun(
+      null,
+      null,
+      code === 'prompt_too_long'
+        ? `The prompt is too long. Keep it under ${PROMPT_MAX} characters.`
+        : code === 'bad_prompt' || code === 'bad_model'
+          ? 'The hub server refused the prompt or the model.'
+          : 'Could not start a check. Is the hub server up?',
+    );
     checkButton.disabled = false;
     return;
   }
@@ -606,7 +703,8 @@ async function loadRuns(): Promise<void> {
 }
 
 function renderRun(active: Run | null, last: Run | null, message = ''): void {
-  checkButton.disabled = !!active;
+  // The prompt and the model belong to a run from its start: nothing to set while one is in flight.
+  checkButton.disabled = promptBox.disabled = modelPick.disabled = !!active;
   checkButton.textContent = active ? 'Checking…' : 'Check';
   const run = active ?? last;
   if (!run && !message) {
@@ -619,6 +717,7 @@ function renderRun(active: Run | null, last: Run | null, message = ''): void {
   if (run) {
     parts.push(el('b', '', `${RUN_LABEL[run.state]} · check #${run.id}`));
     const detail: string[] = [`${run.noteCount} note${run.noteCount === 1 ? '' : 's'}`];
+    if (run.model) detail.push(`model ${modelLabel(run.model)}`);
     if (run.state === 'queued')
       detail.push(
         workerAvailable
@@ -628,6 +727,7 @@ function renderRun(active: Run | null, last: Run | null, message = ''): void {
     if (run.state === 'running') detail.push(`on ${run.worker} since ${when(run.startedAt ?? run.requestedAt)}`);
     if (run.finishedAt && !active) detail.push(when(run.finishedAt));
     parts.push(el('span', '', detail.join(' · ')));
+    if (run.prompt) parts.push(el('span', 'ask', `Prompt: ${run.prompt}`));
     if (run.summary) parts.push(el('span', 'sum', run.summary));
   }
   if (message) parts.push(el('span', 'msg', message));

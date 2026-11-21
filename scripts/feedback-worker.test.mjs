@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROMPT_MARK, describeEvent, envNumber, prStateOf, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, PROMPT_REFUSED, agentArgs, describeEvent, envNumber, modelFor, prStateOf, promptAllowed, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, work, workerName } from './feedback-worker.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
@@ -32,6 +32,54 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   assert.match(prompt, /Check run: #7, asked by 333 .* 3 notes/);
   assert.match(prompt, /Branch slug for each issue: feedback-check-7-<note id in lower case>, e.g. feedback-check-7-hub-0001/);
   assert.match(prompt, /Games folder \(your working directory\): \/games/);
+  assert.doesNotMatch(prompt, /owner-prompt/);
+
+  // The owner's prompt for the run follows the run's facts, word for word, after the playbook.
+  const ctx = { hubRoot: root, gamesDir: '/games', permissionMode: 'auto' };
+  const run = { id: 8, requestedBy: '333', requestedAt: '2026-11-21T09:00:00Z', noteCount: 5, prompt: '  Only the Open World notes.\nSkip anything about art.  ', model: 'opus' };
+  const steered = promptFor(run, ctx);
+  assert.match(steered, /^# Playbook/);
+  assert.match(steered, /### The owner's prompt\n\n.*\n\n<owner-prompt>\nOnly the Open World notes\.\nSkip anything about art\.\n<\/owner-prompt>\n\nWork the notes now/);
+  assert.doesNotMatch(promptFor({ ...run, prompt: '   ' }, ctx), /owner-prompt/);
+
+  // The model picked in the panel goes to the agent as --model; none picked falls back to the
+  // worker's FEEDBACK_MODEL, then to the agent's own default (no --model at all).
+  const args = agentArgs(run, ctx);
+  assert.deepEqual(args.slice(0, 2), ['-p', steered]);
+  assert.deepEqual(args.slice(-2), ['--model', 'opus']);
+  assert.equal(args.filter((a) => a === '--model').length, 1);
+  assert.deepEqual(agentArgs({ ...run, model: '' }, { ...ctx, model: 'sonnet' }).slice(-2), ['--model', 'sonnet']);
+  assert.ok(!agentArgs({ ...run, model: '' }, ctx).includes('--model'));
+  assert.equal(modelFor({ model: 'claude-opus-5-5[1m]' }, {}), 'claude-opus-5-5[1m]');
+  // Nothing that could be read as another option or more than one word reaches the command line.
+  for (const bad of ['--dangerously-skip-permissions', 'opus --permission-mode bypassPermissions', '', 'x'.repeat(65), 7, null]) {
+    assert.equal(modelFor({ model: bad }, {}), '', String(bad));
+    assert.equal(modelFor({ model: bad }, { model: 'haiku' }), 'haiku', String(bad));
+  }
+}
+
+// A prompt is an instruction to an agent on this computer: taken from a hub on this computer,
+// and from another one only when the owner said so.
+{
+  assert.equal(promptAllowed({}, 'http://127.0.0.1:7350'), true);
+  assert.equal(promptAllowed({}, 'http://localhost:7350'), true);
+  assert.equal(promptAllowed({}, 'http://[::1]:7350'), true);
+  assert.equal(promptAllowed({}, 'https://hub.example.com'), false);
+  assert.equal(promptAllowed({}, 'https://localhost.example.com'), false);
+  assert.equal(promptAllowed({}, 'not a url'), false);
+  assert.equal(promptAllowed({ FEEDBACK_ALLOW_PROMPT: '1' }, 'https://hub.example.com'), true);
+  assert.equal(promptAllowed({ FEEDBACK_ALLOW_PROMPT: '0' }, 'http://127.0.0.1:7350'), false);
+  assert.equal(promptAllowed({ FEEDBACK_ALLOW_PROMPT: 'yes' }, 'https://hub.example.com'), false);
+
+  // A run whose prompt is refused fails at once with the reason, and no agent is started
+  // (`agent` here is a program that does not exist: starting it would report exit code 127).
+  const sent = [];
+  const client = { rpc: async (id, body) => void sent.push([id, body]) };
+  const opts = { worker: 'mac', dryRun: false, allowPrompt: false, agent: '/nonexistent/feedback-agent', logDir: join(tmpdir(), 'fw-never-made') };
+  await work({ id: 11, noteCount: 2, prompt: 'Only HUB-0001', model: '' }, client, opts);
+  assert.deepEqual(sent, [['feedback.admin.run', { id: 11, worker: 'mac', state: 'failed', summary: PROMPT_REFUSED }]]);
+  assert.ok(PROMPT_REFUSED.length <= 2000);
+  assert.ok(!existsSync(opts.logDir));
 }
 
 // The client logs in once, adds the token, and logs in again when the token expires.
