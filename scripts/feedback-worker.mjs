@@ -493,6 +493,7 @@ export async function work(run, client, opts) {
    * first refusal the worker reports to it without the activity.
    */
   let reports = true;
+  let unsent = false;
   const send = async (body) => {
     if (!reports) delete body.activity;
     try {
@@ -508,7 +509,9 @@ export async function work(run, client, opts) {
   const tick = async () => {
     if (beating || exited) return;
     const progress = step && step !== shown ? `Working: ${step}` : '';
-    const report = reports ? activity.take() : '';
+    // A report whose heartbeat failed goes out again with the next one.
+    const report = reports ? activity.take() || (unsent ? JSON.stringify(activity.snapshot()) : '') : '';
+    unsent = false;
     const idle = inputOpen && turnOver && awaiting.size === 0 && activity.working() === 0;
     const due = Date.now() - lastBeat >= opts.heartbeatMs;
     if (!progress && !report && !seen.size && !missed.size && !due && !inputOpen) return;
@@ -547,11 +550,14 @@ export async function work(run, client, opts) {
       // Canceled in the panel, or failed as stale: someone else owns these notes now.
       if (error instanceof RpcError && error.code === 'not_running') stop('the run was canceled or taken over');
       else log(`run #${run.id}: heartbeat failed: ${error.message}`);
+      unsent = !!report;
     } finally {
       beating = false;
     }
-    // Should the count of working subagents ever be wrong, a silent stream settles it.
-    if (inputOpen && turnOver && awaiting.size === 0 && Date.now() - lastEventAt > opts.idleCloseMs) closeInput(`nothing from the agent for ${Math.round(opts.idleCloseMs / 1000)} s after it finished`);
+    // Should the count of working subagents ever be wrong, the hub be out of reach, or a message
+    // never be read, a silent stream settles it: an agent that has finished its turn and says
+    // nothing for this long (a working subagent reports every 30 s) is waiting for input.
+    if (inputOpen && turnOver && Date.now() - lastEventAt > opts.idleCloseMs) closeInput(`nothing from the agent for ${Math.round(opts.idleCloseMs / 1000)} s after it finished`);
   };
   const beat = setInterval(() => void tick(), Math.min(opts.heartbeatMs, opts.tickMs));
 
