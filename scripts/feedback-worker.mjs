@@ -23,9 +23,15 @@
 // (FEEDBACK_ALLOW_PROMPT=0 refuses it everywhere). A run whose prompt is refused fails at once,
 // untouched, and its summary says why.
 //
+// While the agent works, the worker reports what it and its subagents are doing (see
+// feedback-activity.mjs) and passes on the messages the owner sends from the panel: the agent
+// runs with streaming input, so it reads a message at its next step without being restarted.
+// Messages follow the same rule as the prompt (a hub on this computer, or FEEDBACK_ALLOW_PROMPT=1).
+//
 // FEEDBACK_WORKER_NAME (default the host name), FEEDBACK_POLL_SECONDS (20), FEEDBACK_HEARTBEAT_SECONDS (60),
 // FEEDBACK_MAX_MINUTES (240), FEEDBACK_AGENT (claude), FEEDBACK_PERMISSION_MODE (auto),
 // FEEDBACK_MODEL (the agent's own default), FEEDBACK_ALLOW_PROMPT (see above),
+// FEEDBACK_TICK_SECONDS (5: how often it reports and asks for messages),
 // FEEDBACK_GAMES_DIR (the folder that holds metaverse-hub and the game repos),
 // FEEDBACK_LOG_DIR (~/.feedback-worker). The login is the panel's (see feedback-rpc.mjs).
 import { execFile, execFileSync, spawn } from 'node:child_process';
@@ -33,6 +39,7 @@ import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } fro
 import { hostname, homedir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createActivity } from './feedback-activity.mjs';
 import { feedbackClient, feedbackConfig, listUnresolved, RpcError } from './feedback-rpc.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -48,13 +55,17 @@ export function workerName(raw) {
 }
 
 /**
- * The run summary for the panel: the agent's last "SUMMARY:" line and what follows it, else the
- * tail of its output. At most 1,900 characters (the server keeps 2,000).
+ * The run summary for the panel: the last line of the agent's that starts with "SUMMARY:" and
+ * the rest of its paragraph, else the tail of its output. At most 1,900 characters (the server
+ * keeps 2,000). Only a line that starts with it counts (markup such as ** before it allowed): what
+ * the agent says after its summary, when a stop hook or the owner's message has it speak again,
+ * often mentions "SUMMARY:" in passing.
  */
 export function summaryOf(output, code) {
   const text = String(output ?? '').replace(/\r/g, '');
-  const at = text.lastIndexOf('SUMMARY:');
-  let summary = at >= 0 ? text.slice(at + 'SUMMARY:'.length) : text.slice(-600);
+  let at = -1;
+  for (const match of text.matchAll(/^[ \t>*_`#-]*SUMMARY:/gm)) at = match.index + match[0].length;
+  let summary = at >= 0 ? text.slice(at).split(/\n[ \t]*\n/)[0].replace(/^[*_`]+|[*_`]+$/g, '') : text.slice(-600);
   summary = summary.replace(/\n{3,}/g, '\n\n').trim();
   if (!summary) summary = code === 0 ? 'The agent finished without a summary.' : 'The agent stopped without output.';
   if (code !== 0 && at < 0) summary = `Exit code ${code}. ${summary}`;
@@ -76,8 +87,9 @@ export function gamesDir(env = process.env) {
 /**
  * Sent with every claim. 2: this worker reads a run's prompt and model. The hub fails a run that
  * carries either when a worker without it asks, so what the owner typed is never dropped silently.
+ * 3: it also reports the agents' activity and passes the owner's messages on.
  */
-export const WORKER_VERSION = 2;
+export const WORKER_VERSION = 3;
 
 /** The owner's prompt of a run, trimmed; '' when the run has none. */
 const ownerPrompt = (run) => (typeof run?.prompt === 'string' ? run.prompt.trim() : '');
@@ -112,14 +124,43 @@ export function modelFor(run, opts) {
   return '';
 }
 
-/** The agent's arguments for one run. */
+/**
+ * The agent's arguments for one run. The brief (promptFor) is not among them: it is the first
+ * message on the agent's input, so later ones, the owner's, can follow it there.
+ */
 export function agentArgs(run, opts) {
-  // stream-json: every step arrives as it happens, so this terminal, the run log and the panel
-  // can show what the agent is doing instead of nothing until it ends.
-  const args = ['-p', promptFor(run, opts), '--output-format', 'stream-json', '--verbose', '--permission-mode', opts.permissionMode, '--add-dir', opts.hubRoot];
+  const args = [
+    '-p',
+    // stream-json out: every step arrives as it happens, so this terminal, the run log and the
+    // panel can show what the agent is doing instead of nothing until it ends.
+    '--output-format', 'stream-json', '--verbose',
+    // stream-json in: the agent reads a new message at its next step. Replayed messages tell the
+    // worker which ones it has read.
+    '--input-format', 'stream-json', '--replay-user-messages',
+    '--permission-mode', opts.permissionMode,
+    '--add-dir', opts.hubRoot,
+    // Carries PROMPT_MARK, which is how a leftover agent is recognised in the process list.
+    '--append-system-prompt',
+    `The feedback worker started you for check run #${run.id}. Your brief, "${PROMPT_MARK}", is your first message. ` +
+      'A later message that starts with "Owner message #" is from the owner, sent from the feedback admin panel while you work.',
+  ];
   const model = modelFor(run, opts);
   if (model) args.push('--model', model);
   return args;
+}
+
+/** One message for the agent's input (`--input-format stream-json`). */
+export const inputLine = (text) => `${JSON.stringify({ type: 'user', message: { role: 'user', content: [{ type: 'text', text }] } })}\n`;
+
+/** The owner's message as the agent gets it. The number is how its replay is recognised. */
+export const ownerMessage = (message) => `Owner message #${message.id} (from the feedback admin panel, while you work):\n\n${String(message.body ?? '').trim()}`;
+
+/** The text of a message the agent's stream replays (`--replay-user-messages`), else ''. */
+export function replayedText(event) {
+  if (event?.type !== 'user' || !event.isReplay) return '';
+  const content = event.message?.content;
+  if (typeof content === 'string') return content;
+  return Array.isArray(content) ? content.filter((part) => part.type === 'text').map((part) => part.text).join('\n') : '';
 }
 
 /**
@@ -339,10 +380,32 @@ export async function work(run, client, opts) {
   const child = spawn(opts.agent, agentArgs(run, opts), {
     cwd: opts.gamesDir,
     env: { ...process.env, FEEDBACK_RUN_ID: String(run.id), HUB_URL: opts.config.base, NAKAMA_SERVER_KEY: opts.config.serverKey },
-    stdio: ['ignore', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe'],
     // Its own process group, so stopping it also stops the shells and tools it started.
     detached: true,
   });
+  // The agent's input: the brief first, then the owner's messages for as long as it is open.
+  // Closing it does not stop the agent: it finishes what it and its subagents have in hand.
+  let inputOpen = true;
+  const closeInput = (why) => {
+    if (!inputOpen) return;
+    inputOpen = false;
+    child.stdin.end();
+    log(`run #${run.id}: no more messages for the agent (${why})`);
+  };
+  child.stdin.on('error', () => {
+    inputOpen = false; // The agent is gone or never read its input.
+  });
+  child.stdin.write(inputLine(promptFor(run, opts)));
+  if (!opts.allowPrompt) closeInput('this worker passes none on');
+  const activity = createActivity();
+  /** The owner's messages written to the agent and not read by it yet; read; never to be read. */
+  const awaiting = new Set();
+  const seen = new Set();
+  const missed = new Set();
+  /** Has the lead's turn ended with nothing started since? Then the agent is waiting for input. */
+  let turnOver = false;
+  let lastEventAt = Date.now();
   // The agent's own words (not its subagents'), for the SUMMARY line at the end.
   let output = '';
   const said = (text) => {
@@ -371,10 +434,23 @@ export async function work(run, client, opts) {
         continue;
       }
       rawFile.write(`${line}\n`);
+      lastEventAt = Date.now();
+      activity.apply(event);
       if (event.type === 'assistant' && !event.parent_tool_use_id) {
+        turnOver = false;
         for (const part of event.message?.content ?? []) if (part.type === 'text') said(part.text);
       }
-      if (event.type === 'result' && typeof event.result === 'string') said(event.result);
+      if (event.type === 'result') {
+        turnOver = true;
+        if (typeof event.result === 'string') said(event.result);
+      }
+      const replayed = /^Owner message #(\d+)/.exec(replayedText(event));
+      if (replayed && awaiting.delete(Number(replayed[1]))) {
+        seen.add(Number(replayed[1]));
+        turnOver = false;
+        activity.note('owner', `message #${replayed[1]} read by the agent`);
+        log(`run #${run.id}: the agent read the owner's message #${replayed[1]}`);
+      }
       for (const text of describeEvent(event, agents)) {
         step = text;
         log(`run #${run.id}: ${text}`);
@@ -403,21 +479,63 @@ export async function work(run, client, opts) {
   };
   current = stop;
   const deadline = setTimeout(() => stop(`no result after ${opts.maxMinutes} minutes`), opts.maxMinutes * 60000);
-  // The panel shows the latest step as the run's summary until the final one replaces it.
+  // The panel shows the latest step as the run's summary until the final one replaces it, and
+  // the activity report beside it. A heartbeat also brings the owner's new messages, so a worker
+  // that passes them on asks every few seconds; one that does not asks only when it has news.
   let shown = '';
   let lastBeat = Date.now();
-  const beat = setInterval(() => {
+  let beating = false;
+  /** Asked the hub for messages once more since the agent went idle, and got none. */
+  let lastCall = false;
+  const tick = async () => {
+    if (beating || exited) return;
     const progress = step && step !== shown ? `Working: ${step}` : '';
-    if (!progress && Date.now() - lastBeat < opts.heartbeatMs) return;
+    const report = activity.take();
+    const idle = inputOpen && turnOver && awaiting.size === 0 && activity.working() === 0;
+    const due = Date.now() - lastBeat >= opts.heartbeatMs;
+    if (!progress && !report && !seen.size && !missed.size && !due && !inputOpen) return;
+    beating = true;
     shown = step;
     lastBeat = Date.now();
-    const body = progress ? { id: run.id, worker, summary: progress } : { id: run.id, worker };
-    client.rpc('feedback.admin.run', body).catch((error) => {
+    const body = { id: run.id, worker };
+    if (progress) body.summary = progress;
+    if (report) body.activity = report;
+    const acked = { seen: [...seen], missed: [...missed] };
+    if (acked.seen.length) body.seen = acked.seen;
+    if (acked.missed.length) body.missed = acked.missed;
+    try {
+      const answer = await client.rpc('feedback.admin.run', body);
+      for (const id of acked.seen) seen.delete(id);
+      for (const id of acked.missed) missed.delete(id);
+      const messages = Array.isArray(answer?.messages) ? answer.messages : [];
+      for (const message of messages) {
+        if (inputOpen && !exited) {
+          child.stdin.write(inputLine(ownerMessage(message)));
+          awaiting.add(Number(message.id));
+          log(`run #${run.id}: passed the owner's message #${message.id} to the agent`);
+        } else {
+          missed.add(Number(message.id));
+          log(`run #${run.id}: the owner's message #${message.id} came too late for the agent`);
+        }
+      }
+      // The agent has finished and nothing waits for it: one more ask for messages, then its
+      // input closes and it exits. A message that arrives after that is reported as missed.
+      if (messages.length) lastCall = false;
+      else if (idle && inputOpen && turnOver && awaiting.size === 0 && activity.working() === 0) {
+        if (lastCall) closeInput('the agent has finished');
+        else lastCall = true;
+      } else lastCall = false;
+    } catch (error) {
       // Canceled in the panel, or failed as stale: someone else owns these notes now.
       if (error instanceof RpcError && error.code === 'not_running') stop('the run was canceled or taken over');
       else log(`run #${run.id}: heartbeat failed: ${error.message}`);
-    });
-  }, Math.min(opts.heartbeatMs, 10000));
+    } finally {
+      beating = false;
+    }
+    // Should the count of working subagents ever be wrong, a silent stream settles it.
+    if (inputOpen && turnOver && awaiting.size === 0 && Date.now() - lastEventAt > opts.idleCloseMs) closeInput(`nothing from the agent for ${Math.round(opts.idleCloseMs / 1000)} s after it finished`);
+  };
+  const beat = setInterval(() => void tick(), Math.min(opts.heartbeatMs, opts.tickMs));
 
   const code = await new Promise((done) => {
     child.on('error', (error) => {
@@ -437,9 +555,11 @@ export async function work(run, client, opts) {
   });
   current = null;
   agentGroup = 0;
+  inputOpen = false;
   rmSync(pidFile(opts), { force: true });
   clearInterval(beat);
   clearTimeout(deadline);
+  activity.finish(code === 0);
   logFile.end();
   rawFile.end();
   if (stopped === 'the run was canceled or taken over') {
@@ -449,7 +569,8 @@ export async function work(run, client, opts) {
   const state = code === 0 && !stopped ? 'done' : 'failed';
   const summary = stopped ? `Stopped: ${stopped}. ${summaryOf(output, code)}` : summaryOf(output, code);
   try {
-    await client.rpc('feedback.admin.run', { id: run.id, worker, state, summary: summary.slice(0, 1990) });
+    // With the last report, so the panel keeps what each agent did, the pull requests and the cost.
+    await client.rpc('feedback.admin.run', { id: run.id, worker, state, summary: summary.slice(0, 1990), activity: JSON.stringify(activity.snapshot()), seen: [...seen], missed: [...missed, ...awaiting] });
   } catch (error) {
     log(`run #${run.id}: could not report ${state}: ${error.message}`);
   }
@@ -473,6 +594,10 @@ async function main() {
     permissionMode: env.FEEDBACK_PERMISSION_MODE ?? 'auto',
     model: env.FEEDBACK_MODEL ?? '',
     allowPrompt: promptAllowed(env, config.base),
+    // How often the worker reports and asks for the owner's messages, and how long a finished
+    // agent may stay silent before its input is closed whatever the subagent count says.
+    tickMs: envNumber(env.FEEDBACK_TICK_SECONDS, 5, 1) * 1000,
+    idleCloseMs: envNumber(env.FEEDBACK_IDLE_CLOSE_SECONDS, 180, 10) * 1000,
     hubRoot,
     gamesDir: gamesDir(env),
     logDir: env.FEEDBACK_LOG_DIR ?? join(homedir(), '.feedback-worker'),
@@ -530,7 +655,7 @@ async function main() {
   for (;;) {
     let run = null;
     try {
-      run = (await client.rpc('feedback.admin.claim', { worker: opts.worker, v: WORKER_VERSION })).run;
+      run = (await client.rpc('feedback.admin.claim', { worker: opts.worker, v: WORKER_VERSION, prompts: opts.allowPrompt })).run;
     } catch (error) {
       log(`claim failed: ${error.message}`);
     }

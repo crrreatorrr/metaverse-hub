@@ -516,8 +516,18 @@ namespace HubFeedback {
    */
   var MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$/;
 
+  /**
+   * What the worker reports while the agent works, as JSON text: the lead agent's step, every
+   * subagent with its state and latest step, the latest steps and the pull requests opened
+   * (scripts/feedback-activity.mjs builds it). Kept as the worker sent it; the panel only shows it.
+   */
+  export var RUN_ACTIVITY_MAX = 24000;
+  /** One message the owner sends to a run in flight, and how many a run can hold. */
+  export var RUN_MESSAGE_MAX = 2000;
+  export var RUN_MESSAGES_PER_RUN = 60;
+
   var RUN_COLUMNS =
-    "id, state, requested_by, worker, summary, note_count, prompt, model, " +
+    "id, state, requested_by, worker, summary, note_count, prompt, model, steer, " +
     "to_char(requested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS requested_at, " +
     "to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, " +
     "to_char(heartbeat_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS heartbeat_at, " +
@@ -533,6 +543,8 @@ namespace HubFeedback {
       noteCount: Number(row.note_count || 0),
       prompt: row.prompt || "",
       model: row.model || "",
+      // Does the worker that holds this run pass the owner's messages on to the agent?
+      steer: row.steer === true,
       requestedAt: row.requested_at,
       startedAt: row.started_at || null,
       heartbeatAt: row.heartbeat_at || null,
@@ -593,7 +605,37 @@ namespace HubFeedback {
     return JSON.stringify({ ok: true, run: runShape(rows[0]), created: true });
   }
 
-  /** {token, limit?} → {active, runs}: the run in flight, if any, and the latest runs. */
+  var MESSAGE_COLUMNS =
+    "id, body, by_name, state, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS created_at";
+
+  function messageShape(row: { [key: string]: unknown }): { [key: string]: unknown } {
+    return { id: Number(row.id), body: row.body, by: row.by_name, state: row.state, at: row.created_at };
+  }
+
+  /** A run with what the panel shows live: the worker's activity report and the owner's messages. */
+  function withLive(nk: nkruntime.Nakama, run: { [key: string]: unknown } | null): { [key: string]: unknown } | null {
+    if (!run) return null;
+    var activity: unknown = null;
+    var rows = nk.sqlQuery("SELECT activity FROM game.feedback_run WHERE id = $1", [run.id]);
+    if (rows.length && typeof rows[0].activity === "string" && rows[0].activity) {
+      try {
+        activity = JSON.parse(rows[0].activity as string);
+      } catch (_e) {
+        activity = null;
+      }
+    }
+    var messages: unknown[] = [];
+    var sent = nk.sqlQuery("SELECT " + MESSAGE_COLUMNS + " FROM game.feedback_run_message WHERE run_id = $1 ORDER BY id", [run.id]);
+    for (var i = 0; i < sent.length; i++) messages.push(messageShape(sent[i]));
+    run.activity = isObject(activity) ? activity : null;
+    run.messages = messages;
+    return run;
+  }
+
+  /**
+   * {token, limit?} → {active, runs}: the run in flight, if any, and the latest runs. The run in
+   * flight, or else the latest one, also carries `activity` and `messages` (see withLive).
+   */
   export function adminRuns(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 1024);
     if (!body) return fail("bad_json");
@@ -601,9 +643,47 @@ namespace HubFeedback {
     expireStale(nk);
     var limit = Math.max(1, Math.min(20, Math.floor(num(body.limit) || 5)));
     var rows = nk.sqlQuery("SELECT " + RUN_COLUMNS + " FROM game.feedback_run ORDER BY id DESC LIMIT " + String(limit), []);
-    var runs: unknown[] = [];
+    var runs: { [key: string]: unknown }[] = [];
     for (var i = 0; i < rows.length; i++) runs.push(runShape(rows[i]));
-    return JSON.stringify({ ok: true, active: activeRun(nk), runs: runs, staleSeconds: RUN_STALE_SECONDS });
+    var active = withLive(nk, activeRun(nk));
+    if (!active && runs.length) withLive(nk, runs[0]);
+    return JSON.stringify({ ok: true, active: active, runs: runs, staleSeconds: RUN_STALE_SECONDS });
+  }
+
+  /**
+   * {token, id, text} → {message}. The owner's message to a run in flight: the worker passes it to
+   * the agent at its next heartbeat, and the agent reads it at its next step. Refused when the
+   * run is over (`not_running`) or its worker does not pass messages on (`prompts_off`: an older
+   * worker, or one that takes no prompts from this hub).
+   */
+  export function adminSay(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, RUN_MESSAGE_MAX * 6 + 1024);
+    if (!body) return fail("bad_json");
+    var by = admin(ctx, nk, body);
+    if (!by) return fail("unauthorized");
+    var id = Math.floor(num(body.id) || 0);
+    if (id <= 0) return fail("bad_id");
+    if (typeof body.text !== "string") return fail("bad_text");
+    var message = body.text.replace(/^\s+|\s+$/g, "");
+    if (!message) return fail("bad_text");
+    if (message.length > RUN_MESSAGE_MAX) return fail("text_too_long", "A message can be at most " + String(RUN_MESSAGE_MAX) + " characters");
+    expireStale(nk);
+    var runs = nk.sqlQuery("SELECT state, steer FROM game.feedback_run WHERE id = $1", [id]);
+    if (!runs.length || (runs[0].state !== "queued" && runs[0].state !== "running")) return fail("not_running", "This run is not running");
+    // A queued run has no worker yet: the message waits, and the worker that claims the run says
+    // then whether it passes messages on.
+    if (runs[0].state === "running" && runs[0].steer !== true) return fail("prompts_off", "The worker on this run does not pass messages on to the agent");
+    var count = nk.sqlQuery("SELECT count(*) AS n FROM game.feedback_run_message WHERE run_id = $1", [id]);
+    if (count.length && Number(count[0].n) >= RUN_MESSAGES_PER_RUN) return fail("too_many", "This run has its " + String(RUN_MESSAGES_PER_RUN) + " messages");
+    // Only into a run that is still in flight when the row lands.
+    var rows = nk.sqlQuery(
+      "INSERT INTO game.feedback_run_message (run_id, body, by_name) " +
+        "SELECT id, $2, $3 FROM game.feedback_run WHERE id = $1 AND state IN ('queued', 'running') RETURNING " + MESSAGE_COLUMNS,
+      [id, message, by],
+    );
+    if (!rows.length) return fail("not_running", "This run is not running");
+    logger.info("feedback check run " + String(id) + ": message " + String(rows[0].id) + " from " + by + " (" + String(message.length) + " characters)");
+    return JSON.stringify({ ok: true, message: messageShape(rows[0]) });
   }
 
   /** The first worker that reads a run's prompt and model says `v: 2` when it claims. */
@@ -613,8 +693,9 @@ namespace HubFeedback {
     "Update its checkout and restart it (Stop worker, then Start worker), then press Check again.";
 
   /**
-   * {token, worker, v?} → {run}: the worker takes the queued run, or gets run: null. `v` is the
-   * worker's version; one from before prompts and models sends none.
+   * {token, worker, v?, prompts?} → {run}: the worker takes the queued run, or gets run: null.
+   * `v` is the worker's version; one from before prompts and models sends none. `prompts: true`
+   * says this worker passes the owner's messages on to the agent while it works (run.steer).
    */
   export function adminClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 1024);
@@ -637,25 +718,43 @@ namespace HubFeedback {
     // The same rule inside the claim itself: a run queued between the two statements is not
     // handed to an older worker either. It stays queued, and that worker's next poll fails it.
     var rows = nk.sqlQuery(
-      "UPDATE game.feedback_run SET state = 'running', worker = $1, started_at = now(), heartbeat_at = now() " +
+      "UPDATE game.feedback_run SET state = 'running', worker = $1, steer = $3::boolean, started_at = now(), heartbeat_at = now() " +
         "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' " +
         "AND ($2::int >= " + String(WORKER_PROMPT_VERSION) + " OR (prompt = '' AND model = '')) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
         "AND state = 'queued' RETURNING " + RUN_COLUMNS,
-      [worker, version],
+      [worker, version, body.prompts === true],
     );
     if (!rows.length) return JSON.stringify({ ok: true, run: null });
+    // Messages sent while the run waited: a worker that passes none on will never deliver them.
+    if (body.prompts !== true) nk.sqlExec("UPDATE game.feedback_run_message SET state = 'missed' WHERE run_id = $1 AND state = 'queued'", [rows[0].id]);
     logger.info("feedback check run " + String(rows[0].id) + " claimed by " + worker);
     return JSON.stringify({ ok: true, run: runShape(rows[0]) });
   }
 
+  /** Up to 100 positive whole numbers from a request field. */
+  function idList(v: unknown): number[] {
+    var out: number[] = [];
+    if (Object.prototype.toString.call(v) !== "[object Array]") return out;
+    var list = v as unknown[];
+    for (var i = 0; i < list.length && out.length < 100; i++) {
+      var n = Math.floor(num(list[i]) || 0);
+      if (n > 0) out.push(n);
+    }
+    return out;
+  }
+
   /**
-   * {token, id, worker?, state?, summary?} → {run}.
+   * {token, id, worker?, state?, summary?, activity?, seen?, missed?} → {run, messages}.
    * The worker that holds a running run sends a heartbeat (no state) and finishes it ("done" or
    * "failed"); any other worker gets not_running and must stop. The panel cancels a queued or
    * running run with state "canceled" and no worker.
+   *
+   * A heartbeat can carry `activity` (JSON text, see RUN_ACTIVITY_MAX) and the ids of the owner's
+   * messages the agent has read (`seen`) or will never get (`missed`). It answers with the
+   * messages not handed out yet, which become "sent": the worker writes them to the agent.
    */
   export function adminRun(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var body = parse(payload, 4096);
+    var body = parse(payload, RUN_ACTIVITY_MAX * 2 + 8192);
     if (!body) return fail("bad_json");
     var by = admin(ctx, nk, body);
     if (!by) return fail("unauthorized");
@@ -684,7 +783,37 @@ namespace HubFeedback {
     }
     if (!rows.length) return fail("not_running", "This run is not running (finished, canceled, or taken over)");
     if (state) logger.info("feedback check run " + String(id) + " -> " + state + " by " + by);
-    return JSON.stringify({ ok: true, run: runShape(rows[0]) });
+    var out: unknown[] = [];
+    if (state !== "canceled") {
+      // From here on this is the worker that holds the run (the UPDATE above matched its name).
+      if (typeof body.activity === "string" && body.activity && body.activity.length <= RUN_ACTIVITY_MAX) {
+        var report: unknown = null;
+        try {
+          report = JSON.parse(body.activity);
+        } catch (_e) {
+          report = null;
+        }
+        if (isObject(report)) nk.sqlExec("UPDATE game.feedback_run SET activity = $2 WHERE id = $1", [id, body.activity]);
+      }
+      var seen = idList(body.seen);
+      // idList returns whole numbers only, so the list can go into the statement as it is.
+      if (seen.length) nk.sqlExec("UPDATE game.feedback_run_message SET state = 'seen' WHERE run_id = $1 AND state = 'sent' AND id IN (" + seen.join(", ") + ")", [id]);
+      var missed = idList(body.missed);
+      if (missed.length) nk.sqlExec("UPDATE game.feedback_run_message SET state = 'missed' WHERE run_id = $1 AND state = 'sent' AND id IN (" + missed.join(", ") + ")", [id]);
+      if (!state && rows[0].steer === true) {
+        var taken = nk.sqlQuery(
+          "UPDATE game.feedback_run_message SET state = 'sent' WHERE run_id = $1 AND state = 'queued' RETURNING id, body, by_name",
+          [id],
+        );
+        for (var i = 0; i < taken.length; i++) out.push({ id: Number(taken[i].id), body: taken[i].body, by: taken[i].by_name });
+        out.sort(function (a, b) {
+          return (a as { id: number }).id - (b as { id: number }).id;
+        });
+      }
+    }
+    // A run that is over reads no more: what the agent had not read by then never reached it.
+    if (state) nk.sqlExec("UPDATE game.feedback_run_message SET state = 'missed' WHERE run_id = $1 AND state IN ('queued', 'sent')", [id]);
+    return JSON.stringify({ ok: true, run: runShape(rows[0]), messages: out });
   }
 }
 
@@ -700,6 +829,7 @@ function rpcFeedbackAdminCheck(c: nkruntime.Context, l: nkruntime.Logger, n: nkr
 function rpcFeedbackAdminRuns(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRuns(c, l, n, p); }
 function rpcFeedbackAdminClaim(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminClaim(c, l, n, p); }
 function rpcFeedbackAdminRun(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRun(c, l, n, p); }
+function rpcFeedbackAdminSay(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminSay(c, l, n, p); }
 
 // The admin row is user "333" with password "333", as the owner asked. pass_sha256 is
 // sha256("hub-feedback-admin:" || password); change it with one UPDATE on game.feedback_admin.
@@ -798,5 +928,25 @@ HubSchema.register({
   statements: [
     "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS prompt text NOT NULL DEFAULT ''",
     "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS model text NOT NULL DEFAULT ''",
+  ],
+});
+
+// A run in flight shows what its agents are doing and takes messages from the owner: `activity`
+// is the worker's report, `steer` says whether its worker passes messages on, and
+// feedback_run_message holds each message and how far it got (queued → sent → seen, or missed).
+HubSchema.register({
+  id: "0080_feedback_run_live",
+  statements: [
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS activity text NOT NULL DEFAULT ''",
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS steer boolean NOT NULL DEFAULT false",
+    `CREATE TABLE IF NOT EXISTS game.feedback_run_message (
+       id bigserial PRIMARY KEY,
+       run_id bigint NOT NULL REFERENCES game.feedback_run(id) ON DELETE CASCADE,
+       body text NOT NULL,
+       by_name text NOT NULL DEFAULT '',
+       state text NOT NULL DEFAULT 'queued' CHECK (state IN ('queued', 'sent', 'seen', 'missed')),
+       created_at timestamptz NOT NULL DEFAULT now()
+     )`,
+    "CREATE INDEX IF NOT EXISTS feedback_run_message_run ON game.feedback_run_message (run_id, id)",
   ],
 });

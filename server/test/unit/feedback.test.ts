@@ -154,7 +154,7 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
 
 {
   // Admin token required for every run RPC.
-  for (const rpc of ['feedback.admin.check', 'feedback.admin.runs', 'feedback.admin.claim', 'feedback.admin.run']) {
+  for (const rpc of ['feedback.admin.check', 'feedback.admin.runs', 'feedback.admin.claim', 'feedback.admin.run', 'feedback.admin.say']) {
     assert.equal(mod.call(rpc, HUB, { worker: 'mac', id: 1 }).error, 'unauthorized', rpc);
   }
   assert.equal(runSql().length, 0);
@@ -235,7 +235,7 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   assert.match(claim.sql, /FOR UPDATE SKIP LOCKED/);
   // The claim itself skips a run with a prompt or a model for a worker below version 2.
   assert.match(claim.sql, /WHERE state = 'queued' AND \(\$2::int >= 2 OR \(prompt = '' AND model = ''\)\) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED/);
-  assert.deepEqual([...claim.args], ['ken-mac', 1]);
+  assert.deepEqual([...claim.args], ['ken-mac', 1, false]);
   mod.nk.onSql(/UPDATE game\.feedback_run SET state = 'running'/, []);
   assert.deepEqual(mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac' }), { ok: true, run: null });
 
@@ -270,6 +270,121 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   const cancel = runSql().filter((c) => c.sql.includes("SET state = 'canceled'")).pop()!;
   assert.match(cancel.sql, /state IN \('queued', 'running'\)/);
   assert.deepEqual([...cancel.args], [3, 'Canceled by 333.']);
+}
+
+// The run, live (migration 0080): the worker's activity report, and the owner's messages to a
+// run in flight, each queued → sent → seen, or missed.
+{
+  const all = (mod.global.HubSchema as { all(): { id: string; statements: string[] }[] }).all();
+  const sql = all.find((m) => m.id === '0080_feedback_run_live')!.statements.join('\n');
+  assert.ok(all.map((m) => m.id).indexOf('0080_feedback_run_live') > all.map((m) => m.id).indexOf('0079_feedback_check_prompt'));
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS activity text NOT NULL DEFAULT ''/);
+  assert.match(sql, /ADD COLUMN IF NOT EXISTS steer boolean NOT NULL DEFAULT false/);
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS game\.feedback_run_message[\s\S]*REFERENCES game\.feedback_run\(id\) ON DELETE CASCADE[\s\S]*CHECK \(state IN \('queued', 'sent', 'seen', 'missed'\)\)/);
+
+  const messageSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes('game.feedback_run_message'));
+  const MESSAGE = (over: Record<string, unknown> = {}) => ({ id: 5, body: 'Skip HUB-0002', by_name: '333', state: 'queued', created_at: '2026-11-21T17:00:00Z', ...over });
+
+  // A worker that passes messages on says so when it claims (run.steer); one that does not gets
+  // the messages that waited with the queued run marked missed.
+  mod.nk.onSql(/UPDATE game\.feedback_run SET state = 'running'/, () => [RUN({ state: 'running', worker: 'ken-mac', steer: true })]);
+  let before = messageSql().length;
+  const claimed = mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 3, prompts: true });
+  assert.equal((claimed.run as Record<string, unknown>).steer, true);
+  const claim = runSql().filter((c) => c.sql.includes("SET state = 'running'")).pop()!;
+  assert.match(claim.sql, /steer = \$3::boolean/);
+  assert.deepEqual([...claim.args], ['ken-mac', 3, true]);
+  assert.equal(messageSql().length, before);
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 3, prompts: 'yes' });
+  assert.deepEqual([...runSql().filter((c) => c.sql.includes("SET state = 'running'")).pop()!.args], ['ken-mac', 3, false]);
+  assert.match(messageSql().pop()!.sql, /SET state = 'missed' WHERE run_id = \$1 AND state = 'queued'/);
+
+  // say: only into a run in flight whose worker passes messages on; a queued run takes it too.
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 0, text: 'x' }).error, 'bad_id');
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3 }).error, 'bad_text');
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: '   ' }).error, 'bad_text');
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'x'.repeat(2001) }).error, 'text_too_long');
+  mod.nk.onSql(/SELECT state, steer FROM game\.feedback_run WHERE id = \$1/, []);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'not_running');
+  mod.nk.onSql(/SELECT state, steer FROM game\.feedback_run WHERE id = \$1/, [{ state: 'done', steer: true }]);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'not_running');
+  mod.nk.onSql(/SELECT state, steer FROM game\.feedback_run WHERE id = \$1/, [{ state: 'running', steer: false }]);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'prompts_off');
+  mod.nk.onSql(/SELECT state, steer FROM game\.feedback_run WHERE id = \$1/, [{ state: 'running', steer: true }]);
+  mod.nk.onSql(/count\(\*\) AS n FROM game\.feedback_run_message/, [{ n: 60 }]);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'too_many');
+  before = messageSql().filter((c) => c.sql.includes('INSERT')).length;
+  assert.equal(before, 0);
+  mod.nk.onSql(/count\(\*\) AS n FROM game\.feedback_run_message/, [{ n: 2 }]);
+  mod.nk.onSql(/INSERT INTO game\.feedback_run_message/, (args) => [MESSAGE({ body: args[1] })]);
+  const said = mod.call('feedback.admin.say', HUB, { token, id: 3, text: '  Skip HUB-0002.\nStart with the crash.  ' });
+  assert.deepEqual(said.message, { id: 5, body: 'Skip HUB-0002.\nStart with the crash.', by: '333', state: 'queued', at: '2026-11-21T17:00:00Z' });
+  const insert = messageSql().filter((c) => c.sql.includes('INSERT')).pop()!;
+  assert.match(insert.sql, /FROM game\.feedback_run WHERE id = \$1 AND state IN \('queued', 'running'\)/);
+  assert.deepEqual([...insert.args], [3, 'Skip HUB-0002.\nStart with the crash.', '333']);
+  mod.nk.onSql(/SELECT state, steer FROM game\.feedback_run WHERE id = \$1/, [{ state: 'queued', steer: false }]);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'waits with the check' }).ok, true);
+  // The run ended between the two statements: nothing is stored.
+  mod.nk.onSql(/INSERT INTO game\.feedback_run_message/, []);
+  assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'not_running');
+
+  // A heartbeat stores the activity report, marks messages read or missed, and hands out the
+  // queued ones (oldest first), which become "sent".
+  mod.nk.onSql(/UPDATE game\.feedback_run SET heartbeat_at = now\(\)/, () => [RUN({ state: 'running', worker: 'ken-mac', steer: true })]);
+  mod.nk.onSql(/SET state = 'sent' WHERE run_id = \$1 AND state = 'queued'/, () => [MESSAGE({ id: 9, body: 'second' }), MESSAGE({ id: 8, body: 'first' })]);
+  before = mod.nk.sqlCalls.length;
+  const activity = JSON.stringify({ v: 1, lead: { step: 'Bash: list', steps: 1, status: '' }, agents: [], feed: [], prs: [], result: null });
+  const beat = mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac', activity, seen: [5, 'x', -1, 6.9], missed: [7] });
+  assert.deepEqual(beat.messages, [{ id: 8, body: 'first', by: '333' }, { id: 9, body: 'second', by: '333' }]);
+  let calls = mod.nk.sqlCalls.slice(before);
+  assert.deepEqual([...calls.find((c) => c.sql.includes('SET activity = $2'))!.args], [3, activity]);
+  assert.match(calls.find((c) => c.sql.includes("SET state = 'seen'"))!.sql, /WHERE run_id = \$1 AND state = 'sent' AND id IN \(5, 6\)$/);
+  assert.match(calls.find((c) => c.sql.includes("SET state = 'missed'"))!.sql, /WHERE run_id = \$1 AND state = 'sent' AND id IN \(7\)$/);
+  // A report that is not a JSON object, or is too long, is not stored; the heartbeat still counts.
+  for (const bad of ['[1]', 'nope', '"text"', JSON.stringify({ x: 'y'.repeat(24000) }), 7]) {
+    before = mod.nk.sqlCalls.length;
+    assert.equal(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac', activity: bad }).ok, true, String(bad).slice(0, 20));
+    assert.ok(!mod.nk.sqlCalls.slice(before).some((c) => c.sql.includes('SET activity')));
+  }
+  // A worker that passes no messages on is handed none.
+  mod.nk.onSql(/UPDATE game\.feedback_run SET heartbeat_at = now\(\)/, () => [RUN({ state: 'running', worker: 'ken-mac', steer: false })]);
+  before = mod.nk.sqlCalls.length;
+  assert.deepEqual(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac' }).messages, []);
+  assert.ok(!mod.nk.sqlCalls.slice(before).some((c) => c.sql.includes("SET state = 'sent'")));
+
+  // Finishing or canceling a run: what the agent had not read by then is missed, and the last
+  // report (what each agent did, the cost) is kept.
+  mod.nk.onSql(/UPDATE game\.feedback_run SET heartbeat_at = now\(\)/, () => [RUN({ state: 'done', worker: 'ken-mac', steer: true })]);
+  before = mod.nk.sqlCalls.length;
+  assert.deepEqual(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac', state: 'done', summary: 'ok', activity, seen: [9] }).messages, []);
+  calls = mod.nk.sqlCalls.slice(before);
+  assert.ok(calls.some((c) => c.sql.includes('SET activity = $2')));
+  assert.ok(!calls.some((c) => c.sql.includes("SET state = 'sent'")));
+  assert.match(calls.at(-1)!.sql, /SET state = 'missed' WHERE run_id = \$1 AND state IN \('queued', 'sent'\)/);
+  before = mod.nk.sqlCalls.length;
+  mod.call('feedback.admin.run', HUB, { token, id: 3, state: 'canceled', activity, seen: [1] });
+  calls = mod.nk.sqlCalls.slice(before);
+  assert.ok(!calls.some((c) => c.sql.includes('SET activity') || c.sql.includes("SET state = 'seen'")));
+  assert.match(calls.at(-1)!.sql, /SET state = 'missed' WHERE run_id = \$1 AND state IN \('queued', 'sent'\)/);
+
+  // runs: the run in flight carries the report and the messages; with none in flight, the latest does.
+  mod.nk.onSql(/SELECT activity FROM game\.feedback_run WHERE id = \$1/, [{ activity }]);
+  mod.nk.onSql(/FROM game\.feedback_run_message WHERE run_id = \$1 ORDER BY id/, [MESSAGE({ state: 'seen' })]);
+  mod.nk.onSql(/FROM game\.feedback_run ORDER BY id DESC LIMIT/, [RUN({ id: 4, state: 'running', steer: true }), RUN({ id: 3, state: 'done' })]);
+  mod.nk.onSql(/FROM game\.feedback_run WHERE state IN \('queued', 'running'\)/, [RUN({ id: 4, state: 'running', steer: true })]);
+  let live = mod.call('feedback.admin.runs', HUB, { token, limit: 10 });
+  const active = live.active as Record<string, unknown>;
+  assert.deepEqual((active.activity as Record<string, unknown>).lead, { step: 'Bash: list', steps: 1, status: '' });
+  assert.deepEqual(active.messages, [{ id: 5, body: 'Skip HUB-0002', by: '333', state: 'seen', at: '2026-11-21T17:00:00Z' }]);
+  assert.equal(active.steer, true);
+  assert.equal((live.runs as Record<string, unknown>[])[0].activity, undefined);
+  mod.nk.onSql(/FROM game\.feedback_run WHERE state IN \('queued', 'running'\)/, []);
+  mod.nk.onSql(/SELECT activity FROM game\.feedback_run WHERE id = \$1/, [{ activity: 'not json' }]);
+  live = mod.call('feedback.admin.runs', HUB, { token, limit: 10 });
+  assert.equal(live.active, null);
+  assert.equal((live.runs as Record<string, unknown>[])[0].activity, null);
+  assert.equal(((live.runs as Record<string, unknown>[])[0].messages as unknown[]).length, 1);
+  assert.equal((live.runs as Record<string, unknown>[])[1].messages, undefined);
 }
 
 // Pull requests: a note keeps the PR with its fix; the worker reports GitHub's state for it.

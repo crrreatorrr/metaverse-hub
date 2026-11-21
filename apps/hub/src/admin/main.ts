@@ -48,10 +48,47 @@ interface Run {
   /** What the owner typed beside Check for this run, and the model picked there ('' = the worker's default). */
   prompt?: string;
   model?: string;
+  /** Does the worker on this run pass the owner's messages on to the agent? */
+  steer?: boolean;
+  /** The worker's report of what the agents are doing; on the run in flight, or else the latest one. */
+  activity?: unknown;
+  messages?: RunMessage[];
   requestedAt: string;
   startedAt: string | null;
   heartbeatAt: string | null;
   finishedAt: string | null;
+}
+
+/** One subagent of a check run, as the worker reports it (scripts/feedback-activity.mjs). */
+interface AgentInfo {
+  id: string;
+  name: string;
+  kind: string;
+  state: 'working' | 'done' | 'stopped' | 'failed';
+  step: string;
+  tools: number;
+  tokens: number;
+  started: string;
+  ended: string;
+  notes: string[];
+}
+
+interface Activity {
+  at: string;
+  lead: { step: string; steps: number; status: string };
+  agents: AgentInfo[];
+  feed: { t: string; who: string; text: string }[];
+  prs: string[];
+  result: { ok: boolean; cost: number; turns: number; ms: number } | null;
+}
+
+/** A message the owner sent to a run in flight, and how far it got. */
+interface RunMessage {
+  id: number;
+  body: string;
+  by: string;
+  state: 'queued' | 'sent' | 'seen' | 'missed';
+  at: string;
 }
 
 const STATUS_LABEL: Record<Status, string> = { open: 'Open', in_progress: 'In progress', fixed: 'Fixed, to verify', resolved: 'Resolved' };
@@ -268,7 +305,7 @@ async function showPanel(): Promise<void> {
   cols.append(left, detailBox);
   workerLog = el('pre', 'workerlog');
   workerLog.hidden = true;
-  wrap.append(top, workerLog, checkBar, runBox, tabsBox, filters, cols);
+  wrap.append(top, workerLog, checkBar, runBox, buildLive(), tabsBox, filters, cols);
   app.append(wrap);
   await load();
   await loadRuns();
@@ -359,6 +396,12 @@ function renderList(): void {
       l1.append(el('span', 'id', note.id), el('span', `pill ${note.status}`, STATUS_LABEL[note.status]));
       const pr = prPill(note);
       if (pr) l1.append(pr);
+      const agent = workingOn.get(note.id);
+      if (agent) {
+        const pill = el('span', 'pill agent', 'Agent working');
+        pill.title = `${agent.name}: ${agent.step}`;
+        l1.append(pill);
+      }
       for (const c of note.categories) l1.append(el('span', 'pill cat', CATEGORY_LABEL[c] ?? c));
       if (note.source === 'crash') l1.append(el('span', 'pill cat', 'After an error'));
       const l3 = el('div', 'l3');
@@ -682,7 +725,7 @@ async function loadRuns(): Promise<void> {
   if (!token) return;
   let result: { active: Run | null; runs: Run[] };
   try {
-    result = await adminRpc('feedback.admin.runs', { limit: 1 });
+    result = await adminRpc('feedback.admin.runs', { limit: 10 });
   } catch {
     if (adminToken === token) scheduleRuns(30000);
     return;
@@ -691,6 +734,7 @@ async function loadRuns(): Promise<void> {
   if (adminToken !== token) return;
   const latest = result.active ?? result.runs[0] ?? null;
   renderRun(result.active, result.active ? null : latest);
+  renderLive(result.active, latest, result.runs);
   // The agent changes note statuses while it works: refresh the list with each heartbeat, but
   // leave the open note's form alone so nothing typed there is lost.
   const key = latest ? `${latest.id}:${latest.state}:${latest.heartbeatAt ?? ''}` : '';
@@ -737,6 +781,350 @@ function renderRun(active: Run | null, last: Run | null, message = ''): void {
     cancel.addEventListener('click', () => void cancelRun(active));
     runBox.append(cancel);
   }
+}
+
+// ------------------------------------------------------------------ the run, live
+//
+// Under the run bar: what the lead agent and each subagent is doing (the worker's report, see
+// scripts/feedback-activity.mjs), the latest steps, and a box to send the agent a message while
+// it works. The worker passes the message on at its next heartbeat and the agent reads it at its
+// next step. After the run the same view stays, folded, with what each agent did and the cost.
+
+let liveBox: HTMLDetailsElement;
+let liveTitle: HTMLElement;
+let agentsBox: HTMLElement;
+let stepsBox: HTMLElement;
+let sayForm: HTMLFormElement;
+let sayBox: HTMLTextAreaElement;
+let sayButton: HTMLButtonElement;
+let sayHint: HTMLElement;
+let saidBox: HTMLElement;
+let historyBox: HTMLDetailsElement;
+let historyList: HTMLElement;
+/** The run the live view shows, and whether the owner folded or opened it by hand. */
+let liveRun: Run | null = null;
+let liveShownFor = 0;
+let sayDraft = '';
+let sayError = '';
+/**
+ * What each part of the view last drew. A part is redrawn only when this changes, so a button or
+ * link in it keeps the keyboard focus between two refreshes that bring nothing new.
+ */
+const drawn = { agents: '', said: '', history: '' };
+/** Note id → the subagent working on it now, for the "Agent working" mark in the list. */
+const workingOn = new Map<string, AgentInfo>();
+
+/** The server's limit (RUN_MESSAGE_MAX in hub_feedback.ts). */
+const MESSAGE_MAX = 2000;
+const AGENT_STATE: Record<AgentInfo['state'], string> = { working: 'Working', done: 'Done', stopped: 'Stopped', failed: 'Failed' };
+const MESSAGE_STATE: Record<RunMessage['state'], string> = {
+  queued: 'waiting for the worker',
+  sent: 'passed to the agent',
+  seen: 'read by the agent',
+  missed: 'not delivered',
+};
+
+const str = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
+const count = (v: unknown): number => (typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0);
+
+/** The worker's report, with every field checked: the hub stores it as the worker sent it. */
+function readActivity(raw: unknown): Activity | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const a = raw as Record<string, unknown>;
+  const lead = (a.lead && typeof a.lead === 'object' ? a.lead : {}) as Record<string, unknown>;
+  const agents = (Array.isArray(a.agents) ? a.agents : []).slice(0, 60).flatMap((item): AgentInfo[] => {
+    if (!item || typeof item !== 'object') return [];
+    const g = item as Record<string, unknown>;
+    const state = str(g.state, 16);
+    return [
+      {
+        id: str(g.id, 80),
+        name: str(g.name, 120) || 'subagent',
+        kind: str(g.kind, 40),
+        state: state === 'done' || state === 'stopped' || state === 'failed' ? state : 'working',
+        step: str(g.step, 200),
+        tools: count(g.tools),
+        tokens: count(g.tokens),
+        started: str(g.started, 40),
+        ended: str(g.ended, 40),
+        notes: (Array.isArray(g.notes) ? g.notes : []).slice(0, 8).flatMap((n) => (typeof n === 'string' && /^[A-Z][A-Z0-9]{1,15}-\d{3,6}$/.test(n) ? [n] : [])),
+      },
+    ];
+  });
+  const feed = (Array.isArray(a.feed) ? a.feed : []).slice(-60).flatMap((item) => {
+    if (!item || typeof item !== 'object') return [];
+    const f = item as Record<string, unknown>;
+    return [{ t: str(f.t, 40), who: str(f.who, 120), text: str(f.text, 300) }];
+  });
+  const result = a.result && typeof a.result === 'object' ? (a.result as Record<string, unknown>) : null;
+  return {
+    at: str(a.at, 40),
+    lead: { step: str(lead.step, 200), steps: count(lead.steps), status: str(lead.status, 200) },
+    agents,
+    feed,
+    prs: (Array.isArray(a.prs) ? a.prs : []).slice(0, 30).flatMap((u) => (typeof u === 'string' && /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+$/.test(u) ? [u] : [])),
+    result: result ? { ok: result.ok === true, cost: count(result.cost), turns: count(result.turns), ms: count(result.ms) } : null,
+  };
+}
+
+/** "4 min", "1 h 12 min", "40 s" between two times (the second defaults to now). */
+function span(from: string, to = ''): string {
+  const start = Date.parse(from);
+  const end = to ? Date.parse(to) : Date.now();
+  if (Number.isNaN(start) || Number.isNaN(end)) return '';
+  const s = Math.max(0, Math.round((end - start) / 1000));
+  if (s < 90) return `${s} s`;
+  const m = Math.round(s / 60);
+  return m < 90 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
+}
+
+const clockTime = (iso: string): string => {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+};
+
+function buildLive(): HTMLElement {
+  drawn.agents = drawn.said = drawn.history = '';
+  const box = el('div', 'livewrap');
+  liveBox = el('details', 'live');
+  liveBox.hidden = true;
+  const summary = el('summary');
+  liveTitle = el('span', 'livetitle');
+  summary.append(liveTitle);
+  // Folded or opened by hand: leave it that way for this run.
+  summary.addEventListener('click', () => {
+    liveShownFor = liveRun?.id ?? 0;
+  });
+  agentsBox = el('div', 'agents');
+  const stepsWrap = el('details', 'steps');
+  stepsWrap.open = true;
+  stepsWrap.append(el('summary', '', 'Latest steps'));
+  stepsBox = el('pre', 'feed');
+  stepsBox.tabIndex = 0;
+  stepsBox.setAttribute('aria-label', 'Latest steps of the agents');
+  stepsWrap.append(stepsBox);
+
+  sayForm = el('form', 'say');
+  sayBox = el('textarea', 'field');
+  sayBox.rows = 1;
+  sayBox.maxLength = MESSAGE_MAX;
+  sayBox.value = sayDraft;
+  sayBox.placeholder = 'Redirect the run: stop working on HUB-0004, look at the crash first, why is the verifier taking so long?';
+  sayBox.addEventListener('input', () => {
+    sayDraft = sayBox.value;
+    sayError = '';
+  });
+  sayBox.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (!sayButton.disabled) void sendSay();
+    }
+  });
+  const sayLabel = el('label', 'grow', 'Message the agent');
+  sayLabel.append(sayBox);
+  sayButton = el('button', 'btn primary', 'Send');
+  sayButton.type = 'submit';
+  sayForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    void sendSay();
+  });
+  sayForm.append(sayLabel, sayButton);
+  sayHint = el('div', 'sayhint');
+  sayHint.setAttribute('role', 'status');
+  saidBox = el('div', 'said');
+  liveBox.append(summary, agentsBox, stepsWrap, sayForm, sayHint, saidBox);
+
+  historyBox = el('details', 'runhistory');
+  historyBox.hidden = true;
+  historyBox.append(el('summary', '', 'Earlier checks'));
+  historyList = el('div', 'historylist');
+  historyBox.append(historyList);
+  box.append(liveBox, historyBox);
+  return box;
+}
+
+async function sendSay(): Promise<void> {
+  const run = liveRun;
+  const text = sayBox.value.trim();
+  if (!run || !text) return;
+  sayButton.disabled = true;
+  try {
+    await adminRpc('feedback.admin.say', { id: run.id, text });
+    sayBox.value = sayDraft = '';
+    sayError = '';
+  } catch (error) {
+    const code = error instanceof HubSdkError ? error.code : '';
+    sayError =
+      code === 'not_running'
+        ? 'This check is over: the message was not sent.'
+        : code === 'prompts_off'
+          ? 'The worker on this check does not pass messages on.'
+          : code === 'text_too_long'
+            ? `The message is too long. Keep it under ${MESSAGE_MAX} characters.`
+            : code === 'too_many'
+              ? 'This check has had as many messages as it takes.'
+              : 'Could not send the message. Is the hub server up to date and running?';
+  }
+  await loadRuns();
+}
+
+function agentRow(state: string, stateLabel: string, name: string, step: string, meta: string, notes: string[], onMessage: (() => void) | null): HTMLElement {
+  const row = el('div', `arow ${state}`);
+  const dot = el('span', `adot ${state}`);
+  dot.title = stateLabel;
+  const head = el('div', 'ahead');
+  head.append(dot, el('b', '', name), el('span', 'astate', stateLabel));
+  for (const id of notes) {
+    const note = el('button', 'pill notelink', id);
+    note.type = 'button';
+    note.title = `Open ${id}`;
+    note.addEventListener('click', () => void select(id));
+    head.append(note);
+  }
+  if (meta) head.append(el('span', 'ameta', meta));
+  if (onMessage) {
+    const say = el('button', 'btn small', 'Message');
+    say.type = 'button';
+    say.title = `Write a message to the agent about "${name}"`;
+    say.addEventListener('click', onMessage);
+    head.append(say);
+  }
+  row.append(head);
+  if (step) row.append(el('div', 'astep', step));
+  return row;
+}
+
+function renderLive(active: Run | null, latest: Run | null, runs: Run[]): void {
+  const run = active ?? latest;
+  liveRun = active;
+  const activity = run ? readActivity(run.activity) : null;
+  const messages = run?.messages ?? [];
+
+  // Which notes have a subagent on them right now, for the list.
+  const before = [...workingOn.keys()].join(' ');
+  workingOn.clear();
+  if (active && activity) for (const agent of activity.agents) if (agent.state === 'working') for (const id of agent.notes) workingOn.set(id, agent);
+  if ([...workingOn.keys()].join(' ') !== before) renderList();
+
+  const earlier = runs.filter((r) => r.id !== run?.id);
+  historyBox.hidden = !earlier.length;
+  const historyKey = JSON.stringify(earlier.map((r) => [r.id, r.state, r.summary, r.finishedAt]));
+  if (historyKey !== drawn.history) {
+    drawn.history = historyKey;
+    historyList.replaceChildren(
+      ...earlier.map((r) => {
+        const row = el('div', `hrow ${r.state}`);
+        const bits = [`${r.noteCount} note${r.noteCount === 1 ? '' : 's'}`, when(r.finishedAt ?? r.requestedAt)];
+        if (r.startedAt && r.finishedAt) bits.push(span(r.startedAt, r.finishedAt));
+        if (r.model) bits.push(`model ${modelLabel(r.model)}`);
+        row.append(el('b', '', `Check #${r.id} · ${r.state}`), el('span', '', bits.join(' · ')));
+        if (r.prompt) row.append(el('span', 'ask', `Prompt: ${r.prompt}`));
+        if (r.summary) row.append(el('span', 'sum', r.summary));
+        return row;
+      }),
+    );
+  }
+
+  if (!run || (!activity && !messages.length && !active)) {
+    liveBox.hidden = true;
+    return;
+  }
+  liveBox.hidden = false;
+  // Open while a run is in flight and folded once it is over, until the owner chooses otherwise.
+  if (liveShownFor !== run.id) liveBox.open = !!active;
+
+  const agents = activity?.agents ?? [];
+  const working = agents.filter((a) => a.state === 'working').length;
+  const title: string[] = [active ? `Agents on check #${run.id}` : `What check #${run.id} did`];
+  if (agents.length) title.push(active ? `${working} of ${agents.length} subagent${agents.length === 1 ? '' : 's'} working` : `${agents.length} subagent${agents.length === 1 ? '' : 's'}`);
+  if (activity?.result) {
+    if (activity.result.cost) title.push(`$${activity.result.cost.toFixed(2)}`);
+    if (activity.result.turns) title.push(`${activity.result.turns} turns`);
+  }
+  if (active && activity?.at) title.push(`reported ${clockTime(activity.at)}`);
+  liveTitle.textContent = title.join(' · ');
+
+  const rows: HTMLElement[] = [];
+  const about = (name: string) => () => {
+    liveBox.open = true;
+    if (!sayBox.value.includes(`"${name}"`)) sayBox.value = sayDraft = `${sayBox.value ? `${sayBox.value.trimEnd()}\n` : ''}About "${name}": `;
+    sayBox.focus();
+  };
+  const canSay = !!active && (active.state === 'queued' || active.steer === true);
+  if (activity) {
+    const leadState = active ? (active.state === 'running' ? 'working' : 'queued') : 'done';
+    rows.push(
+      agentRow(
+        leadState,
+        active ? (active.state === 'running' ? 'Working' : 'Waiting for the worker') : 'Finished',
+        'Lead agent',
+        [activity.lead.status, activity.lead.step].filter(Boolean).join(' · '),
+        activity.lead.steps ? `${activity.lead.steps} step${activity.lead.steps === 1 ? '' : 's'}` : '',
+        [],
+        null,
+      ),
+    );
+    for (const agent of agents) {
+      const meta: string[] = [];
+      if (agent.tools) meta.push(`${agent.tools} step${agent.tools === 1 ? '' : 's'}`);
+      if (agent.tokens) meta.push(`${Math.round(agent.tokens / 1000)}k tokens`);
+      const time = span(agent.started, agent.state === 'working' && active ? '' : agent.ended);
+      if (time && (agent.ended || active)) meta.push(time);
+      // A run that is over has nobody working, whatever the last report said.
+      const state = !active && agent.state === 'working' ? 'stopped' : agent.state;
+      rows.push(agentRow(state, AGENT_STATE[state], agent.name, agent.step, meta.join(' · '), agent.notes, canSay && state === 'working' ? about(agent.name) : null));
+    }
+    for (const url of activity.prs) {
+      const link = el('a', 'prlink', url.replace('https://github.com/', ''));
+      link.href = url;
+      link.target = '_blank';
+      link.rel = 'noopener noreferrer';
+      rows.push(link);
+    }
+  } else if (active) {
+    rows.push(el('div', 'empty', active.state === 'queued' ? 'Waiting for the worker to take this check.' : 'The worker has not reported what the agents are doing yet. A worker from before this view reports nothing: restart it from an updated checkout.'));
+  }
+  // The times in the rows move on by themselves; they are part of what is drawn.
+  const agentsKey = JSON.stringify([run.id, active?.state, canSay, rows.map((row) => row.textContent)]);
+  if (agentsKey !== drawn.agents) {
+    drawn.agents = agentsKey;
+    agentsBox.replaceChildren(...rows);
+  }
+
+  // The steps scroll with the news unless the owner scrolled up to read.
+  const pinned = stepsBox.scrollHeight - stepsBox.scrollTop - stepsBox.clientHeight < 24;
+  stepsBox.textContent = (activity?.feed ?? []).map((f) => `${clockTime(f.t)}  ${f.who ? `[${f.who}] ` : ''}${f.text}`).join('\n');
+  (stepsBox.parentElement as HTMLElement).hidden = !activity?.feed.length;
+  if (pinned) stepsBox.scrollTop = stepsBox.scrollHeight;
+
+  sayForm.hidden = !active;
+  sayBox.disabled = !canSay;
+  sayButton.disabled = !canSay;
+  sayHint.className = `sayhint${sayError ? ' bad' : ''}`;
+  sayHint.textContent = !active
+    ? ''
+    : sayError ||
+      (canSay
+        ? active.state === 'queued'
+          ? 'The message waits with the check: the agent gets it once a worker has started it.'
+          : 'The agent reads it at its next step, without stopping its subagents. Ctrl or Cmd with Enter sends.'
+        : 'The worker on this check does not pass messages on. Restart it from an updated checkout; for a hub on another computer it also needs FEEDBACK_ALLOW_PROMPT=1.');
+  sayHint.hidden = !sayHint.textContent;
+
+  const saidKey = JSON.stringify([!!active, messages.map((m) => [m.id, m.state])]);
+  if (saidKey !== drawn.said) {
+    drawn.said = saidKey;
+    saidBox.replaceChildren(
+      ...messages.map((m) => {
+        // Nothing more is delivered once the run is over.
+        const state = !active && (m.state === 'queued' || m.state === 'sent') ? 'missed' : m.state;
+        const row = el('div', `omsg ${state}`);
+        row.append(el('span', 'mstate', `${MESSAGE_STATE[state]} · ${clockTime(m.at)}`), el('span', 'mbody', m.body));
+        return row;
+      }),
+    );
+  }
+  saidBox.hidden = !messages.length;
 }
 
 // ------------------------------------------------------------------ worker

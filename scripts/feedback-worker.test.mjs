@@ -1,16 +1,26 @@
 // feedback-worker.mjs: the run summary, the worker name, the prompt, and the shared RPC client's
 // re-login when the admin token expires.
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { ACTIVITY_MAX, createActivity } from './feedback-activity.mjs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROMPT_MARK, PROMPT_REFUSED, WORKER_VERSION, agentArgs, describeEvent, envNumber, modelFor, prStateOf, promptAllowed, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, work, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, PROMPT_REFUSED, WORKER_VERSION, agentArgs, inputLine, ownerMessage, replayedText, describeEvent, envNumber, modelFor, prStateOf, promptAllowed, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, work, workerName } from './feedback-worker.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
 
 // Summary: the last SUMMARY: line onward, else the tail; exit codes show on failures.
 assert.equal(summaryOf('working...\nSUMMARY: old\nmore\nSUMMARY: 2 resolved, 1 open\nPRs: x', 0), '2 resolved, 1 open\nPRs: x');
+// Only a line that starts with SUMMARY: is one, and it ends with its paragraph: a later remark
+// that mentions "SUMMARY:" (a stop hook has the agent confirm it is done) does not replace it.
+assert.equal(
+  summaryOf('SUMMARY: 1 resolved, PINEAPPLE.\nPRs: x\n\nEverything is done.\n1. ran the playbook and ended with a `SUMMARY:` line. Done.\n2. No errors.', 0),
+  '1 resolved, PINEAPPLE.\nPRs: x',
+);
+assert.equal(summaryOf('work\n**SUMMARY:** 3 resolved\n\nbye', 0), '3 resolved');
+assert.equal(summaryOf('work\n> `SUMMARY: 2 open`', 0), '2 open');
+assert.equal(summaryOf('the SUMMARY: line comes later', 0), 'the SUMMARY: line comes later');
 assert.equal(summaryOf('', 0), 'The agent finished without a summary.');
 assert.equal(summaryOf('boom', 1), 'Exit code 1. boom');
 assert.equal(summaryOf('SUMMARY: 0 resolved', 1), '0 resolved');
@@ -45,7 +55,13 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   // The model picked in the panel goes to the agent as --model; none picked falls back to the
   // worker's FEEDBACK_MODEL, then to the agent's own default (no --model at all).
   const args = agentArgs(run, ctx);
-  assert.deepEqual(args.slice(0, 2), ['-p', steered]);
+  // The brief is not an argument: it goes to the agent's input, where the owner's messages follow.
+  assert.ok(!args.includes(steered));
+  assert.deepEqual(args.slice(0, 6), ['-p', '--output-format', 'stream-json', '--verbose', '--input-format', 'stream-json']);
+  assert.ok(args.includes('--replay-user-messages'));
+  // The mark that identifies a leftover feedback agent in the process list is still on the command line.
+  assert.ok(args[args.indexOf('--append-system-prompt') + 1].includes(PROMPT_MARK));
+  assert.match(args[args.indexOf('--append-system-prompt') + 1], /check run #8/);
   assert.deepEqual(args.slice(-2), ['--model', 'opus']);
   assert.equal(args.filter((a) => a === '--model').length, 1);
   assert.deepEqual(agentArgs({ ...run, model: '' }, { ...ctx, model: 'sonnet' }).slice(-2), ['--model', 'sonnet']);
@@ -80,7 +96,7 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   assert.deepEqual(sent, [['feedback.admin.run', { id: 11, worker: 'mac', state: 'failed', summary: PROMPT_REFUSED }]]);
   assert.ok(PROMPT_REFUSED.length <= 2000);
   // The version the hub asks of a worker before it hands out a run with a prompt or a model.
-  assert.equal(WORKER_VERSION, 2);
+  assert.equal(WORKER_VERSION, 3);
   assert.ok(!existsSync(opts.logDir));
 }
 
@@ -212,6 +228,190 @@ assert.equal(prStateOf({}), '');
   assert.deepEqual(say([{ type: 'thinking', thinking: 'hm' }]), []);
   assert.deepEqual(describeEvent({ type: 'system', subtype: 'init' }, agents), []);
   assert.ok(say([{ type: 'text', text: 'x'.repeat(500) }])[0].length <= 'says: '.length + 160);
+}
+
+// The activity report: the lead's step, each subagent with its state, the latest steps, the
+// pull requests and the cost, from the stream's own events (shapes as Claude Code 2.1 sends them).
+{
+  let clock = Date.parse('2026-11-21T16:00:00Z');
+  const a = createActivity(() => new Date((clock += 1000)));
+  const lead = (content) => a.apply({ type: 'assistant', parent_tool_use_id: null, message: { content } });
+  const sub = (parent, content) => a.apply({ type: 'assistant', parent_tool_use_id: parent, message: { content } });
+  assert.ok(a.take()); // a first report, even when empty
+  assert.equal(a.take(), ''); // nothing changed since
+  lead([{ type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'ls', description: 'List unresolved feedback notes' } }]);
+  a.apply({ type: 'system', subtype: 'task_summary', detail: 'Listing unresolved feedback notes' });
+  lead([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { description: 'Fix HUB-0001 menu overlap', subagent_type: 'general-purpose', prompt: 'Notes HUB-0001 and HUB-0004. Never read SHOOTER-0002.' } }]);
+  lead([{ type: 'tool_use', id: 'a2', name: 'Agent', input: { description: 'Verify WORLD-0003 floating Pepe', prompt: 'x' } }]);
+  a.apply({ type: 'system', subtype: 'task_started', task_id: 'k1', tool_use_id: 'a1', task_type: 'local_agent', description: 'Fix HUB-0001 menu overlap' });
+  a.apply({ type: 'system', subtype: 'task_started', task_id: 'b9', tool_use_id: 't9', task_type: 'local_bash', description: 'a shell command, not an agent' });
+  a.apply({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'k1', task_type: 'local_agent' }, { task_id: 'k2', task_type: 'local_agent' }] });
+  sub('a1', [{ type: 'tool_use', id: 't2', name: 'Read', input: { file_path: '/a/menu.ts' } }]);
+  a.apply({ type: 'system', subtype: 'task_progress', task_id: 'k1', tool_use_id: 'a1', subagent_type: 'general-purpose', usage: { total_tokens: 47742, tool_uses: 6, duration_ms: 2121 } });
+  a.apply({ type: 'system', subtype: 'task_progress', task_id: 'k2', tool_use_id: 'a2', subagent_type: 'general-purpose', usage: { total_tokens: 900, tool_uses: 1 } });
+  a.apply({ type: 'system', subtype: 'code_change_published', provider: 'github', url: 'https://github.com/o/r/pull/7', action: 'created' });
+  a.apply({ type: 'system', subtype: 'code_change_published', provider: 'github', url: 'https://github.com/o/r/pull/7', action: 'updated' });
+  assert.equal(a.working(), 2);
+  let now = JSON.parse(a.take());
+  assert.deepEqual(now.lead, { step: 'Bash: List unresolved feedback notes', steps: 3, status: 'Listing unresolved feedback notes' });
+  assert.deepEqual(now.agents.map((g) => [g.name, g.state, g.step, g.tools, g.notes]), [
+    ['Verify WORLD-0003 floating Pepe', 'working', 'Starting', 1, ['WORLD-0003']],
+    ['Fix HUB-0001 menu overlap', 'working', 'Read: /a/menu.ts', 6, ['HUB-0001', 'HUB-0004', 'SHOOTER-0002']],
+  ]);
+  assert.equal(now.agents[1].kind, 'general-purpose');
+  assert.equal(now.agents[1].tokens, 47742);
+  assert.deepEqual(now.prs, ['https://github.com/o/r/pull/7']);
+  assert.equal(now.result, null);
+  assert.ok(now.feed.some((f) => f.who === 'Fix HUB-0001 menu overlap' && f.text === 'Read: /a/menu.ts'));
+  assert.ok(now.feed.some((f) => f.who === '' && f.text === 'started subagent: Fix HUB-0001 menu overlap'));
+
+  // A subagent ends by its report, by the stream's task events, or when it is stopped; the first ending stands.
+  sub('a1', [{ type: 'tool_use', id: 't3', name: 'SubagentHandback', input: { message: 'HUB-0001 fixed, PR open' } }]);
+  a.apply({ type: 'system', subtype: 'task_updated', task_id: 'k1', patch: { status: 'completed', end_time: 1795274189355 } });
+  a.apply({ type: 'system', subtype: 'task_updated', task_id: 'k2', patch: { status: 'killed' } });
+  a.apply({ type: 'system', subtype: 'task_notification', task_id: 'k2', status: 'completed' });
+  a.apply({ type: 'system', subtype: 'background_tasks_changed', tasks: [] });
+  a.apply({ type: 'result', subtype: 'success', total_cost_usd: 3.25, num_turns: 9, duration_ms: 61000 });
+  a.note('owner', 'message #4 read by the agent');
+  assert.equal(a.working(), 0);
+  now = a.snapshot();
+  assert.deepEqual(now.agents.map((g) => [g.name, g.state, g.step]), [
+    ['Verify WORLD-0003 floating Pepe', 'stopped', 'Starting'],
+    ['Fix HUB-0001 menu overlap', 'done', 'Reported: HUB-0001 fixed, PR open'],
+  ]);
+  assert.deepEqual(now.result, { ok: true, cost: 3.25, turns: 9, ms: 61000 });
+  assert.deepEqual(now.feed.at(-1), { t: now.feed.at(-1).t, who: 'owner', text: 'message #4 read by the agent' });
+
+  // The stream's own count of running subagents holds the run open even without their events.
+  const b = createActivity();
+  b.apply({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'z', task_type: 'local_agent' }] });
+  assert.equal(b.working(), 1);
+  b.finish(true);
+  assert.equal(b.working(), 0);
+  // Events it does not know change nothing, and a long run stays under the hub's limit.
+  for (const junk of [null, 7, {}, { type: 'system', subtype: 'thinking_tokens' }, { type: 'user', message: { content: 'x' } }, { type: 'assistant' }]) b.apply(junk);
+  for (let i = 0; i < 300; i++) {
+    b.apply({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: `g${i}`, name: 'Agent', input: { description: `Fix HUB-${String(i).padStart(4, '0')} ${'x'.repeat(200)}`, prompt: 'p' } }] } });
+    b.apply({ type: 'assistant', parent_tool_use_id: `g${i}`, message: { content: [{ type: 'tool_use', id: `s${i}`, name: 'Bash', input: { description: 'y'.repeat(500) } }] } });
+  }
+  const big = b.take();
+  assert.ok(big.length <= ACTIVITY_MAX, String(big.length));
+  assert.ok(JSON.parse(big).agents.length <= 40);
+}
+
+// The agent's input: one JSON line per message; the owner's carry their number, which is how
+// the replayed copy says the agent has read it.
+{
+  assert.deepEqual(JSON.parse(inputLine('hi\nthere')), { type: 'user', message: { role: 'user', content: [{ type: 'text', text: 'hi\nthere' }] } });
+  assert.ok(inputLine('x').endsWith('\n') && !inputLine('a\nb').slice(0, -1).includes('\n'));
+  const text = ownerMessage({ id: 12, body: '  Skip HUB-0002.\nStart with the crash.  ' });
+  assert.match(text, /^Owner message #12 \(from the feedback admin panel, while you work\):\n\nSkip HUB-0002\.\nStart with the crash\.$/);
+  assert.equal(replayedText({ type: 'user', isReplay: true, message: { content: [{ type: 'text', text }] } }), text);
+  assert.equal(replayedText({ type: 'user', isReplay: true, message: { content: text } }), text);
+  // A tool result is a user event too, and not a replay.
+  assert.equal(replayedText({ type: 'user', message: { content: [{ type: 'text', text }] } }), '');
+  assert.equal(replayedText({ type: 'assistant', isReplay: true, message: { content: [{ type: 'text', text }] } }), '');
+}
+
+// A whole run against a stand-in agent that speaks the stream: the brief arrives on its input,
+// the owner's message follows while it works, its replay marks the message read, and once the
+// agent has finished and no message waits, its input closes and the run is reported done.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'fw-live-'));
+  mkdirSync(join(dir, 'docs'));
+  writeFileSync(join(dir, 'docs', 'feedback-check.md'), `${PROMPT_MARK}\n`);
+  const agent = join(dir, 'agent.mjs');
+  writeFileSync(
+    agent,
+    `#!/usr/bin/env node
+import { writeFileSync } from 'node:fs';
+import { createInterface } from 'node:readline';
+const got = [];
+const out = (event) => process.stdout.write(JSON.stringify(event) + '\\n');
+const lead = (content) => out({ type: 'assistant', parent_tool_use_id: null, message: { content } });
+createInterface({ input: process.stdin }).on('line', (line) => {
+  const text = JSON.parse(line).message.content[0].text;
+  got.push(text);
+  writeFileSync(${JSON.stringify(join(dir, 'input.json'))}, JSON.stringify({ argv: process.argv.slice(2), got }));
+  out({ type: 'user', isReplay: true, message: { content: [{ type: 'text', text }] } });
+  if (got.length === 1) {
+    lead([{ type: 'tool_use', id: 't1', name: 'Bash', input: { description: 'List unresolved feedback notes' } }]);
+    lead([{ type: 'tool_use', id: 'a1', name: 'Agent', input: { description: 'Fix HUB-0002 door', prompt: 'p' } }]);
+  } else {
+    out({ type: 'assistant', parent_tool_use_id: 'a1', message: { content: [{ type: 'tool_use', id: 't2', name: 'SubagentHandback', input: { message: 'stopped as asked' } }] } });
+    lead([{ type: 'text', text: 'SUMMARY: 0 resolved, HUB-0002 skipped as the owner asked.' }]);
+    out({ type: 'result', subtype: 'success', result: 'SUMMARY: 0 resolved, HUB-0002 skipped as the owner asked.', total_cost_usd: 0.5, num_turns: 2, duration_ms: 900 });
+  }
+}).on('close', () => process.exit(0));
+`,
+  );
+  chmodSync(agent, 0o755);
+  const calls = [];
+  let handed = false;
+  const client = {
+    rpc: async (id, body) => {
+      calls.push([id, body]);
+      // The owner's message is handed out once, with the first heartbeat after the agent started work.
+      if (!body.state && !handed && existsSync(join(dir, 'input.json'))) {
+        handed = true;
+        return { ok: true, messages: [{ id: 7, body: 'Skip HUB-0002.', by: '333' }] };
+      }
+      return { ok: true, messages: [] };
+    },
+  };
+  const opts = { worker: 'mac', dryRun: false, allowPrompt: true, agent, permissionMode: 'auto', hubRoot: dir, gamesDir: dir, logDir: join(dir, 'log'), heartbeatMs: 60000, tickMs: 40, idleCloseMs: 60000, maxMinutes: 5, model: '', config: { base: 'http://127.0.0.1:7350', serverKey: 'k' } };
+  await work({ id: 21, requestedBy: '333', requestedAt: 'now', noteCount: 2, prompt: '', model: 'haiku' }, client, opts);
+
+  const input = JSON.parse(readFileSync(join(dir, 'input.json'), 'utf8'));
+  assert.equal(input.got.length, 2);
+  assert.ok(input.got[0].startsWith(PROMPT_MARK));
+  assert.equal(input.got[1], ownerMessage({ id: 7, body: 'Skip HUB-0002.' }));
+  assert.deepEqual(input.argv.slice(-2), ['--model', 'haiku']);
+  const last = calls.at(-1)[1];
+  assert.equal(last.state, 'done');
+  assert.equal(last.summary, '0 resolved, HUB-0002 skipped as the owner asked.');
+  // The message was reported read, in a heartbeat or with the final report.
+  assert.ok(calls.some(([, body]) => (body.seen ?? []).includes(7)));
+  assert.ok(!calls.some(([, body]) => (body.missed ?? []).length));
+  const report = JSON.parse(last.activity);
+  assert.equal(report.lead.step, 'Bash: List unresolved feedback notes');
+  assert.deepEqual(report.agents.map((g) => [g.name, g.state, g.notes]), [['Fix HUB-0002 door', 'done', ['HUB-0002']]]);
+  assert.deepEqual(report.result, { ok: true, cost: 0.5, turns: 2, ms: 900 });
+  assert.ok(report.feed.some((f) => f.who === 'owner' && f.text === 'message #7 read by the agent'));
+  // While the agent worked, heartbeats carried the report too, for the panel's live view.
+  assert.ok(calls.some(([, body]) => !body.state && body.activity && JSON.parse(body.activity).agents.length === 1));
+
+  // A worker that passes no messages on says so when it claims, closes the agent's input after
+  // the brief, and hands a message it is given anyway back as missed.
+  const calls2 = [];
+  let handed2 = false;
+  const client2 = {
+    rpc: async (id, body) => {
+      calls2.push([id, body]);
+      if (!body.state && !handed2) {
+        handed2 = true;
+        return { ok: true, messages: [{ id: 9, body: 'too late', by: '333' }] };
+      }
+      return { ok: true, messages: [] };
+    },
+  };
+  writeFileSync(
+    agent,
+    `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+const got = [];
+createInterface({ input: process.stdin }).on('line', (line) => got.push(line)).on('close', () => {
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: 'SUMMARY: read ' + got.length + ' message' }) + '\\n');
+    process.exit(0);
+  }, 300);
+});
+`,
+  );
+  await work({ id: 22, requestedBy: '333', requestedAt: 'now', noteCount: 1, prompt: '', model: '' }, client2, { ...opts, allowPrompt: false, heartbeatMs: 50 });
+  assert.equal(calls2.at(-1)[1].summary, 'read 1 message');
+  assert.ok(calls2.some(([, body]) => (body.missed ?? []).includes(9)));
+  assert.ok(!calls2.some(([, body]) => (body.seen ?? []).length));
 }
 
 console.log('feedback worker ok');

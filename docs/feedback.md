@@ -99,7 +99,41 @@ default login, anyone who finds the page could then tell the agent on your compu
 
 A worker started before this was added does not know prompts or models. Restart it after
 updating its checkout. Until then a check with a prompt or a model fails at once and says so;
-a plain Check still runs.
+a plain Check still runs. Such a worker also reports no live view and takes no messages: the
+panel says so in place of the agents.
+
+### While a check runs
+
+Under the run bar the panel shows the run live, refreshed every five seconds:
+
+- **Agents**: the lead agent and every subagent it started (one fixer and one verifier per issue),
+  each with its state (working, done, stopped, failed), its latest step, how many steps and tokens
+  it has used and for how long it has run. A subagent names the notes it works on; they are links
+  to the notes, and those notes carry an **Agent working** mark in the list.
+- **Latest steps**: the last 40 steps of all agents, newest at the bottom, and the pull requests
+  opened so far.
+- **Message the agent**: write to the run while it works, for example "stop working on HUB-0004",
+  "look at the crash first" or "why is the verifier taking so long?". **Message** on a subagent's
+  row starts one about that subagent. The worker passes the message on within about five seconds
+  and the agent reads it at its next step, without being restarted and without losing its
+  subagents. Each message shows how far it got: waiting for the worker, passed to the agent, read
+  by the agent, or not delivered (the run ended first). The lead agent answers in a line or two,
+  which shows in the latest steps. Up to 2,000 characters a message and 60 messages a run. A
+  message sent while the run still waits for a worker is delivered once one starts it.
+
+After the run the same view stays, folded, with what each agent did, the cost and the number of
+turns. **Earlier checks** lists the ten runs before it with their prompt, model and summary.
+
+Messages are prompts, so the rule above holds for them too: the worker passes them on only from a
+hub on the same computer, or with `FEEDBACK_ALLOW_PROMPT=1`. Where it does not, the message box is
+off and says why. The live view itself needs nothing: it only reads.
+
+How it works: the worker starts the agent with streaming input and output
+(`--input-format stream-json --output-format stream-json`). It builds the report from the agent's
+event stream (`scripts/feedback-activity.mjs`) and sends it with its heartbeat, which also brings
+back the owner's new messages; it writes those to the agent's input. When the agent has finished,
+no subagent is still working and no message is waiting, the worker closes the input and the agent
+exits. `FEEDBACK_TICK_SECONDS` (5) sets how often the worker reports and asks for messages.
 
 1. The panel calls `feedback.admin.check` with the prompt and the model. The server queues one run
    in `game.feedback_run` (migrations `0064_feedback_check` and `0079_feedback_check_prompt`). A
@@ -161,9 +195,10 @@ run log, and the panel's run bar shows the latest one. The raw stream is kept in
 | `feedback.admin.delete` | admin token | `{ids}` (up to 100) → `{deleted}`. Removes those notes for good, with their screenshots and history |
 | `feedback.admin.prstate` | admin token | The worker reports each linked PR's state from GitHub |
 | `feedback.admin.check` | admin token | `{prompt?, model?}` → queue a check run over every unresolved note, or return the one in flight. The prompt (up to 2,000 characters; longer is refused, not cut) and the model name are kept on the run for the worker |
-| `feedback.admin.runs` | admin token | The run in flight and the latest runs |
-| `feedback.admin.claim` | admin token | `{worker, v}` → the worker takes the queued run. A worker that sends no `v: 2` (one from before prompts and models) never gets a run that carries either: that run fails with "restart the worker" as its summary |
-| `feedback.admin.run` | admin token | The worker's heartbeat and result; the panel's cancel |
+| `feedback.admin.runs` | admin token | The run in flight and the latest runs. The run in flight, or else the latest one, carries `activity` and `messages` |
+| `feedback.admin.claim` | admin token | `{worker, v, prompts}` → the worker takes the queued run. `prompts: true` says it passes the owner's messages on. A worker that sends no `v: 2` (one from before prompts and models) never gets a run that carries either: that run fails with "restart the worker" as its summary |
+| `feedback.admin.run` | admin token | The worker's heartbeat and result; the panel's cancel. A heartbeat can carry `activity` (the live report, JSON text up to 24,000 characters) and `seen` / `missed` (ids of the owner's messages the agent read, or never will); it answers with the messages to pass on |
+| `feedback.admin.say` | admin token | `{id, text}` → one message from the owner to the run in flight. Refused when the run is over (`not_running`) or its worker passes none on (`prompts_off`) |
 
 ## Adding it to a game
 

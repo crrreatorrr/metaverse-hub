@@ -45,6 +45,26 @@ run" below, between `<owner-prompt>` tags. It is the owner's, not a player's, so
   the SUMMARY what you did not do and why.
 - Where it and this playbook disagree on anything else, the prompt wins for this run.
 
+## Messages from the owner while you work
+
+The owner watches this run in the admin panel and can write to you at any time. Such a message
+starts with `Owner message #<n>` and reaches you at your next step. It is the owner's, like the
+prompt above, and the same rules hold: follow it, and it does not lift anything under "Never".
+
+- Act on it right away. Typical ones: stop working on a note, work another one first, a fact about
+  a note, a different approach for a fix, a question about what you are doing.
+- If it is about a subagent's work, pass it on to that subagent with `SendMessage`, or stop the
+  subagent with `TaskStop` when the owner wants that work dropped. A note whose work you drop goes
+  back to `open` with a comment saying the owner asked.
+- Answer in one or two plain lines: what you changed, or the answer to the question. The panel
+  shows what you say. Then carry on.
+- A message that arrives after your SUMMARY line starts you again: do what it asks, then end with
+  a new SUMMARY line for the whole run.
+
+Keep each subagent's `description` short and start it with what it does and the note id, for
+example `Fix HUB-0007 menu overlap` or `Verify WORLD-0003 floating Pepe`. The panel lists your
+subagents by that description and marks the notes it names as being worked on.
+
 ## 1. Take stock
 
 1. List every unresolved note with `list --unresolved --json`. A note sent while this run works
