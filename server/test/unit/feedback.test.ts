@@ -126,6 +126,13 @@ let token = '';
   const sql = all.find((m) => m.id === '0064_feedback_check')!.statements.join('\n');
   assert.match(sql, /ADD COLUMN IF NOT EXISTS pr_state text NOT NULL DEFAULT '' CHECK \(pr_state IN \('', 'open', 'draft', 'merged', 'closed'\)\)/);
   assert.match(sql, /CREATE UNIQUE INDEX IF NOT EXISTS feedback_run_one_active ON game\.feedback_run \(\(true\)\) WHERE state IN \('queued', 'running'\)/);
+  // 0079: a run keeps the owner's prompt and the model picked beside Check.
+  assert.ok(ids.indexOf('0079_feedback_check_prompt') > ids.indexOf('0064_feedback_check'));
+  // Spread: the module's arrays come from its own realm.
+  assert.deepEqual([...all.find((m) => m.id === '0079_feedback_check_prompt')!.statements], [
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS prompt text NOT NULL DEFAULT ''",
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS model text NOT NULL DEFAULT ''",
+  ]);
 }
 
 const RUN = (over: Record<string, unknown> = {}) => ({
@@ -170,7 +177,29 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   assert.match(calls.find((c) => c.sql.includes('feedback_run'))!.sql, /UPDATE game\.feedback_run SET state = 'failed'.*WHERE state = 'running' AND heartbeat_at < now\(\)/s);
   const insert = calls.find((c) => c.sql.includes('INSERT INTO game.feedback_run'))!;
   assert.match(insert.sql, /ON CONFLICT DO NOTHING/);
-  assert.deepEqual([...insert.args], ['333', 4]);
+  assert.deepEqual([...insert.args], ['333', 4, '', '']);
+  assert.equal((queued.run as Record<string, unknown>).prompt, '');
+  assert.equal((queued.run as Record<string, unknown>).model, '');
+
+  // The owner's prompt and model ride on the run, trimmed; the worker reads them from it.
+  mod.nk.onSql(/INSERT INTO game\.feedback_run/, (args) => [RUN({ id: 4, prompt: args[2], model: args[3] })]);
+  const steered = mod.call('feedback.admin.check', HUB, { token, prompt: '  Only the Open World notes.\nSkip art.  ', model: 'opus' });
+  assert.equal(steered.created, true);
+  assert.equal((steered.run as Record<string, unknown>).prompt, 'Only the Open World notes.\nSkip art.');
+  assert.equal((steered.run as Record<string, unknown>).model, 'opus');
+  assert.equal(mod.call('feedback.admin.check', HUB, { token, model: 'claude-opus-5-5[1m]' }).created, true);
+  // The longest prompt fits even when every character is escaped in the JSON.
+  assert.equal(mod.call('feedback.admin.check', HUB, { token, prompt: '\u00e9'.repeat(2000) }).created, true);
+  // A prompt that is too long is refused whole, never cut; a model must look like a model name.
+  const refused = () => runSql().filter((c) => c.sql.includes('INSERT INTO game.feedback_run')).length;
+  const kept = refused();
+  assert.equal(mod.call('feedback.admin.check', HUB, { token, prompt: 'x'.repeat(2001) }).error, 'prompt_too_long');
+  assert.equal(mod.call('feedback.admin.check', HUB, { token, prompt: 7 }).error, 'bad_prompt');
+  for (const model of ['--dangerously-skip-permissions', 'opus; rm -rf', 'a b', 'x'.repeat(65), 7]) {
+    assert.equal(mod.call('feedback.admin.check', HUB, { token, model }).error, 'bad_model', String(model));
+  }
+  assert.equal(refused(), kept);
+  mod.nk.onSql(/INSERT INTO game\.feedback_run/, () => [RUN()]);
 
   // Pressing Check again while a run is queued returns that run and inserts nothing.
   mod.nk.onSql(/FROM game\.feedback_run WHERE state IN \('queued', 'running'\)/, [RUN()]);
@@ -204,9 +233,25 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   assert.equal((claimed.run as Record<string, unknown>).state, 'running');
   const claim = runSql().filter((c) => c.sql.includes("SET state = 'running'")).pop()!;
   assert.match(claim.sql, /FOR UPDATE SKIP LOCKED/);
-  assert.deepEqual([...claim.args], ['ken-mac']);
+  // The claim itself skips a run with a prompt or a model for a worker below version 2.
+  assert.match(claim.sql, /WHERE state = 'queued' AND \(\$2::int >= 2 OR \(prompt = '' AND model = ''\)\) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED/);
+  assert.deepEqual([...claim.args], ['ken-mac', 1]);
   mod.nk.onSql(/UPDATE game\.feedback_run SET state = 'running'/, []);
   assert.deepEqual(mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac' }), { ok: true, run: null });
+
+  // A worker from before prompts and models (no `v`) would drop them without a word: the queued
+  // run that carries either is failed with the reason first. A current worker (v: 2) takes it.
+  const failsOld = () => runSql().filter((c) => /SET state = 'failed'.*WHERE state = 'queued' AND \(prompt <> '' OR model <> ''\)/s.test(c.sql));
+  const old = failsOld().length;
+  assert.ok(old >= 2); // the two claims above sent no `v`
+  assert.match(String(failsOld()[0].args[0]), /older than this hub.*restart it/s);
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 1 });
+  assert.equal(failsOld().length, old + 1);
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 2 });
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 3 });
+  assert.equal(failsOld().length, old + 1);
+  const claims = runSql().filter((c) => c.sql.includes("SET state = 'running'"));
+  assert.deepEqual(claims.slice(-3).map((c) => c.args[1]), [1, 2, 3]);
 
   // run: heartbeats and finishing only by the worker that holds it; cancel from the panel.
   assert.equal(mod.call('feedback.admin.run', HUB, { token, id: 0, worker: 'ken-mac' }).error, 'bad_id');

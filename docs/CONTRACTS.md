@@ -128,7 +128,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0076 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0076_shooter_campaign_boot_split` (live allowlist matches campaign bundle `bcfdba3e…` / `73c6eb0f` from `ccaa836d`, byte-identical to `1fd01820`'s apart from the baked commit; Arena fingerprint `e749d2fd`, sha256 `528ec266…`; client `3cf28f37` names that commit and sha; no row or amount changes) |
 | 0077 | sproto-open-world | `games/sproto_open_world.ts` | `0077_sproto_open_world` (widens `game_session`, `auth_ticket`, `play_lease.surface` and `game.claim_play_lease`; no Relic, Ticket or score row) |
 | 0078 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0078_shooter_campaign_sidearms` (live allowlist matches campaign bundle `63c65024…` / `dfb46fb6` from `fd97966`; campaign fingerprint moves from `73c6eb0f` in issue, private work, verified settlement and `settle_shooter_clear`; Arena fingerprint `e749d2fd`, sha256 `2959802d…`; no row or amount changes) |
-| 0079+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0079 | hub | `games/hub_feedback.ts` | `0079_feedback_check_prompt` (a check run keeps the owner's prompt and the model picked beside Check: `feedback_run.prompt`, `feedback_run.model`) |
+| 0080+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 

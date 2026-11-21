@@ -507,9 +507,17 @@ namespace HubFeedback {
   export var RUN_STATES = ["queued", "running", "done", "failed", "canceled"];
   export var RUN_STALE_SECONDS = 30 * 60;
   var WORKER = /^[A-Za-z0-9._:@-]{1,64}$/;
+  /** The owner's own words for one run, added to the agent's playbook by the worker. */
+  export var RUN_PROMPT_MAX = 2000;
+  /**
+   * A model name the worker hands to the agent (`--model`): an alias such as "opus" or a full
+   * model name. The panel holds the list; the server only checks the shape, so a new model needs
+   * no server change. It never starts with "-", so it cannot be read as another option.
+   */
+  var MODEL = /^[A-Za-z0-9][A-Za-z0-9._:\[\]-]{0,63}$/;
 
   var RUN_COLUMNS =
-    "id, state, requested_by, worker, summary, note_count, " +
+    "id, state, requested_by, worker, summary, note_count, prompt, model, " +
     "to_char(requested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS requested_at, " +
     "to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS started_at, " +
     "to_char(heartbeat_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') AS heartbeat_at, " +
@@ -523,6 +531,8 @@ namespace HubFeedback {
       worker: row.worker,
       summary: row.summary,
       noteCount: Number(row.note_count || 0),
+      prompt: row.prompt || "",
+      model: row.model || "",
       requestedAt: row.requested_at,
       startedAt: row.started_at || null,
       heartbeatAt: row.heartbeat_at || null,
@@ -546,14 +556,24 @@ namespace HubFeedback {
   }
 
   /**
-   * {token} → {run, created}. Queues a run over every note that is not resolved, or returns the
-   * run already queued or running (created: false). Nothing to do: {run: null, created: false}.
+   * {token, prompt?, model?} → {run, created}. Queues a run over every note that is not resolved,
+   * or returns the run already queued or running (created: false; its own prompt and model stand).
+   * Nothing to do: {run: null, created: false}. `prompt` is the owner's words for this run and
+   * `model` the model the agent runs on; both are optional and kept on the run for the worker.
    */
   export function adminCheck(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
-    var body = parse(payload, 1024);
+    // Room for the longest prompt with every character escaped (\uXXXX), plus the token.
+    var body = parse(payload, RUN_PROMPT_MAX * 6 + 1024);
     if (!body) return fail("bad_json");
     var by = admin(ctx, nk, body);
     if (!by) return fail("unauthorized");
+    if (body.prompt !== undefined && typeof body.prompt !== "string") return fail("bad_prompt");
+    var prompt = (typeof body.prompt === "string" ? body.prompt : "").replace(/^\s+|\s+$/g, "");
+    // Refused, not cut: half an instruction can mean the opposite of the whole one.
+    if (prompt.length > RUN_PROMPT_MAX) return fail("prompt_too_long", "The prompt can be at most " + String(RUN_PROMPT_MAX) + " characters");
+    if (body.model !== undefined && typeof body.model !== "string") return fail("bad_model");
+    var model = typeof body.model === "string" ? body.model : "";
+    if (model && !MODEL.test(model)) return fail("bad_model");
     expireStale(nk);
     var active = activeRun(nk);
     if (active) return JSON.stringify({ ok: true, run: active, created: false });
@@ -562,11 +582,14 @@ namespace HubFeedback {
     if (!count) return JSON.stringify({ ok: true, run: null, created: false, noteCount: 0 });
     // A second Check racing this one hits the unique index and inserts nothing.
     var rows = nk.sqlQuery(
-      "INSERT INTO game.feedback_run (state, requested_by, note_count) VALUES ('queued', $1, $2) ON CONFLICT DO NOTHING RETURNING " + RUN_COLUMNS,
-      [by, count],
+      "INSERT INTO game.feedback_run (state, requested_by, note_count, prompt, model) VALUES ('queued', $1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING " + RUN_COLUMNS,
+      [by, count, prompt, model],
     );
     if (!rows.length) return JSON.stringify({ ok: true, run: activeRun(nk), created: false });
-    logger.info("feedback check run " + String(rows[0].id) + " queued by " + by + " over " + String(count) + " notes");
+    logger.info(
+      "feedback check run " + String(rows[0].id) + " queued by " + by + " over " + String(count) + " notes" +
+        (model ? ", model " + model : "") + (prompt ? ", with a prompt of " + String(prompt.length) + " characters" : ""),
+    );
     return JSON.stringify({ ok: true, run: runShape(rows[0]), created: true });
   }
 
@@ -583,7 +606,16 @@ namespace HubFeedback {
     return JSON.stringify({ ok: true, active: activeRun(nk), runs: runs, staleSeconds: RUN_STALE_SECONDS });
   }
 
-  /** {token, worker} → {run}: the worker takes the queued run, or gets run: null. */
+  /** The first worker that reads a run's prompt and model says `v: 2` when it claims. */
+  export var WORKER_PROMPT_VERSION = 2;
+  export var OLD_WORKER_SUMMARY =
+    "Not started: the worker that is running is older than this hub and would drop the prompt and the model. " +
+    "Update its checkout and restart it (Stop worker, then Start worker), then press Check again.";
+
+  /**
+   * {token, worker, v?} → {run}: the worker takes the queued run, or gets run: null. `v` is the
+   * worker's version; one from before prompts and models sends none.
+   */
   export function adminClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 1024);
     if (!body) return fail("bad_json");
@@ -591,11 +623,25 @@ namespace HubFeedback {
     var worker = text(body.worker, 64);
     if (!WORKER.test(worker)) return fail("bad_worker");
     expireStale(nk);
+    var version = Math.max(1, Math.min(1000, Math.floor(num(body.v) || 1)));
+    if (version < WORKER_PROMPT_VERSION) {
+      // An older worker would run the playbook alone on its default model and say nothing: a
+      // prompt that narrows the run would be dropped. Fail the run with the reason instead.
+      var dropped = nk.sqlQuery(
+        "UPDATE game.feedback_run SET state = 'failed', finished_at = now(), summary = $1 " +
+          "WHERE state = 'queued' AND (prompt <> '' OR model <> '') RETURNING id",
+        [OLD_WORKER_SUMMARY],
+      );
+      if (dropped.length) logger.warn("feedback check run " + String(dropped[0].id) + " failed: worker " + worker + " is too old for its prompt or model");
+    }
+    // The same rule inside the claim itself: a run queued between the two statements is not
+    // handed to an older worker either. It stays queued, and that worker's next poll fails it.
     var rows = nk.sqlQuery(
       "UPDATE game.feedback_run SET state = 'running', worker = $1, started_at = now(), heartbeat_at = now() " +
-        "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
+        "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' " +
+        "AND ($2::int >= " + String(WORKER_PROMPT_VERSION) + " OR (prompt = '' AND model = '')) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
         "AND state = 'queued' RETURNING " + RUN_COLUMNS,
-      [worker],
+      [worker, version],
     );
     if (!rows.length) return JSON.stringify({ ok: true, run: null });
     logger.info("feedback check run " + String(rows[0].id) + " claimed by " + worker);
@@ -742,5 +788,15 @@ HubSchema.register({
     "ALTER TABLE game.feedback ADD COLUMN IF NOT EXISTS pr_state text NOT NULL DEFAULT '' CHECK (pr_state IN ('', 'open', 'draft', 'merged', 'closed'))",
     "ALTER TABLE game.feedback ADD COLUMN IF NOT EXISTS pr_checked_at timestamptz",
     "CREATE INDEX IF NOT EXISTS feedback_pr_url ON game.feedback (pr_url) WHERE pr_url <> ''",
+  ],
+});
+
+// A check run can carry the owner's own prompt and the model the agent runs on, both typed in
+// the panel beside Check. Empty means the playbook alone and the worker's default model.
+HubSchema.register({
+  id: "0079_feedback_check_prompt",
+  statements: [
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS prompt text NOT NULL DEFAULT ''",
+    "ALTER TABLE game.feedback_run ADD COLUMN IF NOT EXISTS model text NOT NULL DEFAULT ''",
   ],
 });
