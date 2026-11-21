@@ -1,6 +1,7 @@
 // Feedback admin panel (/admin/). Lists the notes players send with N-N from the hub and the
 // games, one tab per game, and moves them open → in progress → fixed → resolved. The server
 // (feedback.admin.*) checks the login and refuses "resolved" without a verification note.
+// Notes that are not worth keeping (tests, spam, duplicates) can be ticked and deleted.
 import { HubSdkError, createNakamaClient, getOrCreateDeviceId } from '@metaverse/hub-sdk';
 import './admin.css';
 
@@ -96,6 +97,8 @@ let counts: Counts = {};
 let items: Note[] = [];
 let total = 0;
 let selectedId = '';
+/** Notes ticked in the list for "Delete selected". Only ever holds notes the list is showing. */
+const checked = new Set<string>();
 const filter = { game: '', status: '', category: '', q: '', level: '' };
 
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, className = '', text?: string): HTMLElementTagNameMap[K] {
@@ -191,6 +194,8 @@ let detailBox: HTMLElement;
 let tabsBox: HTMLElement;
 let mapBox: HTMLElement;
 let totalLabel: HTMLElement;
+let bulkBox: HTMLElement;
+let bulkMessage = '';
 
 async function showPanel(): Promise<void> {
   app.replaceChildren();
@@ -255,8 +260,9 @@ async function showPanel(): Promise<void> {
   const cols = el('div', 'cols');
   const left = el('div');
   mapBox = el('div');
+  bulkBox = el('div', 'bulk');
   listBox = el('div', 'list');
-  left.append(mapBox, listBox);
+  left.append(mapBox, bulkBox, listBox);
   detailBox = el('div');
   cols.append(left, detailBox);
   workerLog = el('pre', 'workerlog');
@@ -312,6 +318,8 @@ function renderTabs(): void {
       filter.game = game;
       filter.level = '';
       selectedId = '';
+      checked.clear();
+      bulkMessage = '';
       void load();
     });
     return node;
@@ -322,12 +330,27 @@ function renderTabs(): void {
 function renderList(): void {
   totalLabel.textContent = total > items.length ? `Showing ${items.length} of ${total}` : `${total} note${total === 1 ? '' : 's'}`;
   const shown = filter.level ? items.filter((n) => n.level === filter.level) : items;
+  // A tick never outlives its row: what gets deleted is what is on screen.
+  const visible = new Set(shown.map((n) => n.id));
+  for (const id of checked) if (!visible.has(id)) checked.delete(id);
+  renderBulk(shown);
   if (!shown.length) {
     listBox.replaceChildren(el('div', 'empty', 'No notes match. Players send them by pressing N twice.'));
     return;
   }
   listBox.replaceChildren(
     ...shown.map((note) => {
+      const item = el('div', 'item');
+      const tick = el('input', 'tick');
+      tick.type = 'checkbox';
+      tick.checked = checked.has(note.id);
+      tick.setAttribute('aria-label', `Select ${note.id}`);
+      tick.addEventListener('change', () => {
+        if (tick.checked) checked.add(note.id);
+        else checked.delete(note.id);
+        bulkMessage = '';
+        renderBulk(shown);
+      });
       const row = el('button', 'row');
       row.type = 'button';
       row.setAttribute('aria-current', String(note.id === selectedId));
@@ -343,9 +366,65 @@ function renderList(): void {
       if (!filter.game) l3.append(el('span', '', GAME_LABEL[note.game] ?? note.game));
       row.append(l1, el('div', 'note', note.note || '(no note)'), l3);
       row.addEventListener('click', () => void select(note.id));
-      return row;
+      item.append(tick, row);
+      return item;
     }),
   );
+}
+
+/** The bar over the list: tick every note shown, and delete the ticked ones. */
+function renderBulk(shown: Note[]): void {
+  bulkBox.hidden = !shown.length && !bulkMessage;
+  const all = el('input', 'tick');
+  all.type = 'checkbox';
+  all.checked = shown.length > 0 && checked.size === shown.length;
+  all.indeterminate = checked.size > 0 && checked.size < shown.length;
+  all.disabled = !shown.length;
+  all.addEventListener('change', () => {
+    if (all.checked) for (const n of shown) checked.add(n.id);
+    else checked.clear();
+    bulkMessage = '';
+    renderList();
+  });
+  const label = el('label', 'all');
+  label.append(all, checked.size ? `${checked.size} selected` : 'Select all');
+  const remove = el('button', 'btn danger', checked.size > 1 ? `Delete ${checked.size} notes` : 'Delete selected');
+  remove.type = 'button';
+  remove.disabled = !checked.size;
+  remove.addEventListener('click', () => void deleteNotes([...checked], remove));
+  const message = el('span', 'msg', bulkMessage);
+  message.setAttribute('role', 'status');
+  bulkBox.replaceChildren(label, remove, message);
+}
+
+/**
+ * Deletes notes for good after one confirmation (feedback.admin.delete takes 100 at a time).
+ * Returns false when the owner backed out or the server refused.
+ */
+async function deleteNotes(ids: string[], button: HTMLButtonElement): Promise<boolean> {
+  if (!ids.length) return false;
+  const what = ids.length === 1 ? `note ${ids[0]}` : `${ids.length} notes`;
+  if (!window.confirm(`Delete ${what} for good? The screenshot and history go too. This cannot be undone.`)) return false;
+  button.disabled = true;
+  let deleted = 0;
+  let failed = false;
+  try {
+    for (let i = 0; i < ids.length; i += 100) {
+      const result = await adminRpc<{ deleted: string[] }>('feedback.admin.delete', { ids: ids.slice(i, i + 100) });
+      deleted += result.deleted.length;
+      for (const id of result.deleted) checked.delete(id);
+    }
+  } catch {
+    failed = true;
+  }
+  if (!adminToken) return false;
+  if (ids.includes(selectedId)) selectedId = '';
+  for (const id of ids) checked.delete(id);
+  bulkMessage = failed
+    ? `Could not delete${deleted ? ` all of them (${deleted} deleted)` : ''}. Try again.`
+    : `Deleted ${deleted} note${deleted === 1 ? '' : 's'}.`;
+  await load();
+  return !failed;
 }
 
 // Position map: where on a level the notes were sent. One game and one level at a time.
@@ -731,8 +810,15 @@ async function select(id: string): Promise<void> {
     label.append(field);
     return label;
   };
+  const remove = el('button', 'btn danger', 'Delete note');
+  remove.type = 'button';
+  remove.addEventListener('click', () => {
+    void deleteNotes([note.id], remove).then((done) => {
+      if (!done) remove.disabled = false;
+    });
+  });
   const line = el('div', 'line');
-  line.append(save, error);
+  line.append(save, error, remove);
   form.append(
     el('h3', '', 'Status'),
     labelled('Status', status),

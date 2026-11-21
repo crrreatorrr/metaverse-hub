@@ -58,6 +58,15 @@ UPDATE game.feedback_admin
 
 Logins are limited to 10 tries per device and 60 in total per ten minutes. A login lasts 12 hours.
 
+### Deleting notes
+
+For notes not worth keeping (tests, spam, duplicates). Tick them in the list, or use **Select all**
+for everything the list is showing, then **Delete selected**; an open note also has **Delete
+note** beside Save. The panel asks once, then the notes are gone for good with their screenshots
+and history: there is no undo. A deleted note's number is not given to a later note. Changing the
+tab or the level clears the ticks, so only notes on screen are ever deleted. The check agent's
+script (`scripts/feedback-admin.mjs`) has no delete command.
+
 The panel has one tab per game and one for the hub, filters by status and option, a search, a
 position map per level, the note's screenshot and details, the status form, and JSON and CSV
 export.
@@ -122,6 +131,7 @@ run log, and the panel's run bar shows the latest one. The raw stream is kept in
 | `feedback.admin.list` | admin token | Notes, counts per game and status |
 | `feedback.admin.get` | admin token | One note with its screenshot and history |
 | `feedback.admin.update` | admin token | Status, resolution, verification, fixing commit, pull request link |
+| `feedback.admin.delete` | admin token | `{ids}` (up to 100) → `{deleted}`. Removes those notes for good, with their screenshots and history |
 | `feedback.admin.prstate` | admin token | The worker reports each linked PR's state from GitHub |
 | `feedback.admin.check` | admin token | Queue a check run over every unresolved note, or return the one in flight |
 | `feedback.admin.runs` | admin token | The run in flight and the latest runs |
