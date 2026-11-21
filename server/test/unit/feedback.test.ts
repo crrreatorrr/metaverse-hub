@@ -237,6 +237,18 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   mod.nk.onSql(/UPDATE game\.feedback_run SET state = 'running'/, []);
   assert.deepEqual(mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac' }), { ok: true, run: null });
 
+  // A worker from before prompts and models (no `v`) would drop them without a word: the queued
+  // run that carries either is failed with the reason first. A current worker (v: 2) takes it.
+  const failsOld = () => runSql().filter((c) => /SET state = 'failed'.*WHERE state = 'queued' AND \(prompt <> '' OR model <> ''\)/s.test(c.sql));
+  const old = failsOld().length;
+  assert.ok(old >= 2); // the two claims above sent no `v`
+  assert.match(String(failsOld()[0].args[0]), /older than this hub.*restart it/s);
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 1 });
+  assert.equal(failsOld().length, old + 1);
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 2 });
+  mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 3 });
+  assert.equal(failsOld().length, old + 1);
+
   // run: heartbeats and finishing only by the worker that holds it; cancel from the panel.
   assert.equal(mod.call('feedback.admin.run', HUB, { token, id: 0, worker: 'ken-mac' }).error, 'bad_id');
   assert.equal(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac', state: 'running' }).error, 'bad_state');

@@ -97,6 +97,10 @@ worker with `FEEDBACK_ALLOW_PROMPT=1`, and change the panel password first (see 
 default login, anyone who finds the page could then tell the agent on your computer what to do.
 `FEEDBACK_ALLOW_PROMPT=0` refuses prompts everywhere. The model picker is not limited this way.
 
+A worker started before this was added does not know prompts or models. Restart it after
+updating its checkout. Until then a check with a prompt or a model fails at once and says so;
+a plain Check still runs.
+
 1. The panel calls `feedback.admin.check` with the prompt and the model. The server queues one run
    in `game.feedback_run` (migrations `0064_feedback_check` and `0079_feedback_check_prompt`). A
    unique index allows one queued-or-running run, so a second press, or a press in another tab,
@@ -158,7 +162,7 @@ run log, and the panel's run bar shows the latest one. The raw stream is kept in
 | `feedback.admin.prstate` | admin token | The worker reports each linked PR's state from GitHub |
 | `feedback.admin.check` | admin token | `{prompt?, model?}` → queue a check run over every unresolved note, or return the one in flight. The prompt (up to 2,000 characters; longer is refused, not cut) and the model name are kept on the run for the worker |
 | `feedback.admin.runs` | admin token | The run in flight and the latest runs |
-| `feedback.admin.claim` | admin token | The worker takes the queued run |
+| `feedback.admin.claim` | admin token | `{worker, v}` → the worker takes the queued run. A worker that sends no `v: 2` (one from before prompts and models) never gets a run that carries either: that run fails with "restart the worker" as its summary |
 | `feedback.admin.run` | admin token | The worker's heartbeat and result; the panel's cancel |
 
 ## Adding it to a game

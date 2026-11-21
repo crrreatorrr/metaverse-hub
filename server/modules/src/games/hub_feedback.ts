@@ -606,7 +606,16 @@ namespace HubFeedback {
     return JSON.stringify({ ok: true, active: activeRun(nk), runs: runs, staleSeconds: RUN_STALE_SECONDS });
   }
 
-  /** {token, worker} → {run}: the worker takes the queued run, or gets run: null. */
+  /** The first worker that reads a run's prompt and model says `v: 2` when it claims. */
+  export var WORKER_PROMPT_VERSION = 2;
+  export var OLD_WORKER_SUMMARY =
+    "Not started: the worker that is running is older than this hub and would drop the prompt and the model. " +
+    "Update its checkout and restart it (Stop worker, then Start worker), then press Check again.";
+
+  /**
+   * {token, worker, v?} → {run}: the worker takes the queued run, or gets run: null. `v` is the
+   * worker's version; one from before prompts and models sends none.
+   */
   export function adminClaim(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, 1024);
     if (!body) return fail("bad_json");
@@ -614,6 +623,16 @@ namespace HubFeedback {
     var worker = text(body.worker, 64);
     if (!WORKER.test(worker)) return fail("bad_worker");
     expireStale(nk);
+    if (Math.floor(num(body.v) || 1) < WORKER_PROMPT_VERSION) {
+      // An older worker would run the playbook alone on its default model and say nothing: a
+      // prompt that narrows the run would be dropped. Fail the run with the reason instead.
+      var dropped = nk.sqlQuery(
+        "UPDATE game.feedback_run SET state = 'failed', finished_at = now(), summary = $1 " +
+          "WHERE state = 'queued' AND (prompt <> '' OR model <> '') RETURNING id",
+        [OLD_WORKER_SUMMARY],
+      );
+      if (dropped.length) logger.warn("feedback check run " + String(dropped[0].id) + " failed: worker " + worker + " is too old for its prompt or model");
+    }
     var rows = nk.sqlQuery(
       "UPDATE game.feedback_run SET state = 'running', worker = $1, started_at = now(), heartbeat_at = now() " +
         "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +

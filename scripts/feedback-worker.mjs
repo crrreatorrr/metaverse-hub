@@ -73,6 +73,12 @@ export function gamesDir(env = process.env) {
   }
 }
 
+/**
+ * Sent with every claim. 2: this worker reads a run's prompt and model. The hub fails a run that
+ * carries either when a worker without it asks, so what the owner typed is never dropped silently.
+ */
+export const WORKER_VERSION = 2;
+
 /** The owner's prompt of a run, trimmed; '' when the run has none. */
 const ownerPrompt = (run) => (typeof run?.prompt === 'string' ? run.prompt.trim() : '');
 
@@ -524,7 +530,7 @@ async function main() {
   for (;;) {
     let run = null;
     try {
-      run = (await client.rpc('feedback.admin.claim', { worker: opts.worker })).run;
+      run = (await client.rpc('feedback.admin.claim', { worker: opts.worker, v: WORKER_VERSION })).run;
     } catch (error) {
       log(`claim failed: ${error.message}`);
     }

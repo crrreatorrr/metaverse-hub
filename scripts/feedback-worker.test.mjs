@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PROMPT_MARK, PROMPT_REFUSED, agentArgs, describeEvent, envNumber, modelFor, prStateOf, promptAllowed, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, work, workerName } from './feedback-worker.mjs';
+import { PROMPT_MARK, PROMPT_REFUSED, WORKER_VERSION, agentArgs, describeEvent, envNumber, modelFor, prStateOf, promptAllowed, syncPullRequests, promptFor, releaseWorkerLock, stopLeftoverAgent, summaryOf, takeWorkerLock, work, workerName } from './feedback-worker.mjs';
 import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { feedbackClient } from './feedback-rpc.mjs';
@@ -79,6 +79,8 @@ assert.match(workerName('a'.repeat(200)), /^[A-Za-z0-9._:@-]{1,64}$/);
   await work({ id: 11, noteCount: 2, prompt: 'Only HUB-0001', model: '' }, client, opts);
   assert.deepEqual(sent, [['feedback.admin.run', { id: 11, worker: 'mac', state: 'failed', summary: PROMPT_REFUSED }]]);
   assert.ok(PROMPT_REFUSED.length <= 2000);
+  // The version the hub asks of a worker before it hands out a run with a prompt or a model.
+  assert.equal(WORKER_VERSION, 2);
   assert.ok(!existsSync(opts.logDir));
 }
 
