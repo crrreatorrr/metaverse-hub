@@ -623,7 +623,8 @@ namespace HubFeedback {
     var worker = text(body.worker, 64);
     if (!WORKER.test(worker)) return fail("bad_worker");
     expireStale(nk);
-    if (Math.floor(num(body.v) || 1) < WORKER_PROMPT_VERSION) {
+    var version = Math.max(1, Math.min(1000, Math.floor(num(body.v) || 1)));
+    if (version < WORKER_PROMPT_VERSION) {
       // An older worker would run the playbook alone on its default model and say nothing: a
       // prompt that narrows the run would be dropped. Fail the run with the reason instead.
       var dropped = nk.sqlQuery(
@@ -633,11 +634,14 @@ namespace HubFeedback {
       );
       if (dropped.length) logger.warn("feedback check run " + String(dropped[0].id) + " failed: worker " + worker + " is too old for its prompt or model");
     }
+    // The same rule inside the claim itself: a run queued between the two statements is not
+    // handed to an older worker either. It stays queued, and that worker's next poll fails it.
     var rows = nk.sqlQuery(
       "UPDATE game.feedback_run SET state = 'running', worker = $1, started_at = now(), heartbeat_at = now() " +
-        "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
+        "WHERE id = (SELECT id FROM game.feedback_run WHERE state = 'queued' " +
+        "AND ($2::int >= " + String(WORKER_PROMPT_VERSION) + " OR (prompt = '' AND model = '')) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED) " +
         "AND state = 'queued' RETURNING " + RUN_COLUMNS,
-      [worker],
+      [worker, version],
     );
     if (!rows.length) return JSON.stringify({ ok: true, run: null });
     logger.info("feedback check run " + String(rows[0].id) + " claimed by " + worker);

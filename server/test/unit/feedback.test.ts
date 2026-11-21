@@ -233,7 +233,9 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   assert.equal((claimed.run as Record<string, unknown>).state, 'running');
   const claim = runSql().filter((c) => c.sql.includes("SET state = 'running'")).pop()!;
   assert.match(claim.sql, /FOR UPDATE SKIP LOCKED/);
-  assert.deepEqual([...claim.args], ['ken-mac']);
+  // The claim itself skips a run with a prompt or a model for a worker below version 2.
+  assert.match(claim.sql, /WHERE state = 'queued' AND \(\$2::int >= 2 OR \(prompt = '' AND model = ''\)\) ORDER BY id LIMIT 1 FOR UPDATE SKIP LOCKED/);
+  assert.deepEqual([...claim.args], ['ken-mac', 1]);
   mod.nk.onSql(/UPDATE game\.feedback_run SET state = 'running'/, []);
   assert.deepEqual(mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac' }), { ok: true, run: null });
 
@@ -248,6 +250,8 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 2 });
   mod.call('feedback.admin.claim', HUB, { token, worker: 'ken-mac', v: 3 });
   assert.equal(failsOld().length, old + 1);
+  const claims = runSql().filter((c) => c.sql.includes("SET state = 'running'"));
+  assert.deepEqual(claims.slice(-3).map((c) => c.args[1]), [1, 2, 3]);
 
   // run: heartbeats and finishing only by the worker that holds it; cancel from the panel.
   assert.equal(mod.call('feedback.admin.run', HUB, { token, id: 0, worker: 'ken-mac' }).error, 'bad_id');
