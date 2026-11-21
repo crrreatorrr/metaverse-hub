@@ -947,7 +947,9 @@ async function sendSay(): Promise<void> {
   const run = liveRun;
   const text = sayBox.value.trim();
   if (!run || !text) return;
-  sayButton.disabled = true;
+  // Nothing can be typed while it is on its way, so what the box holds is what was sent.
+  const focused = document.activeElement === sayBox;
+  sayButton.disabled = sayBox.disabled = true;
   try {
     await adminRpc('feedback.admin.say', { id: run.id, text });
     sayBox.value = sayDraft = '';
@@ -965,7 +967,11 @@ async function sendSay(): Promise<void> {
               ? 'This check has had as many messages as it takes.'
               : 'Could not send the message. Is the hub server up to date and running?';
   }
+  // Open again, then the refresh sets the box and the button by the run's state (if the hub
+  // cannot be reached they stay open, and a second try says so).
+  sayButton.disabled = sayBox.disabled = false;
   await loadRuns();
+  if (focused && !sayBox.disabled) sayBox.focus();
 }
 
 function agentRow(state: string, stateLabel: string, name: string, step: string, meta: string, notes: string[], onMessage: (() => void) | null): HTMLElement {

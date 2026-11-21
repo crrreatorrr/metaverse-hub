@@ -328,16 +328,22 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   mod.nk.onSql(/INSERT INTO game\.feedback_run_message/, []);
   assert.equal(mod.call('feedback.admin.say', HUB, { token, id: 3, text: 'hi' }).error, 'not_running');
 
-  // A heartbeat stores the activity report, marks messages read or missed, and hands out the
-  // queued ones (oldest first), which become "sent".
+  // A heartbeat stores the activity report, marks messages read or missed, turns the queued
+  // ones "sent" and hands out every sent one, oldest first: again with each heartbeat until the
+  // worker reports it read or missed, so an answer lost on the way is made up by the next.
   mod.nk.onSql(/UPDATE game\.feedback_run SET heartbeat_at = now\(\)/, () => [RUN({ state: 'running', worker: 'ken-mac', steer: true })]);
-  mod.nk.onSql(/SET state = 'sent' WHERE run_id = \$1 AND state = 'queued'/, () => [MESSAGE({ id: 9, body: 'second' }), MESSAGE({ id: 8, body: 'first' })]);
+  mod.nk.onSql(/FROM game\.feedback_run_message WHERE run_id = \$1 AND state = 'sent' ORDER BY id/, () => [MESSAGE({ id: 8, body: 'first' }), MESSAGE({ id: 9, body: 'second' })]);
   before = mod.nk.sqlCalls.length;
   const activity = JSON.stringify({ v: 1, lead: { step: 'Bash: list', steps: 1, status: '' }, agents: [], feed: [], prs: [], result: null });
   const beat = mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac', activity, seen: [5, 'x', -1, 6.9], missed: [7] });
   assert.deepEqual(beat.messages, [{ id: 8, body: 'first', by: '333' }, { id: 9, body: 'second', by: '333' }]);
   let calls = mod.nk.sqlCalls.slice(before);
   assert.deepEqual([...calls.find((c) => c.sql.includes('SET activity = $2'))!.args], [3, activity]);
+  // Read and missed are recorded before the hand-out, so a message just reported is not sent again.
+  const order = ["SET state = 'seen'", "SET state = 'missed'", "SET state = 'sent' WHERE run_id = $1 AND state = 'queued'", "state = 'sent' ORDER BY id"].map((part) => calls.findIndex((c) => c.sql.includes(part)));
+  assert.deepEqual(order, [...order].sort((a, b) => a - b));
+  assert.ok(order.every((at) => at >= 0));
+  assert.deepEqual(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac' }).messages, beat.messages);
   assert.match(calls.find((c) => c.sql.includes("SET state = 'seen'"))!.sql, /WHERE run_id = \$1 AND state = 'sent' AND id IN \(5, 6\)$/);
   assert.match(calls.find((c) => c.sql.includes("SET state = 'missed'"))!.sql, /WHERE run_id = \$1 AND state = 'sent' AND id IN \(7\)$/);
   // A report that is not a JSON object, or is too long, is not stored; the heartbeat still counts.
@@ -350,7 +356,7 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   mod.nk.onSql(/UPDATE game\.feedback_run SET heartbeat_at = now\(\)/, () => [RUN({ state: 'running', worker: 'ken-mac', steer: false })]);
   before = mod.nk.sqlCalls.length;
   assert.deepEqual(mod.call('feedback.admin.run', HUB, { token, id: 3, worker: 'ken-mac' }).messages, []);
-  assert.ok(!mod.nk.sqlCalls.slice(before).some((c) => c.sql.includes("SET state = 'sent'")));
+  assert.ok(!mod.nk.sqlCalls.slice(before).some((c) => c.sql.includes("SET state = 'sent'") || c.sql.includes("state = 'sent' ORDER BY id")));
 
   // Finishing or canceling a run: what the agent had not read by then is missed, and the last
   // report (what each agent did, the cost) is kept.

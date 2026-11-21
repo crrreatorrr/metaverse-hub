@@ -282,6 +282,24 @@ assert.equal(prStateOf({}), '');
   assert.deepEqual(now.result, { ok: true, cost: 3.25, turns: 9, ms: 61000 });
   assert.deepEqual(now.feed.at(-1), { t: now.feed.at(-1).t, who: 'owner', text: 'message #4 read by the agent' });
 
+  // A finished subagent the lead sends back to work (SendMessage) is working again: the same
+  // task starts anew under the SendMessage call's id, and its steps carry that id.
+  a.apply({ type: 'system', subtype: 'task_started', task_id: 'k1', tool_use_id: 'm1', task_type: 'local_agent', description: 'Fix HUB-0001 menu overlap' });
+  assert.equal(a.working(), 1);
+  sub('m1', [{ type: 'tool_use', id: 't7', name: 'Bash', input: { description: 'Second pass on the menu' } }]);
+  now = a.snapshot();
+  assert.equal(now.agents.length, 2);
+  assert.deepEqual([now.agents[0].name, now.agents[0].state, now.agents[0].step, now.agents[0].ended, now.agents[0].notes], ['Fix HUB-0001 menu overlap', 'working', 'Bash: Second pass on the menu', '', ['HUB-0001', 'HUB-0004', 'SHOOTER-0002']]);
+  assert.ok(now.feed.some((f) => f.who === 'Fix HUB-0001 menu overlap' && f.text === 'resumed'));
+  a.apply({ type: 'system', subtype: 'task_notification', task_id: 'k1', tool_use_id: 'm1', status: 'completed' });
+  assert.equal(a.working(), 0);
+  assert.equal(a.snapshot().agents.find((g) => g.name === 'Fix HUB-0001 menu overlap').state, 'done');
+  // A subagent whose step arrives after its ending was resumed too, even without the task event.
+  sub('a2', [{ type: 'tool_use', id: 't8', name: 'Read', input: { file_path: '/b.ts' } }]);
+  assert.equal(a.snapshot().agents.find((g) => g.name === 'Verify WORLD-0003 floating Pepe').state, 'working');
+  a.apply({ type: 'system', subtype: 'task_updated', task_id: 'k2', patch: { status: 'completed' } });
+  assert.equal(a.working(), 0);
+
   // The stream's own count of running subagents holds the run open even without their events.
   const b = createActivity();
   b.apply({ type: 'system', subtype: 'background_tasks_changed', tasks: [{ task_id: 'z', task_type: 'local_agent' }] });
@@ -347,15 +365,14 @@ createInterface({ input: process.stdin }).on('line', (line) => {
   );
   chmodSync(agent, 0o755);
   const calls = [];
-  let handed = false;
+  let read = false;
   const client = {
     rpc: async (id, body) => {
       calls.push([id, body]);
-      // The owner's message is handed out once, with the first heartbeat after the agent started work.
-      if (!body.state && !handed && existsSync(join(dir, 'input.json'))) {
-        handed = true;
-        return { ok: true, messages: [{ id: 7, body: 'Skip HUB-0002.', by: '333' }] };
-      }
+      // As the hub does: the owner's message comes with every heartbeat from when the agent has
+      // started work until the worker reports it read. The agent must still get it only once.
+      if ((body.seen ?? []).includes(7)) read = true;
+      if (!body.state && !read && existsSync(join(dir, 'input.json'))) return { ok: true, messages: [{ id: 7, body: 'Skip HUB-0002.', by: '333' }] };
       return { ok: true, messages: [] };
     },
   };

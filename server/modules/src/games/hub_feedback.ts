@@ -750,8 +750,9 @@ namespace HubFeedback {
    * running run with state "canceled" and no worker.
    *
    * A heartbeat can carry `activity` (JSON text, see RUN_ACTIVITY_MAX) and the ids of the owner's
-   * messages the agent has read (`seen`) or will never get (`missed`). It answers with the
-   * messages not handed out yet, which become "sent": the worker writes them to the agent.
+   * messages the agent has read (`seen`) or will never get (`missed`). It answers with every
+   * message that is neither yet ("sent"), again with each heartbeat until the worker reports it:
+   * the worker writes each to the agent once.
    */
   export function adminRun(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
     var body = parse(payload, RUN_ACTIVITY_MAX * 2 + 8192);
@@ -801,14 +802,12 @@ namespace HubFeedback {
       var missed = idList(body.missed);
       if (missed.length) nk.sqlExec("UPDATE game.feedback_run_message SET state = 'missed' WHERE run_id = $1 AND state = 'sent' AND id IN (" + missed.join(", ") + ")", [id]);
       if (!state && rows[0].steer === true) {
-        var taken = nk.sqlQuery(
-          "UPDATE game.feedback_run_message SET state = 'sent' WHERE run_id = $1 AND state = 'queued' RETURNING id, body, by_name",
-          [id],
-        );
+        // Every message the worker has not reported read or missed goes out with each heartbeat,
+        // not only the new ones: an answer that got lost on the way is made up by the next. The
+        // worker knows each message by its id and writes it to the agent once.
+        nk.sqlExec("UPDATE game.feedback_run_message SET state = 'sent' WHERE run_id = $1 AND state = 'queued'", [id]);
+        var taken = nk.sqlQuery("SELECT id, body, by_name FROM game.feedback_run_message WHERE run_id = $1 AND state = 'sent' ORDER BY id", [id]);
         for (var i = 0; i < taken.length; i++) out.push({ id: Number(taken[i].id), body: taken[i].body, by: taken[i].by_name });
-        out.sort(function (a, b) {
-          return (a as { id: number }).id - (b as { id: number }).id;
-        });
       }
     }
     // A run that is over reads no more: what the agent had not read by then never reached it.

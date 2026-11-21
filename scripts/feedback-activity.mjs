@@ -8,6 +8,8 @@
 //   assistant, parent_tool_use_id <id>    a subagent's tool calls; <id> is the Agent call that started it
 //   system task_started / task_progress   a subagent's task id, tool count and tokens
 //   system task_updated / task_notification  completed, stopped, killed or failed
+//   system task_started, a known task id   a finished subagent was resumed (SendMessage); its
+//                                          new events carry the SendMessage call's id
 //   system task_summary / post_turn_summary  one line on what the lead is doing
 //   system background_tasks_changed       the subagents still running
 //   system code_change_published          a pull request was opened
@@ -43,6 +45,8 @@ export function createActivity(now = () => new Date()) {
   const agents = new Map();
   /** The stream's task id → that Agent call id. */
   const byTask = new Map();
+  /** The call that resumed a subagent → the Agent call that first started it. */
+  const alias = new Map();
   const feed = [];
   const prs = [];
   const lead = { step: '', steps: 0, status: '' };
@@ -56,7 +60,8 @@ export function createActivity(now = () => new Date()) {
     if (feed.length > FEED_MAX) feed.shift();
     dirty = true;
   };
-  const agentOf = (id, name = 'subagent') => {
+  const agentOf = (call, name = 'subagent') => {
+    const id = alias.get(call) ?? call;
     let agent = agents.get(id);
     if (!agent) {
       agent = { id, name: short(name, 80), kind: '', state: 'working', step: '', tools: 0, tokens: 0, started: stamp(), ended: '', notes: [] };
@@ -64,6 +69,14 @@ export function createActivity(now = () => new Date()) {
       dirty = true;
     }
     return agent;
+  };
+  /** A subagent that had ended is at work again: the lead sent it back to its task. */
+  const reopen = (agent) => {
+    if (agent.state === 'working') return;
+    agent.state = 'working';
+    agent.ended = '';
+    dirty = true;
+    say(agent.name, 'resumed');
   };
   const end = (agent, state, at) => {
     // The first ending stands: a subagent that was stopped does not turn "done" afterwards.
@@ -73,7 +86,7 @@ export function createActivity(now = () => new Date()) {
     dirty = true;
     say(agent.name, state === 'done' ? 'finished' : state);
   };
-  const forTask = (event) => agents.get(event.tool_use_id) ?? agents.get(byTask.get(event.task_id));
+  const forTask = (event) => agents.get(alias.get(event.tool_use_id) ?? event.tool_use_id) ?? agents.get(byTask.get(event.task_id));
 
   function assistant(event) {
     const parent = event.parent_tool_use_id;
@@ -86,6 +99,7 @@ export function createActivity(now = () => new Date()) {
             agent.step = short(`Reported: ${input.message ?? ''}`, 140);
             end(agent, 'done');
           } else {
+            reopen(agent);
             agent.step = stepOf(part);
             agent.tools += 1;
             say(agent.name, agent.step);
@@ -115,10 +129,14 @@ export function createActivity(now = () => new Date()) {
       case 'task_progress': {
         if (event.task_type && event.task_type !== 'local_agent') return;
         // A subagent's task: one whose tool call is an Agent call we saw, or that says so itself.
-        if (!agents.has(event.tool_use_id) && event.task_type !== 'local_agent' && !event.subagent_type) return;
-        if (!event.tool_use_id) return;
-        const agent = agentOf(event.tool_use_id, event.description);
-        if (event.task_id) byTask.set(event.task_id, event.tool_use_id);
+        const known = forTask(event);
+        if (!known && event.task_type !== 'local_agent' && !event.subagent_type) return;
+        if (!known && !event.tool_use_id) return;
+        if (known && event.tool_use_id && !agents.has(event.tool_use_id)) alias.set(event.tool_use_id, known.id);
+        const agent = known ?? agentOf(event.tool_use_id, event.description);
+        if (event.task_id && !byTask.has(event.task_id)) byTask.set(event.task_id, agent.id);
+        // A task that starts again is a subagent sent back to work.
+        if (event.subtype === 'task_started') reopen(agent);
         if (event.subagent_type) agent.kind = short(event.subagent_type, 40);
         if (event.usage) {
           agent.tools = Math.max(agent.tools, Number(event.usage.tool_uses) || 0);

@@ -403,6 +403,8 @@ export async function work(run, client, opts) {
   const awaiting = new Set();
   const seen = new Set();
   const missed = new Set();
+  /** Every message the hub has handed over. It repeats one until it is reported read or missed. */
+  const handled = new Set();
   /** Has the lead's turn ended with nothing started since? Then the agent is waiting for input. */
   let turnOver = false;
   let lastEventAt = Date.now();
@@ -528,8 +530,9 @@ export async function work(run, client, opts) {
       const answer = await send(body);
       for (const id of acked.seen) seen.delete(id);
       for (const id of acked.missed) missed.delete(id);
-      const messages = Array.isArray(answer?.messages) ? answer.messages : [];
+      const messages = (Array.isArray(answer?.messages) ? answer.messages : []).filter((message) => !handled.has(Number(message.id)));
       for (const message of messages) {
+        handled.add(Number(message.id));
         if (inputOpen && !exited) {
           child.stdin.write(inputLine(ownerMessage(message)));
           awaiting.add(Number(message.id));
