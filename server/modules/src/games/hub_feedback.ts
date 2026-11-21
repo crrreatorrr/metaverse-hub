@@ -4,6 +4,7 @@
 // A note is stored in game.feedback under a per-game id (SHOOTER-0042). Its screenshot lives in
 // game.feedback_image and is deleted when the note is marked resolved; the note, its metadata
 // and its history stay. "resolved" needs a resolution summary and a verification note.
+// feedback.admin.delete removes whole notes (spam, tests, duplicates) for good.
 namespace HubFeedback {
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   var PUBLIC_ID = /^[A-Z0-9]{2,10}-\d{4,9}$/;
@@ -23,6 +24,7 @@ namespace HubFeedback {
   export var LOGIN_PER_TEN_MINUTES = 10;
   export var LOGIN_GLOBAL_PER_TEN_MINUTES = 60;
   export var ADMIN_TOKEN_SECONDS = 12 * 3600;
+  export var MAX_DELETE = 100;
   var PASS_SALT = "hub-feedback-admin:";
 
   var PREFIX: { [game: string]: string } = {
@@ -462,6 +464,37 @@ namespace HubFeedback {
     return JSON.stringify({ ok: true, updated: updated });
   }
 
+  /**
+   * {token, ids: string[]} → {deleted: string[]}. Removes up to MAX_DELETE notes for good, each
+   * with its screenshot and history (both cascade). Ids that match no note are left out of
+   * `deleted`; the per-game numbering does not reuse a deleted note's number.
+   */
+  export function adminDelete(ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, payload: string): string {
+    var body = parse(payload, 8192);
+    if (!body) return fail("bad_json");
+    var by = admin(ctx, nk, body);
+    if (!by) return fail("unauthorized");
+    if (Object.prototype.toString.call(body.ids) !== "[object Array]") return fail("bad_ids");
+    var raw = body.ids as unknown[];
+    if (!raw.length) return fail("bad_ids");
+    if (raw.length > MAX_DELETE) return fail("too_many");
+    var ids: string[] = [];
+    for (var i = 0; i < raw.length; i++) {
+      var id = text(raw[i], 32).toUpperCase();
+      if (!PUBLIC_ID.test(id)) return fail("bad_id");
+      if (ids.indexOf(id) < 0) ids.push(id);
+    }
+    var rows = nk.sqlQuery(
+      "DELETE FROM game.feedback WHERE public_id IN (SELECT jsonb_array_elements_text($1::jsonb)) RETURNING public_id",
+      [JSON.stringify(ids)],
+    );
+    var deleted: string[] = [];
+    for (var j = 0; j < rows.length; j++) deleted.push(String(rows[j].public_id));
+    deleted.sort();
+    if (deleted.length) logger.info("feedback deleted by " + by + ": " + deleted.join(", "));
+    return JSON.stringify({ ok: true, deleted: deleted });
+  }
+
   // ------------------------------------------------------------------ check runs
   //
   // "Check" in the admin panel queues one run that works through every note not yet resolved.
@@ -615,6 +648,7 @@ function rpcFeedbackAdminLogin(c: nkruntime.Context, l: nkruntime.Logger, n: nkr
 function rpcFeedbackAdminList(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminList(c, l, n, p); }
 function rpcFeedbackAdminGet(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminGet(c, l, n, p); }
 function rpcFeedbackAdminUpdate(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminUpdate(c, l, n, p); }
+function rpcFeedbackAdminDelete(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminDelete(c, l, n, p); }
 function rpcFeedbackAdminPrState(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminPrState(c, l, n, p); }
 function rpcFeedbackAdminCheck(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminCheck(c, l, n, p); }
 function rpcFeedbackAdminRuns(c: nkruntime.Context, l: nkruntime.Logger, n: nkruntime.Nakama, p: string): string { return HubFeedback.adminRuns(c, l, n, p); }

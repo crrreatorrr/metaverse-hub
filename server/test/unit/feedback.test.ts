@@ -263,4 +263,20 @@ const runSql = () => mod.nk.sqlCalls.slice(runBase).filter((c) => c.sql.includes
   assert.match(ps[0]!.sql, /'PR ' \|\| \$2 FROM u WHERE was <> \$2/);
 }
 
+// Deleting: admin only, checked ids, one statement for the lot; only notes that existed are reported.
+{
+  const deletes = () => mod.nk.sqlCalls.filter((c) => c.sql.includes('DELETE FROM game.feedback WHERE public_id'));
+  assert.equal(mod.call('feedback.admin.delete', HUB, { ids: ['HUB-0001'] }).error, 'unauthorized');
+  assert.equal(mod.call('feedback.admin.delete', HUB, { token }).error, 'bad_ids');
+  assert.equal(mod.call('feedback.admin.delete', HUB, { token, ids: [] }).error, 'bad_ids');
+  assert.equal(mod.call('feedback.admin.delete', HUB, { token, ids: ['HUB-0001', "x'; DROP"] }).error, 'bad_id');
+  assert.equal(mod.call('feedback.admin.delete', HUB, { token, ids: Array.from({ length: 101 }, (_, i) => `HUB-${1000 + i}`) }).error, 'too_many');
+  assert.equal(deletes().length, 0);
+  mod.nk.onSql(/DELETE FROM game\.feedback WHERE public_id/, () => [{ public_id: 'SHOOTER-0001' }, { public_id: 'HUB-0002' }]);
+  const r = mod.call('feedback.admin.delete', HUB, { token, ids: ['shooter-0001', 'HUB-0002', 'HUB-0002', 'HUB-9999'] });
+  assert.deepEqual(r, { ok: true, deleted: ['HUB-0002', 'SHOOTER-0001'] });
+  assert.equal(deletes().length, 1);
+  assert.deepEqual([...deletes()[0]!.args], ['["SHOOTER-0001","HUB-0002","HUB-9999"]']);
+}
+
 console.log('feedback ok');
