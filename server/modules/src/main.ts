@@ -306,6 +306,7 @@ function InitModule(
   initializer.registerRpc("feedback.admin.runs", rpcFeedbackAdminRuns);
   initializer.registerRpc("feedback.admin.claim", rpcFeedbackAdminClaim);
   initializer.registerRpc("feedback.admin.run", rpcFeedbackAdminRun);
+  initializer.registerRpc("feedback.admin.say", rpcFeedbackAdminSay);
   initializer.registerMatch("hub", {
     matchInit: hubInit,
     matchJoinAttempt: hubJoinAttempt,

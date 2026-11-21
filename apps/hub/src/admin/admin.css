@@ -105,6 +105,60 @@ pre { margin: 0; background: var(--field); border: 1px solid var(--line); border
 .runbar.done { border-color: var(--green); }
 .runbar.failed, .runbar.canceled { border-color: var(--red-2); }
 
+.livewrap { display: grid; gap: 8px; margin-bottom: 12px; }
+.livewrap:not(:has(> :not([hidden]))) { display: none; }
+.live, .runhistory { border: 1px solid var(--line-strong); border-radius: var(--r-s); background: var(--fill); padding: 9px 12px; font-size: 13px; }
+.live[hidden], .runhistory[hidden] { display: none; }
+.live > summary, .runhistory > summary, .steps > summary { cursor: pointer; color: var(--text-2); }
+.live > summary .livetitle { color: var(--text); font-weight: 600; }
+.live[open] > summary, .runhistory[open] > summary { margin-bottom: 8px; }
+.agents { display: grid; gap: 6px; margin-bottom: 8px; }
+.arow { border: 1px solid var(--line); border-radius: var(--r-s); padding: 7px 9px; display: grid; gap: 3px; background: var(--field); }
+.arow.working { border-color: color-mix(in srgb, var(--cyan) 55%, var(--line)); }
+.arow.failed { border-color: var(--red-2); }
+.ahead { display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; }
+.ahead .astate, .ahead .ameta { color: var(--text-2); font-size: 12px; }
+.ahead .ameta { margin-left: auto; font-variant-numeric: tabular-nums; }
+.ahead .btn.small { padding: 2px 8px; font-size: 12px; }
+.astep { color: var(--text-2); font-size: 12px; overflow-wrap: anywhere; }
+.adot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: var(--text-3); }
+.adot.working { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); animation: apulse 1.6s ease-in-out infinite; }
+.adot.queued { background: var(--gold); }
+.adot.done { background: var(--green); }
+.adot.failed { background: var(--red-2); }
+@keyframes apulse { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .adot.working { animation: none; } }
+.pill.notelink { background: none; color: var(--text-2); cursor: pointer; font-family: var(--mono); }
+.pill.notelink:hover { color: var(--cyan); border-color: var(--cyan); }
+.pill.agent { color: var(--cyan); border-color: var(--cyan); background: color-mix(in srgb, var(--cyan) 12%, transparent); }
+.prlink { color: var(--cyan); font-size: 12px; overflow-wrap: anywhere; }
+.steps { margin-bottom: 8px; }
+.steps[hidden] { display: none; }
+.steps .feed { margin-top: 6px; max-height: 200px; }
+.say { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: flex-end; }
+.say[hidden] { display: none; }
+.say label { display: grid; gap: 3px; font-size: 12px; color: var(--text-2); }
+.say .grow { flex: 1 1 320px; }
+.say textarea { min-height: 34px; resize: vertical; display: block; }
+.say .field[disabled] { opacity: 0.5; }
+.sayhint { color: var(--text-3); font-size: 12px; margin-top: 4px; }
+.sayhint.bad { color: var(--gold); }
+.sayhint[hidden], .said[hidden] { display: none; }
+.said { display: grid; gap: 4px; margin-top: 8px; }
+.omsg { display: grid; gap: 1px; border-left: 2px solid var(--line-strong); padding: 2px 0 2px 9px; }
+.omsg .mstate { font-size: 11px; color: var(--text-2); }
+.omsg .mbody { white-space: pre-wrap; overflow-wrap: anywhere; }
+.omsg.seen { border-left-color: var(--green); }
+.omsg.sent, .omsg.queued { border-left-color: var(--cyan); }
+.omsg.missed { border-left-color: var(--red-2); }
+.omsg.missed .mstate { color: var(--red-2); }
+.historylist { display: grid; gap: 8px; }
+.hrow { display: flex; flex-wrap: wrap; gap: 4px 12px; border-left: 2px solid var(--line-strong); padding-left: 9px; }
+.hrow span { color: var(--text-2); }
+.hrow .ask, .hrow .sum { flex-basis: 100%; white-space: pre-wrap; overflow-wrap: anywhere; }
+.hrow .sum { color: var(--text); }
+.hrow.done { border-left-color: var(--green); }
+.hrow.failed, .hrow.canceled { border-left-color: var(--red-2); }
 .worker { display: flex; align-items: center; gap: 8px; padding-right: 6px; margin-right: 2px; border-right: 1px solid var(--line); }
 .worker[hidden] { display: none; }
 .wdot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
