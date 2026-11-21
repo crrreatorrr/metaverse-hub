@@ -487,10 +487,28 @@ export async function work(run, client, opts) {
   let beating = false;
   /** Asked the hub for messages once more since the agent went idle, and got none. */
   let lastCall = false;
+  /**
+   * A hub from before the live view refuses a heartbeat as long as one with a report
+   * (`bad_json`). Its heartbeats must still get through, or it fails the run as stale: after the
+   * first refusal the worker reports to it without the activity.
+   */
+  let reports = true;
+  const send = async (body) => {
+    if (!reports) delete body.activity;
+    try {
+      return await client.rpc('feedback.admin.run', body);
+    } catch (error) {
+      if (!(error instanceof RpcError && error.code === 'bad_json' && body.activity)) throw error;
+      reports = false;
+      log(`run #${run.id}: this hub is older than the worker and takes no live report; the panel shows the latest step only`);
+      delete body.activity;
+      return client.rpc('feedback.admin.run', body);
+    }
+  };
   const tick = async () => {
     if (beating || exited) return;
     const progress = step && step !== shown ? `Working: ${step}` : '';
-    const report = activity.take();
+    const report = reports ? activity.take() : '';
     const idle = inputOpen && turnOver && awaiting.size === 0 && activity.working() === 0;
     const due = Date.now() - lastBeat >= opts.heartbeatMs;
     if (!progress && !report && !seen.size && !missed.size && !due && !inputOpen) return;
@@ -504,7 +522,7 @@ export async function work(run, client, opts) {
     if (acked.seen.length) body.seen = acked.seen;
     if (acked.missed.length) body.missed = acked.missed;
     try {
-      const answer = await client.rpc('feedback.admin.run', body);
+      const answer = await send(body);
       for (const id of acked.seen) seen.delete(id);
       for (const id of acked.missed) missed.delete(id);
       const messages = Array.isArray(answer?.messages) ? answer.messages : [];
@@ -570,7 +588,7 @@ export async function work(run, client, opts) {
   const summary = stopped ? `Stopped: ${stopped}. ${summaryOf(output, code)}` : summaryOf(output, code);
   try {
     // With the last report, so the panel keeps what each agent did, the pull requests and the cost.
-    await client.rpc('feedback.admin.run', { id: run.id, worker, state, summary: summary.slice(0, 1990), activity: JSON.stringify(activity.snapshot()), seen: [...seen], missed: [...missed, ...awaiting] });
+    await send({ id: run.id, worker, state, summary: summary.slice(0, 1990), activity: JSON.stringify(activity.snapshot()), seen: [...seen], missed: [...missed, ...awaiting] });
   } catch (error) {
     log(`run #${run.id}: could not report ${state}: ${error.message}`);
   }

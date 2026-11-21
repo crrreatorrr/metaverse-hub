@@ -414,4 +414,41 @@ createInterface({ input: process.stdin }).on('line', (line) => got.push(line)).o
   assert.ok(!calls2.some(([, body]) => (body.seen ?? []).length));
 }
 
+// A hub from before the live view refuses a heartbeat that carries a report (it is too long for
+// it). The worker then reports without one, so its heartbeats and its result still arrive.
+{
+  const dir = mkdtempSync(join(tmpdir(), 'fw-old-hub-'));
+  mkdirSync(join(dir, 'docs'));
+  writeFileSync(join(dir, 'docs', 'feedback-check.md'), `${PROMPT_MARK}\n`);
+  const agent = join(dir, 'agent.mjs');
+  writeFileSync(
+    agent,
+    `#!/usr/bin/env node
+import { createInterface } from 'node:readline';
+createInterface({ input: process.stdin }).once('line', () => {
+  process.stdout.write(JSON.stringify({ type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'tool_use', id: 't1', name: 'Bash', input: { description: 'List notes' } }] } }) + '\\n');
+  setTimeout(() => {
+    process.stdout.write(JSON.stringify({ type: 'result', subtype: 'success', result: 'SUMMARY: 1 resolved' }) + '\\n');
+  }, 150);
+}).on('close', () => process.exit(0));
+`,
+  );
+  chmodSync(agent, 0o755);
+  const { RpcError } = await import('./feedback-rpc.mjs');
+  const calls = [];
+  const client = {
+    rpc: async (id, body) => {
+      calls.push({ ...body });
+      if (body.activity) throw new RpcError('/v2/rpc/feedback.admin.run', 'bad_json', 'bad_json');
+      return { ok: true, run: {} }; // an older hub answers without `messages`
+    },
+  };
+  const opts = { worker: 'mac', dryRun: false, allowPrompt: true, agent, permissionMode: 'auto', hubRoot: dir, gamesDir: dir, logDir: join(dir, 'log'), heartbeatMs: 60000, tickMs: 40, idleCloseMs: 60000, maxMinutes: 5, model: '', config: { base: 'http://127.0.0.1:7350', serverKey: 'k' } };
+  await work({ id: 23, requestedBy: '333', requestedAt: 'now', noteCount: 1, prompt: '', model: '' }, client, opts);
+  // One refused heartbeat, then none carries a report again, and the result arrives.
+  assert.equal(calls.filter((body) => body.activity).length, 1);
+  assert.ok(calls.findIndex((body) => body.activity) < calls.findIndex((body) => !body.activity && body.summary === 'Working: Bash: List notes'));
+  assert.deepEqual(calls.at(-1), { id: 23, worker: 'mac', state: 'done', summary: '1 resolved', seen: [], missed: [] });
+}
+
 console.log('feedback worker ok');
