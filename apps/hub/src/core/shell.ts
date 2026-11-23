@@ -1516,8 +1516,11 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       showPlazaStatus('online', '');
       const syncRoster = () => {
         if (!plaza) return;
-        const ids = remoteWorld.selfRelics;
-        if (ids && (ids.length !== shownRelics.length || ids.some((id) => !shownRelics.includes(id)))) showRelics(ids);
+        // The roster can lag behind profile.get (a slot kept through a short portal trip still
+        // carries the list from before it), so it only ever adds Relics here. Taking its list
+        // as it was un-lit the socket and the HUD pip for a Relic the trip had just earned.
+        const fresh = (remoteWorld.selfRelics ?? []).filter((id) => !shownRelics.includes(id));
+        if (fresh.length) showRelics([...shownRelics, ...fresh]);
         showPlazaStatus(plazaState, plazaDetail);
       };
       remoteWorld.onRoster(syncRoster);

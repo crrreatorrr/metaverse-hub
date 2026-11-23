@@ -372,6 +372,18 @@ namespace HubMatch {
     var relicIds: string[] = [];
     for (var r = 0; r < fresh.length; r++) relicIds.push(fresh[r].userId);
     var relics = lookupRelics(nk, logger, relicIds);
+    // A portal trip shorter than the rejoin grace comes back to the same slot. Read that player's
+    // Relics again: the trip may have earned one, and the staggered refresh in the loop would
+    // leave the old list in the roster for up to 40 s. A failed read keeps what the slot has.
+    if (returning.length) {
+      var backIds: string[] = [];
+      for (var rb = 0; rb < returning.length; rb++) backIds.push(returning[rb].userId);
+      var backRelics = lookupRelics(nk, logger, backIds);
+      for (var rc = 0; rc < returning.length; rc++) {
+        var now = backRelics[returning[rc].userId];
+        if (now && !sameList(returning[rc].relics, now)) returning[rc].relics = now;
+      }
+    }
     var pets: { [userId: string]: string } = {};
     try {
       pets = HubPets.activePets(nk, relicIds, relics);
