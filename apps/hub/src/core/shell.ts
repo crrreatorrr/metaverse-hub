@@ -31,6 +31,7 @@ import { loadLook, saveLook, type AvatarLook } from '../look';
 import { MENU_TAB_ORDER, createMenu } from '../menu';
 import { createPetCollision } from './pet-collision';
 import { createPlanarSpeed } from './planar-speed';
+import { createFallGuard } from './fall-guard';
 import { DEFAULT_PET_ID, EQUIPPABLE_PET_IDS } from '../v2/pets';
 import { GAME_URLS, gameUrl, type GameUrlContext } from '../games';
 import { createExchangeKeys, exchangeErrorText, walletFromAnswer, type BalancesAnswer, type ExchangeAnswer, type WalletState } from '../wallet';
@@ -52,7 +53,7 @@ import { ONBOARDING_SEEN_KEY, onboardingFinished, onboardingStep, type Onboardin
 import { TRIP_KEY, encodeTrip, parseTrip, tripLines, tripSummary } from '../guide/trip';
 import { parseReturnGame } from '../travel';
 import { canEmote, emoteForKey, emoteLine, type EmoteId } from '../emotes';
-import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, withTimeout } from './launch-errors';
+import { LAUNCH_TIMEOUT_MS, OFFLINE_STATUS_TEXT, SERVER_SILENT_TEXT, SESSION_RETRY_MS, launchErrorText, restoreErrorText, withTimeout } from './launch-errors';
 import type { RealmDefinition, RealmContent } from './realm';
 
 /** loadout.set_hub reply (server/modules/src/pets.ts `ack`). */
@@ -165,6 +166,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   const initial = definition.spawn(window.location.hash);
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
   const planarSpeed = createPlanarSpeed(initial.x, initial.z);
+  const fallGuard = createFallGuard();
+  fallGuard.reset(initial.x, initial.y, initial.z);
   // Hub pet (M6). The Pets menu deploys one: it is saved with loadout.set_hub and comes back in
   // profile.get as pets.active, which wins once the profile loads. This browser keeps a copy for offline
   // development visits. New accounts and offline visits start with Pepe Bull. ?pet=<id> previews art in DEV.
@@ -623,6 +626,14 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     else pitch += cameraPitch.step(dt, MOVEMENT.pitchMin - pitch, MOVEMENT.pitchMax - pitch);
     const input = readInput(padMove);
     player.step(dt, input, { walk: WALK_SPEED, sprint: SPRINT_SPEED });
+    // Fell out of the walkable world (see fall-guard.ts): back to the last place they stood.
+    const rescue = fallGuard.step(player.position, player.grounded);
+    if (rescue) {
+      player.spawn(rescue.x, rescue.y, rescue.z, player.facingYaw);
+      planarSpeed.reset(rescue.x, rescue.z);
+      cameraTarget.reset();
+      cameraArm.reset();
+    }
     const inputAmount = Math.hypot(input.forward, input.strafe);
     const moving = inputAmount > 0;
     const requestedSpeed = Math.min(1, inputAmount) * (input.sprint ? SPRINT_SPEED : WALK_SPEED);
@@ -668,6 +679,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       cameraPreview.reset();
       preview = 0;
       player.spawn(warp.x, warp.y, warp.z, warp.yaw);
+      fallGuard.reset(warp.x, warp.y, warp.z);
       planarSpeed.reset(warp.x, warp.z);
       world.rig.position.copy(player.position);
       bodyYaw = player.facingYaw;
@@ -1398,7 +1410,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
           void startPlaza(session);
           code.hidden = true;
         } catch (error) {
-          note.textContent = error instanceof HubSdkError ? error.message : 'Could not restore that code';
+          note.textContent = restoreErrorText(error);
         }
       })();
     });

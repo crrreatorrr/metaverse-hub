@@ -5,6 +5,7 @@ import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 import { MeshBVH } from 'three-mesh-bvh';
 import { MOVEMENT } from '../src/core/movement';
 import { createPlanarSpeed } from '../src/core/planar-speed';
+import { FALL_RESCUE_DEPTH, createFallGuard } from '../src/core/fall-guard';
 import { buildPlazaCollider } from '../src/realms/plaza/plaza-collider';
 import { CAPSULE_LENGTH, CAPSULE_RADIUS, STAND_Y, createPlayerController } from '../src/physics';
 import { createFlightTurn } from '../src/rig/flight-turn';
@@ -293,3 +294,37 @@ const beforeRemoteLanding = coarseFlight.update({ dt: 0.0655, airborne: true, re
 assert.ok(beforeRemoteLanding < 0.55 && coarseFlight.needsRecovery, 'an uneven remote frame needs recovery even before mid-turn');
 coarseFlight.update({ dt: 0.05, airborne: false, remote: true }, 0);
 assert.equal(coarseFlight.needsRecovery, false);
+
+// A capsule pushed through the Bar's thin walls has no floor under it. The fall guard puts the
+// player back where they last stood instead of letting them fall for ever.
+{
+  const live = buildPlazaCollider();
+  const body = createPlayerController(live.bvh);
+  const guard = createFallGuard();
+  const floor = -300 + STAND_Y;
+  body.spawn(-6.76, floor, 6.76);
+  guard.reset(body.position.x, body.position.y, body.position.z);
+  for (let i = 0; i < 60; i++) {
+    body.step(1 / 60, idle, speeds);
+    assert.equal(guard.step(body.position, body.grounded), null, 'standing_in_the_bar_is_not_a_fall');
+  }
+  for (let i = 0; i < 60; i++) {
+    body.step(1 / 60, { ...idle, jump: i === 0 }, speeds);
+    assert.equal(guard.step(body.position, body.grounded), null, 'a_jump_is_not_a_fall');
+  }
+  const stood = { x: body.position.x, y: body.position.y, z: body.position.z };
+  // Outside the left wall (x > 5.25 * 1.3) there is nothing to land on.
+  body.spawn(8, floor, 6.76);
+  body.grounded = false;
+  let rescue: { x: number; y: number; z: number } | null = null;
+  let frames = 0;
+  while (!rescue && frames < 600) {
+    body.step(1 / 60, idle, speeds);
+    rescue = guard.step(body.position, body.grounded);
+    frames += 1;
+  }
+  assert.ok(rescue, 'an_endless_fall_is_rescued');
+  assert.ok(frames < 120, `rescued_within_two_seconds: ${frames} frames`);
+  assert.ok(body.position.y < floor - FALL_RESCUE_DEPTH);
+  assert.deepEqual(rescue, stood, 'rescued_to_the_last_place_stood');
+}
