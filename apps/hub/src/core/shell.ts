@@ -1013,7 +1013,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
             : entering && inside
               ? `${look}Entering ${inside.label}…`
               : near
-                ? `${look}Walk through the entrance to play ${near.label}`
+                ? `${look}Stand in the entrance to play ${near.label}`
                 : `${look}${usingPad ? padHint(moveStick) : CONTROLS_HINT}`;
     const shown = usingPad ? padPrompt(text) : text;
     if (hint.textContent !== shown) hint.textContent = shown;
