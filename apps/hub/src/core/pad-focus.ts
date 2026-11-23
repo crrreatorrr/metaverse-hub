@@ -57,6 +57,16 @@ export function focusablesIn(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(visible);
 }
 
+/** The nearest ancestor under `root` that scrolls vertically and has something to scroll. */
+function scrollerOf(node: HTMLElement, root: HTMLElement): HTMLElement | null {
+  for (let parent = node.parentElement; parent && parent !== root; parent = parent.parentElement) {
+    if (parent.scrollHeight <= parent.clientHeight + 1) continue;
+    const overflow = getComputedStyle(parent).overflowY;
+    if (overflow === 'auto' || overflow === 'scroll') return parent;
+  }
+  return null;
+}
+
 const RING = 'pad-focus';
 
 export interface PadFocus {
@@ -111,7 +121,17 @@ export function createPadFocus(): PadFocus {
         ring(node);
         return;
       }
-      let next = pickInDirection(list.map((item) => item.getBoundingClientRect()), from, dir);
+      // Inside a scrolling list, step through the list first. Rows scrolled out of view still have
+      // boxes, which overlap whatever sits under the list (the Resume button), so a plain
+      // geometric pick alternated between the list and that button.
+      let next = -1;
+      const scroller = dir === 'up' || dir === 'down' ? scrollerOf(node, root) : null;
+      if (scroller) {
+        const inside = list.filter((item) => scroller.contains(item));
+        const pick = pickInDirection(inside.map((item) => item.getBoundingClientRect()), inside.indexOf(node), dir);
+        if (pick >= 0) next = list.indexOf(inside[pick]);
+      }
+      if (next < 0) next = pickInDirection(list.map((item) => item.getBoundingClientRect()), from, dir);
       // Nothing that way geometrically: step through the tab order so long lists still scroll.
       if (next < 0 && (dir === 'down' || dir === 'right')) next = from + 1 < list.length ? from + 1 : -1;
       if (next < 0 && (dir === 'up' || dir === 'left')) next = from - 1;
