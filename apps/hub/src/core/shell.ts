@@ -1610,7 +1610,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
         return { id: result.id };
       },
     },
-    enabled: () => !gate.isOpen() && !traveling,
+    // Not while the 18+ question is up: N answers it ("no"), and feedback would swallow the key.
+    enabled: () => !gate.isOpen() && !traveling && !guide.confirmOpen,
     pause() {
       keys.clear();
       return false;
