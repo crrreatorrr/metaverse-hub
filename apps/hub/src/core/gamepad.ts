@@ -4,7 +4,8 @@
  *
  * It follows the shared Sproto controller convention in docs/controllers.md: W3C standard
  * mapping, polled every frame, buttons already held when a pad appears are ignored until they
- * are released (so the A press that confirmed a game's exit does not also fire in the plaza),
+ * are released (so the A press that confirmed a game's exit does not also fire in the plaza;
+ * a pad first seen after half a second of pad-less polling was revealed by a new press, which acts),
  * radial deadzones, and D-pad / left stick menu navigation with key-repeat style auto-repeat.
  */
 
@@ -45,6 +46,14 @@ export const PAD_TUNING = Object.freeze({
   lookCurve: 1.6,
   /** Avatar preview spin in the menu, radians per second. */
   previewSpinRate: 3,
+  /**
+   * A pad that appears after the page has polled this long, and at least `freshPressPolls` times,
+   * with no pad at all was revealed by a press made on this page, so that press acts. A pad that is
+   * there sooner (a button held across the page load shows it on the first samples) is latched.
+   * Polls and time both count, so a slow frame rate (a loading hitch, a weak GPU) still gets there.
+   */
+  freshPressAfterMs: 500,
+  freshPressPolls: 2,
 });
 export type PadTuning = typeof PAD_TUNING;
 
@@ -183,6 +192,9 @@ export function createPadReader(tuning: PadTuning = PAD_TUNING, options: PadRead
   let previous: boolean[] = new Array<boolean>(BUTTON_COUNT).fill(false);
   let navDir: NavDir | null = null;
   let navNext = 0;
+  /** When the current run of pad-less polls began, and how many polls it has had. */
+  let emptySince: number | null = null;
+  let emptyPolls = 0;
 
   function idle(): PadFrame {
     previous = new Array<boolean>(BUTTON_COUNT).fill(false);
@@ -228,6 +240,16 @@ export function createPadReader(tuning: PadTuning = PAD_TUNING, options: PadRead
         (pad): pad is PadSnapshot => Boolean(pad) && pad?.connected !== false,
       );
       const present = new Set(pads.map((pad) => pad.index));
+      // A browser hides a pad from a page until a button is pressed there. After enough pad-less
+      // polls, the buttons a new pad shows are that press, made here, and are not latched.
+      const fresh = emptySince !== null && emptyPolls >= tuning.freshPressPolls && now - emptySince >= tuning.freshPressAfterMs;
+      if (pads.length) {
+        emptySince = null;
+        emptyPolls = 0;
+      } else {
+        emptySince ??= now;
+        emptyPolls += 1;
+      }
       for (const index of [...known.keys()]) if (!present.has(index)) known.delete(index);
       lastHeld.clear();
       if (activeIndex !== null && !present.has(activeIndex)) activeIndex = null;
@@ -240,7 +262,7 @@ export function createPadReader(tuning: PadTuning = PAD_TUNING, options: PadRead
         lastHeld.set(pad.index, held);
         let latched = known.get(pad.index);
         if (!latched) {
-          latched = new Set(held.flatMap((down, index) => (down ? [index] : [])));
+          latched = new Set(fresh ? [] : held.flatMap((down, index) => (down ? [index] : [])));
           known.set(pad.index, latched);
         } else {
           for (const index of [...latched]) if (!held[index]) latched.delete(index);

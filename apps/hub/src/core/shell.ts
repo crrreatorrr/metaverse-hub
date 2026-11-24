@@ -817,6 +817,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   function readPad(frame: PadFrame, dt: number, pads: readonly unknown[]): PadMove {
     if (!frame.connected) {
       padRun = false;
+      // With no pad, the gate and a trip had nothing to hand over: the press that first shows a pad
+      // afterwards is the reader's to latch or not (gamepad.ts), not this frame's.
+      if (!gate.isOpen() && !traveling) padBlocked = false;
       return NO_PAD_MOVE;
     }
     if (frame.active && !usingPad) {
