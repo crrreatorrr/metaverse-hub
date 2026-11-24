@@ -86,6 +86,27 @@ assert.deepEqual(JSON.parse(boot[0]!.label), { game: 'hub', kind: 'hub', shard: 
   assert.equal(upd[0]!.body.upd[0]!.c, 'wizard');
   assert.equal(m.signal('status'), JSON.stringify({ shard: 7, players: 2, games: { nobu: 1 } }));
 
+  // A display name in PROFILE is what the roster shows; an empty or refused one gives the account name.
+  const slotOne = (m.state as { slots: { name: string; account?: string }[] }).slots[0]!;
+  const accountName = slotOne.name;
+  const rename = (name: unknown): string => {
+    m.ticks(20);
+    m.dispatcher.clear();
+    m.loop([{ sender: P(1), opCode: 5, data: { character: 'wizard', staff: 'oak', name } }]);
+    const sent = m.dispatcher.sent<{ upd?: { n: string }[] }>(4);
+    return sent.length ? sent[sent.length - 1]!.body.upd![0]!.n : '(no upd)';
+  };
+  assert.equal(rename('  Zed.  <b>the</b>   Great!! '), 'Zed btheb Gr', 'cleaned, single spaces, 12 characters');
+  assert.equal(slotOne.name, 'Zed btheb Gr');
+  assert.equal(rename('Neo'), 'Neo');
+  assert.equal(rename('Neo'), '(no upd)', 'the same name is not sent again');
+  assert.equal(rename('shit'), accountName, 'a name the chat filter masks falls back to the account name');
+  assert.equal(rename('Neo'), 'Neo');
+  assert.equal(rename(''), accountName);
+  assert.equal(rename(42), '(no upd)', 'a non-string name is ignored');
+  assert.equal(slotOne.account, accountName);
+  m.ticks(20);
+
   // Emote rate: 1 per second.
   m.dispatcher.clear();
   m.loop([{ sender: P(1), opCode: 6, data: { e: 'wave' } }]);

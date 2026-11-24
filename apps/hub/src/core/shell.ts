@@ -203,7 +203,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     if (id === activePet) return;
     activePet = id;
     showPet(id);
-    plaza?.profile({ character: look.character, staff: look.staff, pet: activePet });
+    plaza?.profile({ character: look.character, staff: look.staff, pet: activePet, name: look.name });
     menu.refreshPets();
   }
 
@@ -413,7 +413,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       look = next;
       world.setLook(look);
       saveLook(look);
-      plaza?.profile({ character: look.character, staff: look.staff, pet: activePet });
+      plaza?.profile({ character: look.character, staff: look.staff, pet: activePet, name: look.name });
     },
     onOpen() {
       keys.clear();
@@ -1483,6 +1483,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
           for (const p of remoteWorld.players.values()) if (p.name.toLowerCase() === lower) return p.userId;
           return null;
         },
+        nameOf(userId) {
+          return remoteWorld.byUser(userId)?.name ?? null;
+        },
         async report(userId, messageId, text) {
           await plaza!.realtime.rpc('chat.report', { channelId: channel.id, messageId, userId, text, reason: 'player_report' });
         },
@@ -1507,7 +1510,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
         },
       });
       void joinShardChat(session, plaza.room);
-      plaza.profile({ character: look.character, staff: look.staff, pet: activePet });
+      plaza.profile({ character: look.character, staff: look.staff, pet: activePet, name: look.name });
       // Another player's emote: a line over their head. Your own echo has no remote and is skipped
       // (it was shown when the key was pressed).
       plaza.onEmote((event) => {

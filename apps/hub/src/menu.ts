@@ -403,7 +403,7 @@ export function createMenu(options: MenuOptions): Menu {
     if (clean !== nameField.value) nameField.value = clean;
     update({ ...options.look(), name: clean.trim() }, false);
   });
-  const nameRow = labelled('Display name', nameField, 'Shown in front of your chat lines.');
+  const nameRow = labelled('Display name', nameField, 'Other players see this name over your avatar and in chat.');
 
   const auraRow = el('div', 'chip-row');
   const auraButtons = new Map<string, HTMLButtonElement>();

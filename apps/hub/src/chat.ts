@@ -34,6 +34,8 @@ export interface ChatConnection {
   selfId: string;
   /** Player name → userId (plaza roster or recent speakers), for /ignore and /report. */
   resolveName(name: string): string | null;
+  /** The name the plaza roster shows for a player (their display name), or null when they are not here. */
+  nameOf?(userId: string): string | null;
   report(userId: string, messageId: string, text: string): Promise<void>;
 }
 
@@ -280,9 +282,14 @@ export function createChat(options: ChatOptions): Chat {
       text: String(message.content.text ?? '').slice(0, 120),
     };
     if (!parsed.text) return;
-    speakers.set(message.username.toLowerCase(), { userId: message.senderId, messageId: message.messageId, text: parsed.text });
     const mine = message.senderId === connection?.selfId;
-    addLine(mine ? options.name() : message.username, parsed.text, live ? 'public' : 'history');
+    // A channel line carries the account name. Show the name the roster shows (the display name the
+    // player chose), and let /ignore and /report find the speaker by either.
+    const shown = mine ? options.name() : connection?.nameOf?.(message.senderId) || message.username;
+    const spoke = { userId: message.senderId, messageId: message.messageId, text: parsed.text };
+    speakers.set(message.username.toLowerCase(), spoke);
+    if (!mine) speakers.set(shown.toLowerCase(), spoke);
+    addLine(shown, parsed.text, live ? 'public' : 'history');
     if (!live) return;
     if (mine) float(parsed);
     else options.onRemoteLine?.(message.senderId, parsed);
