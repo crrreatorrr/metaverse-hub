@@ -202,6 +202,32 @@ console.log('hub match tests ok');
   }
 }
 
+// A trip shorter than the rejoin grace keeps the slot: the Relic it earned is in the roster at once.
+{
+  const trip = loadModule();
+  let owned: string[] = [];
+  trip.nk.onSql(/FROM game\.relic_claim WHERE user_id = ANY/, () => (owned.length ? [{ user_id: uid(9201), relics: JSON.stringify(owned) }] : []));
+  trip.nk.onSql(/AT TIME ZONE/, () => [{ result: '2026-11-19T00:00:00Z' }]);
+  const m = trip.startMatch('hub', { shard: '11' });
+  m.join([P(9201)], HUB);
+  const st = m.state as { slots: { relics: string[] }[] };
+  assert.deepEqual(plain(st.slots[0]!.relics), []);
+  m.leave([P(9201)]);
+  owned = ['tinubu_crown'];
+  m.ticks(5);
+  m.dispatcher.clear();
+  m.join([{ ...P(9201), sessionId: 'sess-9201b' }], HUB);
+  assert.deepEqual(plain(st.slots[0]!.relics), ['tinubu_crown'], 'a rejoin within grace re-reads Relics');
+  const snap = m.dispatcher.sent<{ you: number; roster: { u: string; r: string[] }[] }>(2);
+  assert.deepEqual(plain(snap[0]!.body.roster[0]!.r), ['tinubu_crown'], 'and the snapshot carries them');
+  // A failed read keeps the list the slot already has.
+  m.leave([{ ...P(9201), sessionId: 'sess-9201b' }]);
+  owned = [];
+  m.ticks(5);
+  m.join([{ ...P(9201), sessionId: 'sess-9201c' }], HUB);
+  assert.deepEqual(plain(st.slots[0]!.relics), ['tinubu_crown']);
+}
+
 // Pets: read in one batch at join, never in the loop; loadout.set_hub signals the shard (handoff §3.1).
 {
   const pets = loadModule();

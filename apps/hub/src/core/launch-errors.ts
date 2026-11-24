@@ -49,6 +49,22 @@ export function launchErrorText(error: unknown, label: string): string {
   return `Could not open ${label}.`;
 }
 
+/**
+ * The sentence shown in the Account panel when `recovery.redeem` fails. The server answers some
+ * refusals with the bare code as its message, which is not for players.
+ */
+export function restoreErrorText(error: unknown): string {
+  if (serverSilent(error)) return SERVER_SILENT_TEXT;
+  const code = field(error, 'code');
+  if (code === 'recovery_invalid') return 'That code is not valid. Check it and try again.';
+  if (code === 'recovery_same_account') return 'That code is for the guest you are already on.';
+  if (code === 'rate_limited') return 'Too many tries. Wait a minute and try again.';
+  const message = field(error, 'message');
+  // A real sentence from the server is kept; a bare code (no space) is not.
+  if (typeof message === 'string' && message.includes(' ')) return message;
+  return 'Could not restore that code.';
+}
+
 /** Rejects with `LaunchTimeoutError` when `promise` has not settled after `ms`. */
 export function withTimeout<T>(
   promise: Promise<T>,

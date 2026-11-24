@@ -302,6 +302,12 @@ function createGate(): Gate {
   form.addEventListener('submit', (event) => {
     void onSubmit(event);
   });
+  // On short windows a field's hint shows only while that field has focus (login.css). Pressing the
+  // submit button would take the focus, fold the hint and slide the button out from under the
+  // pointer, so the click never landed. Keep the focus where it is; the click still submits.
+  submit.addEventListener('mousedown', (event) => {
+    event.preventDefault();
+  });
   guestButton.addEventListener('click', () => {
     if (!busy) enter(chooseGuest(), 'Entering as a guest');
   });

@@ -312,6 +312,8 @@ button:disabled {
   background: var(--glass-strong);
   pointer-events: auto;
   animation: pop-in 160ms var(--ease);
+  /* Above the guide cards (first-visit, return, help), which share this corner. */
+  z-index: 3;
 }
 
 @keyframes pop-in {
@@ -2507,6 +2509,7 @@ button:disabled {
   place-items: center;
   background: rgba(2, 6, 30, 0.55);
   pointer-events: auto;
+  z-index: 4;
 }
 
 .guide-confirm-box {

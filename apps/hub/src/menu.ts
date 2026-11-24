@@ -736,6 +736,10 @@ export function createMenu(options: MenuOptions): Menu {
   function setTab(next: MenuTab): void {
     // Each page starts at its top; the body is shared between tabs.
     if (next !== tab) content.scrollTop = 0;
+    // Focus on the page being left would be lost when it hides, and the controller's focus ring
+    // would then restart from the first tab instead of the page just opened.
+    const active = document.activeElement;
+    const leavingPage = next !== tab && Boolean(bodies.get(tab)?.contains(active));
     tab = next;
     for (const [id, button] of tabButtons) {
       const on = id === next;
@@ -745,7 +749,7 @@ export function createMenu(options: MenuOptions): Menu {
     for (const [id, body] of bodies) body.hidden = id !== next;
     if ((next === 'wallet' || next === 'games') && open) refreshWallet();
     // Keep keyboard focus on the selected tab so the focus ring and the selection agree.
-    if (tabBar.contains(document.activeElement)) tabButtons.get(next)?.focus({ preventScroll: true });
+    if (leavingPage || tabBar.contains(active)) tabButtons.get(next)?.focus({ preventScroll: true });
   }
 
   function show(next: MenuTab = tab): void {

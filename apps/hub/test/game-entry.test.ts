@@ -23,7 +23,7 @@ import { buildingBoxColliders, buildingCylinderColliders } from '../src/realms/p
 import { pillarBoxes, spawnFor, spawnForArrival } from '../src/realms/plaza/layout';
 import { portalPosition } from '../src/layout';
 import { parseReturnGame, portalContaining } from '../src/travel';
-import { GATE_LOCKED_TEXT, LAUNCH_TIMEOUT_MS, LaunchTimeoutError, SERVER_SILENT_TEXT, launchErrorText, serverSilent, withTimeout } from '../src/core/launch-errors';
+import { GATE_LOCKED_TEXT, LAUNCH_TIMEOUT_MS, LaunchTimeoutError, SERVER_SILENT_TEXT, launchErrorText, restoreErrorText, serverSilent, withTimeout } from '../src/core/launch-errors';
 
 const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
 
@@ -220,6 +220,11 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(launchErrorText(sdkError('GATE_LOCKED', 'GATE_LOCKED', 400), 'NOBU'), GATE_LOCKED_TEXT);
   assert.equal(launchErrorText(sdkError('bad_game', 'unknown game', 400), 'Sproto Duel'), 'Could not open Sproto Duel.');
   assert.equal(launchErrorText('boom', 'Sproto Duel'), 'Could not open Sproto Duel.');
+  // A refused recovery code reads as a sentence, never as the server's bare error code.
+  assert.equal(restoreErrorText(sdkError('recovery_invalid', 'recovery_invalid')), 'That code is not valid. Check it and try again.');
+  assert.equal(restoreErrorText(sdkError('device_mismatch', 'Device is not on this account')), 'Device is not on this account');
+  assert.equal(restoreErrorText(sdkError('restore_failed', 'restore_failed')), 'Could not restore that code.');
+  assert.equal(restoreErrorText(new TypeError('Failed to fetch')), SERVER_SILENT_TEXT);
   assert.equal(serverSilent(sdkError('bad_game', 'unknown game', 400)), false);
   for (const text of [SERVER_SILENT_TEXT, GATE_LOCKED_TEXT, launchErrorText(sdkError('x', 'HTTP 404', 404), 'NOBU')]) {
     assert.equal(/HTTP|\b[45]\d\d\b|Nakama/.test(text), false, text);
