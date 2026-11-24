@@ -49,6 +49,7 @@ import { createPadFocus } from './pad-focus';
 import { loadInvertLook, lookVertical, saveInvertLook } from './look-settings';
 import { GAME_LIST, LAST_GAME_KEY, MATURE_OK_KEY, MATURE_QUESTION, gameInfo, needsMatureConfirm, parseLastGame, relicOfGame } from '../game-list';
 import { createHudGuide } from '../guide/hud';
+import { escAction } from './escape';
 import { ONBOARDING_SEEN_KEY, onboardingFinished, onboardingStep, type OnboardingState } from '../guide/onboarding';
 import { TRIP_KEY, encodeTrip, parseTrip, tripLines, tripSummary } from '../guide/trip';
 import { parseReturnGame } from '../travel';
@@ -301,6 +302,8 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
 
   const debug = import.meta.env.DEV ? createDebug() : null;
   let firstFrame = true;
+  /** The login gate and loading bar have gone: the player can see the plaza. */
+  let plazaShown = false;
 
   const chat = createChat({
     name: displayName,
@@ -389,6 +392,20 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   }
 
   const menu = createMenu({
+    // The HUD's Account and "?" buttons are mouse targets; a controller reaches them here.
+    // (The Relics count opens the Relics tab, which LB / RB already reach.)
+    footer: [
+      {
+        label: 'Account',
+        onClick: () => {
+          if (!setAccountOpen(true)) return;
+          menu.hide();
+          const panel = accountPanel();
+          if (usingPad && panel) padFocus.move(panel, 'down');
+        },
+      },
+      { label: 'How it works', onClick: () => { menu.hide(); guide.toggleHelp(true); } },
+    ],
     sims: () => simSettings,
     setSims(next) {
       if (next.speed !== simSettings.speed) sims.setSpeed(next.speed);
@@ -525,7 +542,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     // mouse and the page may never see it, so the lock loss opens the menu.
     if (ours || menu.open || chat.open || traveling || !document.hasFocus()) return;
     menuOpenedByLockAt = performance.now();
-    menu.show();
+    // The same Esc closes the "?" card first, like the key handler below.
+    if (guide.helpOpen) guide.toggleHelp(false);
+    else menu.show();
   });
 
   window.addEventListener('keydown', (event) => {
@@ -550,8 +569,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (document.pointerLockElement === canvas) return;
       if (performance.now() - menuOpenedByLockAt < 400) return;
       event.preventDefault();
-      if (menu.open) menu.hide();
-      else if (!isTypingTarget(event.target)) menu.show();
+      const action = escAction({ menuOpen: menu.open, helpOpen: guide.helpOpen, typing: isTypingTarget(event.target) });
+      if (action === 'close-menu') menu.hide();
+      else if (action === 'close-help') guide.toggleHelp(false);
+      else if (action === 'open-menu') menu.show();
       return;
     }
     if (isTypingTarget(event.target)) return;
@@ -698,6 +719,10 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       DefaultLoadingManager.onProgress = () => undefined;
       gate.ready();
     }
+    if (!plazaShown && !gate.isOpen()) {
+      plazaShown = true;
+      guide.plazaVisible();
+    }
     if (debug) {
       const calls = world.sceneDraws;
       fps = fps * 0.9 + (dt > 0 ? 0.1 / dt : 0);
@@ -822,6 +847,20 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       if (pickerKey) {
         content.handleKey?.(new KeyboardEvent('keydown', { code: pickerKey, key: pickerKey }));
         if (pickerKey === 'Enter') rumble(pads, pad.activeIndex);
+      }
+      return NO_PAD_MOVE;
+    }
+
+    // The Account panel (opened from the menu's Account button): the focus ring moves inside it,
+    // A presses, B or Menu closes it.
+    const account = accountPanel();
+    if (account && !account.hidden && !menu.open && !chat.open) {
+      if (frame.pressed(PAD.B) || frame.pressed(PAD.MENU)) {
+        setAccountOpen(false);
+        padFocus.clear();
+      } else {
+        if (frame.nav) padFocus.move(account, frame.nav);
+        if (frame.pressed(PAD.A)) padFocus.activate(account);
       }
       return NO_PAD_MOVE;
     }
@@ -1333,6 +1372,21 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     menu.setGuest(guestLabel);
   }
 
+  function accountPanel(): HTMLElement | null {
+    return document.querySelector<HTMLElement>('#account');
+  }
+
+  /** Opens or closes the Account panel. It stays shut (false) until the session has enabled its button. */
+  function setAccountOpen(open: boolean): boolean {
+    const toggle = document.querySelector<HTMLButtonElement>('#account-toggle');
+    const panel = accountPanel();
+    if (!toggle || !panel || (open && toggle.disabled)) return false;
+    panel.hidden = !open;
+    toggle.setAttribute('aria-expanded', String(open));
+    if (open) releasePointer();
+    return true;
+  }
+
   function bindAccount(session: HubSession): void {
     const toggle = document.querySelector('#account-toggle');
     const panel = document.querySelector('#account');
@@ -1372,8 +1426,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
     // A username account recovers with its password, so the guest recovery code is hidden.
     for (const node of panel.querySelectorAll<HTMLElement>('[data-guest-only]')) node.hidden = Boolean(session.username);
     toggle.addEventListener('click', () => {
-      panel.hidden = !panel.hidden;
-      toggle.setAttribute('aria-expanded', String(!panel.hidden));
+      setAccountOpen(panel.hidden);
       releasePointer();
     });
     create.addEventListener('click', () => {

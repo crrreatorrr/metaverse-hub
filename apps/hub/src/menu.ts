@@ -108,6 +108,8 @@ const PETS: readonly PetInfo[] = [
 ];
 
 export interface MenuOptions {
+  /** Extra buttons beside Resume, for HUD panels a controller cannot click (Account, the "?" card). */
+  footer?: readonly { label: string; onClick: () => void }[];
   look: () => AvatarLook;
   /** Apply and store a new look. */
   setLook: (look: AvatarLook) => void;
@@ -201,6 +203,12 @@ export function createMenu(options: MenuOptions): Menu {
   const foot = el('footer', 'menu-foot');
   const close = el('button', 'menu-close', 'Resume');
   close.type = 'button';
+  for (const extra of options.footer ?? []) {
+    const button = el('button', 'menu-close menu-foot-extra', extra.label);
+    button.type = 'button';
+    button.addEventListener('click', extra.onClick);
+    foot.append(button);
+  }
   foot.append(close);
 
   const tabBar = el('nav', 'menu-tabs');

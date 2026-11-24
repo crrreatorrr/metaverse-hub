@@ -1,4 +1,5 @@
 import { EXPLAINER, ONBOARDING_STEPS, type OnboardingView } from './onboarding';
+import { createCardTimer } from './trip-timer';
 import { markerOpacity, markerText, placeMarker, spreadMarkers, type MarkerMargins, type Waypoint } from './markers';
 
 /**
@@ -12,8 +13,10 @@ export interface HudGuide {
   /** The "?" explainer is open. */
   readonly helpOpen: boolean;
   toggleHelp(open?: boolean): void;
-  /** Show the return card for a while. */
+  /** Show the return card for a while. Its countdown waits for `plazaVisible`. */
   showTrip(title: string, lines: readonly string[], accent: string): void;
+  /** The plaza is on screen (the login gate and loading bar are gone): timed cards start counting. */
+  plazaVisible(): void;
   /** True while a card that B / Esc should close is up (first-visit card, help, return card). */
   readonly dismissable: boolean;
   /** Close the top dismissable card. Returns what was closed. */
@@ -102,11 +105,12 @@ export function createHudGuide(hud: HTMLElement, onDismissOnboarding: () => void
   const tripClose = el('button', 'guide-close', 'OK');
   tripClose.type = 'button';
   trip.append(tripTitle, tripList, tripClose);
-  let tripTimer: number | null = null;
+  const tripTimer = createCardTimer(TRIP_MS, () => {
+    trip.hidden = true;
+  }, { set: (run, ms) => window.setTimeout(run, ms), clear: (handle) => window.clearTimeout(handle as number) });
   const hideTrip = (): void => {
     trip.hidden = true;
-    if (tripTimer !== null) window.clearTimeout(tripTimer);
-    tripTimer = null;
+    tripTimer.cancel();
   };
   tripClose.addEventListener('click', hideTrip);
 
@@ -167,8 +171,10 @@ export function createHudGuide(hud: HTMLElement, onDismissOnboarding: () => void
       trip.style.setProperty('--accent', accent);
       tripList.replaceChildren(...lines.map((line) => el('li', '', line)));
       trip.hidden = false;
-      if (tripTimer !== null) window.clearTimeout(tripTimer);
-      tripTimer = window.setTimeout(hideTrip, TRIP_MS);
+      tripTimer.show();
+    },
+    plazaVisible() {
+      tripTimer.visible();
     },
     get dismissable() { return helpOpen || !trip.hidden || onboardingShown; },
     dismiss() {
