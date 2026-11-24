@@ -3,6 +3,7 @@
 import { MathUtils, Vector3, type Camera } from 'three';
 import type { ParsedChat } from './chat';
 import { STAND_Y } from './physics';
+import { stackBubbles, type BubbleBox } from './overhead-layout';
 
 const MAX_BUBBLES = 12;
 const RANGE = 40;
@@ -11,6 +12,9 @@ interface Bubble {
   node: HTMLDivElement;
   userId: string | null;
   left: number;
+  /** Unscaled size of the painted line, measured once per line (0 = not measured yet). */
+  w: number;
+  h: number;
 }
 
 export interface Overheads {
@@ -27,7 +31,7 @@ export function createOverheads(hud: HTMLElement): Overheads {
     node.hidden = true;
     node.setAttribute('aria-hidden', 'true');
     hud.append(node);
-    pool.push({ node, userId: null, left: 0 });
+    pool.push({ node, userId: null, left: 0, w: 0, h: 0 });
   }
 
   function paint(b: Bubble, parsed: ParsedChat): void {
@@ -50,6 +54,8 @@ export function createOverheads(hud: HTMLElement): Overheads {
     b.node.style.opacity = '1';
     b.node.style.visibility = 'hidden';
     b.node.hidden = false;
+    b.w = 0;
+    b.h = 0;
   }
 
   return {
@@ -60,6 +66,7 @@ export function createOverheads(hud: HTMLElement): Overheads {
       paint(b, parsed);
     },
     update(dt, camera, positionOf, viewport) {
+      const shown: { b: Bubble; scale: number; box: BubbleBox }[] = [];
       for (const b of pool) {
         if (!b.userId) continue;
         b.left -= dt;
@@ -83,8 +90,20 @@ export function createOverheads(hud: HTMLElement): Overheads {
         }
         b.node.style.visibility = 'visible';
         const scale = MathUtils.clamp(9 / Math.max(distance, 0.1), 0.6, 1.1);
-        b.node.style.transform = `translate(${((pos.x * 0.5 + 0.5) * viewport.width).toFixed(1)}px, ${((-pos.y * 0.5 + 0.5) * viewport.height).toFixed(1)}px) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
+        if (!b.w) {
+          b.w = b.node.offsetWidth;
+          b.h = b.node.offsetHeight;
+        }
+        // The node scales about its bottom centre (transform-origin), which is the point placed here.
+        const x = (pos.x * 0.5 + 0.5) * viewport.width;
+        const y = (-pos.y * 0.5 + 0.5) * viewport.height;
+        shown.push({ b, scale, box: { x, y, w: b.w * scale, h: b.h * scale } });
       }
+      // Speakers standing together: stack their lines instead of drawing them over each other.
+      const lift = stackBubbles(shown.map((entry) => entry.box));
+      shown.forEach(({ b, scale, box }, index) => {
+        b.node.style.transform = `translate(${box.x.toFixed(1)}px, ${(box.y - lift[index]!).toFixed(1)}px) translate(-50%, -100%) scale(${scale.toFixed(3)})`;
+      });
     },
   };
 }
