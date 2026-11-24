@@ -3,7 +3,7 @@ import { INTERSECTED, NOT_INTERSECTED, type MeshBVH } from 'three-mesh-bvh';
 import { PET_SCALE, type PetCollision } from './pet-motion';
 
 /** Small capsule against the realm's existing BVH, with reusable shapecast callbacks. */
-export function createPetCollision(bvh: MeshBVH): PetCollision {
+export function createPetCollision(bvh: MeshBVH, solids?: MeshBVH): PetCollision {
   const segment = new Line3();
   const bounds = new Box3();
   const surface = new Vector3();
@@ -27,13 +27,16 @@ export function createPetCollision(bvh: MeshBVH): PetCollision {
     segment.end.copy(segment.start).y += 0.15 * PET_SCALE;
     bounds.makeEmpty().expandByPoint(segment.start).expandByPoint(segment.end).expandByScalar(radius);
     bvh.shapecast(callbacks);
+    solids?.shapecast(callbacks);
     position.set(segment.start.x, segment.start.y - radius - 0.01, segment.start.z);
   };
-  resolve.blocked = (box, transform) => bvh.intersectsBox(box, transform);
+  resolve.blocked = (box, transform) => bvh.intersectsBox(box, transform) || Boolean(solids?.intersectsBox(box, transform));
   resolve.beamRange = (origin, direction, range) => {
     ray.set(origin, direction);
     const hit = bvh.raycastFirst(ray, DoubleSide, 0, range);
-    return hit ? Math.max(0, hit.distance - 0.005) : range;
+    const other = solids?.raycastFirst(ray, DoubleSide, 0, range);
+    const distance = Math.min(hit ? hit.distance : Infinity, other ? other.distance : Infinity);
+    return Number.isFinite(distance) ? Math.max(0, distance - 0.005) : range;
   };
   return resolve;
 }

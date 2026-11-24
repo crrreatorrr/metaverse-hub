@@ -39,9 +39,10 @@ export interface PlayerController {
  * The origin matches the three-mesh-bvh character example: segment start is
  * the player position, segment end hangs down by CAPSULE_LENGTH, and the
  * radius pads both ends. Horizontal motion is a position delta; gravity
- * lives in velocity so a grounded landing can zero it.
+ * lives in velocity so a grounded landing can zero it. `solids` is a second
+ * tree of obstacles (Collider.solids), visited after `bvh`.
  */
-export function createPlayerController(bvh: MeshBVH): PlayerController {
+export function createPlayerController(bvh: MeshBVH, solids?: MeshBVH): PlayerController {
   const position = new Vector3(0, STAND_Y, 0);
   const velocity = new Vector3();
   const lastGood = new Vector3().copy(position);
@@ -102,7 +103,7 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
       ceilingY = Infinity;
       floorContact = false;
       wallLift = false;
-      bvh.shapecast({
+      const contacts: Parameters<MeshBVH['shapecast']>[0] = {
         intersectsBounds,
         intersectsTriangle: (tri) => {
           const distance = tri.closestPointToSegment(tempSegment, triPoint, capsulePoint);
@@ -147,7 +148,9 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
           }
           return false;
         },
-      });
+      };
+      bvh.shapecast(contacts);
+      solids?.shapecast(contacts);
     }
     separate(false);
     // A closed ledge's side may resolve before its top face is visited.
@@ -155,12 +158,13 @@ export function createPlayerController(bvh: MeshBVH): PlayerController {
     // as a wall only. The extra query is limited to ambiguous edge contacts.
     let supportedEdge = false;
     if (wallLift && !floorContact) {
-      supportedEdge = bvh.shapecast({
+      const support: Parameters<MeshBVH['shapecast']>[0] = {
         intersectsBounds,
         intersectsTriangle: (tri) => Math.abs(tri.getNormal(normal).y) >= 0.45 &&
           tri.closestPointToSegment(incomingSegment, triPoint, capsulePoint) < CAPSULE_RADIUS &&
           capsulePoint.y <= incomingSegment.end.y + 1e-6 && capsulePoint.y > triPoint.y,
-      });
+      };
+      supportedEdge = bvh.shapecast(support) || Boolean(solids?.shapecast(support));
       if (!supportedEdge) separate(true);
     }
 

@@ -154,7 +154,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   });
   const world = Object.defineProperties(Object.create(engine), Object.getOwnPropertyDescriptors(content)) as typeof engine & RealmContent;
   const PORTALS = content.portals ?? [];
-  const petCollision = createPetCollision(world.collider.bvh);
+  const petCollision = createPetCollision(world.collider.bvh, world.collider.solids);
   engine.setPetCollision(petCollision);
   engine.loadAvatar();
   document.documentElement.dataset.realm = definition.id;
@@ -162,7 +162,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
   hint.textContent = `Click to look  ·  ${CONTROLS_HINT}`;
   app.prepend(world.renderer.domElement);
 
-  const player = createPlayerController(world.collider.bvh);
+  const player = createPlayerController(world.collider.bvh, world.collider.solids);
   const initial = definition.spawn(window.location.hash);
   player.spawn(initial.x, initial.y, initial.z, initial.yaw);
   const planarSpeed = createPlanarSpeed(initial.x, initial.z);
@@ -913,7 +913,9 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       rayDir.multiplyScalar(1 / len);
       ray.origin.copy(playerLookTarget);
       ray.direction.copy(rayDir);
-      const hit = world.collider.bvh.raycastFirst(ray, DoubleSide);
+      const first = world.collider.bvh.raycastFirst(ray, DoubleSide);
+      const solid = world.collider.solids?.raycastFirst(ray, DoubleSide);
+      const hit = solid && (!first || solid.distance < first.distance) ? solid : first;
       const clearance = hit && hit.distance < len ? Math.max(0.05, hit.distance - MOVEMENT.armOffset) / len : 1;
       const fraction = cameraArm.step(dt, clearance);
       out.copy(playerLookTarget).addScaledVector(rayDir, len * fraction);
