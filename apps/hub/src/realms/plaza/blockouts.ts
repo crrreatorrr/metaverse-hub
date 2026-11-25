@@ -65,9 +65,9 @@ function piecesFor(portal: PortalConfig): Piece[] {
   if (portal.id === 'peoples-bitcoin') return whiteHouse();
   // The fifth ring is the Bahamas club avenue. These blockouts are collision
   // only, and castle() would put an invisible wall on the way to the Bar door.
-  // The shooter gate is the neon portal already built for that slot. Open World stands beside it
-  // on the same avenue, so it gets no shell either.
-  if (portal.id === 'sproto-shooter' || portal.id === 'sproto-open-world') return [];
+  // The shooter gate is the neon portal already built for that slot. Open World and Racer stand
+  // beside it on the same avenue, so they get no shell either.
+  if (portal.id === 'sproto-shooter' || portal.id === 'sproto-open-world' || portal.id === 'sproto-racer') return [];
   return castle();
 }
 

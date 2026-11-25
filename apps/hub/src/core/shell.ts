@@ -1226,6 +1226,7 @@ export async function startRealm(definition: RealmDefinition): Promise<void> {
       'sproto-arcade': import.meta.env.VITE_GAME_URL_SPROTO_ARCADE,
       'sproto-shooter': import.meta.env.VITE_GAME_URL_SPROTO_SHOOTER,
       'sproto-open-world': import.meta.env.VITE_GAME_URL_SPROTO_OPEN_WORLD,
+      'sproto-racer': import.meta.env.VITE_GAME_URL_SPROTO_RACER,
     },
   };
 

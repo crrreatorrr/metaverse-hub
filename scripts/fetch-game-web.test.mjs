@@ -56,6 +56,10 @@ try {
   assert.equal(GAMES['sproto-open-world'].entry, 'ring');
   assert.equal(GAMES['sproto-open-world'].artifact, undefined);
   assert.equal(GAMES['sproto-open-world'].pages, undefined);
+  assert.equal(GAMES['sproto-racer'].repo, 'crrreatorrr/Sproto-Racer');
+  assert.equal(GAMES['sproto-racer'].entry, 'ring');
+  assert.equal(GAMES['sproto-racer'].artifact, undefined);
+  assert.equal(GAMES['sproto-racer'].pages, undefined);
   assert.equal(GAMES['sproto-fighter'].entry, 'cabinet');
   assert.equal(GAMES['sproto-arcade'].entry, 'cabinet');
   assert.equal(GAMES['hpos10i'].entry, 'ring');

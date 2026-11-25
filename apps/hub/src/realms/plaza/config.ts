@@ -13,6 +13,11 @@ export const RANGE_ANGLE = 3 * PLAZA_SLOT + PLAZA_YAW;
  * (lower angle). The Bar's fence gap is on the other side, so the door path stays clear.
  */
 export const OPEN_WORLD_ARC = 10;
+/**
+ * Sproto Racer stands this many metres of arc past Open World, further toward Green Hill.
+ * The Bar's fence gap stays on the far side of the Range.
+ */
+export const RACER_ARC = 10;
 
 export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'hpos10i', label: 'HPOS10I', place: 'Green Hill Zone', angle: 2 * PLAZA_SLOT + PLAZA_YAW, color: '#39ff6a' },
@@ -23,6 +28,8 @@ export const PORTALS: readonly PortalConfig[] = [
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-shooter', label: 'Sproto Shooter', place: 'The Range', angle: 3 * PLAZA_SLOT + PLAZA_YAW, color: '#ff5ec4' },
   // Sixth ring, beside the Range on the same 96 m circle. Like every ring it faces the statue.
   { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-open-world', label: 'Sproto Open World', place: 'Sproutvale', angle: RANGE_ANGLE - OPEN_WORLD_ARC / PORTAL_DISTANCE, color: '#a6ff4d' },
+  // Seventh ring, 10 m of arc past Open World on the same 96 m circle. Like every ring it faces the statue.
+  { distance: PORTAL_DISTANCE, triggerRadius: PORTAL_TRIGGER_RADIUS, id: 'sproto-racer', label: 'Sproto Racer', place: 'The Paddock', angle: RANGE_ANGLE - (OPEN_WORLD_ARC + RACER_ARC) / PORTAL_DISTANCE, color: '#19d3c5' },
 ];
 
 /**

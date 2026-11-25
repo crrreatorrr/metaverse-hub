@@ -23,7 +23,7 @@ interface Person {
   pb_total_xp: number;
   sproto_wins: number;
   /** Sample rows cover the four original ring games, the ones with Verse figures. */
-  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade' | 'sproto-shooter' | 'sproto-coop-battle' | 'sproto-open-world'>, number>;
+  verse: Record<Exclude<GameId, 'sproto-fighter' | 'sproto-arcade' | 'sproto-shooter' | 'sproto-coop-battle' | 'sproto-open-world' | 'sproto-racer'>, number>;
 }
 
 const PEOPLE: readonly Person[] = [

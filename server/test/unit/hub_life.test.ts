@@ -26,8 +26,8 @@ interface Champions { champions: { order: number; userId: string; name: string }
   });
   const first = mod.call<Presence>('hub.presence', hub, {});
   assert.deepEqual(plain(first.counts), {
-    hpos10i: 0, nobu: 3, 'peoples-bitcoin': 0, sproto: 0, 'sproto-fighter': 0, 'sproto-arcade': 0, 'sproto-shooter': 0, 'sproto-coop-battle': 2, 'sproto-open-world': 0,
-  }, 'all nine games, unknown ids dropped, junk clamped');
+    hpos10i: 0, nobu: 3, 'peoples-bitcoin': 0, sproto: 0, 'sproto-fighter': 0, 'sproto-arcade': 0, 'sproto-shooter': 0, 'sproto-coop-battle': 2, 'sproto-open-world': 0, 'sproto-racer': 0,
+  }, 'all ten games, unknown ids dropped, junk clamped');
   assert.equal(first.windowMinutes, 30);
   rows = [{ game_id: 'nobu', n: 99 }];
   assert.equal(mod.call<Presence>('hub.presence', hub, {}).counts.nobu, 3, 'cached: the second call does not query');

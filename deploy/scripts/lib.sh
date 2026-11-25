@@ -41,10 +41,10 @@ read_env() {
 
 assert_game_id() {
   case "$1" in
-    hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade|sproto-shooter|sproto-coop-battle|sproto-open-world) ;;
+    hpos10i|nobu|peoples-bitcoin|sproto-duel|sproto-fighter|sproto-arcade|sproto-shooter|sproto-coop-battle|sproto-open-world|sproto-racer) ;;
     *)
       echo "unknown game id: $1" >&2
-      echo "expected hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-fighter, sproto-arcade, sproto-shooter, sproto-coop-battle, or sproto-open-world" >&2
+      echo "expected hpos10i, nobu, peoples-bitcoin, sproto-duel, sproto-fighter, sproto-arcade, sproto-shooter, sproto-coop-battle, sproto-open-world, or sproto-racer" >&2
       return 1
       ;;
   esac

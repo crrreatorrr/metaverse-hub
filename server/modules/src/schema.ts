@@ -3933,6 +3933,8 @@ namespace HubSchema {
   // 0077_sproto_open_world is registered from src/games/sproto_open_world.ts. It widens game_session,
   // auth_ticket, play_lease.surface and game.claim_play_lease for sproto-open-world. No Relic,
   // Ticket or score row.
+  // 0081_sproto_racer is registered from src/games/sproto_racer.ts. It widens those same checks
+  // for sproto-racer. No Relic, Ticket or score row. A session reads the account's existing Relics.
   // 0078_shooter_campaign_sidearms is registered from src/games/shooter_verification_lifecycle_schema.ts.
   // Shooter #158 added sidearms and melee to the campaign sim, so it moves that allowlist onto
   // fd97966 / 63c65024 and the campaign fingerprint from 73c6eb0f to dfb46fb6 in issue, private

@@ -13,11 +13,11 @@ import { gameUrl } from '../src/games';
 import { createCardTimer } from '../src/guide/trip-timer';
 import { escAction } from '../src/core/escape';
 
-// ---------- D3: the Games tab lists all nine, with the plaza's own labels and colours.
-// Sproto Open World is the one game with no Relic.
+// ---------- D3: the Games tab lists all ten, with the plaza's own labels and colours.
+// Sproto Open World and Sproto Racer grant no Relic.
 {
   assert.deepEqual([...GAME_LIST.map((game) => game.id)].sort(), [...GAME_IDS].sort());
-  assert.equal(GAME_LIST.length, 9);
+  assert.equal(GAME_LIST.length, 10);
   for (const portal of PORTALS) {
     const info = gameInfo(portal.id);
     assert.equal(info?.label, portal.label, portal.id);
@@ -31,7 +31,7 @@ import { escAction } from '../src/core/escape';
   for (const game of GAME_LIST) {
     assert.ok(game.blurb.length > 8 && game.goal.length > 8, game.id);
     assert.equal(relicOfGame(game.id), RELIC_BY_GAME[game.id], `${game.id} Relic matches the SDK`);
-    if (game.id === 'sproto-open-world') assert.equal(relicOfGame(game.id), undefined);
+    if (game.id === 'sproto-open-world' || game.id === 'sproto-racer') assert.equal(relicOfGame(game.id), undefined);
     else assert.ok(relicOfGame(game.id), `${game.id} has a Relic`);
     // Rows resolve through gameUrl: a page in dev, "Coming soon" when the page is unset.
     assert.equal(gameUrl(game.id, { dev: true, overrides: { [game.id]: '' } }), null, `${game.id} unset page is Coming soon`);
@@ -146,10 +146,10 @@ import { escAction } from '../src/core/escape';
   assert.equal(ys[1], 302, 'the nearer label stays');
   assert.ok(Math.abs(ys[0]! - ys[1]!) >= 24, 'the farther label moves clear');
   assert.equal(ys[2], 300, 'a label with room is untouched');
-  // From spawn: six gates and the Bar, seven labels, no two overlapping after the spread.
+  // From spawn: seven gates and the Bar, eight labels, no two overlapping after the spread.
   const spawn = { x: 0, z: SPAWN_DISTANCE };
   const points = [...PORTALS.map((portal) => ({ ...portalPosition(portal.angle, portal.distance), label: portal.label })), { ...portalPosition(PORTALS[4]!.angle, 113), label: BAR_MARKER_LABEL }];
-  assert.equal(points.length, 7);
+  assert.equal(points.length, 8);
   // Camera at the spawn looking north (toward -z), eye 3 m up: camera space is (x, y - 3, z - spawn.z).
   const placed = points.map((point) => {
     const cam = { x: point.x - spawn.x, y: 5.4 - 3, z: point.z - spawn.z };

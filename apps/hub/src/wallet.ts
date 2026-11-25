@@ -6,7 +6,7 @@ import { TICKETS_PER_VERSE, VERSE_DAILY_CAP, type GameId } from '@metaverse/hub-
  * decides every amount; this only works out what to offer and keeps retry keys.
  */
 
-/** The eight games with a Ticket wallet, in menu order. Matches `HubRpc.WALLET_GAMES` on the server. Sproto Open World earns no Tickets and has no row. */
+/** The eight games with a Ticket wallet, in menu order. Matches `HubRpc.WALLET_GAMES` on the server. Sproto Open World and Sproto Racer earn no Tickets and have no row. */
 export const WALLET_GAMES: readonly { id: GameId; label: string }[] = [
   { id: 'hpos10i', label: 'HPOS10I' },
   { id: 'nobu', label: 'NOBU: Saviour Dog' },

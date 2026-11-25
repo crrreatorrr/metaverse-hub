@@ -1,6 +1,6 @@
 # Cross-repo contracts
 
-This page indexes what the hub and the nine games depend on each other for. It lists:
+This page indexes what the hub and the ten games depend on each other for. It lists:
 
 - the numbered contracts C1–C14 that code comments cite
 - what each kind of change forces in other repos
@@ -35,7 +35,7 @@ The numbers come from the frozen "CONTRACT" section of the hub's realtime plan. 
 
 ## 2. Change matrix
 
-### `packages/hub-sdk` changes → re-sync all 8 games
+### `packages/hub-sdk` changes → re-sync all 10 games
 
 Every game keeps its own vendored copy in `vendor/hub-sdk`, which `VENDOR.md` describes. SDK changes are additive only: new fields and methods are optional, so old copies keep working. Release order: merge here first, then re-vendor from hub `main`, one game per PR.
 
@@ -57,6 +57,7 @@ Then in each game: `npm run vendor:sdk -- <game-repo>` (`scripts/vendor-sdk.mjs`
 | Sproto Shooter | the vendor script. The game imports the ESM build. Keep `VENDOR.md` and `SOURCE.pin.json` together. |
 | Sproto Coop Battle | the vendor script. The game loads the IIFE (global `HubSDK`). `scripts/build.mjs` refuses a copy whose version or hash differs from `SOURCE.pin.json`, so update `scripts/build.mjs` and `docs/coop-hub.md` too. |
 | Sproto Open World | Its `vendor/hub-sdk/VENDOR.md`. The game imports only the `/feedback` and `/core` entries. It needs 0.10.0 or later for its own game id. |
+| Sproto Racer | Its `vendor/hub-sdk/VENDOR.md`. The game vendors 0.10.0 today and needs 0.11.0 for its own game id. It uses the session, the cloud save and feedback. `init` reads the account's existing Relics. It grants none of its own. |
 
 In-game feedback (`docs/feedback.md`) lives in the SDK from 0.7.0. Each game calls `installFeedback` with its own pause, context and theme adapter; the window, the screenshot and the transport come from the vendored copy.
 
@@ -130,7 +131,8 @@ Sproto Duel's online 1v1 is hosted, but as a relay and referee (`games/sproto_ar
 | 0078 | sproto-shooter | `games/shooter_verification_lifecycle_schema.ts` | `0078_shooter_campaign_sidearms` (live allowlist matches campaign bundle `63c65024…` / `dfb46fb6` from `fd97966`; campaign fingerprint moves from `73c6eb0f` in issue, private work, verified settlement and `settle_shooter_clear`; Arena fingerprint `e749d2fd`, sha256 `2959802d…`; no row or amount changes) |
 | 0079 | hub | `games/hub_feedback.ts` | `0079_feedback_check_prompt` (a check run keeps the owner's prompt and the model picked beside Check: `feedback_run.prompt`, `feedback_run.model`) |
 | 0080 | hub | `games/hub_feedback.ts` | `0080_feedback_run_live` (a check run's live report and the owner's messages to it: `feedback_run.activity`, `feedback_run.steer`, `game.feedback_run_message`) |
-| 0081+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
+| 0081 | sproto-racer | `games/sproto_racer.ts` | `0081_sproto_racer` (widens `game_session`, `auth_ticket`, `play_lease.surface` and `game.claim_play_lease`; no Relic, Ticket or score row; a session reads the account's existing Relics) |
+| 0082+ | next free | | `docs/migration-allocations.md` is the list of record; check open PRs before taking an id |
 
 The game ranges (0013–0029) predate the runner's ordering rule. A game that needs a new migration now takes the next id above the highest recorded one, as 0039–0044 did.
 
@@ -147,6 +149,7 @@ The game ranges (0013–0029) predate the runner's ordering rule. A game that ne
 | Sproto Arcade | `sproto-arcade` | Bar cabinet (`sproto-arcade`); the page with `#t=` is `legacy.html` | crrreatorrr/Sproto-Arcade | `arcade-sim.server.js` (not vendored: `sproto_arcade_coop` is a lockstep relay and runs no sim; `3f198d98` builds `ARCADE_SIM_VERSION` `947909cee9b92309`, sha256 `3122e67f8b4952851470dca488779e55d91036fb931da7c51adb2fbe5b56c12d`, 1.2 MB, with `ArcadeSim.coop`) | no |
 | Sproto Coop Battle | `sproto-coop-battle` | Bar cabinet (`sproto-coop-battle`) | crrreatorrr/Sproto-Coop-Battle. | `coop-sim.js` | **yes**: `sproto_coop` match (banked four-seat play), `coop.*` RPCs |
 | Sproto Open World | `sproto-open-world` | ring, Sproutvale beside The Range (`sproto-open-world`) | crrreatorrr/Sproto-Open-World | none | no: session, `save.get` / `save.put`, `session.close`, lease, presence and feedback only. No Relic, Tickets or boards |
+| Sproto Racer | `sproto-racer` | ring, The Paddock beside Sproutvale (`sproto-racer`) | crrreatorrr/Sproto-Racer | none | no Relic of its own: session, `save.get` / `save.put` (time-trial records, under 16384 bytes), `session.close`, lease, presence and feedback. `profile.get` / `init` return the Relics the account already owns. No Tickets or boards. Car and character unlocks are not mapped here |
 
 Portal pages are resolved in `apps/hub/src/games.ts`. The rings and cabinet choices are in `apps/hub/src/realms/plaza/config.ts`. `scripts/fetch-game-web.mjs` pulls the dev builds.
 

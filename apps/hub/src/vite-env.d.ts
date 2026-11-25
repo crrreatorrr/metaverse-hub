@@ -13,6 +13,7 @@ interface ImportMetaEnv {
   readonly VITE_GAME_URL_SPROTO_SHOOTER?: string;
   readonly VITE_GAME_URL_SPROTO_COOP_BATTLE?: string;
   readonly VITE_GAME_URL_SPROTO_OPEN_WORLD?: string;
+  readonly VITE_GAME_URL_SPROTO_RACER?: string;
 }
 
 /** Inlined by vite.config.ts (server-key.ts). A non-development build fails if VITE_NAKAMA_SERVER_KEY is empty. */
