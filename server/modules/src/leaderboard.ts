@@ -17,7 +17,7 @@
 namespace HubBoards {
 
   var UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true, "sproto-open-world": true };
+  var GAMES: { [id: string]: boolean } = { hpos10i: true, nobu: true, "peoples-bitcoin": true, sproto: true, "sproto-fighter": true, "sproto-arcade": true, "sproto-shooter": true, "sproto-coop-battle": true, "sproto-open-world": true, "sproto-racer": true };
   var BOARD_GAME: { [id: string]: string } = {
     hpos10i_act_time: "hpos10i",
     nobu_trial_time: "nobu",

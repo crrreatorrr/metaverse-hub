@@ -3,8 +3,9 @@
 // Neither id can mint Tickets or scores from the client, and 0039 itself grants no Relic.
 // Their Relics (Marina Anchor, Dragon Scale) come from 0045; see server/test/games/stage_relics.test.ts.
 // vcoin stays on the session and ticket checks. Sproto Open World (0077, a ring beside the Range)
-// goes through the same portal, redeem, no-earn and travel paths; its own file is
-// server/test/games/sproto_open_world.test.ts.
+// and Sproto Racer (0081, a ring past Open World) go through the same portal, redeem, no-earn
+// and travel paths. Their own files are server/test/games/sproto_open_world.test.ts and
+// server/test/games/sproto_racer.test.ts.
 // server/test/unit/run.ts globs this file; it does not need its own runner entry.
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
@@ -23,6 +24,8 @@ const KEPT = ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 
 const ADDED = ['sproto-shooter', 'sproto-coop-battle'];
 /** Registered after 0039 with no Relic: 0077 widens its session and ticket checks. */
 const LATER = ['sproto-open-world'];
+/** Registered after 0077 with no Relic of its own: 0081 widens its session and ticket checks. */
+const RACER = ['sproto-racer'];
 
 const mod = loadModule();
 mod.nk.onSql(/epoch FROM now\(\)/, () => [{ ms: String(NOW) }]);
@@ -124,10 +127,17 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   const listed = plain((mod.global.HubGames as { list(): string[] }).list());
   assert.ok(listed.includes('sproto-shooter'));
   assert.ok(listed.includes('sproto-open-world'));
+  assert.ok(listed.includes('sproto-racer'));
   const world = all.find((row) => row.id === '0077_sproto_open_world');
   assert.ok(world, 'migration 0077 registered');
   assert.ok(ids.indexOf('0077_sproto_open_world') > ids.indexOf('0039_sproto_shooter_coop'));
   for (const id of [...KEPT, ...ADDED, ...LATER]) assert.match(world.statements.join('\n'), new RegExp(`'${id}'`));
+  const racer = all.find((row) => row.id === '0081_sproto_racer');
+  assert.ok(racer, 'migration 0081 registered');
+  assert.equal(ids.filter((id) => id.startsWith('0081_')).length, 1);
+  assert.ok(ids.indexOf('0081_sproto_racer') > ids.indexOf('0080_feedback_run_live'));
+  assert.ok(ids.indexOf('0081_sproto_racer') > ids.indexOf('0077_sproto_open_world'));
+  for (const id of [...KEPT, ...ADDED, ...LATER, ...RACER]) assert.match(racer.statements.join('\n'), new RegExp(`'${id}'`));
   assert.ok(listed.includes('sproto-coop-battle'));
   assert.equal(listed.filter((id) => id === 'sproto-shooter').length, 1);
   assert.equal(listed.filter((id) => id === 'sproto-coop-battle').length, 1);
@@ -141,6 +151,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   assert.match(games, /id: 'sproto-fighter',\s*slug: 'sproto-fighter',\s*env: 'VITE_GAME_URL_SPROTO_FIGHTER',\s*entry: 'cabinet'/);
   assert.match(games, /id: 'sproto-arcade',\s*slug: 'sproto-arcade',\s*env: 'VITE_GAME_URL_SPROTO_ARCADE',\s*entry: 'cabinet'/);
   assert.match(games, /id: 'sproto-open-world',\s*slug: 'sproto-open-world',\s*env: 'VITE_GAME_URL_SPROTO_OPEN_WORLD',\s*entry: 'ring'/);
+  assert.match(games, /id: 'sproto-racer',\s*slug: 'sproto-racer',\s*env: 'VITE_GAME_URL_SPROTO_RACER',\s*entry: 'ring'/);
   const plaza = readFileSync(join(repoRoot, 'apps/hub/src/realms/plaza/config.ts'), 'utf8');
   // The Range ring plus the green gate behind the statue head.
   assert.equal(plaza.split("id: 'sproto-shooter'").length - 1, 2);
@@ -151,6 +162,8 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   // Open World: one ring beside the Range, no statue gate.
   assert.equal(plaza.split("id: 'sproto-open-world'").length - 1, 1);
   assert.match(plaza, /id: 'sproto-open-world', label: 'Sproto Open World', place: 'Sproutvale', angle: RANGE_ANGLE - OPEN_WORLD_ARC \/ PORTAL_DISTANCE/);
+  assert.equal(plaza.split("id: 'sproto-racer'").length - 1, 1);
+  assert.match(plaza, /id: 'sproto-racer', label: 'Sproto Racer', place: 'The Paddock', angle: RANGE_ANGLE - \(OPEN_WORLD_ARC \+ RACER_ARC\) \/ PORTAL_DISTANCE/);
   assert.match(plaza, /id: 'sproto-arcade'/);
   assert.match(plaza, /id: 'sproto-fighter'/);
   assert.equal(plaza.includes("id: 'sproto-coop-battle'"), true);
@@ -162,7 +175,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
 {
   assert.equal((mod.call('portal.enter', hub, { game: 'nope' }) as { error?: string }).error, 'bad_game');
   assert.equal((mod.call('portal.enter', hub, { game: 'sproto-duel' }) as { error?: string }).error, 'bad_game');
-  for (const game of [...ADDED, ...LATER, 'vcoin', 'sproto']) {
+  for (const game of [...ADDED, ...LATER, ...RACER, 'vcoin', 'sproto']) {
     const opened = mod.call('portal.enter', hub, { game, ranked: false }) as { ticket?: string; error?: string };
     assert.ok(opened.ticket, `${game} ${JSON.stringify(opened)}`);
     const insert = mod.nk.sqlCalls.filter((call) => call.kind === 'exec' && call.sql.includes('INSERT INTO game.auth_ticket')).at(-1);
@@ -172,7 +185,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
 
 // Redeem once. Wrong game, wrong account, expiry, and replay do not open a session.
 {
-  for (const game of [...ADDED, ...LATER]) {
+  for (const game of [...ADDED, ...LATER, ...RACER]) {
     const secret = issue(game);
     const first = redeem(secret, game);
     assert.equal(first.userId, USER);
@@ -196,7 +209,7 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
 
 // No earn and no score board for the new ids. Another game's boss event grants nothing here.
 {
-  for (const game of [...ADDED, ...LATER]) {
+  for (const game of [...ADDED, ...LATER, ...RACER]) {
     const earned = mod.call('tickets.earn', gameSession(game), { key: 'k1', amount: 20, reason: 'boss' }) as { error?: string; balance?: number };
     assert.equal(earned.error, 'unknown_reason');
     assert.equal(earned.balance, undefined);
@@ -230,6 +243,9 @@ const gameSession = (game: string) => ({ userId: USER, vars: { scope: 'game', ga
   m.loop([{ sender: who, opCode: 7, data: { game: 'sproto-open-world' } }]);
   upd = m.dispatcher.sent<{ upd: { g: string }[] }>(4);
   assert.equal(upd.at(-1)?.body.upd[0]?.g, 'sproto-open-world');
+  m.loop([{ sender: who, opCode: 7, data: { game: 'sproto-racer' } }]);
+  upd = m.dispatcher.sent<{ upd: { g: string }[] }>(4);
+  assert.equal(upd.at(-1)?.body.upd[0]?.g, 'sproto-racer');
 }
 
 console.log('game registration ok');

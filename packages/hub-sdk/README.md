@@ -2,6 +2,8 @@
 
 Client for a game page that was opened from the hub. The hub puts a one-time ticket in the URL fragment (`#t=`). `redeemTicket` strips that fragment immediately and exchanges it for a Nakama session using the server key only. Later calls use that session. With no ticket and no saved session, every method no-ops, so the game still runs on its own.
 
+Version 0.11.0 adds one game id, `sproto-racer` (Sproto Racer, the plaza ring beside Sproto Open World's). It has no Relic and reports no earn event. A session still reads the Relics the account already owns: `init` puts ids this SDK knows in `relics` and newer ids in `otherRelics`, from `profile.get`. It also uses the cloud save (`save.get` / `save.put`, through `createProgressStore`; time-trial records stay under `SAVE_MAX_BYTES`) and feedback. Nothing else changes. Sproto Racer, which vendors 0.10.0, re-vendors to 0.11.0 so its own id is known.
+
 Version 0.10.0 adds one game id, `sproto-open-world` (Sproto Open World, the plaza ring beside Sproto Shooter's). It has no Relic and reports no events: it uses the session, the cloud save (`save.get` / `save.put`, through `createProgressStore`) and feedback. Nothing else changes; games that do not list the new id need only a re-vendor if they want the SDK in step.
 
 Version 0.9.0 fixes and adds, all backward compatible: the live `reportEvent` now returns `granted_items` (pets and other items `game.item_rule` granted; it used to drop them). A Relic id the server sends that this SDK does not know is no longer dropped silently: `init` lists it in `otherRelics`, `reportEvent` in `grantedOther`, and the SDK logs one warning, while `relics` and `granted` stay the typed canonical list. `writeSave(data, { keepalive: true })` and the new `ProgressStore.flushKeepalive()` let a save outlive the page, so call `store.flushKeepalive()` right before `exitToHub()` or on `pagehide`. The `hub-outbox` IndexedDB is opened once per page instead of on every read and write. Lean sub-paths sit beside the root entry, which is unchanged: `@metaverse/hub-sdk/core` (session, events, saves, Tickets, boards; about 45 KB minified against 127 KB for the root), `/realtime` (sockets and chat, without the mock server), `/mock` (the mock realtime server for tests), `/feedback` (the feedback window; modern-screenshot still loads on the first capture), `/progress` (`createProgressStore`) and `/pb-shop`. The classic-script build is unchanged and still defines the global `HubSDK`.
@@ -207,7 +209,7 @@ getTicketBalance(): Promise<{ balance: number; sessionCapLeft: number; dailyCapL
 exit(reason?: string): void
 ```
 
-Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `sproto-arcade`, `sproto-shooter`, `sproto-coop-battle`.
+Game ids: `hpos10i`, `nobu`, `peoples-bitcoin`, `sproto`, `sproto-fighter`, `sproto-arcade`, `sproto-shooter`, `sproto-coop-battle`, `sproto-open-world`, `sproto-racer`.
 
 `sproto-shooter` grants only the Dragon Scale and `sproto-coop-battle` only the Marina Anchor from `reportEvent` (table below). `shooter.boss_clear` and `coop.boss_clear` are server-only: the server refuses them from a client with `server_reason`. Coop Battle's id has no trailing dot; that dot belongs only to the GitHub repo name. Vendoring copies `dist/hub-sdk.iife.js` and writes each source sha256 into `VENDOR.md`. The pin file `SOURCE.pin.json` is the checksum to compare after a re-sync. Games that already vendor an older SDK keep working until they re-sync; they do not have to change to accept this version.
 

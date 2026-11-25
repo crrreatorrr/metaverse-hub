@@ -1,7 +1,7 @@
 import { RELIC_BY_GAME, type GameId, type RelicId } from '@metaverse/hub-sdk';
 
 /**
- * The nine games, for the menu's Games tab, the return card and the 18+ confirm (plan items D3,
+ * The ten games, for the menu's Games tab, the return card and the 18+ confirm (plan items D3,
  * D4, D5). Pure data: labels and colours repeat the plaza's portal and cabinet config, and
  * apps/hub/test/guide.test.ts fails when they drift.
  */
@@ -26,6 +26,7 @@ export const GAME_LIST: readonly GameInfo[] = [
   { id: 'sproto', label: 'Sproto Duel', blurb: 'Wizard duels · story bosses and online 1v1', where: 'The Castle gate', color: '#7b5cff', goal: "Defeat Tinubu for Tinubu's Crown" },
   { id: 'sproto-shooter', label: 'Sproto Shooter', blurb: 'Legacy standalone shooter · now unified into Sproto Open World', where: 'The Range gate', color: '#ff5ec4', goal: 'Clear wave 1 of Wave Mode for the Dragon Scale' },
   { id: 'sproto-open-world', label: 'Sproto Open World', blurb: 'Action RPG & shooter · 6 regions, 9 guns, 10 dungeons and 1v1 PvP', where: 'Plaza ring by The Range', color: '#a6ff4d', goal: 'Explore all 6 regions, master all 4 classes, clear L01–L10 and duel in 1v1 PvP' },
+  { id: 'sproto-racer', label: 'Sproto Racer', blurb: 'Kart racer · three circuits, Quick Race and Time Trial', where: 'Plaza ring by Sproutvale', color: '#19d3c5', goal: 'Set a Time Trial on Test Track 01, Crestline Ridge and Switchyard GP' },
   { id: 'sproto-arcade', label: 'Sproto Arcade', blurb: 'The Long Way Home · twelve giant bosses', where: 'Bar cabinet', color: '#ffcc59', goal: 'Beat Fat Head Dave for the Breakwater Coin' },
   { id: 'sproto-fighter', label: 'Sproto Fighter', blurb: 'Story mode and online 1v1 duels', where: 'Bar cabinet', color: '#ff3d6e', goal: 'Win Story World 1 for the Tidebreaker Belt' },
   { id: 'sproto-coop-battle', label: 'Sproto Coop Battle', blurb: 'Up to four players across thirteen stages', where: 'Bar cabinet', color: '#5ee0ff', goal: 'Clear stage 1 for the Marina Anchor' },

@@ -1,6 +1,6 @@
 {
   "package": "@metaverse/hub-sdk",
-  "version": "0.10.0",
+  "version": "0.11.0",
   "entry": "src/index.ts",
   "format": "iife",
   "global": "HubSDK",
@@ -34,7 +34,7 @@
     "src/third_party/modern-screenshot.d.ts": "22372ef230b98655ee2597c8c741d75e397405f22dbb5c2f45521e6fe9950056",
     "src/third_party/modern-screenshot.js": "c1d44ba7cf8a296754c7013a12c79266235550b0564d17487a76e006f8472721",
     "src/ticket.ts": "b01e1635c7031dd0e6855ecb22b99af1654395c41f0296863b627a31ded41033",
-    "src/types.ts": "754a7675e3605e3e577c8389d1510e79800b645e75db25cdf45f4e3b10ed6972"
+    "src/types.ts": "836e3931f943a9a4e1964d2f629a35ab97eca87cde2917e7b6811c7aa5b7833d"
   },
-  "iifeSha256": "6ae110a36d9d128b4a5e48b94ed30befbc3c11a255261007cfc5be4d861323ab"
+  "iifeSha256": "787ccfcea5c91a7d26652af3490920b2ba1641fbf07f76426f321ea78684ffd8"
 }

@@ -1,6 +1,6 @@
 // H1 entrances. Shooter uses the empty plaza ring. Coop Battle is a Bar cabinet choice.
-// Open World is a sixth ring beside the Range. A missing page is Coming soon, so the entrance does
-// not mint a ticket. None of the three earns.
+// Open World is a sixth ring beside the Range. Racer is a seventh ring past Open World.
+// A missing page is Coming soon, so the entrance does not mint a ticket. None of them earns.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { RELIC_BY_GAME } from '@metaverse/hub-sdk';
@@ -12,10 +12,11 @@ declare global {
       readonly VITE_GAME_URL_SPROTO_SHOOTER?: string;
       readonly VITE_GAME_URL_SPROTO_COOP_BATTLE?: string;
       readonly VITE_GAME_URL_SPROTO_OPEN_WORLD?: string;
+      readonly VITE_GAME_URL_SPROTO_RACER?: string;
     };
   }
 }
-import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, OPEN_WORLD_ARC, PILLAR_OFFSET, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, RANGE_ANGLE, STATUE_PORTALS } from '../src/realms/plaza/config';
+import { ARCADE_GAME, ARCADE_GAMES, ARCADE_STORY_GAME, OPEN_WORLD_ARC, PILLAR_OFFSET, PLAZA_SLOT, PLAZA_YAW, PORTAL_DISTANCE, PORTAL_STANDOFF, PORTALS, RACER_ARC, RANGE_ANGLE, STATUE_PORTALS } from '../src/realms/plaza/config';
 import { ARCADE_PROMPT, ARCADE_RETURN, ARCADE_WALKUP } from '../src/realms/plaza/arcade-layout';
 import { gameById, gameUrl } from '../src/games';
 import { gameInfo, relicOfGame } from '../src/game-list';
@@ -37,9 +38,9 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
     sproto: 0,
     'sproto-shooter': 3,
   };
-  assert.deepEqual(PORTALS.map((portal) => portal.id), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-shooter', 'sproto-open-world']);
+  assert.deepEqual(PORTALS.map((portal) => portal.id), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-shooter', 'sproto-open-world', 'sproto-racer']);
   for (const portal of PORTALS) {
-    if (portal.id === 'sproto-open-world') continue;
+    if (portal.id === 'sproto-open-world' || portal.id === 'sproto-racer') continue;
     assert.equal(portal.angle, slots[portal.id]! * PLAZA_SLOT + PLAZA_YAW, portal.id);
   }
   assert.equal(PORTALS.filter((portal) => portal.id === 'sproto-shooter').length, 1);
@@ -133,6 +134,73 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(ARCADE_GAMES.some((game) => game.id === parseReturnGame('#from=sproto-open-world')), false);
 }
 
+// Racer is the seventh ring: 10 m of arc past Open World, 20 m from the Range, on the Green Hill
+// side of the same 96 m circle, facing the statue. The three entrances and their triggers do not overlap.
+{
+  assert.equal(PORTALS.filter((portal) => portal.id === 'sproto-racer').length, 1);
+  const racer = PORTALS.find((portal) => portal.id === 'sproto-racer')!;
+  const world = PORTALS.find((portal) => portal.id === 'sproto-open-world')!;
+  const range = PORTALS.find((portal) => portal.id === 'sproto-shooter')!;
+  assert.equal(racer.label, 'Sproto Racer');
+  assert.equal(racer.place, 'The Paddock');
+  assert.equal(racer.color, '#19d3c5');
+  assert.equal(racer.mature, undefined);
+  assert.equal(racer.distance, PORTAL_DISTANCE);
+  assert.equal(racer.triggerRadius, range.triggerRadius);
+  assert.equal(racer.angle, RANGE_ANGLE - (OPEN_WORLD_ARC + RACER_ARC) / PORTAL_DISTANCE);
+  assert.ok(racer.angle < world.angle, 'past Open World, on the Green Hill side');
+  const a = portalPosition(racer.angle, racer.distance);
+  const b = portalPosition(world.angle, world.distance);
+  const c = portalPosition(range.angle, range.distance);
+  const fromWorld = Math.hypot(a.x - b.x, a.z - b.z);
+  const fromRange = Math.hypot(a.x - c.x, a.z - c.z);
+  assert.ok(fromWorld > 11 * 0.57 + 2 && fromWorld < 12, `rings ${fromWorld.toFixed(2)} m apart`);
+  assert.ok(fromRange > 18 && fromRange < 22, `range ${fromRange.toFixed(2)} m away`);
+  assert.equal(portalContaining(PORTALS, a.x, a.z)?.id, 'sproto-racer');
+  assert.ok(fromWorld > racer.triggerRadius + world.triggerRadius + 4);
+  for (const box of [...buildingBoxColliders(), ...buildingCylinderColliders()]) {
+    assert.ok(Math.hypot(box.x - a.x, box.z - a.z) > 8, 'no blockout collider beside Racer');
+  }
+  const pillars = pillarBoxes();
+  const index = PORTALS.indexOf(racer);
+  const own = pillars.slice(index * 2, index * 2 + 2);
+  const worldPillars = pillars.slice(PORTALS.indexOf(world) * 2, PORTALS.indexOf(world) * 2 + 2);
+  for (const p of own) {
+    assert.ok(Math.abs(Math.hypot(p.x - a.x, p.z - a.z) - PILLAR_OFFSET) < 1e-9);
+    for (const q of worldPillars) assert.ok(Math.hypot(p.x - q.x, p.z - q.z) > 6);
+  }
+  const entry = gameById('sproto-racer');
+  assert.equal(entry?.slug, 'sproto-racer');
+  assert.equal(entry?.env, 'VITE_GAME_URL_SPROTO_RACER');
+  assert.equal(entry?.entry, 'ring');
+  const info = gameInfo('sproto-racer');
+  assert.equal(info?.label, racer.label);
+  assert.equal(info?.color, racer.color);
+  assert.equal(info?.where, 'Plaza ring by Sproutvale');
+  assert.equal(relicOfGame('sproto-racer'), undefined);
+  assert.equal(/Relic|Ticket/.test(info?.goal ?? ''), false, 'the goal names no Relic');
+}
+
+// #from=sproto-racer lands in front of the new ring, outside every trigger, facing it.
+{
+  const at = spawnForArrival('#from=sproto-racer');
+  assert.equal(parseReturnGame('#from=sproto-racer'), 'sproto-racer');
+  assert.deepEqual(at, spawnFor('sproto-racer'));
+  assert.notDeepEqual(at, spawnFor(null));
+  assert.notDeepEqual(at, spawnFor('sproto-open-world'));
+  assert.equal(portalContaining([...PORTALS, ...STATUE_PORTALS], at.x, at.z), null);
+  assert.ok(Math.abs(Math.hypot(at.x, at.z) - (PORTAL_DISTANCE - PORTAL_STANDOFF)) < 0.001);
+  const ring = portalPosition(RANGE_ANGLE - (OPEN_WORLD_ARC + RACER_ARC) / PORTAL_DISTANCE, PORTAL_DISTANCE);
+  const toRing = { x: ring.x - at.x, z: ring.z - at.z };
+  const length = Math.hypot(toRing.x, toRing.z);
+  assert.ok(Math.abs(length - PORTAL_STANDOFF) < 0.001);
+  const facing = (Math.sin(at.yaw) * toRing.x - Math.cos(at.yaw) * toRing.z) / length;
+  assert.ok(facing > 0.9999, 'facing the Racer ring');
+  const gate = portalContaining(PORTALS, Math.sin(at.yaw) * PORTAL_DISTANCE, -Math.cos(at.yaw) * PORTAL_DISTANCE);
+  assert.equal(gate?.id, 'sproto-racer');
+  assert.equal(ARCADE_GAMES.some((game) => game.id === parseReturnGame('#from=sproto-racer')), false);
+}
+
 // The green gate behind the statue head (north, off the 25 m pedestal) is a second Shooter entrance.
 // It does not overlap any ring, and Shooter returns still land at the Range ring.
 {
@@ -188,6 +256,11 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(gameUrl('sproto-open-world', { dev: true, overrides: { 'sproto-open-world': '' } }), null);
   assert.equal(gameUrl('sproto-open-world', { dev: false, overrides: { 'sproto-open-world': 'https://example.org/world/' } }), 'https://example.org/world/');
   assert.equal(gameUrl('sproto-open-world', { dev: false }), null);
+  assert.equal(gameUrl('sproto-racer', { dev: true }), '/play/sproto-racer/');
+  assert.equal(gameUrl('sproto-racer', { dev: false, playDomain: 'example.com' }), 'https://play.example.com/sproto-racer/');
+  assert.equal(gameUrl('sproto-racer', { dev: true, overrides: { 'sproto-racer': '' } }), null);
+  assert.equal(gameUrl('sproto-racer', { dev: false, overrides: { 'sproto-racer': 'https://example.org/racer/' } }), 'https://example.org/racer/');
+  assert.equal(gameUrl('sproto-racer', { dev: false }), null);
   assert.equal(gameUrl('sproto-fighter', { dev: true }), '/play/sproto-fighter/');
   assert.equal(gameUrl('sproto-arcade', { dev: true }), '/play/sproto-arcade/');
   assert.equal(gameUrl('sproto', { dev: true }), '/play/sproto-duel/');
@@ -201,6 +274,7 @@ const relics = RELIC_BY_GAME as Partial<Record<string, string>>;
   assert.equal(relics['sproto-fighter'], 'tidebreaker_belt');
   assert.equal(relics['sproto-arcade'], 'breakwater_coin');
   assert.equal(relics['sproto-open-world'], undefined);
+  assert.equal(relics['sproto-racer'], undefined);
   assert.equal(JSON.stringify(PORTALS).includes('vcoin'), false);
   assert.equal(JSON.stringify(ARCADE_GAMES).includes('vcoin'), false);
 }

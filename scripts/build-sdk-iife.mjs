@@ -58,7 +58,7 @@ export function writeIife(outFile) {
   });
   const bytes = readFileSync(outFile);
   const text = bytes.toString('utf8');
-  if (!text.includes('sproto-shooter') || !text.includes('sproto-coop-battle') || !text.includes('sproto-open-world')) {
+  if (!text.includes('sproto-shooter') || !text.includes('sproto-coop-battle') || !text.includes('sproto-open-world') || !text.includes('sproto-racer')) {
     throw new Error('IIFE is missing a registered game id');
   }
   if (!text.includes('createHubSdk') || !text.startsWith('/*! @metaverse/hub-sdk')) {

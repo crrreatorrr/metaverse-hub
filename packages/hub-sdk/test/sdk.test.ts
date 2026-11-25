@@ -114,11 +114,14 @@ async function arcadeAndSaves(): Promise<void> {
 
 async function coopAndShooterRelics(): Promise<void> {
   assert.deepEqual(GAME_IDS.slice(0, 6), ['hpos10i', 'nobu', 'peoples-bitcoin', 'sproto', 'sproto-fighter', 'sproto-arcade']);
-  assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle', 'sproto-open-world']);
-  // Sproto Open World (0.10.0) has no Relic: it cannot grant one from any event.
+  assert.deepEqual(GAME_IDS.slice(6), ['sproto-shooter', 'sproto-coop-battle', 'sproto-open-world', 'sproto-racer']);
+  // Sproto Open World (0.10.0) and Sproto Racer (0.11.0) grant no Relic.
   assert.equal(RELIC_BY_GAME['sproto-open-world'], undefined);
   assert.equal(relicForEvent('sproto-open-world', HubEvent.GameBeaten, {}), undefined);
   assert.equal(relicForEvent('sproto-open-world', HubEvent.ShooterWaveClear, { wave: 1 }), undefined);
+  assert.equal(RELIC_BY_GAME['sproto-racer'], undefined);
+  assert.equal(relicForEvent('sproto-racer', HubEvent.GameBeaten, {}), undefined);
+  assert.equal(relicForEvent('sproto-racer', HubEvent.ShooterWaveClear, { wave: 1 }), undefined);
   assert.deepEqual(RELIC_IDS.slice(6), ['marina_anchor', 'dragon_scale']);
   assert.deepEqual([...FOUR_LIGHTS_RELIC_IDS], ['hpos10i_core', 'genesis_shard', 'cones_tip', 'tinubu_crown']);
   assert.equal(RELIC_BY_GAME['sproto-coop-battle'], 'marina_anchor');
@@ -173,8 +176,57 @@ async function coopAndShooterRelics(): Promise<void> {
   }
 }
 
+async function racerReadsAccountRelics(): Promise<void> {
+  const client: NakamaClient = {
+    async authenticateDevice() {
+      return { token: 'hub', userId: 'user-1' };
+    },
+    async authenticateCustom() {
+      return {
+        token: fakeJwt('user-1', { sid: 'sid-r', ranked: '0', scope: 'game', game: 'sproto-racer' }),
+        refreshToken: 'refresh-r',
+        userId: 'user-1',
+      };
+    },
+    async rpc<T>(id: string): Promise<T> {
+      assert.equal(id, 'profile.get');
+      return { playerId: 'user-1', relics: ['tinubu_crown', 'dragon_scale', 'newer_than_sdk', 'Bad Id!', 7], ranked: false, ticketsCapLeft: 1000 } as T;
+    },
+  };
+  let hash = '#t=ticket-racer';
+  const sdk = createHubSdk({
+    client,
+    hubUrl: '/hub/',
+    local: memoryKeyValue(),
+    session: memoryKeyValue(),
+    readHash: () => hash,
+    writeHash: (next) => {
+      hash = next;
+    },
+    assign: () => undefined,
+  });
+  const warned: string[] = [];
+  const originalWarn = console.warn;
+  console.warn = (...args: unknown[]) => {
+    warned.push(String(args[0]));
+  };
+  const first = await sdk.init('sproto-racer');
+  assert.deepEqual(first.relics, ['tinubu_crown', 'dragon_scale']);
+  assert.equal(hash, '');
+  let again;
+  try {
+    again = await sdk.init('sproto-racer');
+  } finally {
+    console.warn = originalWarn;
+  }
+  assert.deepEqual(again.relics, ['tinubu_crown', 'dragon_scale']);
+  assert.deepEqual(again.otherRelics, ['newer_than_sdk']);
+  assert.ok(warned.some((line) => line.includes('newer_than_sdk')));
+}
+
 async function main(): Promise<void> {
   await coopAndShooterRelics();
+  await racerReadsAccountRelics();
   await arcadeAndSaves();
   const signed = await mintMockTicket({ game: 'hpos10i', playerId: 'p', now: NOW, jti: 'j1' });
   const claims = await verifyMockTicket(signed);

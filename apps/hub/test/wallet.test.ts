@@ -40,14 +40,14 @@ assert.equal(offerLabel(exchangeOffer(5, 50)), 'Need 10 Tickets');
 assert.equal(offerLabel(exchangeOffer(500, 0)), 'Daily cap reached');
 assert.ok(WALLET_RATE_LINE.includes('10 Tickets = 1 Verse') && WALLET_RATE_LINE.includes('50 Verse'));
 
-// Eight rows, the server's list and order, and every SDK game id but Sproto Open World (no Tickets).
+// Eight rows, the server's list and order, and every SDK game id but Open World and Racer (no Tickets).
 {
   const rpcs = readFileSync(new URL('../../../server/modules/src/rpcs.ts', import.meta.url), 'utf8');
   const match = /WALLET_GAMES: string\[\] = \[([^\]]*)\]/.exec(rpcs);
   assert.ok(match);
   const server = [...match[1]!.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(WALLET_GAMES.map((game) => game.id), server);
-  assert.deepEqual([...WALLET_GAMES.map((game) => game.id)].sort(), GAME_IDS.filter((id) => id !== 'sproto-open-world').sort());
+  assert.deepEqual([...WALLET_GAMES.map((game) => game.id)].sort(), GAME_IDS.filter((id) => id !== 'sproto-open-world' && id !== 'sproto-racer').sort());
   assert.equal(WALLET_GAMES.length, 8);
 }
 

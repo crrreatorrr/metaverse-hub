@@ -216,6 +216,7 @@ play.{$DOMAIN} {
 	redir /sproto-shooter /sproto-shooter/ 308
 	redir /sproto-coop-battle /sproto-coop-battle/ 308
 	redir /sproto-open-world /sproto-open-world/ 308
+	redir /sproto-racer /sproto-racer/ 308
 
 	import game hpos10i {$GAME_COOP_HPOS10I:0} hpos10i
 	import game nobu {$GAME_COOP_NOBU:0} nobu
@@ -226,6 +227,7 @@ play.{$DOMAIN} {
 	import game sproto-shooter {$GAME_COOP_SPROTO_SHOOTER:0} sproto_shooter
 	import game sproto-coop-battle {$GAME_COOP_SPROTO_COOP_BATTLE:0} sproto_coop_battle
 	import game sproto-open-world {$GAME_COOP_SPROTO_OPEN_WORLD:0} sproto_open_world
+	import game sproto-racer {$GAME_COOP_SPROTO_RACER:0} sproto_racer
 
 	# Character rigs and stage packs shared by sproto-duel and sproto-shooter, deployed once under
 	# /srv/play/shared-assets/sproto/current. Names are hand-picked, so nothing is immutable: an hour,
