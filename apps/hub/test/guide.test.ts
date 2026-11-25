@@ -10,6 +10,8 @@ import { ARCADE_GAMES, PORTALS, SPAWN_DISTANCE } from '../src/realms/plaza/confi
 import { portalPosition } from '../src/layout';
 import { initialDwell, stepPortalDwell } from '../src/travel';
 import { gameUrl } from '../src/games';
+import { createCardTimer } from '../src/guide/trip-timer';
+import { escAction } from '../src/core/escape';
 
 // ---------- D3: the Games tab lists all nine, with the plaza's own labels and colours.
 // Sproto Open World is the one game with no Relic.
@@ -215,3 +217,58 @@ import { gameUrl } from '../src/games';
 }
 
 console.log('guide ok');
+
+// ---------- The return card's countdown starts when the plaza is on screen, not when the session opens.
+{
+  let now = 0;
+  const pending: { at: number; run: () => void }[] = [];
+  const host = {
+    set(run: () => void, ms: number) { const entry = { at: now + ms, run }; pending.push(entry); return entry; },
+    clear(handle: unknown) { const at = pending.indexOf(handle as { at: number; run: () => void }); if (at >= 0) pending.splice(at, 1); },
+  };
+  const advance = (ms: number): void => {
+    now += ms;
+    for (const entry of [...pending]) if (entry.at <= now) { host.clear(entry); entry.run(); }
+  };
+  let hidden = 0;
+  const timer = createCardTimer(12_000, () => { hidden += 1; }, host);
+  timer.show();
+  advance(60_000);
+  assert.equal(hidden, 0, 'a card raised during a slow load waits');
+  timer.show();
+  assert.equal(pending.length, 0, 'the Ticket line refresh does not start it either');
+  timer.visible();
+  advance(11_999);
+  assert.equal(hidden, 0);
+  advance(1);
+  assert.equal(hidden, 1, '12 s after the plaza appeared');
+  timer.visible();
+  assert.equal(pending.length, 0, 'visible() is once');
+  // On screen already: show starts at once, a refresh restarts, cancel stops.
+  timer.show();
+  advance(6_000);
+  timer.show();
+  advance(6_000);
+  assert.equal(hidden, 1, 'a refresh restarts the countdown');
+  advance(6_000);
+  assert.equal(hidden, 2);
+  timer.show();
+  timer.cancel();
+  advance(20_000);
+  assert.equal(hidden, 2, 'closed by hand');
+  // Nothing shown before the plaza appears: nothing fires.
+  const idle = createCardTimer(12_000, () => { hidden += 1; }, host);
+  idle.visible();
+  advance(20_000);
+  assert.equal(hidden, 2);
+}
+
+// ---------- Esc closes the "?" card before it opens the menu.
+{
+  assert.equal(escAction({ menuOpen: false, helpOpen: true, typing: false }), 'close-help');
+  assert.equal(escAction({ menuOpen: false, helpOpen: false, typing: false }), 'open-menu');
+  assert.equal(escAction({ menuOpen: true, helpOpen: true, typing: false }), 'close-menu');
+  assert.equal(escAction({ menuOpen: true, helpOpen: false, typing: true }), 'close-menu');
+  assert.equal(escAction({ menuOpen: false, helpOpen: false, typing: true }), 'none');
+  assert.equal(escAction({ menuOpen: false, helpOpen: true, typing: true }), 'close-help');
+}

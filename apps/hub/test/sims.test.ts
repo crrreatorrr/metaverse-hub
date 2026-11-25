@@ -1,5 +1,6 @@
 // Sims (Menu → Sims): the dialogue director, the walkers in the RemoteWorld, and the stored list.
 import assert from 'node:assert/strict';
+import { stackBubbles, type BubbleBox } from '../src/overhead-layout';
 import { createRemoteWorld } from '../src/net/remoteWorld';
 import script from '../src/sims/script.json';
 import { ACTS, PERSONAS, QUIET, SIM_STORY, SimDirector, actAt } from '../src/sims/director';
@@ -142,3 +143,32 @@ const cast = PERSONAS.map((p, i) => ({ key: `sim:${i}`, persona: p.id }));
 }
 
 console.log('sims tests passed');
+
+// Bubbles of sims standing together are stacked, not drawn over each other.
+{
+  const overlaps = (a: BubbleBox, b: BubbleBox): boolean =>
+    Math.abs(a.x - b.x) < (a.w + b.w) / 2 && a.y > b.y - b.h && a.y - a.h < b.y;
+  const lifted = (boxes: readonly BubbleBox[]): BubbleBox[] => {
+    const lift = stackBubbles(boxes);
+    return boxes.map((box, index) => ({ ...box, y: box.y - lift[index]! }));
+  };
+  // Apart: nothing moves.
+  assert.deepEqual(stackBubbles([{ x: 100, y: 300, w: 120, h: 20 }, { x: 400, y: 300, w: 120, h: 20 }]), [0, 0]);
+  assert.deepEqual(stackBubbles([{ x: 100, y: 300, w: 120, h: 20 }, { x: 110, y: 200, w: 120, h: 20 }]), [0, 0]);
+  assert.deepEqual(stackBubbles([]), []);
+  // Two on the same spot: the first keeps its place, the second goes above it.
+  assert.deepEqual(stackBubbles([{ x: 100, y: 300, w: 120, h: 20 }, { x: 110, y: 300, w: 120, h: 20 }]), [0, 22]);
+  // The lowest on screen stays; the one it would cover rises just clear of it.
+  assert.deepEqual(stackBubbles([{ x: 100, y: 290, w: 120, h: 20 }, { x: 110, y: 300, w: 120, h: 20 }]), [12, 0]);
+  // The gathered cast: eight lines within a few pixels of each other end up with no two overlapping.
+  let seed = 7;
+  const rnd = (): number => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 2 ** 32; };
+  for (let round = 0; round < 50; round += 1) {
+    const crowd: BubbleBox[] = Array.from({ length: 12 }, () => ({ x: 600 + rnd() * 260, y: 300 + rnd() * 60, w: 80 + rnd() * 160, h: 18 + rnd() * 8 }));
+    const out = lifted(crowd);
+    for (let i = 0; i < out.length; i += 1) {
+      assert.ok(out[i]!.y <= crowd[i]!.y, 'bubbles only move up');
+      for (let j = i + 1; j < out.length; j += 1) assert.equal(overlaps(out[i]!, out[j]!), false, `bubbles ${i} and ${j} overlap in round ${round}`);
+    }
+  }
+}

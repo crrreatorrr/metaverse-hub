@@ -65,6 +65,46 @@ function pad(index: number, down: readonly number[] = [], axes: readonly number[
   assert.equal(reader.poll([pad(0, [PAD.MENU])], 48).pressed(PAD.MENU), false);
 }
 
+// The first press on a page: the browser shows the pad only when a button goes down, so the pad
+// arrives with that button held. After half a second of pad-less polling it is a new press and acts.
+{
+  const reader = createPadReader();
+  let t = 0;
+  for (; t <= 600; t += 16) assert.equal(reader.poll([null, null], t).connected, false);
+  let frame = reader.poll([pad(0, [PAD.A])], t);
+  assert.equal(frame.pressed(PAD.A), true, 'the press that revealed the pad acts');
+  assert.equal(reader.poll([pad(0, [PAD.A])], t + 16).pressed(PAD.A), false, 'once');
+  // Unplugged for a moment and back with a button held: latched, as before.
+  reader.poll([], t + 32);
+  reader.poll([], t + 48);
+  frame = reader.poll([pad(0, [PAD.B])], t + 64);
+  assert.equal(frame.pressed(PAD.B), false);
+  assert.equal(frame.held(PAD.B), false);
+
+  // Held across a page load: the pad is there within the first polls, so it stays latched.
+  const loaded = createPadReader();
+  loaded.poll([], 0);
+  loaded.poll([], 16);
+  assert.equal(loaded.poll([pad(0, [PAD.A])], 32).pressed(PAD.A), false);
+  assert.equal(loaded.poll([pad(0, [PAD.A])], 2000).held(PAD.A), false, 'still latched while held');
+
+  // A slow page (a few frames a second while it loads) still gets there: time and polls both count.
+  const slow = createPadReader();
+  slow.poll([], 0);
+  slow.poll([], 3000);
+  assert.equal(slow.poll([pad(0, [PAD.A])], 6000).pressed(PAD.A), true, 'a press on a slow page acts');
+  // One pad-less poll is not enough, however long ago it was: the pad was there from the start.
+  const once = createPadReader();
+  once.poll([], 0);
+  assert.equal(once.poll([pad(0, [PAD.A])], 5000).pressed(PAD.A), false);
+
+  // A second pad joining while one is connected is latched whatever came before.
+  const two = createPadReader();
+  for (let ms = 0; ms <= 600; ms += 16) two.poll([], ms);
+  two.poll([pad(0)], 700);
+  assert.equal(two.poll([pad(0), pad(1, [PAD.A])], 716).pressed(PAD.A), false);
+}
+
 // Triggers use their analog value.
 {
   const reader = createPadReader();

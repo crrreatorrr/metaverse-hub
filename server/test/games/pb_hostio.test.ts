@@ -1,6 +1,6 @@
 // pb_world gives the PB host the optional hub-parity I/O (handoff §3.3 item 4): loadProfile,
 // getRelics, reportEvent and submitScore. The host is wrapped to capture the I/O it is given;
-// the end of the file checks that the vendored bundle (PB a2eb7fa8, sim 49699e030161ede6) calls
+// the end of the file checks that the vendored bundle (PB f5c16a53, sim dd7940baec7a687a) calls
 // them through a real pb_world join.
 import assert from 'node:assert/strict';
 import { loadModule, plain, presence } from '../unit/harness';
@@ -51,7 +51,7 @@ assert.ok(score.accepted === true || typeof score.error === 'string', JSON.strin
   const OP = { HELLO: 1, WELCOME: 101 };
   const live = loadModule();
   const sim = (live.global.PbSim as { version: string }).version;
-  assert.equal(sim, '49699e030161ede6');
+  assert.equal(sim, 'dd7940baec7a687a');
   const reported: unknown[][] = [];
   let relics = ['genesis_shard'];
   live.nk.onSql(/FROM game\.relic_claim WHERE user_id = \$1::uuid/, () => [{ result: JSON.stringify(relics) }]);

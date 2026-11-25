@@ -4,6 +4,7 @@ import { BOLLARD_RADIUS, CURB_RADIUS, PLAZA_YAW, PILLAR_HEIGHT, PILLAR_OFFSET, P
 import type { PortalConfig } from '../../config';
 import type { GameId } from '@metaverse/hub-sdk';
 import { portalPosition, type Spawn, type BoxSpec } from '../../layout';
+import { spawnSpread } from '../../core/spawn-spread';
 
 export function spawnFor(game: GameId | null): Spawn {
   if (!game) {
@@ -112,4 +113,23 @@ export function spawnForArrival(hash: string): Spawn {
   const game = parseReturnGame(hash);
   if (game) return spawnFor(game);
   return parseRealmArrival(hash) === 'sandbox' ? SANDBOX_GATE.arrival : spawnFor(null);
+}
+
+/**
+ * Where arrival number `n` stands. Everyone arrives at the same point, so each arrival takes one
+ * of the spots around it (`spawnSpread`). Back from a game, the player still faces the ring they
+ * came out of, so walking forward goes back in. A return from the sandbox lands beside its gate
+ * inside the castle and stays exact.
+ */
+export function plazaSpawn(hash: string, n: number): Spawn {
+  const spawn = spawnForArrival(hash);
+  const game = parseReturnGame(hash);
+  if (!game && parseRealmArrival(hash) === 'sandbox') return spawn;
+  const offset = spawnSpread(n);
+  const x = spawn.x + offset.x;
+  const z = spawn.z + offset.z;
+  const portal = game ? PORTALS.find((entry) => entry.id === game) : undefined;
+  if (!portal) return { x, z, yaw: spawn.yaw };
+  const ring = portalPosition(portal.angle, PORTAL_DISTANCE);
+  return { x, z, yaw: Math.atan2(ring.x - x, -(ring.z - z)) };
 }

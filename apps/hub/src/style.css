@@ -1622,6 +1622,7 @@ button:disabled {
 .menu-foot {
   display: flex;
   justify-content: flex-end;
+  gap: 14px;
   padding: 12px 4px 0;
 }
 

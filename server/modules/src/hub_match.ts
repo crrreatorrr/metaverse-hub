@@ -10,7 +10,7 @@
 //   2 SNAPSHOT s→c  {t, you, shard, roster:[Entry], p:[[slot,x,y,z,yaw,anim]]}   joiner / rejoin
 //   3 DELTA    s→c  {t, p:[[slot,x,y,z,yaw,anim]]}         changed slots in the recipient's zone
 //   4 ROSTER   s→c  {add?:[Entry], del?:[slot], upd?:[Entry]}
-//   5 PROFILE  c→s  {character, staff, pet}                1 per 2 s → roster upd
+//   5 PROFILE  c→s  {character, staff, pet, name?}         1 per 2 s → roster upd
 //   6 EMOTE    c→s→zone {e} / {s, e}                       1 per s
 //   7 TRAVEL   c→s  {game}                                  others see "→ NOBU" before the player leaves
 // Entry = {s, u, n, c, st, pt, r, g, away}
@@ -31,6 +31,8 @@ namespace HubMatch {
   export var EMPTY_CLOSE_TICKS = 120 * 10;
   export var RELIC_REFRESH_TICKS = 100;
   export var PROFILE_EVERY_TICKS = 20;
+  /** Longest display name a player can choose (apps/hub/src/look.ts cleanName). */
+  export var DISPLAY_NAME_MAX = 12;
   export var EMOTE_EVERY_TICKS = 10;
   /** Consecutive rejected poses before the server accepts a snap (lag spike, respawn). */
   export var SNAP_AFTER_REJECTS = 10;
@@ -63,7 +65,10 @@ namespace HubMatch {
     slot: number;
     userId: string;
     presence: nkruntime.Presence;
+    /** The name other players see: the display name from OP_PROFILE, or the account name. */
     name: string;
+    /** The cleaned account name, shown when no display name is set. Older states lack it. */
+    account?: string;
     x: number;
     y: number;
     z: number;
@@ -325,8 +330,28 @@ namespace HubMatch {
     if (c !== p.character || st !== p.staff) changed = true;
     p.character = c;
     p.staff = st;
+    if (typeof data.name === "string") {
+      var account = p.account || p.name;
+      p.account = account;
+      var name = displayName(data.name) || account;
+      if (name !== p.name) changed = true;
+      p.name = name;
+    }
     p.lastProfileTick = tick;
     return changed;
+  }
+
+  /**
+   * The display name a player chose in Edit avatar, as the plaza shows it to others: cleanName's
+   * characters without the dot, single spaces, at most 12 (the menu's own limit). A name the chat
+   * filter would mask or refuse gives "", and the caller keeps the account name. It lives in the
+   * match state only; the client sends it again with every OP_PROFILE.
+   */
+  export function displayName(raw: string): string {
+    var name = cleanName(raw.replace(/\./g, "").replace(/\s+/g, " ").replace(/^ +/, ""), DISPLAY_NAME_MAX).replace(/ +$/, "");
+    if (!name) return "";
+    var verdict = HubChat.filter(name);
+    return verdict.hard || verdict.masked ? "" : name;
   }
 
   export function matchInit(_ctx: nkruntime.Context, logger: nkruntime.Logger, _nk: nkruntime.Nakama, params: { [key: string]: unknown }): { state: State; tickRate: number; label: string } {
@@ -402,6 +427,7 @@ namespace HubMatch {
         userId: fresh[j].userId,
         presence: fresh[j],
         name: names[fresh[j].userId] || "player",
+        account: names[fresh[j].userId] || "player",
         x: state.realm.spawn[0],
         y: state.realm.spawn[1],
         z: state.realm.spawn[2],

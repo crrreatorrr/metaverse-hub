@@ -88,6 +88,12 @@ stays on screen for five seconds instead of vanishing.
 Portals need no button: walking into a ring travels, so the trip to a game is stick-only. The
 game reads the pad on the first press on its page, with that press latched (rule 2).
 
+In the plaza the first press after a page load acts. A browser shows a pad to a page only when a
+button goes down there, so the pad arrives with that button held. A button held across the load
+shows the pad on the first samples and is latched; a pad that first appears after at least two pad-less
+polls spanning half a second (`PAD_TUNING.freshPressAfterMs`, `freshPressPolls`) was revealed by a
+new press, which counts.
+
 ## Keyboard convention
 
 The keyboard follows one layout too, so a player who knows one Sproto game knows them all:

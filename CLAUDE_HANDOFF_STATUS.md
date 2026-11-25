@@ -93,6 +93,17 @@ Every bundle was built here from the named merged commit and its sha256 checked 
 | Sproto-Arcade | `9b6ec23b` (main, #38 merged), `node tools/build-server-sim.mjs` | none | not vendored. The fresh build matches the committed `dist/arcade-sim.server.js`: sha256 `2be4bbaa…1b64`, `ARCADE_SIM_VERSION` `9249bbf1047466f3` (was `3bc257947b2e427e`), with `ArcadeSim.coop`. The hub has never vendored it and nothing here pins its version: `sproto_arcade_coop` is a lockstep relay that compares the clients' hashes. Vendoring it would make every Nakama match VM evaluate an unused 1.2 MB script (the build appends every `vendor/*.js`). Recorded in `docs/CONTRACTS.md`. Vendoring it belongs with a server-side consumer (the replay verifier, §4.1). |
 | sproto-duel, Sproto-Fighter | | | no action (`duel-sim.server.js` `e41e427f…` unchanged and not vendored; Fighter `SIM_VERSION` `21168f77260c4c3c` unchanged, `check-sproto-sim-version.mjs` passes). |
 
+### Re-sync after the gameplay test pass (2026-11-24)
+
+The three rows below replace the Coop, People's Bitcoin and Arcade rows above. `packages/hub-sdk`
+did not change.
+
+| Game | Built from | Vendored | Notes |
+|---|---|---|---|
+| Sproto-Coop-Battle. | `af329a3f` (main, #46) | `coop-sim.js` sha256 `2a07199d…e40a` (was `c4292eb9…af5d`); content `3fddedd1…` unchanged | `CoopProto.COMMIT` and `BUNDLE_SHA256` updated. The fingerprint is unchanged, so no migration and no client is refused. `sim.js` and `ai.js` changed (the stage ramp after stage 6). The seed-3 golden in `coop_match.test.ts` and `scripts/load/coop-bots.ts` (`fdff232f…`, tick 10593) is unchanged: that fight ends on stage 1. `check-coop-sim-version.mjs` passes against Coop `main`. |
+| peoples-bitcoin | `f5c16a53` (main, #50), `npm run build:sim` | `pb-sim.js` sha256 `88cd881a…c4cc`, 838 KB, `SIM_VERSION` `49699e030161ede6` → `dd7940baec7a687a` | `pb_hostio.test.ts` asserts the new version. The PB web build must come from the same commit, or `pb_world` kicks it with `sim_mismatch`. |
+| Sproto-Arcade | `3f198d98` (branch `claude/peaceful-thompson-mpaebu`, not on main yet) | none | still not vendored. `dist/arcade-sim.server.js` sha256 `3122e67f…c12d`, `ARCADE_SIM_VERSION` `947909cee9b92309` (was `2be4bbaa…1b64` / `9249bbf1047466f3`). Recorded in `docs/CONTRACTS.md`. |
+
 ## Checks
 
 | Command | Result |

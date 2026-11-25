@@ -3,7 +3,7 @@ import { SANDBOX_GATE } from './layout';
 import { createArcadePicker } from '../../v2/arcade-picker';
 import { createSprotelTalk } from '../../v2/sprotel-talk';
 import { createLiveLeaderboardProvider, verseTotals, type VerseRow } from '../../leaderboards';
-import { parseReturnGame } from '../../travel';
+import { parseRealmArrival, parseReturnGame } from '../../travel';
 import { ARCADE_GAMES, PORTALS, STATUE_PORTALS } from './config';
 import { ARCADE_PROMPT } from './arcade-layout';
 import type { EngineOptions } from '../../core/engine';
@@ -27,6 +27,7 @@ import { championRows, presenceRows } from '../../m3/life';
 import type { NakamaClient } from '@metaverse/hub-sdk';
 import { STAND_Y } from '../../physics';
 import { buildPlazaCollider } from './plaza-collider';
+import { BUILDING_SOLIDS, buildingAngle, type BuildingKey } from './building-colliders';
 import type { Collider } from './collider';
 import { instanced, part, upgradeToLod0 } from '../../v2/core';
 import { buildPlazaEntrance, castle, club, greenHill, kennel, whiteHouse } from './buildings';
@@ -117,7 +118,7 @@ interface SlotBuild {
 }
 
 interface SlotState {
-  key: string;
+  key: BuildingKey;
   a: number;
   front: number;
   sc: number;
@@ -190,7 +191,11 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   outdoor.add(skyline());
 
   const { rig, bob, avatar, shadow, shadowMat } = engine;
-  const collider = buildPlazaCollider();
+  // The dev sandbox gate stands in the middle of the castle, and a return from the sandbox lands
+  // beside it, so the castle stays open on those visits.
+  const castleOpen = (import.meta.env.DEV && import.meta.env.VITE_REALM_GATE_SANDBOX === '1')
+    || parseRealmArrival(window.location.hash) === 'sandbox';
+  const collider = buildPlazaCollider(CLUB_INTERIOR_SCALE, castleOpen ? ['castle'] : []);
   const tmp = new Vector3();
   let interior: ClubInteriorBuild | null = null;
   let interiorTask: Promise<void> | null = null;
@@ -322,6 +327,12 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     const ux = Math.sin(slot.a);
     const uz = -Math.cos(slot.a);
     group.position.set(ux * radius, 0, uz * radius);
+    if (import.meta.env.DEV) {
+      const solid = BUILDING_SOLIDS[slot.key];
+      if (Math.abs(solid.radius - radius) > 0.5 || solid.scale !== slot.sc || Math.abs(buildingAngle(slot.key) - slot.a) > 1e-6) {
+        console.warn(`[plaza] ${slot.key} stands at ${radius.toFixed(2)} m; building-colliders.ts expects ${solid.radius} m. Measure its solids again.`);
+      }
+    }
     group.rotation.y = Math.atan2(-ux, -uz);
   }
 

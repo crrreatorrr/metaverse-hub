@@ -1,11 +1,13 @@
 import { BoxGeometry, BufferGeometry, CylinderGeometry } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
-import type { Collider } from './collider';
+import type { Collider } from '../../collider';
 import { CLUB_COLLIDERS } from './club-interior-colliders';
 import { CLUB_INTERIOR_SCALE, scaleClubBounds } from './club-interior-scale';
 import { BELT_PLINTH_BOX } from './arcade-layout';
 import { BAR_BILLBOARD, BAR_BILLBOARD_BOXES } from './billboard-layout';
+import { buildingBoxes, buildingDrums, entrancePostBoxes, type BuildingKey } from './building-colliders';
+import { PORTALS, STATUE_PORTALS } from './config';
 
 function positionsOnly(source: BufferGeometry): BufferGeometry {
   const geo = source.index ? source.toNonIndexed() : source.clone();
@@ -33,8 +35,9 @@ function addBox(
 /**
  * Walkable collider for Sproto Plaza. The legacy `buildCollider` stays in
  * place for the capsule sim; this one matches the 220 m plaza and the Bar.
+ * `open` leaves out a building's solids (the dev sandbox gate stands inside the castle).
  */
-export function buildPlazaCollider(clubScale = CLUB_INTERIOR_SCALE): Collider {
+export function buildPlazaCollider(clubScale = CLUB_INTERIOR_SCALE, open: readonly BuildingKey[] = []): Collider {
   const parts: BufferGeometry[] = [];
   const ground = new CylinderGeometry(400, 400, 8, 24);
   ground.translate(0, -4, 0);
@@ -82,7 +85,23 @@ export function buildPlazaCollider(clubScale = CLUB_INTERIOR_SCALE): Collider {
     parts.push(positionsOnly(geo));
   }
 
+  // The five buildings and the posts of each entrance (building-colliders.ts), in their own tree:
+  // see Collider.solids.
+  const solidParts: BufferGeometry[] = [];
+  for (const box of [...buildingBoxes(open), ...entrancePostBoxes([...PORTALS, ...STATUE_PORTALS])]) {
+    const geo = new BoxGeometry(box.sx, box.sy, box.sz);
+    geo.rotateY(box.rotY);
+    geo.translate(box.x, box.y, box.z);
+    solidParts.push(positionsOnly(geo));
+  }
+  for (const drum of buildingDrums(open)) {
+    const geo = new CylinderGeometry(drum.radius, drum.radius, drum.height, 12);
+    geo.translate(drum.x, drum.height / 2, drum.z);
+    solidParts.push(positionsOnly(geo));
+  }
+  const solids = mergeGeometries(solidParts, false);
+
   const geometry = mergeGeometries(parts, false);
-  if (!geometry) throw new Error('Failed to merge the plaza collider');
-  return { bvh: new MeshBVH(geometry), geometry };
+  if (!geometry || !solids) throw new Error('Failed to merge the plaza collider');
+  return { bvh: new MeshBVH(geometry), geometry, solids: new MeshBVH(solids) };
 }

@@ -27,6 +27,7 @@ import type { PortalConfig } from '../../config';
 import { portalPosition } from '../../layout';
 import { animated, bakeInstanceColors, glow, groundY, instanced, neonMat, part } from '../../v2/core';
 import { SIGN_FONT, buildingSign } from '../../v2/signs';
+import { ENTRANCE_POST, ENTRANCE_POST_OFFSET } from './building-colliders';
 
 const Y = -Math.PI / 2;
 const at = <T extends { position: Vector3; rotation: Euler }>(obj: T, x: number, y: number, z: number, ry = 0): T => {
@@ -43,10 +44,10 @@ export function buildPlazaEntrance(portal: PortalConfig): Group {
   entrance.position.set(at.x, 0, at.z);
   entrance.rotation.y = Math.atan2(-Math.sin(portal.angle), Math.cos(portal.angle));
   const frame = new MeshStandardMaterial({ color: '#57504b', roughness: 0.9 });
-  const post = new BoxGeometry(0.34, 4.8, 0.42);
-  for (const x of [-3.0, 3.0]) {
+  const post = new BoxGeometry(ENTRANCE_POST.sx, ENTRANCE_POST.sy, ENTRANCE_POST.sz);
+  for (const x of [-ENTRANCE_POST_OFFSET, ENTRANCE_POST_OFFSET]) {
     const pillar = new Mesh(post, frame);
-    pillar.position.set(x, 2.4, 0);
+    pillar.position.set(x, ENTRANCE_POST.sy / 2, 0);
     entrance.add(pillar);
   }
   const sign = buildingSign(`entrance-sign-${portal.id}`, portal.label, 'Walk in to play', '#dbc9a2', '', false);

@@ -37,7 +37,8 @@ export interface Plaza {
   readonly room: string;
   /** Call every frame; sends at most 10/s when the pose changed, plus a 1 Hz keepalive. */
   sendPose(x: number, y: number, z: number, yaw: number, anim: number): void;
-  profile(look: { character: string; staff: string; pet: string | null }): void;
+  /** `name` is the display name from Edit avatar; '' shows the account name. */
+  profile(look: { character: string; staff: string; pet: string | null; name?: string }): void;
   emote(e: string): void;
   /** Tell the shard where this player is heading, before window.location changes. */
   travel(game: string): void;
@@ -201,7 +202,7 @@ export async function connectPlaza(opts: PlazaOptions): Promise<Plaza> {
       match.send(OP.POSE, body);
     },
     profile(look) {
-      lastProfile = JSON.stringify({ character: look.character, staff: look.staff, pet: look.pet ?? '' });
+      lastProfile = JSON.stringify({ character: look.character, staff: look.staff, pet: look.pet ?? '', name: look.name ?? '' });
       profilePending = true;
       flushProfile();
     },
