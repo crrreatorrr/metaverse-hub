@@ -21,7 +21,12 @@
 //   "admit:<uid>"). Its label is never open and never carries the code.
 // - Nobody new joins once the race is set up. An account that holds a seat may always come back;
 //   while it is away the AI drives its kart.
-// - A lobby nobody is in, a lobby that never starts and a race everybody left all close.
+// - A quick-race room keeps a place for each matched account for 15 s and does not start on
+//   READY until that many players are in. It starts regardless 45 s after its first player.
+// - A lobby nobody is in, a lobby that never starts, a race everybody left and a race nobody
+//   finishes within 15 minutes all close.
+// - A room holds one of twelve storage slots from before it is created until it closes, so the
+//   node limit holds even while a new room is not yet listed.
 //
 // Every message goes to an explicit list of presences. Nothing is broadcast with an empty list,
 // which Nakama would send to the whole match.
@@ -89,6 +94,75 @@ namespace RacerRooms {
     return id;
   }
 
+  function slotKeys(): nkruntime.StorageReadRequest[] {
+    var keys: nkruntime.StorageReadRequest[] = [];
+    for (var i = 0; i < RacerProto.MAX_ROOMS; i++) keys.push({ collection: COLLECTION, key: "slot:" + i, userId: SYSTEM_USER });
+    return keys;
+  }
+
+  /** The slot rows that exist, by slot number. */
+  function slotRows(nk: nkruntime.Nakama): { [slot: string]: nkruntime.StorageObject } {
+    var out: { [slot: string]: nkruntime.StorageObject } = {};
+    var rows = nk.storageRead(slotKeys()) || [];
+    for (var i = 0; i < rows.length; i++) out[rows[i].key.slice("slot:".length)] = rows[i];
+    return out;
+  }
+
+  /** A slot is taken while its match exists, and for a few seconds after it was claimed or bound. */
+  function slotTaken(nk: nkruntime.Nakama, row: nkruntime.StorageObject, now: number): boolean {
+    var age = now - Number(row.value["at"] || 0);
+    if (age < RacerProto.SLOT_FRESH_MS) return true;
+    var id = String(row.value["matchId"] || "");
+    return !!id && !!nk.matchGet(id);
+  }
+
+  /**
+   * Takes one of the node's room slots, or returns -1 when all are taken. The write only succeeds
+   * if nobody else took the slot first, so two requests at the same moment cannot share one.
+   * A slot whose room is gone (a crash, a restart) is taken over.
+   */
+  export function claimSlot(nk: nkruntime.Nakama): number {
+    var now = Date.now();
+    var rows = slotRows(nk);
+    for (var i = 0; i < RacerProto.MAX_ROOMS; i++) {
+      var row = rows[String(i)];
+      if (row && slotTaken(nk, row, now)) continue;
+      try {
+        write(nk, "slot:" + i, { matchId: "", at: now }, row ? row.version : "*");
+        return i;
+      } catch (e) {
+        /* someone else took this one; try the next */
+      }
+    }
+    return -1;
+  }
+
+  export function bindSlot(nk: nkruntime.Nakama, slot: number, matchId: string): void {
+    if (slot >= 0) write(nk, "slot:" + slot, { matchId: matchId, at: Date.now() });
+  }
+
+  /** Frees a slot. With a match id, only while the slot still names that match. */
+  export function releaseSlot(nk: nkruntime.Nakama, slot: number, matchId: string): void {
+    if (!(slot >= 0)) return;
+    if (matchId) {
+      var row = read(nk, "slot:" + slot);
+      if (!row || String(row.value["matchId"] || "") !== matchId) return;
+    }
+    drop(nk, "slot:" + slot);
+  }
+
+  /** Slots nobody holds right now. A reading, not a reservation. */
+  export function freeSlots(nk: nkruntime.Nakama): number {
+    var now = Date.now();
+    var rows = slotRows(nk);
+    var free = 0;
+    for (var i = 0; i < RacerProto.MAX_ROOMS; i++) {
+      var row = rows[String(i)];
+      if (!row || !slotTaken(nk, row, now)) free++;
+    }
+    return free;
+  }
+
   /** A fixed window per account and node: room creation, and code lookups (so codes cannot be guessed in bulk). */
   export function rateAllow(nk: nkruntime.Nakama, userId: string, kind: string): boolean {
     var windowMs = kind === "create" ? RacerProto.CREATE_WINDOW_MS : RacerProto.LOOKUP_WINDOW_MS;
@@ -153,7 +227,7 @@ namespace RacerMatch {
     /** `present` as a list, rebuilt when it changes. */
     everyone: nkruntime.Presence[] | null;
     names: { [userId: string]: string };
-    /** Joins accepted but not yet arrived, by the loop that accepted them. */
+    /** Places kept for accounts that are on their way (an accepted join, a matched ticket), by the loop the hold ends on. */
     joining: { [userId: string]: number };
     /** Private rooms: accounts that used the code. */
     admitted: { [userId: string]: number };
@@ -189,6 +263,8 @@ namespace RacerMatch {
     code: string;
     /** The account that created a private room. */
     host: string;
+    /** The node slot this room holds (RacerRooms.claimSlot), or -1. */
+    slot: number;
     courseId: string;
     laps: number;
     maxHumans: number;
@@ -275,7 +351,7 @@ namespace RacerMatch {
     room.d.broadcastMessage(op, RacerProto.payloadOf(data), to, null, true);
   }
 
-  function makeRoom(sim: RacerSimApi, state: State, seed: number): Room {
+  function makeRoom(sim: RacerSimApi, state: State, seed: number, minPlayers: number): Room {
     var room: Room = {
       host: null as unknown as RacerMatchHost,
       d: null,
@@ -303,7 +379,7 @@ namespace RacerMatch {
       laps: state.laps,
       seatCount: RacerProto.SEATS,
       maxHumans: state.maxHumans,
-      minPlayers: 1,
+      minPlayers: minPlayers,
       allowLateJoin: false,
       send: function (playerId: string, op: number, data: Uint8Array | string): void {
         sendTo(room, playerId, op, data);
@@ -324,6 +400,7 @@ namespace RacerMatch {
       privateRoom: false,
       code: "",
       host: "",
+      slot: -1,
       courseId: "",
       laps: RacerProto.LAPS,
       maxHumans: RacerProto.MAX_HUMANS,
@@ -372,6 +449,7 @@ namespace RacerMatch {
     if (state.cleaned) return;
     state.cleaned = true;
     if (state.code) RacerRooms.releaseCode(nk, state.code);
+    RacerRooms.releaseSlot(nk, state.slot, matchId);
     if (rooms) delete rooms[matchId];
   }
 
@@ -393,17 +471,19 @@ namespace RacerMatch {
   /**
    * HELLO carries the name the other players will see. The client's own text is replaced with
    * the hub account's cleaned name; everything else in the message reaches the host as it came.
+   * A HELLO that is too long or is not a JSON object is not forwarded at all: the host is handed
+   * nothing and answers bad_hello, so no name the hub did not write can reach the lobby.
    */
   function helloOf(nk: nkruntime.Nakama, room: Room, userId: string, data: string | ArrayBuffer | null): Uint8Array | string {
     var bytes = RacerProto.bytesOf(data);
-    if (!bytes.length || bytes.length > RacerProto.MAX_JSON) return bytes;
+    if (!bytes.length || bytes.length > RacerProto.MAX_JSON) return new Uint8Array(0);
     try {
       var parsed = JSON.parse(nk.binaryToString(data as ArrayBuffer)) as unknown;
-      if (!isObj(parsed)) return bytes;
+      if (!isObj(parsed)) return new Uint8Array(0);
       parsed["name"] = room.names[userId] || "Racer";
       return JSON.stringify(parsed);
     } catch (e) {
-      return bytes;
+      return new Uint8Array(0);
     }
   }
 
@@ -465,7 +545,7 @@ namespace RacerMatch {
   function clocks(state: State, room: Room, logger: nkruntime.Logger, matchId: string): string {
     var rate = RacerProto.TICK_RATE;
     for (var id in room.joining) {
-      if (Object.prototype.hasOwnProperty.call(room.joining, id) && room.loops - room.joining[id] > RacerProto.JOINING_S * rate) delete room.joining[id];
+      if (Object.prototype.hasOwnProperty.call(room.joining, id) && room.loops > room.joining[id]) delete room.joining[id];
     }
     var phase = room.host.phase;
     room.emptyLoops = count(room.present) === 0 ? room.emptyLoops + 1 : 0;
@@ -490,7 +570,27 @@ namespace RacerMatch {
       return "";
     }
     if (room.emptyLoops > RacerProto.ABANDON_S * rate) return "abandoned";
+    // The host ends a race 25 s after the first kart finishes. If no kart ever does, this does.
+    if (room.host.raceTick > RacerProto.MAX_RACE_S * rate) return "race_timeout";
     return "";
+  }
+
+  /** The matched accounts a quick-race room was made for: distinct uuids, at most a full room. */
+  function rosterOf(raw: unknown): string[] {
+    var out: string[] = [];
+    if (typeof raw !== "string" || !raw) return out;
+    try {
+      var parsed = JSON.parse(raw) as unknown;
+      if (Object.prototype.toString.call(parsed) !== "[object Array]") return out;
+      var list = parsed as unknown[];
+      for (var i = 0; i < list.length && out.length < RacerProto.MAX_HUMANS; i++) {
+        var id = String(list[i] || "");
+        if (UUID.test(id) && out.indexOf(id) < 0) out.push(id);
+      }
+    } catch (e) {
+      return [];
+    }
+    return out;
   }
 
   export var handler: nkruntime.MatchHandler<State> = {
@@ -501,6 +601,9 @@ namespace RacerMatch {
       state.code = typeof params["code"] === "string" ? (params["code"] as string) : "";
       state.host = typeof params["host"] === "string" ? (params["host"] as string) : "";
       state.maxHumans = RacerProto.clampHumans(params["maxSeats"]);
+      var slot = parseInt(String(params["slot"]), 10);
+      state.slot = slot >= 0 && slot < RacerProto.MAX_ROOMS ? slot : -1;
+      var roster = rosterOf(params["roster"]);
       var mismatch = RacerProto.verifyRuntime();
       var sim = RacerProto.api();
       if (mismatch || !sim) {
@@ -509,7 +612,10 @@ namespace RacerMatch {
       } else {
         state.courseId = RacerProto.knownCourse(params["courseId"]) ? (params["courseId"] as string) : RacerProto.randomCourse(nk);
         try {
-          roomBag()[matchId] = makeRoom(sim, state, RacerProto.serverSeed(nk));
+          // A matched group races together: READY starts the race only once that many are in.
+          var made = makeRoom(sim, state, RacerProto.serverSeed(nk), roster.length > 1 ? roster.length : 1);
+          for (var r = 0; r < roster.length; r++) made.joining[roster[r]] = RacerProto.ROSTER_HOLD_S * RacerProto.TICK_RATE;
+          roomBag()[matchId] = made;
         } catch (e) {
           state.broken = "host_failed";
           logger.error("sproto_racer host " + String(e).slice(0, 200));
@@ -537,7 +643,7 @@ namespace RacerMatch {
       }
       if (!room.joining[userId]) {
         if (count(room.present) + count(room.joining) >= state.maxHumans) return { state: state, accept: false, rejectMessage: "match_full" };
-        room.joining[userId] = room.loops || 1;
+        room.joining[userId] = room.loops + RacerProto.JOINING_S * RacerProto.TICK_RATE;
       }
       refresh(d, state, room);
       return { state: state, accept: true };
@@ -608,6 +714,10 @@ namespace RacerMatch {
           }
           var data = message.opCode === RacerProto.OP_HELLO ? helloOf(nk, room, sender.userId, message.data) : RacerProto.bytesOf(message.data);
           room.host.receive(sender.userId, message.opCode, data);
+          // RESULT went out once, when the race ended. A player who was away then gets it with the welcome back.
+          if (message.opCode === RacerProto.OP_HELLO && room.host.phase === "finished" && room.host.results && ownsSeat(room, sender.userId)) {
+            sendTo(room, sender.userId, RacerProto.OP_RESULT, JSON.stringify(room.host.results));
+          }
         }
         room.host.tick();
         var over = clocks(state, room, logger, matchId);
@@ -683,32 +793,58 @@ namespace RacerMatch {
     var wrong = ticketError(props);
     if (wrong) throw new Error(wrong);
     if (!Flags.on(nk, RacerProto.FLAG, ctx.userId, logger)) throw new Error("online_off");
+    if (RacerRooms.freeSlots(nk) < 1) throw new Error("busy");
+    // A game built for twelve seats asks for up to twelve; a group that size has no room to go to.
+    if (typeof add.maxCount !== "number" || add.maxCount > RacerProto.MAX_HUMANS) add.maxCount = RacerProto.MAX_HUMANS;
+    if (add.maxCount < RacerProto.MIN_HUMANS) add.maxCount = RacerProto.MIN_HUMANS;
+    if (typeof add.minCount !== "number" || add.minCount < RacerProto.MIN_HUMANS) add.minCount = RacerProto.MIN_HUMANS;
+    if (add.minCount > add.maxCount) add.minCount = add.maxCount;
   }
 
   /**
-   * One public lobby for a matched group of two to six tickets. The group races the circuit they
-   * all asked for, or one the server picks. Nothing is created while the flag is off for any of
-   * them, during a deploy drain, or when every room is in use.
+   * One public lobby for a matched group of two to six tickets. The room keeps a place for each
+   * of them. The group races the circuit they all asked for, or one the server picks. Nothing is
+   * created while the flag is off for any of them, during a deploy drain, or when every room is
+   * in use. A group that gets no room is given none by Nakama either; tickets this server cannot
+   * serve are refused when they are added (noteAdd), which is where the player is told.
    */
   export function onMatched(_ctx: nkruntime.Context, logger: nkruntime.Logger, nk: nkruntime.Nakama, matches: nkruntime.MatchmakerResult[]): string | void {
     if (!matches || matches.length < RacerProto.MIN_HUMANS || matches.length > RacerProto.MAX_HUMANS) return;
     if (RacerProto.verifyRuntime()) return;
     var course = "";
+    var roster: string[] = [];
     for (var i = 0; i < matches.length; i++) {
       var entry = matches[i];
       if (!entry || !entry.presence || !entry.presence.userId) return;
       if (ticketError(entry.properties)) return;
-      if (!Flags.on(nk, RacerProto.FLAG, entry.presence.userId, logger)) return;
+      var uid = entry.presence.userId;
+      if (!Flags.on(nk, RacerProto.FLAG, uid, logger)) return;
+      if (roster.indexOf(uid) < 0) roster.push(uid);
       var wanted = prop(entry.properties, "courseId");
       if (i === 0) course = wanted;
       else if (wanted !== course) course = "";
     }
     if (Maint.on(nk)) return;
-    if (RacerRooms.census(nk).rooms >= RacerProto.MAX_ROOMS) {
+    var slot = RacerRooms.claimSlot(nk);
+    if (slot < 0) {
       logger.warn("sproto_racer queue refused, every room is in use");
       return;
     }
-    var id = nk.matchCreate(RacerProto.MATCH_NAME, { private: "0", courseId: course, maxSeats: String(RacerProto.MAX_HUMANS) });
+    var id = "";
+    try {
+      id = nk.matchCreate(RacerProto.MATCH_NAME, {
+        private: "0",
+        courseId: course,
+        maxSeats: String(RacerProto.MAX_HUMANS),
+        slot: String(slot),
+        roster: JSON.stringify(roster),
+      });
+    } catch (e) {
+      RacerRooms.releaseSlot(nk, slot, "");
+      logger.error("sproto_racer queue " + String(e).slice(0, 200));
+      return;
+    }
+    RacerRooms.bindSlot(nk, slot, id);
     logger.info("sproto_racer queue " + id);
     return id;
   }
@@ -754,23 +890,29 @@ namespace RacerMatch {
     var closed = Maint.deny(nk);
     if (closed) return closed;
     if (!RacerRooms.rateAllow(nk, userId, "create")) return fail("rate_limited", "Too many rooms");
-    if (RacerRooms.census(nk).rooms >= RacerProto.MAX_ROOMS) return fail("busy", "Every room is in use");
+    var slot = RacerRooms.claimSlot(nk);
+    if (slot < 0) return fail("busy", "Every room is in use");
     var code = "";
     for (var attempt = 0; attempt < 5 && !code; attempt++) {
       var candidate = RacerProto.roomCode(nk);
       if (candidate && RacerRooms.reserveCode(nk, candidate)) code = candidate;
     }
-    if (!code) return fail("room_code_busy", "Could not allocate a room code");
+    if (!code) {
+      RacerRooms.releaseSlot(nk, slot, "");
+      return fail("room_code_busy", "Could not allocate a room code");
+    }
     var maxSeats = RacerProto.clampHumans(req["maxSeats"]);
     var courseId = typeof req["courseId"] === "string" ? (req["courseId"] as string) : "";
     var matchId = "";
     try {
-      matchId = nk.matchCreate(RacerProto.MATCH_NAME, { private: "1", code: code, host: userId, courseId: courseId, maxSeats: String(maxSeats) });
+      matchId = nk.matchCreate(RacerProto.MATCH_NAME, { private: "1", code: code, host: userId, courseId: courseId, maxSeats: String(maxSeats), slot: String(slot) });
     } catch (e) {
       RacerRooms.releaseCode(nk, code);
+      RacerRooms.releaseSlot(nk, slot, "");
       logger.error("sproto_racer room " + String(e).slice(0, 200));
       return fail("room_failed", "Could not create the room");
     }
+    RacerRooms.bindSlot(nk, slot, matchId);
     RacerRooms.bindCode(nk, code, matchId, Date.now() + RacerProto.CODE_TTL_S * 1000);
     logger.info("sproto_racer room " + matchId);
     return JSON.stringify({ matchId: matchId, code: code, version: RacerProto.NET_VERSION, simVersion: RacerProto.SIM_VERSION, maxSeats: maxSeats });

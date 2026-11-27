@@ -486,6 +486,9 @@ await test('racer: a quick-race pair is given a public room', async () => {
   rb.disconnect();
 });
 
+// Leave the flags table as it was found: the duplication suite checks the seeded rows exactly.
+psql(`DELETE FROM game.server_flags WHERE key = 'racer_online'`);
+
 console.log('\nRealtime suite');
 console.log(`shooter-free: ${shooterFree.pass} pass, ${shooterFree.fail} fail`);
 if (shooterFree.fail > 0 || shooterFree.pass === 0) {

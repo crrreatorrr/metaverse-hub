@@ -29,6 +29,7 @@ namespace RacerProto {
 
   // The JSON messages the hub reads or sends itself. Every other opcode goes to the host untouched.
   export var OP_HELLO = 1;
+  export var OP_RESULT = 7;
   export var OP_ERROR = 19;
 
   export var TICK_RATE = 60;
@@ -42,8 +43,10 @@ namespace RacerProto {
   export var MAX_HUMANS = 6;
   export var MIN_HUMANS = 2;
   export var LAPS = 3;
-  /** Rooms of this game alive at once on the node. A room is one 60 Hz VM. */
+  /** Rooms of this game alive at once on the node. A room is one 60 Hz VM. Each holds one of this many storage slots. */
   export var MAX_ROOMS = 12;
+  /** A slot that was claimed this recently counts as taken even if its match cannot be seen yet. */
+  export var SLOT_FRESH_MS = 10000;
 
   /** A lobby nobody is in closes after this long. */
   export var EMPTY_LOBBY_S = 30;
@@ -57,6 +60,10 @@ namespace RacerProto {
   export var LINGER_S = 20;
   /** A join that was accepted but never arrived frees its place after this long. */
   export var JOINING_S = 10;
+  /** A quick-race room keeps a place for each matched account this long. */
+  export var ROSTER_HOLD_S = 15;
+  /** A race still running after this long is closed: nobody is finishing it. A three-lap race takes about five minutes. */
+  export var MAX_RACE_S = 900;
 
   export var CODE_LEN = 6;
   /** The game's ROOM_ALPHABET (src/net/protocol.js): no 0, 1, I, L or O. */
@@ -96,7 +103,7 @@ namespace RacerProto {
     if (info.netVersion !== NET_VERSION) return "protocol_mismatch";
     if (info.tickRate !== TICK_RATE) return "tick_mismatch";
     var op = info.op;
-    if (!op || op["HELLO"] !== OP_HELLO || op["ERROR"] !== OP_ERROR) return "opcode_mismatch";
+    if (!op || op["HELLO"] !== OP_HELLO || op["RESULT"] !== OP_RESULT || op["ERROR"] !== OP_ERROR) return "opcode_mismatch";
     return null;
   }
 

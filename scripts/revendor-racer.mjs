@@ -62,7 +62,7 @@ vm.runInContext(bundle, context, { filename: 'racer-sim.js' });
 const info = vm.runInContext('RacerSim.netInfo()', context);
 if (info.simVersion !== gamePin.simVersion) fail(`the bundle reports simulation ${info.simVersion}`);
 if (info.tickRate !== 60) fail(`the bundle ticks at ${info.tickRate} Hz; the match is registered at 60`);
-if (info.op.HELLO !== 1 || info.op.ERROR !== 19) fail('the HELLO or ERROR opcode moved; update racer_protocol.ts by hand');
+if (info.op.HELLO !== 1 || info.op.RESULT !== 7 || info.op.ERROR !== 19) fail('the HELLO, RESULT or ERROR opcode moved; update racer_protocol.ts by hand');
 
 const pin = {
   kind: 'sproto-racer-sim-pin',

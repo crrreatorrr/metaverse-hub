@@ -198,6 +198,13 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
   assert.equal(refused.length, 1);
   assert.deepEqual(users(refused[0]!), [B]);
   assert.equal(JSON.parse(refused[0]!.text!).error, 'sim_version_mismatch');
+  // A HELLO the hub cannot read is not passed on with the client's name in it: the host is handed nothing.
+  sent.length = 0;
+  m.loop([{ sender: b1, opCode: OP.HELLO, data: hello({ name: 'admin', pad: 'x'.repeat(3000) }) }]);
+  m.loop([{ sender: b1, opCode: OP.HELLO, data: new Uint8Array([0xff, 0xfe, 1, 2]) }]);
+  m.loop([{ sender: b1, opCode: OP.HELLO, data: '["admin"]' }]);
+  assert.deepEqual(sent.filter((s) => s.opCode === OP.ERROR).map((s) => [users(s).join(), JSON.parse(s.text!).error]), [[B, 'bad_hello'], [B, 'bad_hello'], [B, 'bad_hello']]);
+  assert.equal(sent.filter((s) => s.opCode === OP.WELCOME || s.opCode === OP.LOBBY).length, 0, 'nobody entered the lobby that way');
   sent.length = 0;
   m.loop([
     { sender: a1, opCode: OP.HELLO, data: hello({ name: 'admin <script>' }) },
@@ -352,8 +359,19 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
 
   // The finished race lingers, so a player who reconnects still gets in; then the match closes without an error.
   assert.equal(on.call<{ hard: number; kinds: { racer: number } }>('maint.live', server, {}).kinds.racer, 1);
+  // RESULT went out once. A player who was away at that moment gets it again with the welcome back, alone.
   sent.length = 0;
-  assert.ok(m.ticks(20 * RATE));
+  m.leave([b2]);
+  const b3 = presence(B, 'bob <b>', '66666666-6666-4666-8666-666666666666');
+  assert.deepEqual(m.join([b3], session(B)), [{ accept: true, rejectMessage: undefined }]);
+  assert.ok(m.loop([{ sender: b3, opCode: OP.HELLO, data: hello() }]));
+  assert.equal(json<{ phase: string }>(sent, OP.WELCOME, B)[0]!.phase, 'finished');
+  const again = sent.filter((s) => s.opCode === OP.RESULT);
+  assert.equal(again.length, 1);
+  assert.deepEqual(users(again[0]!), [B]);
+  assert.equal(again[0]!.text, results[0]!.text);
+  sent.length = 0;
+  assert.ok(m.ticks(20 * RATE - 1));
   assert.equal(stateOf(m).ended, false);
   assert.ok(m.ticks(1));
   assert.equal(stateOf(m).ended, true);
@@ -375,6 +393,9 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
   assert.throws(() => on.rtBefore('MatchmakerAdd', { ...session(A), sessionId: 's-a' }, ticket({ ...props, mode: 'trial' })), /bad_mode/);
   assert.throws(() => on.rtBefore('MatchmakerAdd', { ...session(A), sessionId: 's-a' }, ticket({ ...props, courseId: 'track99' })), /invalid_course/);
   assert.throws(() => on.rtBefore('MatchmakerAdd', { ...session(A, 'sproto-shooter'), sessionId: 's-a' }, ticket(props)), /wrong_game/);
+  // The game asks for groups of up to twelve; a group this server could not seat is never formed.
+  const wide = on.rtBefore('MatchmakerAdd', { ...session(A), sessionId: 's-a' }, { matchmakerAdd: { minCount: 1, maxCount: 12, query: '*', stringProperties: props } });
+  assert.deepEqual([(wide.matchmakerAdd as { minCount: number }).minCount, (wide.matchmakerAdd as { maxCount: number }).maxCount], [2, 6]);
 
   assert.equal(on.matchmake([{ presence: presence(A), properties: props }]), undefined, 'one ticket is not a race');
   assert.equal(on.matchmake([{ presence: presence(A), properties: props }, { presence: presence(B), properties: { ...props, simVersion: 'feedfacefeedface' } }]), undefined);
@@ -405,7 +426,10 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
   m.ticks(1);
   m.loop([{ sender: a, opCode: OP.HELLO, data: hello() }]);
   assert.equal(stateOf(m).phase, 'lobby');
-  // Nobody presses READY. 45 s after the first player was in, the race starts anyway.
+  // The room was made for two. One of them being ready does not start it without the other.
+  m.loop([{ sender: a, opCode: OP.READY, data: { ready: true } }]);
+  assert.equal(stateOf(m).phase, 'lobby');
+  // The other never arrives. 45 s after the first player was in, the race starts anyway.
   assert.ok(m.ticks(44 * RATE));
   assert.equal(stateOf(m).phase, 'lobby');
   assert.ok(m.ticks(2 * RATE));
@@ -422,6 +446,52 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
   assert.equal(stateOf(m).ended, true);
   assert.equal(stateOf(m).endReason, 'abandoned');
   assert.equal(m.loop([]), false);
+}
+
+// A matched group's places are kept for them, and the room starts once they are all in and ready.
+{
+  const props = { game: GAME, version: PIN.netVersion, simVersion: PIN.simVersion, mode: 'race' };
+  const six = [0, 1, 2, 3, 4, 5].map((i) => presence(`00000000-0000-4000-8000-0000000002${String(i).padStart(2, '0')}`, `racer${i}`, `77777777-7777-4777-8777-0000000000${String(i).padStart(2, '0')}`));
+  const id = on.matchmake(six.map((p) => ({ presence: p, properties: props })));
+  assert.ok(id);
+  const m = on.driver(id);
+  const sent = tap(m);
+  const outsider = presence(C, 'carol', '33333333-3333-4333-8333-333333333333');
+  assert.equal(labelOf(m).open, false, 'every place is spoken for, so the search does not offer the room');
+  assert.deepEqual(m.joinAttempt(outsider, session(C)), { accept: false, rejectMessage: 'match_full' });
+  for (const p of six) assert.equal(m.join([p], session(p.userId))[0]!.accept, true);
+  m.loop(six.map((p) => ({ sender: p, opCode: OP.HELLO, data: hello() })));
+  m.loop(six.slice(0, 5).map((p) => ({ sender: p, opCode: OP.READY, data: { ready: true } })));
+  assert.equal(stateOf(m).phase, 'lobby', 'five of six ready is not everyone');
+  m.loop([{ sender: six[5]!, opCode: OP.READY, data: { ready: true } }]);
+  assert.equal(stateOf(m).phase, 'starting');
+  assert.deepEqual(json<{ race: { seats: { kind: string }[] } }>(sent, OP.START)[0]!.race.seats.map((s) => s.kind), ['remote', 'remote', 'remote', 'remote', 'remote', 'remote']);
+
+  // Six players and nobody drives: no kart ever finishes, so the host never ends the race. The hub does, after 15 minutes.
+  sent.length = 0;
+  assert.ok(m.ticks(119 + 15 * 60 * RATE));
+  assert.equal(stateOf(m).phase, 'race');
+  assert.equal(stateOf(m).ended, false);
+  assert.ok(m.ticks(1));
+  assert.equal(stateOf(m).ended, true);
+  assert.equal(stateOf(m).endReason, 'race_timeout');
+  const told = sent.filter((s) => s.opCode === OP.ERROR);
+  assert.equal(told.length, 1);
+  assert.equal(told[0]!.to.length, 6);
+  assert.equal(JSON.parse(told[0]!.text!).error, 'race_timeout');
+  assert.equal(m.loop([]), false);
+
+  // A matched account that does not turn up loses its place after 15 s.
+  const pair = on.matchmake(six.slice(0, 2).map((p) => ({ presence: p, properties: props })));
+  const held = on.driver(pair!);
+  const five = [0, 1, 2, 3, 4].map((i) => presence(`00000000-0000-4000-8000-0000000003${String(i).padStart(2, '0')}`, `late${i}`, `88888888-8888-4888-8888-0000000000${String(i).padStart(2, '0')}`));
+  // Four others fill the room up to its two kept places; a fifth is turned away until the hold runs out.
+  for (const p of five.slice(0, 4)) assert.equal(held.join([p], session(p.userId))[0]!.accept, true);
+  assert.equal(held.joinAttempt(five[4]!, session(five[4]!.userId)).rejectMessage, 'match_full');
+  assert.equal(labelOf(held).open, false);
+  held.ticks(15 * RATE + 2);
+  assert.equal(labelOf(held).open, true);
+  assert.equal(held.joinAttempt(five[4]!, session(five[4]!.userId)).accept, true);
 }
 
 // A lobby nobody is in closes after 30 s. A shutdown tells everyone and ends the match.
@@ -463,6 +533,35 @@ const hello = (extra: Record<string, unknown> = {}) => ({ v: PIN.netVersion, sim
   assert.equal(mod.call<{ error?: string }>('racer.room_create', session(A), {}).error, 'busy', 'twelve rooms is the node limit');
   const props = { game: GAME, version: PIN.netVersion, simVersion: PIN.simVersion, mode: 'race' };
   assert.equal(mod.matchmake([{ presence: presence(A), properties: props }, { presence: presence(B), properties: props }]), undefined);
+  assert.throws(() => mod.rtBefore('MatchmakerAdd', { ...session(A), sessionId: 's-a' }, { matchmakerAdd: { stringProperties: props } }), /busy/, 'a ticket nobody could seat is refused when it is added');
+  const slots = () => [...mod.nk.storage.keys()].filter((key) => key.startsWith('sproto_racer/slot:')).length;
+  assert.equal(slots(), 12, 'each room holds one slot');
+  // A room that closes gives its slot back.
+  const first = [...mod.nk.matches.values()].find((row) => row.module === 'sproto_racer')!;
+  assert.equal(mod.driver(first.matchId).ticks(30 * RATE + 3), false);
+  assert.equal(slots(), 11);
+  const E = '00000000-0000-4000-8000-00000000000e';
+  const fresh = mod.call<{ matchId: string; error?: string }>('racer.room_create', session(E), {});
+  assert.equal(fresh.error, undefined);
+  assert.equal(mod.call<{ error?: string }>('racer.room_create', session(E), {}).error, 'busy');
+  // A room that died without closing (a crash) still has its row. Once the row is ten seconds old
+  // and its match is gone, the slot is taken over.
+  const dead = mod.nk.matches.get(fresh.matchId)!;
+  dead.ended = true;
+  assert.equal(mod.call<{ error?: string }>('racer.room_create', session(E), {}).error, 'busy', 'not within ten seconds of the claim');
+  mod.clock!.now += 11_000;
+  assert.equal(mod.call<{ matchId?: string }>('racer.room_create', session(E), {}).matchId !== undefined, true);
+  assert.equal(slots(), 12);
+  assert.ok([...mod.nk.storage.entries()].every(([key, row]) => !key.startsWith('sproto_racer/slot:') || row.value.matchId !== dead.matchId));
+
+  // The limit does not lean on the match listing, which shows a new room only after about a second.
+  const lagged = load('on');
+  lagged.nk.listLagMs = 60_000;
+  for (let i = 0; i < 12; i += 1) {
+    const who = `00000000-0000-4000-8000-0000000004${String(i).padStart(2, '0')}`;
+    assert.equal(lagged.call<{ error?: string }>('racer.room_create', session(who), {}).error, undefined);
+  }
+  assert.equal(lagged.call<{ error?: string }>('racer.room_create', session(A), {}).error, 'busy');
   // Guessing codes: eight lookups in ten seconds, then none.
   for (let i = 0; i < 8; i += 1) assert.equal(mod.call<{ error?: string }>('racer.room_join', session(C), { code: 'ZZZZZZ' }).error, 'room_not_found');
   assert.equal(mod.call<{ error?: string }>('racer.room_join', session(C), { code: 'ZZZZZZ' }).error, 'rate_limited');

@@ -27,9 +27,11 @@ from that. The hub passes presences and messages through and decides who may joi
 - **Who joins.** Only a `sproto-racer` game session. One account, one socket: a second socket takes
   over and the first is kicked. Messages from a socket that is not the account's current one are dropped.
 - **Names.** The name other players see is the hub account's, through `HubMatch.cleanName`. The name a
-  client puts in HELLO is replaced.
+  client puts in HELLO is replaced. A HELLO the hub cannot rewrite (longer than 2048 bytes, or not a
+  JSON object) never reaches the host: the sender gets `bad_hello`.
 - **After the start.** Nobody new joins. An account that holds a seat may always come back: while it is
-  away the AI drives its kart, and on return it is sent the whole race state in chunks of at most 4096 bytes.
+  away the AI drives its kart, and on return it is sent the whole race state in chunks of at most 4096
+  bytes. If it comes back after the finish it is sent the result again.
 - **Messages.** Every send names its presences. Binary messages go out as a fresh `ArrayBuffer`:
   Nakama 3.41 rejects a `Uint8Array`, and it keeps the buffer until the socket writes it.
 
@@ -38,14 +40,15 @@ from that. The hub passes presences and messages through and decides who may joi
 | | Private room | Quick race |
 |---|---|---|
 | Made by | `racer.room_create` | two to six matched tickets (`properties.game:sproto-racer`) |
-| Who gets in | the creator, and accounts that used the code (`racer.room_join`, at most 16) | anyone while it is in the lobby with a place free |
-| Label | `open: false`, `private: true`, never the code | `open: true` with the player count, so the game's search finds it |
-| Starts | when everyone in the lobby is ready | when everyone is ready, or 45 s after the first player is in |
+| Who gets in | the creator, and accounts that used the code (`racer.room_join`, at most 16) | the matched accounts, whose places are kept for 15 s, and anyone else while it is in the lobby with a place free |
+| Label | `open: false`, `private: true`, never the code | `open: true` with the player count while a place is free, so the game's search finds it |
+| Starts | when everyone in the lobby is ready | when the whole matched group is in and everyone is ready, or 45 s after the first player is in |
 
 A room closes when its lobby has been empty for 30 s, when its lobby has not started within 15 minutes,
-when every player has been gone from the race for 30 s, 20 s after the race finishes, on a host error
-and at shutdown. Players still connected get an `ERROR` message with the reason (`lobby_timeout`,
-`server_error`, `server_shutdown`), except after a finished race.
+when every player has been gone from the race for 30 s, when a race has run 15 minutes without ending
+(nobody is finishing it), 20 s after the race finishes, on a host error and at shutdown. Players still
+connected get an `ERROR` message with the reason (`lobby_timeout`, `race_timeout`, `server_error`,
+`server_shutdown`), except after a finished race.
 
 Room codes are six characters from the game's alphabet, made from Nakama's CSPRNG. A code is an
 invitation, not a password for the match id: knowing the match id does not get an account in.
@@ -70,9 +73,10 @@ Errors are `{ error, message }`: `wrong_scope`, `version_mismatch`, `sim_version
 | Limit | Value | Why |
 |---|---|---|
 | Players in a room | 6 | Twelve karts cost three times as much and had single ticks over the 16.7 ms budget in the game's own goja measurement. Raise `MAX_HUMANS` and `SEATS` after measuring twelve on the production host. |
-| Rooms on the node | 12 | Each room is a VM stepping 60 times a second. `busy` beyond that. |
-| Rooms one account creates | 5 a minute | |
-| Code lookups by one account | 8 in 10 s | So codes cannot be guessed in bulk. |
+| Rooms on the node | 12 | Each room is a VM stepping 60 times a second. A room holds one of twelve storage slots, claimed before it is created and written only if nobody else has it, so requests at the same moment cannot go over. `busy` beyond that, for a new room and for a new quick-race ticket. A slot whose room died without closing is reused once it is ten seconds old. |
+| A quick-race group | 2 to 6 | A ticket asking for more is cut to six when it is added. |
+| Rooms one account creates | 5 a minute | A count in the node cache, as for Shooter. Requests at the same instant can slip past it; the node limit above is the hard one. |
+| Code lookups by one account | 8 in 10 s | So codes cannot be guessed in bulk. The same kind of count. |
 | Messages | the host's own budgets | 72 inputs a second with a burst of 240, 5 control messages a second with a burst of 10. Over that, input is dropped and counted. |
 
 `maint.begin` refuses new rooms and tickets, and `maint.live` counts a room with players as a hard
@@ -136,4 +140,8 @@ it runs the game's own 240-tick smoke race to the hash in the pin.
   nothing announces the 45 s beforehand.
 - One quick-race room per matched group is not guaranteed if Nakama repeats a match callback: a second
   room would sit empty and close after 30 s.
+- A matched group that gets no room (the last slot went between queueing and matching, or a deploy drain
+  began) is handed a plain Nakama relay token with no match id. Nothing answers in such a match. The
+  game's `quickMatch` should treat a matched message without a match id as "try again", and should ask
+  for at most six seats.
 - A replay log, results kept anywhere, a rematch.
