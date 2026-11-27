@@ -6,7 +6,8 @@
 #   2. build metaverse-nakama:<git sha> while the old container keeps serving
 #   3. maint.begin (deadline +DRAIN_MINUTES): no new hard matches, players get a notice
 #   4. poll maint.live every POLL_SEC until 0 hard matches or the deadline
-#   5. wait NOTICE_SEC so the notice reaches everyone
+#   5. wait NOTICE_SEC so the notice reaches everyone; then check-nakama-drain.sh stops the
+#      deploy if a hard match or a held Shooter wager is left (--allow-open restarts anyway)
 #   6. retag :prod to the new image and recreate only the nakama container
 #   7. wait for health
 #   8. maint.end (also from the EXIT trap, so Ctrl-C or a failure ends maintenance)
@@ -171,13 +172,14 @@ json_int() {
   printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" | head -n 1
 }
 
-# Prints "hard N (duel a, arena b, coop c, shooter d), soft M" from a maint.live body;
-# sets live_hard (empty when the body has no count).
+# Prints "hard N (duel a, arena b, coop c, shooter d, racer e), soft M" from a maint.live
+# body; sets live_hard (empty when the body has no count). A kind the running server does
+# not report prints as "?".
 live_hard=""
 describe_live() {
   local body="$1" k v parts=""
   live_hard="$(json_int hard "$body")"
-  for k in duel arena coop shooter; do
+  for k in duel arena coop shooter racer; do
     v="$(json_int "$k" "$body")"
     parts="${parts:+${parts}, }${k} ${v:-?}"
   done
@@ -306,7 +308,11 @@ if [ "$drain" = 1 ]; then
             warn "maint.live returned HTTP ${rpc_status}: ${rpc_body}; still polling"
           fi
           if [ "$(date +%s)" -ge "$deadline" ]; then
-            warn "drain deadline reached with hard matches still live; they get the ${notice_sec}s notice plus the shutdown grace"
+            if [ "$allow_open" = 1 ]; then
+              warn "drain deadline reached with hard matches still live; --allow-open restarts anyway, so they get the ${notice_sec}s notice plus the shutdown grace"
+            else
+              warn "drain deadline reached with hard matches still live; unless they end in the next ${notice_sec}s the check below stops this deploy before the restart (--allow-open restarts anyway)"
+            fi
             break
           fi
           pause "$poll_sec"

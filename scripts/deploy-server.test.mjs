@@ -128,7 +128,7 @@ elif [ "$name" = maint.live ]; then
   n="$(head -n 1 "$STUB_LIVE")"
   rest="$(tail -n +2 "$STUB_LIVE")"
   [ -n "$rest" ] && printf '%s\\n' "$rest" > "$STUB_LIVE"
-  body="{\\"hard\\":$n,\\"soft\\":4,\\"kinds\\":{\\"duel\\":0,\\"arena\\":0,\\"coop\\":$n,\\"shooter\\":0}}"
+  body="{\\"hard\\":$n,\\"soft\\":4,\\"kinds\\":{\\"duel\\":0,\\"arena\\":0,\\"coop\\":$n,\\"shooter\\":0,\\"racer\\":0}}"
 fi
 printf '%s' "$body" > "$out"
 printf '%s' "$code"
@@ -199,7 +199,7 @@ function keyNeverInArgv(calls) {
   assert.equal(count(r.steps, /^rpc maint\.live/), 3, 'polls until hard matches reach 0');
   assert.equal(count(r.steps, /^rpc maint\.end/), 1, 'maint.end once, not again from the EXIT trap');
   assert.equal(count(r.steps, /^deploy-game/), 0, 'game pages only on request');
-  assert.match(r.out, /hard 2 \(duel 0, arena 0, coop 2, shooter 0\)/);
+  assert.match(r.out, /hard 2 \(duel 0, arena 0, coop 2, shooter 0, racer 0\), soft 4/);
   assert.match(r.out, /IMAGE_TAG=aaaaaaaaaaaa .*deploy-server\.sh --no-drain/, 'prints the rollback command');
   keyNeverInArgv(r.calls);
 }
@@ -267,7 +267,9 @@ function keyNeverInArgv(calls) {
   assert.equal(count(r.steps, /^rpc maint\.end/), 0);
 }
 
-// 8. Deadline passes with hard matches still live: deploy anyway after the notice wait.
+// 8. Deadline passes with hard matches still live: the polling stops and the notice wait runs.
+// The drain check is a stub that passes here, so the restart follows. The real check refuses
+// while a hard match is live (case 14, and deploy-guards.test.mjs) unless --allow-open is given.
 {
   const r = run([], { DRAIN_MINUTES: '0' }, ['5']);
   assert.equal(r.code, 0, r.out);

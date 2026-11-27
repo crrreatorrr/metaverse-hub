@@ -79,9 +79,9 @@ namespace HubShards {
     for (var i = 0; i < all.length; i++) {
       var m = all[i];
       listed[m.matchId] = true;
-      var shard = labelShard(m.label);
+      var shard = labelShard(m.label || "");
       if (shard > highest) highest = shard;
-      if (!labelOpen(m.label) || m.size >= softMax) continue;
+      if (!labelOpen(m.label || "") || m.size >= softMax) continue;
       if (opts.preferMatchId && m.matchId === opts.preferMatchId) {
         return { matchId: m.matchId, shard: shard, created: false };
       }

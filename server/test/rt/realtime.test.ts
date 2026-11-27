@@ -26,6 +26,17 @@ function socket(token: string): HubRealtime {
   return createRealtime({ serverUrl: BASE, getToken: () => token, reconnect: false });
 }
 
+interface LiveCount { hard: number; soft: number; kinds: { duel: number; arena: number; coop: number; shooter: number; racer: number } }
+/** maint.live, asked until it counts a match of `kind` or three seconds pass. Returns the last answer. */
+async function liveCount(kind: keyof LiveCount['kinds']): Promise<LiveCount> {
+  let live = (await call('maint.live', {})).body as unknown as LiveCount;
+  for (let i = 0; i < 30 && !(live.kinds[kind] >= 1); i += 1) {
+    await sleep(100);
+    live = (await call('maint.live', {})).body as unknown as LiveCount;
+  }
+  return live;
+}
+
 let failures = 0;
 const shooterFree = { pass: 0, fail: 0 };
 async function test(name: string, fn: () => Promise<void>): Promise<void> {
@@ -110,6 +121,31 @@ await test('matchmaker scope: hub sessions only for hub-scope games', async () =
   rt.disconnect();
 });
 
+// A duel's label has a game and no kind, so the drain tells it by the game (games/maint.ts).
+await test('maint.live counts a live duel as a hard match', async () => {
+  const [a, b] = await Promise.all([guest(), guest()]);
+  const ra = socket(a.token);
+  const rb = socket(b.token);
+  await Promise.all([ra.connect(), rb.connect()]);
+  try {
+    const matched: string[] = [];
+    ra.onMatchmakerMatched((m) => matched.push(m.matchId ?? ''));
+    const ticket = { query: '+properties.game:sproto-fighter', minCount: 2, maxCount: 2, stringProperties: { game: 'sproto-fighter', wager: '0', sim: 'rt-test' } };
+    await Promise.all([ra.addMatchmaker(ticket), rb.addMatchmaker(ticket)]);
+    // Nakama's matchmaker runs on an interval (15 s by default).
+    const matchId = await until('a duel from the matchmaker', () => matched[0], 45_000);
+    const before = (await call('maint.live', {})).body as unknown as LiveCount;
+    await ra.joinMatch({ matchId });
+    await rb.joinMatch({ matchId });
+    const live = await liveCount('duel');
+    assert.ok(live.kinds.duel >= 1 && live.hard >= 1, JSON.stringify(live));
+    assert.ok(live.soft <= before.soft, `the duel is not counted as soft: ${JSON.stringify(before)} then ${JSON.stringify(live)}`);
+  } finally {
+    ra.disconnect();
+    rb.disconnect();
+  }
+});
+
 psql(`UPDATE game.server_flags SET state = 'on', allowlist = '{}', percent = 0, updated_at = now() WHERE key = 'shooter_pvp'`);
 await sleep(6500);
 
@@ -154,6 +190,9 @@ await test('shooter-free: guests play one seat and delayed inputs move no ticket
   }
   const balance = await call('tickets.balance', { game: 'sproto-shooter' }, ada.gameToken);
   assert.equal(balance.body.balance, 0);
+  // A deploy drain waits for this match. Nakama lists a match by its label, about a second after it is made.
+  const live = await liveCount('shooter');
+  assert.ok(live.kinds.shooter >= 1 && live.hard >= 1, JSON.stringify(live));
   ra.disconnect();
   rb.disconnect();
 });
@@ -441,8 +480,8 @@ await test('racer: a private room races, a dropped player comes back', async () 
     assert.ok(loop.mean < 8, `mean loop ${loop.mean} ms`);
     assert.equal((await call('racer.metrics', { matchId }, ada.gameToken)).body.error, 'unauthorized');
     // A deploy drain waits for this race.
-    const live = await call('maint.live', {});
-    assert.ok(Number((live.body.kinds as { racer?: number }).racer) >= 1 && Number(live.body.hard) >= 1, JSON.stringify(live.body));
+    const live = await liveCount('racer');
+    assert.ok(live.kinds.racer >= 1 && live.hard >= 1, JSON.stringify(live));
     const count = await call('racer.online_count', { game: 'sproto-racer' }, ada.gameToken);
     assert.ok(Number(count.body.count) >= 2, JSON.stringify(count.body));
     rb2.disconnect();

@@ -176,6 +176,15 @@ export function makeDispatcher(onLabel?: (label: string) => void): FakeDispatche
   return d;
 }
 
+/**
+ * A match as nk.matchList / nk.matchGet return it. Nakama 3.41's JavaScript runtime gives these
+ * four fields and nothing else: no handlerName and no tickRate. Code that reads either works here
+ * only if this fake invents them, and then fails on a real server.
+ */
+function listed(m: FakeMatch): { matchId: string; authoritative: boolean; label: string; size: number } {
+  return { matchId: m.matchId, authoritative: true, label: m.label, size: m.presences.size };
+}
+
 /** `+label.kind:hub +label.open:T +label.players:<90` against a JSON label (subset of Bleve). */
 export function labelMatches(label: string, query: string | null | undefined): boolean {
   if (!query || !query.trim() || query.trim() === '*') return true;
@@ -512,7 +521,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
     matchGet(id: string) {
       const m = fakeMatches.get(id);
       if (!m || m.ended) return null;
-      return { matchId: m.matchId, authoritative: true, label: m.label, size: m.presences.size, tickRate: m.tickRate, handlerName: m.module };
+      return listed(m);
     },
     matchList(limit: number, _authoritative?: boolean | null, label?: string | null, minSize?: number | null, maxSize?: number | null, query?: string | null) {
       const out: unknown[] = [];
@@ -523,7 +532,7 @@ export function loadModule(opts: LoadOptions = {}): LoadedModule {
         if (minSize !== null && minSize !== undefined && m.presences.size < minSize) continue;
         if (maxSize !== null && maxSize !== undefined && m.presences.size > maxSize) continue;
         if (!labelMatches(m.label, query)) continue;
-        out.push({ matchId: m.matchId, authoritative: true, label: m.label, size: m.presences.size, tickRate: m.tickRate, handlerName: m.module });
+        out.push(listed(m));
         if (out.length >= limit) break;
       }
       return out;

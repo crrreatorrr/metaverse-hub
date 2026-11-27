@@ -267,9 +267,15 @@ Unattended upgrades install Ubuntu security updates and do not reboot. Reboot fo
 
 ### Upgrading Nakama without killing live matches
 
-`deploy/scripts/deploy-server.sh` is the runbook for a server change (the Nakama module, `compose.yml` or `nakama/`). It is run by you, by hand, on the VPS. A hub deploy must not end a live duel, arena or coop match, so the script drains the single Nakama node before it restarts it. Two Nakama nodes at once are not safe on OSS Nakama.
+`deploy/scripts/deploy-server.sh` is the runbook for a server change (the Nakama module, `compose.yml` or `nakama/`). It is run by you, by hand, on the VPS. A hub deploy must not end a live duel, arena, coop, Shooter or Racer match, so the script drains the single Nakama node before it restarts it. Two Nakama nodes at once are not safe on OSS Nakama.
 
 Before the restart, `deploy/scripts/check-nakama-drain.sh` refuses to continue while `game.shooter_wager` has a row in `held` or `maint.live` reports a hard match. A boot on this single node refunds every held Shooter wager. Run the check on its own first. `--allow-open` is the explicit override; `--no-drain` does not skip it.
+
+So a match that outlasts the drain stops the deploy. When the deadline passes with a hard match still live, the script waits the notice time, the check refuses, the script exits with an error before anything is restarted, and maintenance ends. The new image is built and the old server keeps running. Run it again later, or run it with `--allow-open` to restart anyway once the drain is over: the matches still live then get the notice wait and the 60 s shutdown grace below, and no more.
+
+Maintenance turns itself off at its deadline. So once the deadline has passed, new hard matches can start again, during the notice wait and until the container stops. The check sees one that started in time to be listed (about a second) and refuses; under `--allow-open` it is cut off with the rest. A drain that empties before the deadline does not have this gap: maintenance stays on through the restart.
+
+**The first deploy of the label fix is not protected by it.** Both the polling and the check ask the server that is running, not the image just built. A server from before `maint.live` read labels answers `hard 0` for every live duel, arena, coop and Shooter match (it looked for a handler name that Nakama does not give a module), so that deploy restarts without waiting for them. For that one deploy, look for yourself before the restart: the Nakama console (`127.0.0.1:7351`, Matches) lists every match with its handler name, label and size. Any `sproto_duel`, `sproto_arena`, `sproto_coop` or `sproto_shooter_free` match with a size above 0 is a game in progress.
 
 ```bash
 cd /opt/metaverse
@@ -283,9 +289,9 @@ What it does, in order:
 1. Backs up Postgres with `backup-postgres.sh` (and rsyncs it off the host when `BACKUP_RSYNC_TARGET` is set).
 2. Builds `metaverse-nakama:<git sha>` while the old container keeps serving. It refuses a checkout with uncommitted tracked changes (`ALLOW_DIRTY=1` overrides).
 3. Starts maintenance: calls the `maint.begin` RPC with the http key from `deploy/.env`, with a deadline 20 minutes out (`DRAIN_MINUTES`). New hard matches are refused and players get a notice.
-4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live` (duel, arena, coop, shooter PvP), until there are none or the deadline passes.
-5. Waits 60 s more (`NOTICE_SEC`) so the notice reaches everyone.
-6. Retags `metaverse-nakama:prod` to the new image and recreates only the `nakama` container (`up -d --no-build --no-deps --force-recreate`). Postgres is not restarted. Matches that are still running get the 60 s shutdown grace below.
+4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live`, in total and by kind (duel, arena, coop, Shooter, Racer), until there are none or the deadline passes.
+5. Waits 60 s more (`NOTICE_SEC`) so the notice reaches everyone. Then runs `check-nakama-drain.sh`, which stops the deploy here if a hard match or a held Shooter wager is left (see above).
+6. Retags `metaverse-nakama:prod` to the new image and recreates only the `nakama` container (`up -d --no-build --no-deps --force-recreate`). Postgres is not restarted. Matches that are still running (soft ones, and hard ones under `--allow-open`) get the 60 s shutdown grace below.
 7. Waits for the container healthcheck and `127.0.0.1:7350/healthcheck`.
 8. Ends maintenance with `maint.end`. An EXIT trap also calls it, so Ctrl-C or a failure ends maintenance too. If that call fails (Nakama down), maintenance turns itself off at its deadline.
 9. With `--game <id>=<build-dir>`, publishes those game pages with `deploy-game.sh`, after the server is healthy.
@@ -302,7 +308,9 @@ The `maint.*` RPCs come with the server drain ticket. Until the running server h
 
 The http key goes to `curl` in a config read from stdin, so it does not show in the process list.
 
-**What players see** once the server drain and the game-side retries have landed (until then, only the restart and the shutdown grace apply). During the drain, a "Maintenance in N min" notice. Matches that are already running carry on. Starting a new duel, arena, coop or Shooter match is refused until the restart, while the plaza, People's Bitcoin worlds and `coop.resume` stay open. At the restart, the plaza and PB reconnect, and a coop team that was still playing resumes from its checkpoint. Expect about a minute without the server.
+`maint.live` counts only matches with at least one player connected. It tells the kinds apart by each match's label, because the label, the size and the id are all that Nakama 3.41 gives a server module about a listed match (no handler name). A label with `kind` `sproto_arena`, `sproto_coop`, `sproto_shooter_free` or `sproto_racer` is that hard kind, and a duel is a label with `game` `sproto-fighter` and no `kind`. Every other populated match is soft (the plaza, People's Bitcoin worlds, arcade coop): counted, never waited for. The wager sweep match is in neither count. A new hard match kind must publish a `kind` in its label and be added to `kindOf` in `server/modules/src/games/maint.ts`, or the drain will not wait for it. The live suite (`npm run test:rt`) checks a duel, a Shooter match and a Racer room against a real Nakama.
+
+**What players see** once the server drain and the game-side retries have landed (until then, only the restart and the shutdown grace apply). During the drain, a "Maintenance in N min" notice. Matches that are already running carry on. Starting a new duel, arena, coop, Shooter or Racer match is refused until the restart, while the plaza, People's Bitcoin worlds and `coop.resume` stay open. At the restart, the plaza and PB reconnect, and a coop team that was still playing resumes from its checkpoint. Expect about a minute without the server.
 
 **Checks after a deploy:**
 
