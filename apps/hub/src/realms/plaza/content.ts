@@ -32,6 +32,8 @@ import type { Collider } from './collider';
 import { instanced, part, upgradeToLod0 } from '../../v2/core';
 import { buildPlazaEntrance, castle, club, greenHill, kennel, whiteHouse } from './buildings';
 import { buildClubInterior, type ClubInteriorBuild } from './club-interior';
+import { buildJobBoard } from './job-board';
+import { createJobList } from './job-list';
 import { buildArcade, type ArcadeBuild } from './arcade';
 import { ARCADE_RETURN, atArcade } from './arcade-layout';
 import { INTERIOR_ORIGIN } from './interior';
@@ -53,7 +55,7 @@ export interface Warp {
 /** Metres in front of the Bar's street door where leaving puts the player (the door trigger is 2.6 m). */
 const CLUB_EXIT_STEP = 4;
 
-export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | 'arcade' | null;
+export type PlazaZone = 'door' | 'exit' | 'loading' | 'store' | 'arcade' | 'jobs' | null;
 
 export interface VerseStoreUi {
   /** Empty node `store_ui_anchor`. Null until the player enters the Bar. */
@@ -215,7 +217,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
   let storeAnchor: Object3D | null = null;
   let storeOpen = false;
   let arcade: ArcadeBuild | null = null;
-  let beltOwned = false;
+  let owned = new Set<string>();
+  let jobBoard: ReturnType<typeof buildJobBoard> | null = null;
+  const jobList = createJobList(ctx);
+  jobList.setRelics(owned);
   let arcadeReturn = false;
   const openListeners: (() => void)[] = [];
   const shot = new URLSearchParams(window.location.search).get('shot');
@@ -274,8 +279,10 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
       if (liveBoards) hideWallScreen();
       storeAnchor = built.storeAnchor;
       arcade = buildArcade();
-      arcade.setBeltOwned(beltOwned);
-      built.group.add(arcade.group);
+      arcade.setBeltOwned(owned.has('tidebreaker_belt'));
+      jobBoard = buildJobBoard();
+      jobBoard.paint(owned);
+      built.group.add(arcade.group, jobBoard.root);
       applyBoard();
       for (const listener of storeListeners) listener(built.storeAnchor);
     }).catch((error: unknown) => {
@@ -459,6 +466,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
         exitLatch = false;
         if (distance < 4) zone = 'exit';
       }
+      if (inside && jobBoard && horiz(jobBoard.root, player.x, player.y, player.z) < 2.8) zone = 'jobs';
       // The cabinet's walk-up spot is about 2 m from Sprotel at the bar. Inside that small circle the
       // cabinet wins, so E plays the arcade instead of opening the store.
       if (inside && atArcade((player.x - INTERIOR_ORIGIN.x) / CLUB_INTERIOR_SCALE, (player.z - INTERIOR_ORIGIN.z) / CLUB_INTERIOR_SCALE)) zone = 'arcade';
@@ -520,6 +528,7 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     { active: () => zone === 'loading', showLook: false, prompt: () => 'Loading the bar…' },
     { active: () => zone === 'door', prompt: () => 'Walk into the door to enter the bar' },
     { active: () => zone === 'exit', prompt: () => 'Walk through the exit to return to the plaza' },
+    { active: () => zone === 'jobs', key: 'KeyE', interact: jobList.show, prompt: () => 'Press E · Browse relic jobs' },
     { active: () => zone === 'arcade', key: 'KeyE', interact: playArcade,
       prompt: () => arcadePicker.open ? 'Arcade · pick a game' : ARCADE_GAMES.some(game => ctx.pageFor(game.id)) ? ARCADE_PROMPT : 'Arcade · Coming soon' },
     { active: () => zone === 'store', key: 'KeyE', interact() {
@@ -653,11 +662,12 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     setLook: engine.setLook,
     setPet: engine.setPet,
     onRelicsChanged(ids) {
-      const owned = new Set(ids);
+      owned = new Set(ids);
+      jobList.setRelics(owned);
+      jobBoard?.paint(owned);
       // Every owned Relic orbits the avatar unless switched off. The Hall of Champions still opens
       // on the four Four Lights Relics only (the server's Four Lights rule).
-      beltOwned = owned.has('tidebreaker_belt');
-      arcade?.setBeltOwned(beltOwned);
+      arcade?.setBeltOwned(owned.has('tidebreaker_belt'));
       if (!devPreview) {
         hallOpen = FOUR_LIGHTS_RELIC_IDS.every((id) => owned.has(id));
         hall.setOpen(hallOpen);
@@ -715,8 +725,8 @@ export async function createPlazaContent(ctx: RealmContext): Promise<Omit<HubWor
     waypoints,
     atLauncher: () => zone === 'arcade',
     interactions,
-    handleKey: event => sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
-    overlayOpen: () => arcadePicker.open || sprotelTalk.open,
+    handleKey: event => jobList.handleKey(event) || sprotelTalk.handleKey(event) || arcadePicker.handleKey(event),
+    overlayOpen: () => jobList.open || arcadePicker.open || sprotelTalk.open,
     setPadPrompts(on) {
       arcadePicker.setPad(on);
       sprotelTalk.setPad(on);
