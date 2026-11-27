@@ -1,5 +1,5 @@
 // Drain RPCs for deploy-server.sh. The http key calls them (no user id).
-// maint.begin refuses new duel, arena, coop and Shooter matches until maint.end
+// maint.begin refuses new duel, arena, coop, Shooter and Racer matches until maint.end
 // or the deadline. Matches that already exist keep running. coop.resume stays open.
 // The plaza and People's Bitcoin worlds are not hard matches.
 
@@ -69,25 +69,28 @@ namespace Maint {
     return JSON.stringify({ ok: true });
   }
 
-  function kindOf(handler: string): "duel" | "arena" | "coop" | "shooter" | "" {
+  // Nakama 3.41 lists a match with its id, size and label and no handler name, so a Racer
+  // room is told apart by the kind in its label.
+  function kindOf(handler: string, label: string): "duel" | "arena" | "coop" | "shooter" | "racer" | "" {
     if (handler === "sproto_duel") return "duel";
     if (handler === "sproto_arena") return "arena";
     if (handler === "sproto_coop") return "coop";
     if (handler === "sproto_shooter_free") return "shooter";
+    if (handler === "sproto_racer" || label.indexOf('"kind":"sproto_racer"') >= 0) return "racer";
     return "";
   }
 
   export function live(ctx: nkruntime.Context, _logger: nkruntime.Logger, nk: nkruntime.Nakama, _payload: string): string {
     var denied = serverOnly(ctx);
     if (denied) return denied;
-    var kinds = { duel: 0, arena: 0, coop: 0, shooter: 0 };
+    var kinds = { duel: 0, arena: 0, coop: 0, shooter: 0, racer: 0 };
     var hard = 0;
     var soft = 0;
     var listed = nk.matchList(1000, true, null, null, null, null) || [];
     for (var i = 0; i < listed.length; i++) {
       var row = listed[i];
       if (!row || !(row.size > 0)) continue;
-      var kind = kindOf(row.handlerName || "");
+      var kind = kindOf(row.handlerName || "", String(row.label || ""));
       if (kind) {
         kinds[kind] += 1;
         hard += 1;

@@ -1,0 +1,13 @@
+{
+  "kind": "sproto-racer-sim-pin",
+  "repo": "crrreatorrr/Sproto-Racer",
+  "commit": "e1a7b638cd698bd187dad216141089f27cf4df6a",
+  "bundlePath": "build/racer-sim.js",
+  "bundleBytes": 392611,
+  "game": "sproto-racer",
+  "netVersion": "3",
+  "simVersion": "c46cf07289e0d3ae",
+  "bundleSha256": "d9ad292291f7cbb7819ca72019876d93e40ec894b5a95077676e5581964e734e",
+  "contentSha256": "74af12754e9c12dcabeaa0ff6ab8b2422b2fd1e23813b3113b5c4458517f22df",
+  "smokeHash240": "3b6a44b279d4ae0f"
+}
