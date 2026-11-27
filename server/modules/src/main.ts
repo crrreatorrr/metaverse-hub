@@ -379,6 +379,15 @@ function InitModule(
   initializer.registerMatch("shooter_wager_sweep", { matchInit: shooterWagerSweepInit, matchJoinAttempt: shooterWagerSweepJoinAttempt, matchJoin: shooterWagerSweepJoin, matchLeave: shooterWagerSweepLeave, matchLoop: shooterWagerSweepLoop, matchTerminate: shooterWagerSweepTerminate, matchSignal: shooterWagerSweepSignal });
   // <<< game: sproto-shooter
   // ----
+  // >>> game: sproto-racer registrations
+  initializer.registerMatch("sproto_racer", { matchInit: sprotoRacerInit, matchJoinAttempt: sprotoRacerJoinAttempt, matchJoin: sprotoRacerJoin, matchLeave: sprotoRacerLeave, matchLoop: sprotoRacerLoop, matchTerminate: sprotoRacerTerminate, matchSignal: sprotoRacerSignal });
+  initializer.registerRpc("racer.version", rpcRacerVersion);
+  initializer.registerRpc("racer.room_create", rpcRacerRoomCreate);
+  initializer.registerRpc("racer.room_join", rpcRacerRoomJoin);
+  initializer.registerRpc("racer.online_count", rpcRacerOnlineCount);
+  initializer.registerRpc("racer.metrics", rpcRacerMetrics);
+  // <<< game: sproto-racer
+  // ----
   // >>> game: peoples-bitcoin registrations
   initializer.registerMatch("pb_world", { matchInit: pbWorldInit, matchJoinAttempt: pbWorldJoinAttempt, matchJoin: pbWorldJoin, matchLeave: pbWorldLeave, matchLoop: pbWorldLoop, matchTerminate: pbWorldTerminate, matchSignal: pbWorldSignal });
   initializer.registerRpc("pb.worlds", rpcPbWorlds);

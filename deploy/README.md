@@ -297,7 +297,7 @@ The `maint.*` RPCs come with the server drain ticket. Until the running server h
 | RPC | Body | Answer |
 | --- | --- | --- |
 | `maint.begin` | `{"reason": "deploy <tag>", "deadline": <unix seconds>}` | 200 when maintenance is on |
-| `maint.live` | `{}` | `{"hard": N, "soft": N, "kinds": {"duel": N, "arena": N, "coop": N, "shooter": N}}` |
+| `maint.live` | `{}` | `{"hard": N, "soft": N, "kinds": {"duel": N, "arena": N, "coop": N, "shooter": N, "racer": N}}` |
 | `maint.end` | `{}` | 200 |
 
 The http key goes to `curl` in a config read from stdin, so it does not show in the process list.

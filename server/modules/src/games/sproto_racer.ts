@@ -7,7 +7,8 @@
 // the hub account already owns (`profile.get`, which `init` uses): known ids in `relics`, newer
 // ids in `otherRelics`. Which of those unlock a car or a character is decided in the game, later.
 // It uses the portal ticket, the generic save, session.close, the play lease, presence and
-// feedback. It registers no RPC or match of its own.
+// feedback. Online races are games/racer_match.ts (match sproto_racer, RPCs racer.*, the quick-race
+// queue below); a race grants nothing.
 //
 // 0081 widens every game-id check a session, ticket or lease for this game hits: game_session,
 // auth_ticket, play_lease.surface and game.claim_play_lease (0077). game_beaten and the Relic
@@ -17,7 +18,8 @@ namespace SprotoRacer {
   export var ENTRY = "ring";
 }
 
-HubGames.register({ game: SprotoRacer.GAME_ID });
+// racerMatchmakerMatched is the top-level function in games/racer_match.ts.
+HubGames.register({ game: SprotoRacer.GAME_ID, matchmaker: racerMatchmakerMatched });
 
 HubSchema.register({
   id: "0081_sproto_racer",
