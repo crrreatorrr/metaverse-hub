@@ -273,6 +273,10 @@ Before the restart, `deploy/scripts/check-nakama-drain.sh` refuses to continue w
 
 So a match that outlasts the drain stops the deploy. When the deadline passes with a hard match still live, the script waits the notice time, the check refuses, the script exits with an error before anything is restarted, and maintenance ends. The new image is built and the old server keeps running. Run it again later, or run it with `--allow-open` to restart anyway once the drain is over: the matches still live then get the notice wait and the 60 s shutdown grace below, and no more.
 
+Maintenance turns itself off at its deadline. So once the deadline has passed, new hard matches can start again, during the notice wait and until the container stops. The check sees one that started in time to be listed (about a second) and refuses; under `--allow-open` it is cut off with the rest. A drain that empties before the deadline does not have this gap: maintenance stays on through the restart.
+
+**The first deploy of the label fix is not protected by it.** Both the polling and the check ask the server that is running, not the image just built. A server from before `maint.live` read labels answers `hard 0` for every live duel, arena, coop and Shooter match (it looked for a handler name that Nakama does not give a module), so that deploy restarts without waiting for them. For that one deploy, look for yourself before the restart: the Nakama console (`127.0.0.1:7351`, Matches) lists every match with its handler name, label and size. Any `sproto_duel`, `sproto_arena`, `sproto_coop` or `sproto_shooter_free` match with a size above 0 is a game in progress.
+
 ```bash
 cd /opt/metaverse
 git pull
@@ -285,7 +289,7 @@ What it does, in order:
 1. Backs up Postgres with `backup-postgres.sh` (and rsyncs it off the host when `BACKUP_RSYNC_TARGET` is set).
 2. Builds `metaverse-nakama:<git sha>` while the old container keeps serving. It refuses a checkout with uncommitted tracked changes (`ALLOW_DIRTY=1` overrides).
 3. Starts maintenance: calls the `maint.begin` RPC with the http key from `deploy/.env`, with a deadline 20 minutes out (`DRAIN_MINUTES`). New hard matches are refused and players get a notice.
-4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live` (duel, arena, coop, Shooter, Racer), until there are none or the deadline passes.
+4. Every 15 s (`POLL_SEC`) prints the live hard matches from `maint.live`, in total and by kind (duel, arena, coop, Shooter, Racer), until there are none or the deadline passes.
 5. Waits 60 s more (`NOTICE_SEC`) so the notice reaches everyone. Then runs `check-nakama-drain.sh`, which stops the deploy here if a hard match or a held Shooter wager is left (see above).
 6. Retags `metaverse-nakama:prod` to the new image and recreates only the `nakama` container (`up -d --no-build --no-deps --force-recreate`). Postgres is not restarted. Matches that are still running (soft ones, and hard ones under `--allow-open`) get the 60 s shutdown grace below.
 7. Waits for the container healthcheck and `127.0.0.1:7350/healthcheck`.

@@ -172,13 +172,14 @@ json_int() {
   printf '%s' "$2" | sed -n "s/.*\"$1\"[[:space:]]*:[[:space:]]*\\([0-9][0-9]*\\).*/\\1/p" | head -n 1
 }
 
-# Prints "hard N (duel a, arena b, coop c, shooter d), soft M" from a maint.live body;
-# sets live_hard (empty when the body has no count).
+# Prints "hard N (duel a, arena b, coop c, shooter d, racer e), soft M" from a maint.live
+# body; sets live_hard (empty when the body has no count). A kind the running server does
+# not report prints as "?".
 live_hard=""
 describe_live() {
   local body="$1" k v parts=""
   live_hard="$(json_int hard "$body")"
-  for k in duel arena coop shooter; do
+  for k in duel arena coop shooter racer; do
     v="$(json_int "$k" "$body")"
     parts="${parts:+${parts}, }${k} ${v:-?}"
   done
