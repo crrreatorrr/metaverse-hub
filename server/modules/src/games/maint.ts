@@ -69,14 +69,28 @@ namespace Maint {
     return JSON.stringify({ ok: true });
   }
 
-  // Nakama 3.41 lists a match with its id, size and label and no handler name, so a Racer
-  // room is told apart by the kind in its label.
-  function kindOf(handler: string, label: string): "duel" | "arena" | "coop" | "shooter" | "racer" | "" {
-    if (handler === "sproto_duel") return "duel";
-    if (handler === "sproto_arena") return "arena";
-    if (handler === "sproto_coop") return "coop";
-    if (handler === "sproto_shooter_free") return "shooter";
-    if (handler === "sproto_racer" || label.indexOf('"kind":"sproto_racer"') >= 0) return "racer";
+  type Kind = "duel" | "arena" | "coop" | "shooter" | "racer";
+
+  // The kind of a listed match, read from its label. Nakama 3.41 gives a module a match's id,
+  // size and label and nothing else: no handler name. "" is a match the drain does not wait
+  // for (the plaza, People's Bitcoin worlds, arcade coop). null is the wager sweep, which is
+  // the server's own timer and not a match anybody plays.
+  // A duel's label has a game and no kind (sproto_duel.ts matchInit), so it is told by the game.
+  function kindOf(label: string): Kind | "" | null {
+    var parsed: { kind?: unknown; game?: unknown } | null = null;
+    try {
+      parsed = JSON.parse(label) as { kind?: unknown; game?: unknown } | null;
+    } catch (e) {
+      return "";
+    }
+    if (!parsed || typeof parsed !== "object") return "";
+    var kind = typeof parsed.kind === "string" ? parsed.kind : "";
+    if (kind === SprotoArena.KIND) return "arena";
+    if (kind === CoopProto.KIND) return "coop";
+    if (kind === ShooterProto.KIND) return "shooter";
+    if (kind === RacerProto.KIND) return "racer";
+    if (kind === ShooterWagers.SWEEP_MATCH) return null;
+    if (!kind && parsed.game === SprotoDuel.GAME_ID) return "duel";
     return "";
   }
 
@@ -90,11 +104,11 @@ namespace Maint {
     for (var i = 0; i < listed.length; i++) {
       var row = listed[i];
       if (!row || !(row.size > 0)) continue;
-      var kind = kindOf(row.handlerName || "", String(row.label || ""));
+      var kind = kindOf(String(row.label || ""));
       if (kind) {
         kinds[kind] += 1;
         hard += 1;
-      } else if (row.handlerName !== "shooter_wager_sweep") {
+      } else if (kind === "") {
         soft += 1;
       }
     }

@@ -6,7 +6,8 @@
 #   2. build metaverse-nakama:<git sha> while the old container keeps serving
 #   3. maint.begin (deadline +DRAIN_MINUTES): no new hard matches, players get a notice
 #   4. poll maint.live every POLL_SEC until 0 hard matches or the deadline
-#   5. wait NOTICE_SEC so the notice reaches everyone
+#   5. wait NOTICE_SEC so the notice reaches everyone; then check-nakama-drain.sh stops the
+#      deploy if a hard match or a held Shooter wager is left (--allow-open restarts anyway)
 #   6. retag :prod to the new image and recreate only the nakama container
 #   7. wait for health
 #   8. maint.end (also from the EXIT trap, so Ctrl-C or a failure ends maintenance)
@@ -306,7 +307,11 @@ if [ "$drain" = 1 ]; then
             warn "maint.live returned HTTP ${rpc_status}: ${rpc_body}; still polling"
           fi
           if [ "$(date +%s)" -ge "$deadline" ]; then
-            warn "drain deadline reached with hard matches still live; they get the ${notice_sec}s notice plus the shutdown grace"
+            if [ "$allow_open" = 1 ]; then
+              warn "drain deadline reached with hard matches still live; --allow-open restarts anyway, so they get the ${notice_sec}s notice plus the shutdown grace"
+            else
+              warn "drain deadline reached with hard matches still live; unless they end in the next ${notice_sec}s the check below stops this deploy before the restart (--allow-open restarts anyway)"
+            fi
             break
           fi
           pause "$poll_sec"

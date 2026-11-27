@@ -65,14 +65,16 @@ declare namespace nkruntime {
     version?: string;
   }
 
-  /** One row of nk.matchList / nk.matchGet. `size` is live; the label can lag. */
+  /**
+   * One row of nk.matchList / nk.matchGet. `size` is live; the label can lag.
+   * These four fields are all Nakama 3.41's JavaScript runtime returns: no handler name and no
+   * tick rate (the REST and console listings have both). Tell match kinds apart by the label.
+   */
   interface Match {
     matchId: string;
     authoritative: boolean;
-    label: string;
+    label: string | null;
     size: number;
-    tickRate: number;
-    handlerName: string;
   }
 
   interface User {

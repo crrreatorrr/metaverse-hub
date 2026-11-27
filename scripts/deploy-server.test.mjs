@@ -267,7 +267,9 @@ function keyNeverInArgv(calls) {
   assert.equal(count(r.steps, /^rpc maint\.end/), 0);
 }
 
-// 8. Deadline passes with hard matches still live: deploy anyway after the notice wait.
+// 8. Deadline passes with hard matches still live: the polling stops and the notice wait runs.
+// The drain check is a stub that passes here, so the restart follows. The real check refuses
+// while a hard match is live (case 14, and deploy-guards.test.mjs) unless --allow-open is given.
 {
   const r = run([], { DRAIN_MINUTES: '0' }, ['5']);
   assert.equal(r.code, 0, r.out);
